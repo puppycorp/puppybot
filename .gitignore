@@ -28,8 +28,11 @@ design/*.fab
 design/*.map
 design/*.log
 design/*.zip
+design/*.lck
 
 # Keep these files under version control
 !design/puppybot.kicad_pro
 !design/puppybot.kicad_sch
 !design/puppybot.kicad_pcb
+
+.DS_Store

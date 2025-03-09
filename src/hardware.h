@@ -32,7 +32,8 @@ int po_pwm_deinit();
 int po_pwm_set_freq(int channel, int freq);
 int po_pwm_set_duty(int channel, int duty);
 
-int pc_add_task(void (*task)(void));
+int po_add_task(void (*task)(void));
+int po_sleep(int ms);
 
 int po_tcp_init(const char *ip, int port);
 int po_tcp_deinit(int socket);
@@ -110,5 +111,7 @@ int po_temp_read();
 int po_voltage_read();
 int po_cpu_freq_read();
 int po_get_reset_reason();
+
+int po_restart();
 
 #endif // HARDWARE_H
