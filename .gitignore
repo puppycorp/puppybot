@@ -36,3 +36,4 @@ design/*.lck
 !design/puppybot.kicad_pcb
 
 .DS_Store
+*auto_saved_files*
