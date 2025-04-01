@@ -1,16 +1,14 @@
 
-type DriveMotor = {
+type Drive = {
 	type: "drive"
-	speed: number,
-	direction: "forward" | "backward"
+	botId: string
+	speed: number // -100% to 100%
+	angle: number // Turning angle -100% to 100%
 }
 
-type StopMotor = {
+type Stop = {
 	type: "stop"
+	botId: string
 }
 
-export type MsgToServer = DriveMotor | StopMotor
-
-
-
-// export type MsgFromClient
+export type MsgToServer = Drive | Stop
