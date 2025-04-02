@@ -1,4 +1,5 @@
 import { Container, UiComponent } from "./ui";
+import { getQueryParam } from "./utility ";
 import { ws } from "./wsclient";
 
 class MotorController extends UiComponent<HTMLDivElement> {
@@ -94,43 +95,50 @@ class FourWheelController extends UiComponent<HTMLDivElement> {
 }
 
 export const botPage = (container: Container) => {
-	const motor1 = new MotorController({
-		title: "Motor 1",
-		onForward: (speed) => console.log(`Motor 1 moving forward at speed: ${speed}`),
-		onReleased: () => console.log("Motor 1 released"),
-		onBackward: (speed) => console.log(`Motor 1 moving backward at speed: ${speed}`)
-	})
-	const motor2 = new MotorController({
-		title: "Motor 2",
-		onForward: (speed) => console.log(`Motor 2 moving forward at speed: ${speed}`),
-		onReleased: () => console.log("Motor 2 released"),
-		onBackward: (speed) => console.log(`Motor 2 moving backward at speed: ${speed}`)
-	})
-	const motor3 = new MotorController({
-		title: "Motor 3",
-		onForward: (speed) => console.log(`Motor 3 moving forward at speed: ${speed}`),
-		onReleased: () => console.log("Motor 3 released"),
-		onBackward: (speed) => console.log(`Motor 3 moving backward at speed: ${speed}`)
-	})
-	const motor4 = new MotorController({
-		title: "Motor 4",
-		onForward: (speed) => console.log(`Motor 4 moving forward at speed: ${speed}`),
-		onReleased: () => console.log("Motor 4 released"),
-		onBackward: (speed) => console.log(`Motor 4 moving backward at speed: ${speed}`)
-	})
+	const botId = getQueryParam("botId")
+	if (!botId) {
+		container.root.innerText = "No bot ID provided"
+		return
+	}
 
 	container.clear()
-	container.add(motor1)
-	container.add(motor2)
-	container.add(motor3)
-	container.add(motor4)
+
+	// const motor1 = new MotorController({
+	// 	title: "Motor 1",
+	// 	onForward: (speed) => console.log(`Motor 1 moving forward at speed: ${speed}`),
+	// 	onReleased: () => console.log("Motor 1 released"),
+	// 	onBackward: (speed) => console.log(`Motor 1 moving backward at speed: ${speed}`)
+	// })
+	// const motor2 = new MotorController({
+	// 	title: "Motor 2",
+	// 	onForward: (speed) => console.log(`Motor 2 moving forward at speed: ${speed}`),
+	// 	onReleased: () => console.log("Motor 2 released"),
+	// 	onBackward: (speed) => console.log(`Motor 2 moving backward at speed: ${speed}`)
+	// })
+	// const motor3 = new MotorController({
+	// 	title: "Motor 3",
+	// 	onForward: (speed) => console.log(`Motor 3 moving forward at speed: ${speed}`),
+	// 	onReleased: () => console.log("Motor 3 released"),
+	// 	onBackward: (speed) => console.log(`Motor 3 moving backward at speed: ${speed}`)
+	// })
+	// const motor4 = new MotorController({
+	// 	title: "Motor 4",
+	// 	onForward: (speed) => console.log(`Motor 4 moving forward at speed: ${speed}`),
+	// 	onReleased: () => console.log("Motor 4 released"),
+	// 	onBackward: (speed) => console.log(`Motor 4 moving backward at speed: ${speed}`)
+	// })
+
+	// container.add(motor1)
+	// container.add(motor2)
+	// container.add(motor3)
+	// container.add(motor4)
 
 	const contoller = new FourWheelController({
-		onForward: (speed) => ws.send({ type: "drive", speed: 180, direction: "forward" }),
-		onMoveLeft: (speed) => console.log(`Moving left at speed: ${speed}`),
-		onMoveRight: (speed) => console.log(`Moving right at speed: ${speed}`),
-		onBackward: (speed) => console.log(`Moving backward at speed: ${speed}`),
-		onReleased: () => console.log("Released")
+		onForward: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: 0 }),
+		onMoveLeft: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: -100 }),
+		onMoveRight: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: 100 }),
+		onBackward: (speed) => ws.send({ type: "drive", botId, speed: -50, angle: 0 }),
+		onReleased: () => ws.send({ type: "stop", botId })
 	})
 	container.add(contoller)
 }

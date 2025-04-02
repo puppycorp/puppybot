@@ -1,3 +1,4 @@
+import { state } from "./state";
 import { Table, type Container } from "./ui";
 
 
@@ -11,6 +12,10 @@ export const botsPage = (container: Container) => {
 			[{ href: `/bot/2`, value: "2" }, "Bot 2", "Description 2", "1.0.1", false],
 			[{ href: `/bot/3`, value: "3" }, "Bot 3", "Description 3", "1.0.2", true],
 		]
+	})
+
+	state.bots.onChange((bots) => {
+		
 	})
 	container.add(table)
 }

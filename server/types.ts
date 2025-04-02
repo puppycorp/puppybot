@@ -1,4 +1,9 @@
 
+export type Bot = {
+	id: string
+	version: string
+}
+
 type Drive = {
 	type: "drive"
 	botId: string
@@ -12,3 +17,29 @@ type Stop = {
 }
 
 export type MsgToServer = Drive | Stop
+
+export type BotConnected = {
+	type: "botConnected"
+	botId: string
+}
+
+export type BotDisconnected = {
+	type: "botDisconnected"
+	botId: string
+}
+
+export type BotInfo = {
+	type: "botInfo"
+	botId: string
+	version: string
+}
+
+export type MsgToUi = BotConnected | BotDisconnected | BotInfo
+export type MsgToBot = Omit<Drive, "botId"> | Omit<Stop, "botId">
+
+export type MyInfo = {
+	type: "myInfo"
+	version: string
+}
+
+export type MsgFromBot = MyInfo
