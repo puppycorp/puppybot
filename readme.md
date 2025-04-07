@@ -9,13 +9,37 @@ PuppyBot is a distributed robot platform powered by an ESP32-based body and an A
 - Instruction interpreter on ESP32 for reactive real-time execution
 - AI brain can dynamically generate, replace, or stop instructions
 
-## Instructions
+## Binary Protocol
 
-### Sleep
+### Frame Header (6 bytes)
+
+| Byte(s) | Field          | Size (bytes) | Description                                      |
+|---------|----------------|--------------|--------------------------------------------------|
+| 0       | Start Byte     | 1            | Always 0xAA for version v1                      |
+| 1       | Command Type   | 1            | Instruction type (e.g., 0x01 = SEND_INSTRUCTIONS)|
+| 2–3     | Payload Length | 2            | Payload size in bytes (excluding header)        |
+| 4–5     | Block Count    | 2            | Number of instruction blocks in the payload     |
+
+All multi-byte fields are big-endian (network byte order).
+
+#### Command Types
+
+| Value  | Command Name      | Description                                   |
+|--------|-------------------|-----------------------------------------------|
+| 0x01   | SEND_INSTRUCTIONS | Send one or more instruction blocks           |
+| 0x02   | STOP_ALL          | Stop all subsystems immediately               |
+| 0x03   | REPLACE_BLOCK     | Replace instruction queue for a subsystem     |
+| 0x04   | PAUSE_ALL         | Pause all execution                           |
+| 0x05   | RESUME_ALL        | Resume all paused instructions                |
+| 0x06   | QUERY_STATE       | Request current sensor and system status      |
+
+### Instructions
+
+#### SLEEP
 
 Pause execution for a fixed number of milliseconds.
 
-### Drive Motor
+#### DRIVE_MOTOR
 
 | Field    | Type   | Description                     |
 |----------|--------|---------------------------------|
@@ -23,11 +47,11 @@ Pause execution for a fixed number of milliseconds.
 | speed    | int8   | Speed from -100 to 100          |
 | amount   | uint16 | How many degrees/steps to move  |
 
-### Stop
+#### STOP
 
 Immediately stops a motor or all motors.
 
-### DO_UNTIL_CONDITION
+#### DO_UNTIL_CONDITION
 
 Executes a single instruction repeatedly or once, until a condition becomes true.
 
@@ -39,7 +63,7 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 | InnerArgs    | variable | Arguments for the inner instruction  |
 | Condition    | 5 bytes  | Condition frame (see 5.2)            |
 
-### Condition Frame Format
+### Condition Frame
 
 **Operators**
 | Field	 | Value | Description                                                      |
@@ -62,28 +86,6 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 | Field ID  | `uint8`  | e.g. speed = `0x01`, time = `0x05`               |
 | Operator  | `uint8`  | `0x00` = `==`, `0x01` = `!=`, `0x02` = `>`, etc. |
 | Value     | `int16`  | Comparison threshold                             |  
-
-## Frame Header (6 bytes)
-
-| Byte(s) | Field          | Size (bytes) | Description                                      |
-|---------|----------------|--------------|--------------------------------------------------|
-| 0       | Start Byte     | 1            | Always 0xAA for version v1                      |
-| 1       | Command Type   | 1            | Instruction type (e.g., 0x01 = SEND_INSTRUCTIONS)|
-| 2–3     | Payload Length | 2            | Payload size in bytes (excluding header)        |
-| 4–5     | Block Count    | 2            | Number of instruction blocks in the payload     |
-
-All multi-byte fields are big-endian (network byte order).
-
-## Command Types
-
-| Value  | Command Name      | Description                                   |
-|--------|-------------------|-----------------------------------------------|
-| 0x01   | SEND_INSTRUCTIONS | Send one or more instruction blocks           |
-| 0x02   | STOP_ALL          | Stop all subsystems immediately               |
-| 0x03   | REPLACE_BLOCK     | Replace instruction queue for a subsystem     |
-| 0x04   | PAUSE_ALL         | Pause all execution                           |
-| 0x05   | RESUME_ALL        | Resume all paused instructions                |
-| 0x06   | QUERY_STATE       | Request current sensor and system status      |
 
 
 ## Parallel Instruction Blocks
