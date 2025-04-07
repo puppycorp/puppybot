@@ -61,7 +61,7 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 | Target ID    | `uint8`  | Subsystem to control                 |
 | InnerInstrID | `uint8`  | Instruction to execute (e.g. DRIVE)  |
 | InnerArgs    | variable | Arguments for the inner instruction  |
-| Condition    | 5 bytes  | Condition frame (see 5.2)            |
+| Condition    | 5 bytes  | Condition frame                      |
 
 ### Condition Frame
 
@@ -79,6 +79,8 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 | `Forever` | 0x08  | Reserved: condition never becomes true (run forever unless externally interrupted) |
 
 > **Note**: The `Forever` operator (`0x08`) creates a condition that always evaluates as false. This causes the inner instruction to execute continuously until the robot receives a STOP or REPLACE command from the brain.
+
+**Frame Structure**
 
 | Field     | Type     | Description                                      |
 |-----------|----------|--------------------------------------------------|
