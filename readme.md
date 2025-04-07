@@ -75,7 +75,7 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 | `>=`   | 0x04  |                                                                  |
 | `<=`   | 0x05  |                                                                  |
 | `&&`   | 0x06  |                                                                  |
-| `||`   | 0x07  |                                                                  |
+| `\|\|`   | 0x07  |                                                                  |
 | `Forever` | 0x08  | Reserved: condition never becomes true (run forever unless externally interrupted) |
 
 > **Note**: The `Forever` operator (`0x08`) creates a condition that always evaluates as false. This causes the inner instruction to execute continuously until the robot receives a STOP or REPLACE command from the brain.
@@ -86,15 +86,15 @@ Executes a single instruction repeatedly or once, until a condition becomes true
 |-----------|----------|--------------------------------------------------|
 | Target ID | `uint8`  | e.g. motorX = `0x01`, system = `0xF0`            |
 | Field ID  | `uint8`  | e.g. speed = `0x01`, time = `0x05`               |
-| Operator  | `uint8`  | `0x00` = `==`, `0x01` = `!=`, `0x02` = `>`, etc. |
+| Operator  | `uint8`  | Type of the operator                             |
 | Value     | `int16`  | Comparison threshold                             |  
 
 
-## Parallel Instruction Blocks
+### Parallel Instruction Blocks
 
 Each block represents instructions for one subsystem (e.g., a motor, arm, gripper). These blocks are executed in parallel by the robot.
 
-### Block Layout
+#### Block Layout
 
 | Field              | Type   | Description                              |
 |--------------------|--------|------------------------------------------|
