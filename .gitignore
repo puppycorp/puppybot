@@ -37,3 +37,7 @@ design/*.lck
 
 .DS_Store
 *auto_saved_files*
+
+workdir
+build
+managed_components

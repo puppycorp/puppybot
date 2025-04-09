@@ -32,7 +32,7 @@ void handle_cmd(CommandPacket *cmd) {
 	case CMD_STOP_MOTOR:
 		// Handle stop motor command
 		break;
-	case STOP_ALL_MOTORS:
+	case CMD_STOP_ALL_MOTORS:
 		// Handle stop all motors command
 		break;
 	default:

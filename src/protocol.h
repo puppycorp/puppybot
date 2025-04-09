@@ -3,7 +3,7 @@
 
 #define CMD_DRIVE_MOTOR 1
 #define CMD_STOP_MOTOR 2
-#define STOP_ALL_MOTORS 3
+#define CMD_STOP_ALL_MOTORS 3
 
 enum MotorType {
 	DC_MOTOR = 0,
@@ -44,7 +44,7 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	case CMD_DRIVE_MOTOR:
 		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
 		int motor_id = payload[0];
-		enum MotorType motor_type = (MotorType)payload[1];
+		enum MotorType motor_type = (enum MotorType)payload[1];
 		cmd_packet->cmd.drive_motor.speed = payload[2];
 		cmd_packet->cmd.drive_motor.steps = payload[3];
 		cmd_packet->cmd.drive_motor.step_time = payload[5];
@@ -54,8 +54,8 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd_type = CMD_STOP_MOTOR;
 		cmd_packet->cmd.stop_motor.motor_id = payload[0];
 		break;
-	case STOP_ALL_MOTORS:
-		cmd_packet->cmd_type = STOP_ALL_MOTORS;
+	case CMD_STOP_ALL_MOTORS:
+		cmd_packet->cmd_type = CMD_STOP_ALL_MOTORS;
 		break;
 	default:
 		break;

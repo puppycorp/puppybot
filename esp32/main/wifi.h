@@ -1,5 +1,17 @@
 #include "esp_netif.h"
 #include "esp_log.h"
+#include "esp_wifi.h"
+#include "esp_ota_ops.h"
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "default_ssid"
+#endif
+
+#ifndef WIFI_PASS
+#define WIFI_PASS "default_password"
+#endif
+
+static const char *TAG = "WIFI";
 
 void wifi_init_sta() {
     esp_netif_init();
