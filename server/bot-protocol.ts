@@ -89,7 +89,7 @@ const block = (instructions: Instruction[]) => {
 export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
 		case "drive": {
-			const commandType = 1
+			const commandType = MsgToBotType.DriveMotor
 			const payloadLength = 9
 			const payload = Buffer.alloc(payloadLength)
 			
@@ -105,7 +105,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			return Buffer.concat([header, payload])
 		}
 		case "stop": {
-			const commandType = 2
+			const commandType = MsgToBotType.StopMotor
 			const payloadLength = 1
 			const payload = Buffer.alloc(payloadLength)
 			
@@ -115,6 +115,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
 		}
+		
 		case "ping": return createHeader(MsgToBotType.Ping, 0)
 		default:
 			throw new Error("Unknown message type")

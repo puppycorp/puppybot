@@ -1,6 +1,6 @@
 
 import type { ServerWebSocket } from "bun"
-import index from "./index.html"
+import index from "../web/index.html"
 import type { MsgToBot, MsgToUi, MsgToServer } from "./types"
 import { decodeBotMsg, encodeBotMsg, MsgFromBotType, type MsgFromBot } from "./bot-protocol"
 
@@ -18,6 +18,7 @@ class BotConnection {
 	}
 
 	public send(msg: MsgToBot) {
+		console.log("send", msg)
 		const binaryMsg = encodeBotMsg(msg)
 		this.ws.send(binaryMsg)
 	}
@@ -53,7 +54,7 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 	console.log("handleUiMsg", msg)
 	switch (msg.type) {
 		case "drive": {
-			const conn = ws.data.botConnections.get(ws.data.botId)
+			const conn = ws.data.botConnections.get(msg.botId)
 			if (!conn) return
 			conn.send(msg)
 			break
@@ -140,7 +141,6 @@ Bun.serve<Context, {}>({
 				const conn = new BotConnection(ws)
 				ws.data.botConnections.set(ws.data.botId, conn)
 				for (const conn of uiClients.values()) {
-					console.log("sending to ui client", conn)
 					conn.send({
 						type: "botConnected",
 						botId: ws.data.botId

@@ -1,4 +1,4 @@
-import type { Bot } from "./types"
+import type { Bot } from "../server/types"
 
 export class NotifyValue<T> {
 	private value: T

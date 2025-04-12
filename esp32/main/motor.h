@@ -1,3 +1,6 @@
+#ifndef __MOTOR_H__
+#define __MOTOR_H__
+
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 
@@ -23,6 +26,19 @@
 #define IN7_GPIO    GPIO_NUM_25
 #define IN8_GPIO    GPIO_NUM_26
 #define END_GPIO    GPIO_NUM_27
+
+// ---------------- PWM Configuration ----------------
+
+#define LEDC_MODE           LEDC_HIGH_SPEED_MODE
+#define LEDC_TIMER          LEDC_TIMER_0
+#define LEDC_DUTY_RES       LEDC_TIMER_8_BIT
+#define LEDC_FREQUENCY      1000 // 1 kHz
+
+#define ENA_CHANNEL         LEDC_CHANNEL_0
+#define ENB_CHANNEL         LEDC_CHANNEL_1
+#define ENC_CHANNEL         LEDC_CHANNEL_2
+#define END_CHANNEL         LEDC_CHANNEL_3
+
 
 // ---------------- GPIO Init ----------------
 
@@ -99,3 +115,5 @@ DEFINE_MOTOR_FUNCTIONS(motorA, IN1_GPIO, IN2_GPIO, ENA_CHANNEL)
 DEFINE_MOTOR_FUNCTIONS(motorB, IN3_GPIO, IN4_GPIO, ENB_CHANNEL)
 DEFINE_MOTOR_FUNCTIONS(motorC, IN5_GPIO, IN6_GPIO, ENC_CHANNEL)
 DEFINE_MOTOR_FUNCTIONS(motorD, IN7_GPIO, IN8_GPIO, END_CHANNEL)
+
+#endif // __MOTOR_H__

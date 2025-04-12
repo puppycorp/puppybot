@@ -1,5 +1,5 @@
 import { state } from "./state";
-import type { MsgToUi, MsgToServer } from "./types";
+import type { MsgToUi, MsgToServer } from "../server/types";
 
 let wsclient: WebSocket | null = null
 
@@ -51,12 +51,17 @@ createClient()
 
 export const ws = {
 	send: (msg: MsgToServer): boolean => {
-		if (!wsclient) return false
+		if (!wsclient) {
+			console.log("WebSocket client not initialized")
+			return false
+		}
 		if (wsclient.readyState === WebSocket.CONNECTING) {
 			console.error("WebSocket is still connecting. Message not sent.")
 			return false
 		}
-		wsclient.send(JSON.stringify(msg))
+		let strMsg = JSON.stringify(msg)
+		console.log("Sending message:", strMsg)
+		wsclient.send(strMsg)
 		return true
 	}
 }

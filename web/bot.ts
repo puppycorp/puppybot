@@ -1,6 +1,6 @@
-import { Container, UiComponent } from "./ui";
-import { getQueryParam } from "./utility ";
-import { ws } from "./wsclient";
+import { Container, UiComponent } from "./ui"
+import { getQueryParam } from "./utility "
+import { ws } from "./wsclient"
 
 class MotorController extends UiComponent<HTMLDivElement> {
 	constructor(args: {
@@ -70,6 +70,8 @@ class FourWheelController extends UiComponent<HTMLDivElement> {
 
 		const forwardButton = document.createElement("button")
 		forwardButton.innerText = "Forward"
+		forwardButton.onmousedown = () => args.onForward?.(parseInt(speedInput.value))
+		forwardButton.onmouseup = () => args.onReleased?.()
 		buttons.appendChild(forwardButton)
 
 		const hbuttons = document.createElement("div")
@@ -81,21 +83,26 @@ class FourWheelController extends UiComponent<HTMLDivElement> {
 		const leftButton = document.createElement("button")
 		leftButton.innerText = "Left"
 		leftButton.style.flexGrow = "1"
+		leftButton.onmousedown = () => args.onMoveLeft?.(parseInt(speedInput.value))
+		leftButton.onmouseup = () => args.onReleased?.()
 		hbuttons.appendChild(leftButton)
 
 		const rightButton = document.createElement("button")
 		rightButton.innerText = "Right"
 		rightButton.style.flexGrow = "1"
+		rightButton.onmousedown = () => args.onMoveRight?.(parseInt(speedInput.value))
+		rightButton.onmouseup = () => args.onReleased?.()
 		hbuttons.appendChild(rightButton)
 
 		const backwardButton = document.createElement("button")
 		backwardButton.innerText = "Backward"
+		backwardButton.onmousedown = () => args.onBackward?.(parseInt(speedInput.value))
+		backwardButton.onmouseup = () => args.onReleased?.()
 		buttons.appendChild(backwardButton)
 	}
 }
 
-export const botPage = (container: Container) => {
-	const botId = getQueryParam("botId")
+export const botPage = (container: Container, botId: string) => {
 	if (!botId) {
 		container.root.innerText = "No bot ID provided"
 		return
@@ -133,12 +140,23 @@ export const botPage = (container: Container) => {
 	// container.add(motor3)
 	// container.add(motor4)
 
+	const moveForward = () => {
+		ws.send({ type: "drive", botId, motorId: 1 })
+		ws.send({ type: "drive", botId, motorId: 2 })
+		ws.send({ type: "drive", botId, motorId: 3 })
+		ws.send({ type: "drive", botId, motorId: 4 })
+	}
+
+	const stopAllMotors = () => {
+		ws.send({ type: "stopAllMotors", botId })
+	}
+
 	const contoller = new FourWheelController({
-		onForward: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: 0 }),
-		onMoveLeft: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: -100 }),
-		onMoveRight: (speed) => ws.send({ type: "drive", botId, speed: 50, angle: 100 }),
-		onBackward: (speed) => ws.send({ type: "drive", botId, speed: -50, angle: 0 }),
-		onReleased: () => ws.send({ type: "stop", botId })
+		onForward: (speed) => moveForward(),
+		onMoveLeft: (speed) => {},
+		onMoveRight: (speed) => {},
+		onBackward: (speed) => {},
+		onReleased: () => ws.send({ type: "stopAllMotors", botId })
 	})
 	container.add(contoller)
 }

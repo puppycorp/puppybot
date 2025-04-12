@@ -1,6 +1,7 @@
 #include "esp_event.h"
 #include "esp_websocket_client.h"
 #include "../../src/protocol.h"
+#include "motor.h"
 
 #define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
 
@@ -18,13 +19,39 @@ void handle_command(CommandPacket *cmd) {
 			esp_websocket_client_send_bin(client, buff, sizeof(buff), portMAX_DELAY);
 			break;
 		case CMD_DRIVE_MOTOR:
-			ESP_LOGI(TAG, "Drive motor command received");
+			ESP_LOGI(TAG, "drive motor %d with speed %d", cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
+			if (cmd->cmd.drive_motor.motor_id == 1) {
+				motorA_forward(cmd->cmd.drive_motor.speed);
+			} else if (cmd->cmd.drive_motor.motor_id == 2) {
+				motorB_forward(cmd->cmd.drive_motor.speed);
+			} else if (cmd->cmd.drive_motor.motor_id == 3) {
+				motorC_forward(cmd->cmd.drive_motor.speed);
+			} else if (cmd->cmd.drive_motor.motor_id == 4) {
+				motorD_forward(cmd->cmd.drive_motor.speed);
+			} else {
+				ESP_LOGE(TAG, "Invalid motor ID");
+			}
 			break;
 		case CMD_STOP_MOTOR:
-			ESP_LOGI(TAG, "Stop motor command received");
+			ESP_LOGI(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
+			if (cmd->cmd.stop_motor.motor_id == 1) {
+				motorA_stop();
+			} else if (cmd->cmd.stop_motor.motor_id == 2) {
+				motorB_stop();
+			} else if (cmd->cmd.stop_motor.motor_id == 3) {
+				motorC_stop();
+			} else if (cmd->cmd.stop_motor.motor_id == 4) {
+				motorD_stop();
+			} else {
+				ESP_LOGE(TAG, "Invalid motor ID");
+			}
 			break;
 		case CMD_STOP_ALL_MOTORS:
 			ESP_LOGI(TAG, "Stop all motors command received");
+			motorA_stop();
+			motorB_stop();
+			motorC_stop();
+			motorD_stop();
 			break;
 	}
 }

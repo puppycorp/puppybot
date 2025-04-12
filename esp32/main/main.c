@@ -3,6 +3,7 @@
 #include "nvs_flash.h"
 #include "wifi.h"
 #include "ws.h"
+#include "motor.h"
 
 void app_main(void)
 {
@@ -14,6 +15,9 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
 	wifi_init_sta();
+
+	motor_gpio_init();
+	motor_pwm_init();
 
 	vTaskDelay(pdMS_TO_TICKS(5000));
 
