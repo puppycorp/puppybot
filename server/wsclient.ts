@@ -1,3 +1,4 @@
+import { state } from "./state";
 import type { MsgToUi, MsgToServer } from "./types";
 
 let wsclient: WebSocket | null = null
@@ -6,26 +7,39 @@ const handleMsg = (msg: MsgToUi) => {
 	switch (msg.type) {
 		case "botConnected":
 			console.log("Bot connected:", msg.botId)
+			state.bots.set([
+				...state.bots.get(),
+				{
+					id: msg.botId,
+					version: "1"
+				}
+			])
 			break
 		case "botDisconnected":
 			console.log("Bot disconnected:", msg.botId)
+			state.bots.set(state.bots.get().filter(bot => bot.id !== msg.botId))
 			break
 		default:
-			console.error("Unknown message type:", msg)
+			console.log("Unknown message type:", msg)
 	}
 }
 
 const createClient = () => {
-	wsclient = new WebSocket("ws://localhost:7775/api/bot/1/ws")
+	wsclient = new WebSocket("ws://localhost:7775/api/ws")
 
 	wsclient.onopen = () => {
 		console.log("WebSocket connection opened")
 	}
 
 	wsclient.onmessage = (event) => {
-		const msg = JSON.parse(event.data) as MsgToUi
-		console.log("Message received:", msg)
-		handleMsg(msg)
+		try {
+			const msg = JSON.parse(event.data) as MsgToUi
+			console.log("Message received:", msg)
+			handleMsg(msg)
+		} catch (e) {
+			console.log(event.data)
+			console.error("Error parsing message:", e)
+		}
 	}
 
 	wsclient.onclose = () => {

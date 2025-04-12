@@ -1,18 +1,39 @@
 
 import type { ServerWebSocket } from "bun"
 import index from "./index.html"
-import type { MsgFromBot, MsgToBot, MsgToUi, MsgToServer } from "./types"
-import { decodeBotMsg, encodeBotMsg } from "./bot-protocol"
+import type { MsgToBot, MsgToUi, MsgToServer } from "./types"
+import { decodeBotMsg, encodeBotMsg, MsgFromBotType, type MsgFromBot } from "./bot-protocol"
 
 class BotConnection {
 	private ws: ServerWebSocket<Context>
+	private pongTimeout: any
+	private pingInterval: any
 	constructor(ws: ServerWebSocket<Context>) {
 		this.ws = ws
+		this.handlePong()
+		this.pingInterval = setInterval(() => {
+			console.log("ping")
+			this.send({ type: "ping" })
+		}, 10_000)
 	}
 
 	public send(msg: MsgToBot) {
 		const binaryMsg = encodeBotMsg(msg)
 		this.ws.send(binaryMsg)
+	}
+
+	public handlePong() {
+		clearTimeout(this.pongTimeout)
+		this.pongTimeout = setTimeout(() => {
+			console.log("Ping timeout")
+			this.close()
+		}, 15_000)
+	}
+
+	public close() {
+		clearTimeout(this.pongTimeout)
+		clearInterval(this.pingInterval)
+		this.ws.close()
 	}
 }
 
@@ -29,6 +50,7 @@ class UiConnection {
 }
 
 const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
+	console.log("handleUiMsg", msg)
 	switch (msg.type) {
 		case "drive": {
 			const conn = ws.data.botConnections.get(ws.data.botId)
@@ -46,17 +68,22 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 }
 
 const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
+	ws.data.botConnections.get(ws.data.botId)?.handlePong()
+	console.log("handleBotMsg", msg)
 	switch (msg.type) {
-		case "myInfo": {
+		case MsgFromBotType.MyInfo: {
 			for (const client of uiClients.values()) {
 				client.send({
 					type: "botInfo",
 					botId: ws.data.botId,
-					version: msg.version
+					version: msg.version + ""
 				})
 			}
 			break
 		}
+		case MsgFromBotType.Pong: break
+		default:
+			throw new Error("Unknown bot message type")
 	}
 }
 
@@ -96,7 +123,7 @@ Bun.serve<Context, {}>({
 		"/api/ws": (req, server) => {
 			if (server.upgrade(req, {
 				data: {
-					clientType: "web",
+					clientType: "ui",
 					botConnections
 				}
 			})) {
@@ -108,12 +135,12 @@ Bun.serve<Context, {}>({
 	},
 	websocket: {
 		open(ws) {
-			console.log("WebSocket connection opened")
-			ws.send("Hello from server")
+			console.log(`${ws.data.clientType} connection opened`)
 			if (ws.data.clientType === "bot") {
 				const conn = new BotConnection(ws)
 				ws.data.botConnections.set(ws.data.botId, conn)
 				for (const conn of uiClients.values()) {
+					console.log("sending to ui client", conn)
 					conn.send({
 						type: "botConnected",
 						botId: ws.data.botId
@@ -126,7 +153,7 @@ Bun.serve<Context, {}>({
 			}
 		},
 		close(ws) {
-			console.log("WebSocket connection closed")
+			console.log(`${ws.data.clientType} connection closed`)
 			if (ws.data.clientType === "bot") {
 				ws.data.botConnections.delete(ws.data.botId)
 			}
@@ -135,23 +162,20 @@ Bun.serve<Context, {}>({
 			}
 		},
 		async message(ws, message) {
-			if (ws.data.clientType === "ui") {
-				const msg = JSON.parse(message.toString()) as MsgToServer
-				await handleUiMsg(ws, msg)
+			try {
+				if (ws.data.clientType === "ui") {
+					const msg = JSON.parse(message.toString()) as MsgToServer
+					await handleUiMsg(ws, msg)
+				}
+
+				if (ws.data.clientType === "bot") {
+					console.log("received bot message", message)
+					const msg = decodeBotMsg(message as Buffer)
+					await handleBotMsg(ws, msg)
+				}
+			} catch (error) {
+				console.log("Error handling message:", error)
 			}
-
-			if (ws.data.clientType === "bot") {
-				const msg = decodeBotMsg(message as Buffer)
-				await handleBotMsg(ws, msg)
-			}
-
-			const msg = JSON.parse(message.toString()) as MsgToServer
-			await handleUiMsg(ws, msg)
-
-			console.log("Message received:", message)
-			// Handle the message here
-			// For example, you can send a response back to the client
-			ws.send("Message received")
 		},
 	},
 	development: true

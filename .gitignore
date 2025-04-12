@@ -41,3 +41,4 @@ design/*.lck
 workdir
 build
 managed_components
+.env

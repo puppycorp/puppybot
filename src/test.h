@@ -12,20 +12,23 @@ typedef struct Test {
 extern Test *test_list;
 extern const char *current_test;
 void register_test(char *name, TestFunc func);
-#ifdef _MSC_VER
-#pragma section(".CRT$XCU", read)
-typedef void (*_PVFV)(void);
-#define TEST(testname) \
-    static void test_##testname(void); \
-    static void register_##testname(void) { register_test(#testname, test_##testname); } \
-    __declspec(allocate(".CRT$XCU")) static _PVFV register_##testname##_init = register_##testname; \
-    static void test_##testname(void)
+#ifdef UNIT_TEST
+    #ifdef _MSC_VER
+        #define TEST(testname) \
+            static void test_##testname(void); \
+            static void register_##testname(void) { register_test(#testname, test_##testname); } \
+            __declspec(allocate(".CRT$XCU")) static _PVFV register_##testname##_init = register_##testname; \
+            static void test_##testname(void)
+    #else
+        #define TEST(testname) \
+            static void test_##testname(void); \
+            static void register_##testname(void) __attribute__((constructor)); \
+            static void register_##testname(void){ register_test(#testname, test_##testname); } \
+            static void test_##testname(void)
+    #endif
 #else
-#define TEST(testname) \
-    static void test_##testname(void); \
-    static void register_##testname(void) __attribute__((constructor)); \
-    static void register_##testname(void){ register_test(#testname, test_##testname); } \
-    static void test_##testname(void)
+    // In non-unit-test builds, define TEST as a regular function definition without test registration.
+    #define TEST(testname) static void test_##testname(void)
 #endif
 void record_failure(const char *test_name, const char *expr, const char *file, int line);
 #define ASSERT(expr) do { if(!(expr)) { record_failure(current_test, #expr, __FILE__, __LINE__); } } while(0)

@@ -1,9 +1,12 @@
 #include <stdint.h>
 #include "test.h"
 
-#define CMD_DRIVE_MOTOR 1
-#define CMD_STOP_MOTOR 2
-#define CMD_STOP_ALL_MOTORS 3
+#define CMD_PING 1
+#define CMD_DRIVE_MOTOR 2
+#define CMD_STOP_MOTOR 3
+#define CMD_STOP_ALL_MOTORS 4
+
+#define MSG_TO_SRV_TYPE 0x01
 
 enum MotorType {
 	DC_MOTOR = 0,
@@ -41,6 +44,9 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 
 	switch (cmd_type)
 	{
+	case CMD_PING:
+		cmd_packet->cmd_type = CMD_PING;
+		break;
 	case CMD_DRIVE_MOTOR:
 		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
 		int motor_id = payload[0];
@@ -61,6 +67,14 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		break;
 	}
 }
+
+// typedef struct {
+
+// } 
+
+// void serialize_msg_to_server() {
+
+// }
 
 TEST(parse_cmd_test) {
 	uint8_t data[] = { 0x01, CMD_DRIVE_MOTOR, 0x08, 0x00, 0x01, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06 };

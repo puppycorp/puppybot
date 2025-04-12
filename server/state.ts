@@ -1,6 +1,5 @@
 import type { Bot } from "./types"
 
-
 export class NotifyValue<T> {
 	private value: T
 	private listeners: ((value: T) => void)[] = []

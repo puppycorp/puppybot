@@ -15,5 +15,7 @@ void app_main(void)
 
 	wifi_init_sta();
 
+	vTaskDelay(pdMS_TO_TICKS(5000));
+
 	websocket_app_start();
 }

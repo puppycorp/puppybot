@@ -34,12 +34,20 @@ export type BotInfo = {
 	version: string
 }
 
-export type MsgToUi = BotConnected | BotDisconnected | BotInfo
-export type MsgToBot = Omit<Drive, "botId"> | Omit<Stop, "botId">
-
-export type MyInfo = {
-	type: "myInfo"
-	version: string
+export type Ping = {
+	type: "ping"
 }
 
-export type MsgFromBot = MyInfo
+export type MsgToUi = BotConnected | BotDisconnected | BotInfo
+export type MsgToBot = Omit<Drive, "botId"> | Omit<Stop, "botId"> | Ping
+
+// export type MyInfo = {
+// 	type: "myInfo"
+// 	version: string
+// }
+
+// export type Pong = {
+// 	type: "pong"
+// }
+
+// export type MsgFromBot = MyInfo | Pong

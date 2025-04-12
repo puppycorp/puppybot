@@ -2,10 +2,21 @@
 #include "esp_websocket_client.h"
 #include "../../src/protocol.h"
 
+#define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
+
 esp_websocket_client_handle_t client;
 
 void handle_command(CommandPacket *cmd) {
 	switch (cmd->cmd_type) {
+		case CMD_PING:
+			ESP_LOGI(TAG, "Ping command received");
+			char buff[] = {
+				1,
+				0,
+				MSG_TO_SRV_TYPE
+			};
+			esp_websocket_client_send_bin(client, buff, sizeof(buff), portMAX_DELAY);
+			break;
 		case CMD_DRIVE_MOTOR:
 			ESP_LOGI(TAG, "Drive motor command received");
 			break;
@@ -24,7 +35,6 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t 
     switch (event_id) {
         case WEBSOCKET_EVENT_CONNECTED:
             ESP_LOGI(TAG, "WebSocket connected");
-            esp_websocket_client_send_text(client, "Hello Server", strlen("Hello Server"), portMAX_DELAY);
             break;
         case WEBSOCKET_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "WebSocket disconnected");
@@ -37,13 +47,14 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t 
             break;
         case WEBSOCKET_EVENT_ERROR:
             ESP_LOGE(TAG, "WebSocket error");
-            break;
+			break;
     }
 }
 
 void websocket_app_start() {
+	ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
     esp_websocket_client_config_t websocket_cfg = {
-        .uri = "ws://10.70.2.56:8080"
+        .uri = WS_SERVER
     };
 
     client = esp_websocket_client_init(&websocket_cfg);

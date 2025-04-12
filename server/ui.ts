@@ -451,23 +451,46 @@ type TableColumnValue = string | number | boolean | HTMLElement | {
 }
 
 export class Table extends UiComponent<HTMLTableElement> {
-	constructor(args: {
-		headers: string[]
-		rows: TableColumnValue[][]
+	private thead: HTMLTableSectionElement
+	private tbody: HTMLTableSectionElement
+
+	constructor(args?: {
+		headers?: string[]
+		rows?: TableColumnValue[][]
 	}) {
 		super(document.createElement("table"))
 		this.root.className = "table"
-		const thead = document.createElement("thead")
-		const tbody = document.createElement("tbody")
 
+		this.thead = document.createElement("thead")
+		this.tbody = document.createElement("tbody")
+
+		this.root.appendChild(this.thead)
+		this.root.appendChild(this.tbody)
+
+		this.constructTable({
+			headers: args?.headers || [],
+			rows: args?.rows || []
+		})
+	}
+
+	private constructTable(args: {
+		headers: string[]
+		rows: TableColumnValue[][]
+	}): void {
+		// Clear existing content
+		this.thead.innerHTML = ""
+		this.tbody.innerHTML = ""
+
+		// Create and append header row
 		const headerRow = document.createElement("tr")
 		args.headers.forEach(header => {
 			const th = document.createElement("th")
 			th.textContent = header
 			headerRow.appendChild(th)
 		})
-		thead.appendChild(headerRow)
+		this.thead.appendChild(headerRow)
 
+		// Create and append body rows
 		for (const row of args.rows) {
 			const tr = document.createElement("tr")
 			for (const cell of row) {
@@ -494,29 +517,17 @@ export class Table extends UiComponent<HTMLTableElement> {
 				}
 				tr.appendChild(td)
 			}
-			tbody.appendChild(tr)
+			this.tbody.appendChild(tr)
 		}
-
-		// args.rows.forEach(row => {
-		// 	const tr = document.createElement("tr")
-		// 	row.forEach(cell => {
-		// 		const td = document.createElement("td")
-		// 		if (typeof cell === "string") {
-		// 			td.textContent = cell
-		// 		} else if (typeof cell === "boolean") {
-		// 			td.textContent = cell ? "True" : "False"
-		// 		} else if (typeof cell === "number") {
-		// 			td.textContent = cell.toString()
-		// 		} else {
-		// 			td.appendChild(cell)
-		// 		}
-		// 		tr.appendChild(td)
-		// 	})
-		// 	tbody.appendChild(tr)
-		// })
-
-		this.root.appendChild(thead)
-		this.root.appendChild(tbody)
 	}
 
+	public update(args?: {
+		headers?: string[]
+		rows?: TableColumnValue[][]
+	}): void {
+		this.constructTable({
+			headers: args?.headers || [],
+			rows: args?.rows || []
+		})
+	}
 }
