@@ -21,13 +21,13 @@ void handle_command(CommandPacket *cmd) {
 		case CMD_DRIVE_MOTOR:
 			ESP_LOGI(TAG, "drive motor %d with speed %d", cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
 			if (cmd->cmd.drive_motor.motor_id == 1) {
-				motorA_forward(cmd->cmd.drive_motor.speed);
+				motorA_forward(100);
 			} else if (cmd->cmd.drive_motor.motor_id == 2) {
-				motorB_forward(cmd->cmd.drive_motor.speed);
+				motorB_forward(100);
 			} else if (cmd->cmd.drive_motor.motor_id == 3) {
-				motorC_forward(cmd->cmd.drive_motor.speed);
+				motorC_forward(100);
 			} else if (cmd->cmd.drive_motor.motor_id == 4) {
-				motorD_forward(cmd->cmd.drive_motor.speed);
+				motorD_forward(100);
 			} else {
 				ESP_LOGE(TAG, "Invalid motor ID");
 			}
