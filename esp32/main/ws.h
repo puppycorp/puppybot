@@ -1,11 +1,13 @@
 #include "esp_event.h"
 #include "esp_websocket_client.h"
+#include "esp_timer.h"
 #include "../../src/protocol.h"
 #include "motor.h"
 
 #define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
 
 esp_websocket_client_handle_t client;
+esp_timer_handle_t safety_timer;
 
 void handle_command(CommandPacket *cmd) {
 	switch (cmd->cmd_type) {
@@ -20,6 +22,9 @@ void handle_command(CommandPacket *cmd) {
 			break;
 		case CMD_DRIVE_MOTOR:
 			ESP_LOGI(TAG, "drive motor %d with speed %d", cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
+			// Reset the safety timer
+			esp_timer_stop(safety_timer);
+			esp_timer_start_once(safety_timer, 1000000);
 			if (cmd->cmd.drive_motor.motor_id == 1) {
 				if (cmd->cmd.drive_motor.speed > 0) motorA_forward(cmd->cmd.drive_motor.speed);
 				else motorA_backward(-cmd->cmd.drive_motor.speed);
@@ -60,6 +65,14 @@ void handle_command(CommandPacket *cmd) {
 	}
 }
 
+void safety_timer_callback(void *arg) {
+    ESP_LOGW(TAG, "Safety timeout: stopping all motors");
+    motorA_stop();
+    motorB_stop();
+    motorC_stop();
+    motorD_stop();
+}
+
 void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 
@@ -91,4 +104,13 @@ void websocket_app_start() {
     client = esp_websocket_client_init(&websocket_cfg);
     esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
     esp_websocket_client_start(client);
+
+    // Create the safety timer
+    const esp_timer_create_args_t safety_timer_args = {
+        .callback = safety_timer_callback,
+        .name = "safety_timer"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&safety_timer_args, &safety_timer));
+    // Start the safety timer (1 second = 1,000,000 microseconds)
+    ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
 }
