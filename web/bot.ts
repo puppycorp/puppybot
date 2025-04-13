@@ -1,3 +1,4 @@
+import { state } from "./state"
 import { Container, UiComponent } from "./ui"
 import { getQueryParam } from "./utility "
 import { ws } from "./wsclient"
@@ -140,11 +141,54 @@ export const botPage = (container: Container, botId: string) => {
 	// container.add(motor3)
 	// container.add(motor4)
 
+	const div = document.createElement("div")
+	div.innerText = "Disconnected"
+	div.style.color = "red"
+	state.bots.onChange((bots) => {
+		const bot = bots.find((bot) => bot.id === botId)
+		if (bot) {
+			div.innerText = "Connected"
+			div.style.color = "green"
+		} else {
+			div.innerText = "Disconnected"
+			div.style.color = "red"
+		}
+	})
+	container.root.appendChild(div)
+
+	const speed = 80
+
+	// motor 1 = motorA which is top right
+	// motor 2 = motorB which is top left
+	// motor 3 = motorC which is bottom right
+	// motor 4 = motorD which is bottom left
+
 	const moveForward = () => {
-		ws.send({ type: "drive", botId, motorId: 1 })
-		ws.send({ type: "drive", botId, motorId: 2 })
-		ws.send({ type: "drive", botId, motorId: 3 })
-		ws.send({ type: "drive", botId, motorId: 4 })
+		ws.send({ type: "drive", botId, motorId: 1, speed })
+		ws.send({ type: "drive", botId, motorId: 2, speed })
+		ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 4, speed })
+	}
+
+	const turnLeft = () => {
+		ws.send({ type: "drive", botId, motorId: 1, speed: speed })
+		ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
+	}
+
+	const turnRight = () => {
+		ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 2, speed: speed })
+		ws.send({ type: "drive", botId, motorId: 3, speed: speed })
+		ws.send({ type: "drive", botId, motorId: 4, speed: speed })
+	}
+
+	const moveBackward = () => {
+		ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: 3, speed: speed })
+		ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
 	}
 
 	const stopAllMotors = () => {
@@ -153,10 +197,10 @@ export const botPage = (container: Container, botId: string) => {
 
 	const contoller = new FourWheelController({
 		onForward: (speed) => moveForward(),
-		onMoveLeft: (speed) => {},
-		onMoveRight: (speed) => {},
-		onBackward: (speed) => {},
-		onReleased: () => ws.send({ type: "stopAllMotors", botId })
+		onMoveLeft: (speed) => turnLeft(),
+		onMoveRight: (speed) => turnRight(),
+		onBackward: (speed) => moveBackward(),
+		onReleased: () => stopAllMotors()
 	})
 	container.add(contoller)
 }

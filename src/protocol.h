@@ -50,8 +50,9 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	case CMD_DRIVE_MOTOR:
 		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
 		cmd_packet->cmd.drive_motor.motor_id = payload[0];
+		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[1];
 		// cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
-		// cmd_packet->cmd.drive_motor.speed = (int8_t)payload[2];
+		
 		// cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] | (payload[4] << 8));
 		// cmd_packet->cmd.drive_motor.step_time = (int16_t)(payload[5] | (payload[6] << 8));
 		// cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[7] | (payload[8] << 8));
