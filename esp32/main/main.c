@@ -4,6 +4,7 @@
 #include "wifi.h"
 #include "ws.h"
 #include "motor.h"
+#include "bluetooth.h"
 
 void app_main(void)
 {
@@ -22,4 +23,5 @@ void app_main(void)
 	vTaskDelay(pdMS_TO_TICKS(5000));
 
 	websocket_app_start();
+	bluetooth_app_start();
 }
