@@ -3,204 +3,228 @@ import { Container, UiComponent } from "./ui"
 import { getQueryParam } from "./utility "
 import { ws } from "./wsclient"
 
-class MotorController extends UiComponent<HTMLDivElement> {
-	constructor(args: {
-		title?: string
-		onForward?: (speed: number) => void
-		onReleased?: () => void
-		onBackward?: (speed: number) => void
-	}) {
-		super(document.createElement("div"))
-		this.root.style.display = "flex"
-		this.root.style.gap = "10px"
+// class MotorController extends UiComponent<HTMLDivElement> {
+//     constructor(args: {
+//         title?: string
+//         onForward?: (speed: number) => void
+//         onReleased?: () => void
+//         onBackward?: (speed: number) => void
+//     }) {
+//         super(document.createElement("div"))
+//         this.root.style.display = "flex"
+//         this.root.style.gap = "10px"
 
-		const label = document.createElement("label")
-		label.innerText = "Speed"
-		this.root.appendChild(label)
+//         const label = document.createElement("label")
+//         label.innerText = "Speed"
+//         this.root.appendChild(label)
 
-		const speedInput = document.createElement("input")
-		speedInput.type = "number"
-		speedInput.value = "180"
-		this.root.appendChild(speedInput)
+//         const speedInput = document.createElement("input")
+//         speedInput.type = "number"
+//         speedInput.value = "180"
+//         this.root.appendChild(speedInput)
 
-		const forwardButton = document.createElement("button")
-		forwardButton.innerText = "Forward"
-		forwardButton.onmousedown = () => args.onForward?.(parseInt(speedInput.value))
-		forwardButton.onmouseup = () => args.onReleased?.()
-		this.root.appendChild(forwardButton)
+//         const forwardButton = document.createElement("button")
+//         forwardButton.innerText = "Forward"
+//         forwardButton.onmousedown = () => args.onForward?.(parseInt(speedInput.value))
+//         forwardButton.onmouseup = () => args.onReleased?.()
+//         this.root.appendChild(forwardButton)
 
-		const backwardButton = document.createElement("button")
-		backwardButton.innerText = "Backward"
-		backwardButton.onmousedown = () => args.onBackward?.(parseInt(speedInput.value))
-		backwardButton.onmouseup = () => args.onReleased?.()
-		this.root.appendChild(backwardButton)
-	}
-}
+//         const backwardButton = document.createElement("button")
+//         backwardButton.innerText = "Backward"
+//         backwardButton.onmousedown = () => args.onBackward?.(parseInt(speedInput.value))
+//         backwardButton.onmouseup = () => args.onReleased?.()
+//         this.root.appendChild(backwardButton)
+//     }
+// }
 
 class FourWheelController extends UiComponent<HTMLDivElement> {
-	constructor(args: {
-		onForward?: (speed: number) => void
-		onMoveLeft?: (speed: number) => void
-		onMoveRight?: (speed: number) => void
-		onBackward?: (speed: number) => void
-		onReleased?: () => void
-	}) {
-		super(document.createElement("div"))
+    constructor(args: {
+        onForward?: (speed: number) => void
+        onMoveLeft?: (speed: number) => void
+        onMoveRight?: (speed: number) => void
+        onBackward?: (speed: number) => void
+        onReleased?: () => void
+    }) {
+        super(document.createElement("div"))
 
-		const label = document.createElement("div")
-		label.innerText = "Four Wheel Controller"
-		label.style.fontSize = "20px"
-		label.style.fontWeight = "bold"
-		this.root.appendChild(label)
+        const label = document.createElement("div")
+        label.innerText = "Four Wheel Controller"
+        label.style.fontSize = "20px"
+        label.style.fontWeight = "bold"
+        this.root.appendChild(label)
 
-		this.root.style.display = "flex"
-		this.root.style.gap = "5px"
-		this.root.style.maxWidth = "200px"
-		this.root.style.flexDirection = "column"
+        this.root.style.display = "flex"
+        this.root.style.gap = "5px"
+        this.root.style.maxWidth = "200px"
+        this.root.style.flexDirection = "column"
 
-		const speedInput = document.createElement("input")
-		speedInput.type = "number"
-		speedInput.value = "180"
-		this.root.appendChild(speedInput)
+        const speedInput = document.createElement("input")
+        speedInput.type = "number"
+        speedInput.value = "180"
+        this.root.appendChild(speedInput)
 
-		const buttons = document.createElement("div")
-		buttons.style.display = "flex"
-		buttons.style.gap = "5px"
-		buttons.style.flexDirection = "column"
-		this.root.appendChild(buttons)
+        const buttons = document.createElement("div")
+        buttons.style.display = "flex"
+        buttons.style.gap = "5px"
+        buttons.style.flexDirection = "column"
+        this.root.appendChild(buttons)
 
-		const forwardButton = document.createElement("button")
-		forwardButton.innerText = "Forward"
-		forwardButton.onmousedown = () => args.onForward?.(parseInt(speedInput.value))
-		forwardButton.onmouseup = () => args.onReleased?.()
-		buttons.appendChild(forwardButton)
+        const forwardButton = document.createElement("button")
+        forwardButton.innerText = "Forward"
+        let forwardInterval: number
+        forwardButton.onmousedown = () => {
+            const currentSpeed = parseInt(speedInput.value)
+            args.onForward?.(currentSpeed)
+            forwardInterval = window.setInterval(() => args.onForward?.(currentSpeed), 500)
+        }
+        forwardButton.onmouseup = () => {
+            clearInterval(forwardInterval)
+            args.onReleased?.()
+        }
+        buttons.appendChild(forwardButton)
 
-		const hbuttons = document.createElement("div")
-		hbuttons.style.display = "flex"
-		hbuttons.style.gap = "5px"
-		hbuttons.style.flexDirection = "row"
-		buttons.appendChild(hbuttons)
+        const hbuttons = document.createElement("div")
+        hbuttons.style.display = "flex"
+        hbuttons.style.gap = "5px"
+        hbuttons.style.flexDirection = "row"
+        buttons.appendChild(hbuttons)
 
-		const leftButton = document.createElement("button")
-		leftButton.innerText = "Left"
-		leftButton.style.flexGrow = "1"
-		leftButton.onmousedown = () => args.onMoveLeft?.(parseInt(speedInput.value))
-		leftButton.onmouseup = () => args.onReleased?.()
-		hbuttons.appendChild(leftButton)
+        const leftButton = document.createElement("button")
+        leftButton.innerText = "Left"
+        leftButton.style.flexGrow = "1"
+        let leftInterval: number
+        leftButton.onmousedown = () => {
+            const currentSpeed = parseInt(speedInput.value)
+            args.onMoveLeft?.(currentSpeed)
+            leftInterval = window.setInterval(() => args.onMoveLeft?.(currentSpeed), 500)
+        }
+        leftButton.onmouseup = () => {
+            clearInterval(leftInterval)
+            args.onReleased?.()
+        }
+        hbuttons.appendChild(leftButton)
 
-		const rightButton = document.createElement("button")
-		rightButton.innerText = "Right"
-		rightButton.style.flexGrow = "1"
-		rightButton.onmousedown = () => args.onMoveRight?.(parseInt(speedInput.value))
-		rightButton.onmouseup = () => args.onReleased?.()
-		hbuttons.appendChild(rightButton)
+        const rightButton = document.createElement("button")
+        rightButton.innerText = "Right"
+        rightButton.style.flexGrow = "1"
+        let rightInterval: number
+        rightButton.onmousedown = () => {
+            const currentSpeed = parseInt(speedInput.value)
+            args.onMoveRight?.(currentSpeed)
+            rightInterval = window.setInterval(() => args.onMoveRight?.(currentSpeed), 500)
+        }
+        rightButton.onmouseup = () => {
+            clearInterval(rightInterval)
+            args.onReleased?.()
+        }
+        hbuttons.appendChild(rightButton)
 
-		const backwardButton = document.createElement("button")
-		backwardButton.innerText = "Backward"
-		backwardButton.onmousedown = () => args.onBackward?.(parseInt(speedInput.value))
-		backwardButton.onmouseup = () => args.onReleased?.()
-		buttons.appendChild(backwardButton)
-	}
+        const backwardButton = document.createElement("button")
+        backwardButton.innerText = "Backward"
+        let backwardInterval: number
+        backwardButton.onmousedown = () => {
+            const currentSpeed = parseInt(speedInput.value)
+            args.onBackward?.(currentSpeed)
+            backwardInterval = window.setInterval(() => args.onBackward?.(currentSpeed), 500)
+        }
+        backwardButton.onmouseup = () => {
+            clearInterval(backwardInterval)
+            args.onReleased?.()
+        }
+        buttons.appendChild(backwardButton)
+    }
 }
 
 export const botPage = (container: Container, botId: string) => {
-	if (!botId) {
-		container.root.innerText = "No bot ID provided"
-		return
-	}
+    if (!botId) {
+        container.root.innerText = "No bot ID provided"
+        return
+    }
 
-	container.clear()
+    container.clear()
 
-	// const motor1 = new MotorController({
-	// 	title: "Motor 1",
-	// 	onForward: (speed) => console.log(`Motor 1 moving forward at speed: ${speed}`),
-	// 	onReleased: () => console.log("Motor 1 released"),
-	// 	onBackward: (speed) => console.log(`Motor 1 moving backward at speed: ${speed}`)
-	// })
-	// const motor2 = new MotorController({
-	// 	title: "Motor 2",
-	// 	onForward: (speed) => console.log(`Motor 2 moving forward at speed: ${speed}`),
-	// 	onReleased: () => console.log("Motor 2 released"),
-	// 	onBackward: (speed) => console.log(`Motor 2 moving backward at speed: ${speed}`)
-	// })
-	// const motor3 = new MotorController({
-	// 	title: "Motor 3",
-	// 	onForward: (speed) => console.log(`Motor 3 moving forward at speed: ${speed}`),
-	// 	onReleased: () => console.log("Motor 3 released"),
-	// 	onBackward: (speed) => console.log(`Motor 3 moving backward at speed: ${speed}`)
-	// })
-	// const motor4 = new MotorController({
-	// 	title: "Motor 4",
-	// 	onForward: (speed) => console.log(`Motor 4 moving forward at speed: ${speed}`),
-	// 	onReleased: () => console.log("Motor 4 released"),
-	// 	onBackward: (speed) => console.log(`Motor 4 moving backward at speed: ${speed}`)
-	// })
+    const div = document.createElement("div")
+    div.innerText = "Disconnected"
+    div.style.color = "red"
+    state.bots.onChange((bots) => {
+        const bot = bots.find((bot) => bot.id === botId)
+        if (bot) {
+            div.innerText = "Connected"
+            div.style.color = "green"
+        } else {
+            div.innerText = "Disconnected"
+            div.style.color = "red"
+        }
+    })
+    container.root.appendChild(div)
 
-	// container.add(motor1)
-	// container.add(motor2)
-	// container.add(motor3)
-	// container.add(motor4)
+    const speed = 80
 
-	const div = document.createElement("div")
-	div.innerText = "Disconnected"
-	div.style.color = "red"
-	state.bots.onChange((bots) => {
-		const bot = bots.find((bot) => bot.id === botId)
-		if (bot) {
-			div.innerText = "Connected"
-			div.style.color = "green"
-		} else {
-			div.innerText = "Disconnected"
-			div.style.color = "red"
+    const moveForward = () => {
+        ws.send({ type: "drive", botId, motorId: 1, speed })
+        ws.send({ type: "drive", botId, motorId: 2, speed })
+        ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 4, speed })
+    }
+
+    const turnLeft = () => {
+        ws.send({ type: "drive", botId, motorId: 1, speed: speed })
+        ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
+    }
+
+    const turnRight = () => {
+        ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 2, speed: speed })
+        ws.send({ type: "drive", botId, motorId: 3, speed: speed })
+        ws.send({ type: "drive", botId, motorId: 4, speed: speed })
+    }
+
+    const moveBackward = () => {
+        ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 3, speed })
+        ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
+    }
+
+    const stopAllMotors = () => {
+        ws.send({ type: "stopAllMotors", botId })
+    }
+
+	let driveIntervals: { [key: string]: number } = {};
+
+	window.onkeydown = (e) => {
+		if (driveIntervals[e.key]) return;
+		if (e.key === "ArrowUp") {
+			moveForward();
+			driveIntervals[e.key] = window.setInterval(moveForward, 100);
+		} else if (e.key === "ArrowDown") {
+			moveBackward();
+			driveIntervals[e.key] = window.setInterval(moveBackward, 100);
+		} else if (e.key === "ArrowLeft") {
+			turnLeft();
+			driveIntervals[e.key] = window.setInterval(turnLeft, 100);
+		} else if (e.key === "ArrowRight") {
+			turnRight();
+			driveIntervals[e.key] = window.setInterval(turnRight, 100);
 		}
-	})
-	container.root.appendChild(div)
+	};
 
-	const speed = 80
+	window.onkeyup = (e) => {
+		if (driveIntervals[e.key]) {
+			clearInterval(driveIntervals[e.key]);
+			driveIntervals[e.key] = undefined;
+			stopAllMotors();
+		}
+	};
 
-	// motor 1 = motorA which is top right
-	// motor 2 = motorB which is top left
-	// motor 3 = motorC which is bottom right
-	// motor 4 = motorD which is bottom left
-
-	const moveForward = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed })
-		ws.send({ type: "drive", botId, motorId: 2, speed })
-		ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 4, speed })
-	}
-
-	const turnLeft = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: speed })
-		ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
-	}
-
-	const turnRight = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 2, speed: speed })
-		ws.send({ type: "drive", botId, motorId: 3, speed: speed })
-		ws.send({ type: "drive", botId, motorId: 4, speed: speed })
-	}
-
-	const moveBackward = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
-		ws.send({ type: "drive", botId, motorId: 3, speed: speed })
-		ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
-	}
-
-	const stopAllMotors = () => {
-		ws.send({ type: "stopAllMotors", botId })
-	}
-
-	const contoller = new FourWheelController({
-		onForward: (speed) => moveForward(),
-		onMoveLeft: (speed) => turnLeft(),
-		onMoveRight: (speed) => turnRight(),
-		onBackward: (speed) => moveBackward(),
-		onReleased: () => stopAllMotors()
-	})
-	container.add(contoller)
+    const contoller = new FourWheelController({
+        onForward: (speed) => moveForward(),
+        onMoveLeft: (speed) => turnLeft(),
+        onMoveRight: (speed) => turnRight(),
+        onBackward: (speed) => moveBackward(),
+        onReleased: () => stopAllMotors()
+    })
+    container.add(contoller)
 }

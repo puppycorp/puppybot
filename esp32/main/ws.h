@@ -1,3 +1,6 @@
+#ifndef WS_H
+#define WS_H
+
 #include "esp_event.h"
 #include "esp_websocket_client.h"
 #include "esp_timer.h"
@@ -26,17 +29,17 @@ void handle_command(CommandPacket *cmd) {
 			esp_timer_stop(safety_timer);
 			esp_timer_start_once(safety_timer, 1000000);
 			if (cmd->cmd.drive_motor.motor_id == 1) {
-				if (cmd->cmd.drive_motor.speed > 0) motorA_forward(cmd->cmd.drive_motor.speed);
-				else motorA_backward(-cmd->cmd.drive_motor.speed);
+				if (cmd->cmd.drive_motor.speed > 0) motorA_forward(200);
+				else motorA_backward(200);
 			} else if (cmd->cmd.drive_motor.motor_id == 2) {
-				if (cmd->cmd.drive_motor.speed > 0) motorB_forward(cmd->cmd.drive_motor.speed);
-				else motorB_backward(-cmd->cmd.drive_motor.speed);
+				if (cmd->cmd.drive_motor.speed > 0) motorB_forward(200);
+				else motorB_backward(200);
 			} else if (cmd->cmd.drive_motor.motor_id == 3) {
-				if (cmd->cmd.drive_motor.speed > 0) motorC_forward(cmd->cmd.drive_motor.speed);
-				else motorC_backward(-cmd->cmd.drive_motor.speed);
+				if (cmd->cmd.drive_motor.speed > 0) motorC_forward(200);
+				else motorC_backward(200);
 			} else if (cmd->cmd.drive_motor.motor_id == 4) {
-				if (cmd->cmd.drive_motor.speed > 0) motorD_forward(cmd->cmd.drive_motor.speed);
-				else motorD_backward(-cmd->cmd.drive_motor.speed);
+				if (cmd->cmd.drive_motor.speed > 0) motorD_forward(200);
+				else motorD_backward(200);
 			} else {
 				ESP_LOGE(TAG, "Invalid motor ID");
 			}
@@ -114,3 +117,5 @@ void websocket_app_start() {
     // Start the safety timer (1 second = 1,000,000 microseconds)
     ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
 }
+
+#endif // WS_H

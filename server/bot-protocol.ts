@@ -90,7 +90,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
 		case "drive": {
 			const commandType = MsgToBotType.DriveMotor
-			const payloadLength = 2
+			const payloadLength = 3
 			const payload = Buffer.alloc(payloadLength)
 			
 			// Set payload fields
