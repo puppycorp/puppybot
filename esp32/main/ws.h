@@ -7,8 +7,6 @@
 #include "../../src/protocol.h"
 #include "motor.h"
 
-#define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
-
 esp_websocket_client_handle_t client;
 esp_timer_handle_t safety_timer;
 
@@ -99,6 +97,11 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t 
 }
 
 void websocket_app_start() {
+	#ifndef SERVER_HOST
+	    ESP_LOGW(TAG, "SERVER_HOST not defined, skipping websocket initialization");
+	    return;
+	#endif
+	#define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
 	ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
     esp_websocket_client_config_t websocket_cfg = {
         .uri = WS_SERVER
