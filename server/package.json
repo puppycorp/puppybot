@@ -8,5 +8,9 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@types/jest": "^29.5.14",
+    "i": "^0.3.7"
   }
 }

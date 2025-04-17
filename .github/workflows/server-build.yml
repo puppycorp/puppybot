@@ -1,0 +1,21 @@
+name: Build server
+
+on:
+    push:
+        branches:
+            - main
+            - dev
+    pull_request:
+        branches:
+            - main
+            - dev
+
+jobs:
+    typecheck:
+        name: Typecheck with Bun
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: oven-sh/setup-bun@v2
+            - run: bun install
+            - run: bunx tsc --noEmit
