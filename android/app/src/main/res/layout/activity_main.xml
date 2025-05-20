@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <Button
+        android:id="@+id/bluetoothBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Bluetooth Control" />
+
+    <Button
+        android:id="@+id/connectServerBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Connect to Server"
+        android:layout_marginTop="16dp" />
+
+    <Button
+        android:id="@+id/hostServerBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Host Server"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>
