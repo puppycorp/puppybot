@@ -104,23 +104,26 @@ void websocket_app_start() {
 	    ESP_LOGW(TAG, "SERVER_HOST not defined, skipping websocket initialization");
 	    return;
 	#endif
-	ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
-    esp_websocket_client_config_t websocket_cfg = {
-        .uri = WS_SERVER
-    };
+	#ifdef SERVER_HOST
+	    ESP_LOGI(TAG, "SERVER_HOST defined, initializing websocket");
+		ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
+		esp_websocket_client_config_t websocket_cfg = {
+			.uri = WS_SERVER
+		};
 
-    client = esp_websocket_client_init(&websocket_cfg);
-    esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
-    esp_websocket_client_start(client);
+		client = esp_websocket_client_init(&websocket_cfg);
+		esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
+		esp_websocket_client_start(client);
 
-    // Create the safety timer
-    const esp_timer_create_args_t safety_timer_args = {
-        .callback = safety_timer_callback,
-        .name = "safety_timer"
-    };
-    ESP_ERROR_CHECK(esp_timer_create(&safety_timer_args, &safety_timer));
-    // Start the safety timer (1 second = 1,000,000 microseconds)
-    ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
+		// Create the safety timer
+		const esp_timer_create_args_t safety_timer_args = {
+			.callback = safety_timer_callback,
+			.name = "safety_timer"
+		};
+		ESP_ERROR_CHECK(esp_timer_create(&safety_timer_args, &safety_timer));
+		// Start the safety timer (1 second = 1,000,000 microseconds)
+		ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
+	#endif
 }
 
 #endif // WS_H

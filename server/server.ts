@@ -112,6 +112,7 @@ Bun.serve<Context, {}>({
 			})
 		},
 		"/api/bot/:id/ws": (req, server) => {
+			console.log("new bot connection")
 			const { id } = req.params as { id: string }
 			if (!id) {
 				return new Response("Bot ID is required", { status: 400 })

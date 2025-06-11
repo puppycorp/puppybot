@@ -160,32 +160,38 @@ export const botPage = (container: Container, botId: string) => {
 
     const speed = 80
 
+	const frontLeftForward = speed
+	const frontRightForward = -speed
+	const backLeftForward = speed
+	const backRightForward = speed
+
     const moveForward = () => {
-        ws.send({ type: "drive", botId, motorId: 1, speed })
-        ws.send({ type: "drive", botId, motorId: 2, speed })
-        ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 4, speed })
+		console.log("moveForward")
+        ws.send({ type: "drive", botId, motorId: 1, speed: frontLeftForward })
+        ws.send({ type: "drive", botId, motorId: 2, speed: frontRightForward })
+        ws.send({ type: "drive", botId, motorId: 3, speed: backLeftForward })
+        ws.send({ type: "drive", botId, motorId: 4, speed: backRightForward })
     }
 
     const turnLeft = () => {
-        ws.send({ type: "drive", botId, motorId: 1, speed: speed })
-        ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 3, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 1, speed: 0 })
+        ws.send({ type: "drive", botId, motorId: 2, speed: frontRightForward })
+        ws.send({ type: "drive", botId, motorId: 3, speed: 0 })
+        ws.send({ type: "drive", botId, motorId: 4, speed: backRightForward })
     }
 
     const turnRight = () => {
-        ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 2, speed: speed })
-        ws.send({ type: "drive", botId, motorId: 3, speed: speed })
-        ws.send({ type: "drive", botId, motorId: 4, speed: speed })
+        ws.send({ type: "drive", botId, motorId: 1, speed: frontLeftForward })
+        ws.send({ type: "drive", botId, motorId: 2, speed: 0 })
+        ws.send({ type: "drive", botId, motorId: 3, speed: backLeftForward })
+        ws.send({ type: "drive", botId, motorId: 4, speed: 0 })
     }
 
     const moveBackward = () => {
-        ws.send({ type: "drive", botId, motorId: 1, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 2, speed: -speed })
-        ws.send({ type: "drive", botId, motorId: 3, speed })
-        ws.send({ type: "drive", botId, motorId: 4, speed: -speed })
+        ws.send({ type: "drive", botId, motorId: 1, speed: -frontLeftForward })
+        ws.send({ type: "drive", botId, motorId: 2, speed: -frontRightForward })
+        ws.send({ type: "drive", botId, motorId: 3, speed: -backLeftForward })
+        ws.send({ type: "drive", botId, motorId: 4, speed: -backRightForward })
     }
 
     const stopAllMotors = () => {
@@ -214,7 +220,7 @@ export const botPage = (container: Container, botId: string) => {
 	window.onkeyup = (e) => {
 		if (driveIntervals[e.key]) {
 			clearInterval(driveIntervals[e.key]);
-			driveIntervals[e.key] = undefined;
+			driveIntervals[e.key] = undefined as any;
 			stopAllMotors();
 		}
 	};
