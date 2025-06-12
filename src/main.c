@@ -33,9 +33,7 @@
 
 #define SEND_INFO 1
 
-
 #define SOFTWARE_UPDATE_ADDR 0x10000
-
 
 int turn_right(int speed) {
 	const int pwm_duty = speed; // Use speed parameter for motor speed
@@ -49,7 +47,7 @@ int turn_right(int speed) {
 	po_pwm_set_duty(1, pwm_duty);
 	po_gpio_write(RIGHT_UP_MOTOR_IN1, 0);
 	po_gpio_write(RIGHT_UP_MOTOR_IN2, 1);
-	
+
 	// Lower motors
 	po_pwm_set_duty(2, pwm_duty);
 	po_gpio_write(LEFT_DOWN_MOTOR_IN1, 1);
@@ -74,7 +72,7 @@ int turn_left(int speed) {
 	po_pwm_set_duty(1, pwm_duty);
 	po_gpio_write(RIGHT_UP_MOTOR_IN1, 1);
 	po_gpio_write(RIGHT_UP_MOTOR_IN2, 0);
-	
+
 	// Lower motors
 	po_pwm_set_duty(2, pwm_duty);
 	po_gpio_write(LEFT_DOWN_MOTOR_IN1, 0);
@@ -83,13 +81,13 @@ int turn_left(int speed) {
 	po_pwm_set_duty(3, pwm_duty);
 	po_gpio_write(RIGHT_DOWN_MOTOR_IN1, 1);
 	po_gpio_write(RIGHT_DOWN_MOTOR_IN2, 0);
-	
+
 	return 0;
 }
 
 int forward(int speed) {
 	const int pwm_duty = speed; // Use speed parameter for motor speed
-	
+
 	// Set left motors forward and right motors forward
 	// Upper motors
 	po_pwm_set_duty(0, pwm_duty);
@@ -114,7 +112,7 @@ int forward(int speed) {
 
 int backward(int speed) {
 	const int pwm_duty = speed; // Use speed parameter for motor speed
-	
+
 	// Set left motors backward and right motors backward
 	// Upper motors
 	po_pwm_set_duty(0, pwm_duty);
@@ -124,7 +122,7 @@ int backward(int speed) {
 	po_pwm_set_duty(1, pwm_duty);
 	po_gpio_write(RIGHT_UP_MOTOR_IN1, 1);
 	po_gpio_write(RIGHT_UP_MOTOR_IN2, 0);
-	
+
 	// Lower motors
 	po_pwm_set_duty(2, pwm_duty);
 	po_gpio_write(LEFT_DOWN_MOTOR_IN1, 0);
@@ -189,45 +187,45 @@ int software_update_size = 0;
 
 void handle_cmd(int cmd, uint8_t *payload, int size) {
 	switch (cmd) {
-		case RECV_CMD_MOVE_FORWARD:
-			uint16_t speed = (uint16_t)payload[0];
-			forward(speed);
-			break;
-		case RECV_CMD_ROTATE_LEFT:
-			uint16_t speed = (uint16_t)payload[0];
-			turn_left(speed);
-			break;
-		case RECV_CMD_ROTATE_RIGHT:
-			uint16_t speed = (uint16_t)payload[0];
-			turn_right(speed);
-			break;
-		case RECV_CMD_MOVE_BACKWARD:
-			uint16_t speed = (uint16_t)payload[0];
-			backward(speed);
-			break;
-		case RECV_CMD_STOP:
-			stop();
-			break;
-		case RECV_REQ_INFO:
-			int temp = po_temp_read();
-			int voltage = po_voltage_read();
-			int cpu_freq = po_cpu_freq_read();
-			int reset_reason = po_get_reset_reason();
-			break;
-		case RECV_SOFTWARE_UPDATE_START:
-			int app_version = (int)payload[0];
-			int update_size = (int)payload[1];
-			software_update_size = update_size;
-			break;
-		case RECV_SOFTWARE_UPDATE_FRAME:
-			memcpy(SOFTWARE_UPDATE_ADDR + software_update_offset, payload, size);
-			software_update_offset += size;
-			if (software_update_offset == software_update_size) {
-				po_restart();
-			}
-			break;
-		default:
-			break;
+	case RECV_CMD_MOVE_FORWARD:
+		uint16_t speed = (uint16_t)payload[0];
+		forward(speed);
+		break;
+	case RECV_CMD_ROTATE_LEFT:
+		uint16_t speed = (uint16_t)payload[0];
+		turn_left(speed);
+		break;
+	case RECV_CMD_ROTATE_RIGHT:
+		uint16_t speed = (uint16_t)payload[0];
+		turn_right(speed);
+		break;
+	case RECV_CMD_MOVE_BACKWARD:
+		uint16_t speed = (uint16_t)payload[0];
+		backward(speed);
+		break;
+	case RECV_CMD_STOP:
+		stop();
+		break;
+	case RECV_REQ_INFO:
+		int temp = po_temp_read();
+		int voltage = po_voltage_read();
+		int cpu_freq = po_cpu_freq_read();
+		int reset_reason = po_get_reset_reason();
+		break;
+	case RECV_SOFTWARE_UPDATE_START:
+		int app_version = (int)payload[0];
+		int update_size = (int)payload[1];
+		software_update_size = update_size;
+		break;
+	case RECV_SOFTWARE_UPDATE_FRAME:
+		memcpy(SOFTWARE_UPDATE_ADDR + software_update_offset, payload, size);
+		software_update_offset += size;
+		if (software_update_offset == software_update_size) {
+			po_restart();
+		}
+		break;
+	default:
+		break;
 	}
 }
 
@@ -241,6 +239,4 @@ void handle_raw_msg(uint8_t *data, int size) {
 	handle_cmd(cmd, data + 2, len - 2);
 }
 
-int main() {
-
-}
+int main() {}
