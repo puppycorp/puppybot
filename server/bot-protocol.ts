@@ -90,16 +90,16 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
 		case "drive": {
 			const commandType = MsgToBotType.DriveMotor
-			const payloadLength = 9
+			const payloadLength = 3
 			const payload = Buffer.alloc(payloadLength)
 			
 			// Set payload fields
-			payload.writeUInt8(0, 0)          // MotorID
-			payload.writeInt8(0, 1)            // type (0 = DC)
-			payload.writeInt8(msg.speed, 2)    // speed
-			payload.writeInt16LE(0, 3)         // steps
-			payload.writeInt16LE(0, 5)         // step_time
-			payload.writeInt16LE(msg.angle, 7) // angle
+			payload.writeUInt8(msg.motorId, 0)          // MotorID
+			payload.writeInt8(msg.speed, 1)            // speed
+			// payload.writeInt8(0, 1)            // type (0 = DC)
+			// payload.writeInt16LE(0, 3)         // steps
+			// payload.writeInt16LE(0, 5)         // step_time
+			// payload.writeInt16LE(msg.angle, 7) // angle
 
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
@@ -115,7 +115,14 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
 		}
-		
+		case "stopAllMotors": {
+			const commandType = MsgToBotType.StopAllMotors
+			const payloadLength = 0
+			const payload = Buffer.alloc(payloadLength)
+
+			const header = createHeader(commandType, payloadLength)
+			return Buffer.concat([header, payload])
+		}
 		case "ping": return createHeader(MsgToBotType.Ping, 0)
 		default:
 			throw new Error("Unknown message type")

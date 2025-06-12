@@ -8,24 +8,26 @@
 // ---------------- GPIO Definitions ----------------
 
 // Motor A GPIOs
-#define IN1_GPIO    GPIO_NUM_5
-#define IN2_GPIO    GPIO_NUM_18
-#define ENA_GPIO    GPIO_NUM_19
+#define IN1_GPIO    GPIO_NUM_25
+#define IN2_GPIO    GPIO_NUM_26
+#define ENA_GPIO    GPIO_NUM_27
 
 // Motor B GPIOs
-#define IN3_GPIO    GPIO_NUM_17
-#define IN4_GPIO    GPIO_NUM_16
-#define ENB_GPIO    GPIO_NUM_4
+#define IN3_GPIO    GPIO_NUM_18
+#define IN4_GPIO    GPIO_NUM_21
+#define ENB_GPIO    GPIO_NUM_19
 
 // Motor C GPIOs
-#define IN5_GPIO    GPIO_NUM_21
-#define IN6_GPIO    GPIO_NUM_22
-#define ENC_GPIO    GPIO_NUM_23
+#define IN5_GPIO    GPIO_NUM_33
+#define IN6_GPIO    GPIO_NUM_13
+#define ENC_GPIO    GPIO_NUM_14
 
 // Motor D GPIOs
-#define IN7_GPIO    GPIO_NUM_25
-#define IN8_GPIO    GPIO_NUM_26
-#define END_GPIO    GPIO_NUM_27
+#define IN7_GPIO    GPIO_NUM_5
+#define IN8_GPIO    GPIO_NUM_17
+#define END_GPIO    GPIO_NUM_16
+
+
 
 // ---------------- PWM Configuration ----------------
 

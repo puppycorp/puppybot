@@ -1,0 +1,35 @@
+name: Build puppybot firmware
+
+on:
+    push: {}
+    pull_request: {}
+
+jobs:
+  build-esp32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache ESP‑IDF
+        uses: actions/cache@v3
+        with:
+          path: /tmp/esp/idf
+          key: ${{ runner.os }}-esp-idf-v5.2.5
+
+      - name: Install ESP‑IDF
+        uses: espressif/install-esp-idf-action@v1
+        with:
+          version: v5.2.5
+
+      - name: Build project
+        working-directory: esp32
+        run: idf.py build
+        #   - name: Upload firmware binaries
+        #     if: success()
+        #     uses: actions/upload-artifact@v3
+        #     with:
+        #       name: esp32-artifacts
+        #       path: |
+        #         esp32/build/puppybot.bin
+        #         esp32/build/puppybot.elf
+        #         esp32/build/puppybot.map

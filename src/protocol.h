@@ -49,12 +49,13 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		break;
 	case CMD_DRIVE_MOTOR:
 		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
-		int motor_id = payload[0];
-		enum MotorType motor_type = (enum MotorType)payload[1];
-		cmd_packet->cmd.drive_motor.speed = payload[2];
-		cmd_packet->cmd.drive_motor.steps = payload[3];
-		cmd_packet->cmd.drive_motor.step_time = payload[5];
-		cmd_packet->cmd.drive_motor.angle = payload[7];
+		cmd_packet->cmd.drive_motor.motor_id = payload[0];
+		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[1];
+		// cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
+		
+		// cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] | (payload[4] << 8));
+		// cmd_packet->cmd.drive_motor.step_time = (int16_t)(payload[5] | (payload[6] << 8));
+		// cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[7] | (payload[8] << 8));
 		break;
 	case CMD_STOP_MOTOR:
 		cmd_packet->cmd_type = CMD_STOP_MOTOR;
@@ -68,20 +69,27 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	}
 }
 
-// typedef struct {
-
-// } 
-
-// void serialize_msg_to_server() {
-
-// }
-
 TEST(parse_cmd_test) {
-	uint8_t data[] = { 0x01, CMD_DRIVE_MOTOR, 0x08, 0x00, 0x01, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06 };
+	uint8_t data[] = {
+	    0x01,            // version
+	    CMD_DRIVE_MOTOR, // command
+	    0x09, 0x00,      // payload length = 9 (LE)
+
+	    // Payload (9 bytes):
+	    0x01,  // motor_id
+	    0x00,  // motor_type (DC_MOTOR)
+	    0x02,  // speed
+	    0x03, 0x00,  // steps = 3
+	    0x05, 0x00,  // step_time = 5
+	    0x07, 0x00   // angle = 7
+	};
+
 	CommandPacket cmd_packet;
 	parse_cmd(data, &cmd_packet);
+
 	ASSERT_EQ(cmd_packet.cmd_type, CMD_DRIVE_MOTOR);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.motor_id, 1);
+	ASSERT_EQ(cmd_packet.cmd.drive_motor.motor_type, DC_MOTOR);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.speed, 2);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.steps, 3);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.step_time, 5);

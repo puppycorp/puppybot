@@ -4,6 +4,7 @@
 #include "wifi.h"
 #include "ws.h"
 #include "motor.h"
+#include "bluetooth.h"
 
 void app_main(void)
 {

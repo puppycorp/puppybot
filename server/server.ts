@@ -65,6 +65,12 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "stopAllMotors": {
+			const conn = ws.data.botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 	}
 }
 
@@ -106,6 +112,7 @@ Bun.serve<Context, {}>({
 			})
 		},
 		"/api/bot/:id/ws": (req, server) => {
+			console.log("new bot connection")
 			const { id } = req.params as { id: string }
 			if (!id) {
 				return new Response("Bot ID is required", { status: 400 })

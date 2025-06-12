@@ -4,12 +4,11 @@ export type Bot = {
 	version: string
 }
 
-type Drive = {
+type DriveMotor = {
 	type: "drive"
 	botId: string
 	motorId: number
-	// speed: number // -100% to 100%
-	// angle: number // Turning angle -100% to 100%
+	speed: number
 }
 
 type Stop = {
@@ -22,7 +21,7 @@ type StopAllMotors = {
 	botId: string
 }
 
-export type MsgToServer = Drive | Stop | StopAllMotors
+export type MsgToServer = DriveMotor | Stop | StopAllMotors
 
 export type BotConnected = {
 	type: "botConnected"
@@ -45,7 +44,7 @@ export type Ping = {
 }
 
 export type MsgToUi = BotConnected | BotDisconnected | BotInfo
-export type MsgToBot = Omit<Drive, "botId"> | Omit<Stop, "botId"> | Ping | StopAllMotors
+export type MsgToBot = Omit<DriveMotor, "botId"> | Omit<Stop, "botId"> | Ping | StopAllMotors
 
 // export type MyInfo = {
 // 	type: "myInfo"
