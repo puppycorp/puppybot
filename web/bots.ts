@@ -1,11 +1,10 @@
-import { state } from "./state";
-import { Table, type Container } from "./ui";
-
+import { state } from "./state"
+import { Table, type Container } from "./ui"
 
 export const botsPage = (container: Container) => {
 	container.clear()
 
-	const table = new Table()	
+	const table = new Table()
 
 	state.bots.onChange((bots) => {
 		table.update({
@@ -13,7 +12,7 @@ export const botsPage = (container: Container) => {
 			rows: bots.map((bot) => [
 				{ href: `/bot/${bot.id}`, value: bot.id },
 				bot.version,
-			])
+			]),
 		})
 	})
 	container.add(table)

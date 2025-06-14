@@ -1,4 +1,3 @@
-
 export type Bot = {
 	id: string
 	version: string
@@ -44,7 +43,11 @@ export type Ping = {
 }
 
 export type MsgToUi = BotConnected | BotDisconnected | BotInfo
-export type MsgToBot = Omit<DriveMotor, "botId"> | Omit<Stop, "botId"> | Ping | StopAllMotors
+export type MsgToBot =
+	| Omit<DriveMotor, "botId">
+	| Omit<Stop, "botId">
+	| Ping
+	| StopAllMotors
 
 // export type MyInfo = {
 // 	type: "myInfo"

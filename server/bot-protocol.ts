@@ -9,7 +9,7 @@ enum MsgToBotType {
 
 export enum MsgFromBotType {
 	Pong = 1,
-	MyInfo = 2
+	MyInfo = 2,
 }
 
 enum InstructionType {
@@ -28,7 +28,7 @@ enum Operator {
 	LessThanOrEqual = 6,
 	And = 7,
 	Or = 8,
-	Forever = 9
+	Forever = 9,
 }
 
 type ConditionFrame = {
@@ -41,7 +41,7 @@ type ConditionFrame = {
 type DoUntilCondition = {
 	type: InstructionType.DoUntil
 	targetId: number
-	instruction: InstructionType.Drive,
+	instruction: InstructionType.Drive
 }
 
 type StopAll = {
@@ -61,30 +61,29 @@ export type MyInfoMsg = {
 
 export type MsgFromBot = PongMsg | MyInfoMsg
 
-const createHeader = (commandType: MsgToBotType, payloadLength: number): Buffer => {
-    const headerLength = 4
-    const headerBuffer = Buffer.alloc(headerLength)
-    // Byte 0: Start Byte (always 0xAA)
-    headerBuffer.writeUInt8(0xAA, 0)
-    // Byte 1: Command Type
-    headerBuffer.writeUInt8(commandType, 1)
-    // Bytes 2-3: Payload length in little-endian
-    headerBuffer.writeUInt16LE(payloadLength, 2)
-    return headerBuffer
+const createHeader = (
+	commandType: MsgToBotType,
+	payloadLength: number,
+): Buffer => {
+	const headerLength = 4
+	const headerBuffer = Buffer.alloc(headerLength)
+	// Byte 0: Start Byte (always 0xAA)
+	headerBuffer.writeUInt8(0xaa, 0)
+	// Byte 1: Command Type
+	headerBuffer.writeUInt8(commandType, 1)
+	// Bytes 2-3: Payload length in little-endian
+	headerBuffer.writeUInt16LE(payloadLength, 2)
+	return headerBuffer
 }
 
-const header = (cmd: Command) => {
-
-}
+const header = (cmd: Command) => {}
 
 type Instruction = {
 	type: InstructionType
 	args: any[]
 }
 
-const block = (instructions: Instruction[]) => {
-	
-}
+const block = (instructions: Instruction[]) => {}
 
 export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
@@ -92,10 +91,10 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const commandType = MsgToBotType.DriveMotor
 			const payloadLength = 3
 			const payload = Buffer.alloc(payloadLength)
-			
+
 			// Set payload fields
-			payload.writeUInt8(msg.motorId, 0)          // MotorID
-			payload.writeInt8(msg.speed, 1)            // speed
+			payload.writeUInt8(msg.motorId, 0) // MotorID
+			payload.writeInt8(msg.speed, 1) // speed
 			// payload.writeInt8(0, 1)            // type (0 = DC)
 			// payload.writeInt16LE(0, 3)         // steps
 			// payload.writeInt16LE(0, 5)         // step_time
@@ -108,7 +107,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const commandType = MsgToBotType.StopMotor
 			const payloadLength = 1
 			const payload = Buffer.alloc(payloadLength)
-			
+
 			// Set payload field for MotorID
 			payload.writeUInt8(0, 0)
 
@@ -123,7 +122,8 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
 		}
-		case "ping": return createHeader(MsgToBotType.Ping, 0)
+		case "ping":
+			return createHeader(MsgToBotType.Ping, 0)
 		default:
 			throw new Error("Unknown message type")
 	}
@@ -136,10 +136,10 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 		case MsgFromBotType.Pong: {
 			return { type: MsgFromBotType.Pong }
 		}
-		case MsgFromBotType.MyInfo: {	
+		case MsgFromBotType.MyInfo: {
 			return {
 				type: MsgFromBotType.MyInfo,
-				version: 1
+				version: 1,
 			}
 		}
 		default:
