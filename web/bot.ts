@@ -170,44 +170,43 @@ export const botPage = (container: Container, botId: string) => {
 	})
 	container.root.appendChild(div)
 
+	// ensure wheels are centered on load
+	ws.send({ type: "turnServo", botId, angle: 90 })
+
 	const speed = 80
 
-	const frontLeftForward = speed
-	const frontRightForward = -speed
-	const backLeftForward = speed
-	const backRightForward = speed
+	const driveLeft = 1
+	const driveRight = 2
+
+	const centerAngle = 90
+	const leftAngle = 60
+	const rightAngle = 120
 
 	const moveForward = () => {
-		console.log("moveForward")
-		ws.send({ type: "drive", botId, motorId: 1, speed: frontLeftForward })
-		ws.send({ type: "drive", botId, motorId: 2, speed: frontRightForward })
-		ws.send({ type: "drive", botId, motorId: 3, speed: backLeftForward })
-		ws.send({ type: "drive", botId, motorId: 4, speed: backRightForward })
-	}
-
-	const turnLeft = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: 0 })
-		ws.send({ type: "drive", botId, motorId: 2, speed: frontRightForward })
-		ws.send({ type: "drive", botId, motorId: 3, speed: 0 })
-		ws.send({ type: "drive", botId, motorId: 4, speed: backRightForward })
-	}
-
-	const turnRight = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: frontLeftForward })
-		ws.send({ type: "drive", botId, motorId: 2, speed: 0 })
-		ws.send({ type: "drive", botId, motorId: 3, speed: backLeftForward })
-		ws.send({ type: "drive", botId, motorId: 4, speed: 0 })
+		ws.send({ type: "drive", botId, motorId: driveLeft, speed: -speed })
+		ws.send({ type: "drive", botId, motorId: driveRight, speed: speed })
 	}
 
 	const moveBackward = () => {
-		ws.send({ type: "drive", botId, motorId: 1, speed: -frontLeftForward })
-		ws.send({ type: "drive", botId, motorId: 2, speed: -frontRightForward })
-		ws.send({ type: "drive", botId, motorId: 3, speed: -backLeftForward })
-		ws.send({ type: "drive", botId, motorId: 4, speed: -backRightForward })
+		ws.send({ type: "drive", botId, motorId: driveLeft, speed: speed })
+		ws.send({ type: "drive", botId, motorId: driveRight, speed: -speed })
+	}
+
+	const turnLeft = () => {
+		ws.send({ type: "turnServo", botId, angle: leftAngle })
+	}
+
+	const turnRight = () => {
+		ws.send({ type: "turnServo", botId, angle: rightAngle })
+	}
+
+	const center = () => {
+		ws.send({ type: "turnServo", botId, angle: centerAngle })
 	}
 
 	const stopAllMotors = () => {
 		ws.send({ type: "stopAllMotors", botId })
+		center()
 	}
 
 	let driveIntervals: { [key: string]: number } = {}
@@ -222,10 +221,8 @@ export const botPage = (container: Container, botId: string) => {
 			driveIntervals[e.key] = window.setInterval(moveBackward, 100)
 		} else if (e.key === "ArrowLeft") {
 			turnLeft()
-			driveIntervals[e.key] = window.setInterval(turnLeft, 100)
 		} else if (e.key === "ArrowRight") {
 			turnRight()
-			driveIntervals[e.key] = window.setInterval(turnRight, 100)
 		}
 	}
 
@@ -234,6 +231,9 @@ export const botPage = (container: Container, botId: string) => {
 			clearInterval(driveIntervals[e.key])
 			driveIntervals[e.key] = undefined as any
 			stopAllMotors()
+		}
+		if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+			center()
 		}
 	}
 

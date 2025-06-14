@@ -75,6 +75,12 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "turnServo": {
+			const conn = ws.data.botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 	}
 }
 
