@@ -1,1 +1,1 @@
-clang-format -i ./src/*.c
+after changes run ./format.sh
