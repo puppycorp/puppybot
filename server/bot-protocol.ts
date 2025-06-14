@@ -1,11 +1,11 @@
 import type { MsgToBot } from "./types"
 
 enum MsgToBotType {
-        Ping = 1,
-        DriveMotor = 2,
-        StopMotor = 3,
-        StopAllMotors = 4,
-        TurnServo = 5,
+	Ping = 1,
+	DriveMotor = 2,
+	StopMotor = 3,
+	StopAllMotors = 4,
+	TurnServo = 5,
 }
 
 export enum MsgFromBotType {
@@ -115,28 +115,29 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
 		}
-                case "stopAllMotors": {
-                        const commandType = MsgToBotType.StopAllMotors
-                        const payloadLength = 0
-                        const payload = Buffer.alloc(payloadLength)
+		case "stopAllMotors": {
+			const commandType = MsgToBotType.StopAllMotors
+			const payloadLength = 0
+			const payload = Buffer.alloc(payloadLength)
 
-                        const header = createHeader(commandType, payloadLength)
-                        return Buffer.concat([header, payload])
-                }
-                case "turnServo": {
-                        const commandType = MsgToBotType.TurnServo
-                        const payloadLength = 2
-                        const payload = Buffer.alloc(payloadLength)
+			const header = createHeader(commandType, payloadLength)
+			return Buffer.concat([header, payload])
+		}
+		case "turnServo": {
+			const commandType = MsgToBotType.TurnServo
+			const payloadLength = 2
+			const payload = Buffer.alloc(payloadLength)
 
-                        payload.writeInt16LE(msg.angle, 0)
+			payload.writeInt16LE(msg.angle, 0)
 
-                        const header = createHeader(commandType, payloadLength)
-                        return Buffer.concat([header, payload])
-                }
-                case "ping": return createHeader(MsgToBotType.Ping, 0)
-                default:
-                        throw new Error("Unknown message type")
-        }
+			const header = createHeader(commandType, payloadLength)
+			return Buffer.concat([header, payload])
+		}
+		case "ping":
+			return createHeader(MsgToBotType.Ping, 0)
+		default:
+			throw new Error("Unknown message type")
+	}
 }
 
 export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
