@@ -1,13 +1,13 @@
 #ifndef WS_H
 #define WS_H
 
-#include "esp_event.h"
-#include "esp_websocket_client.h"
-#include "esp_timer.h"
 #include "../../src/protocol.h"
+#include "esp_event.h"
+#include "esp_timer.h"
+#include "esp_websocket_client.h"
 #include "motor.h"
 #if defined(SERVER_HOST)
-    #define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
+#define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
 #endif
 
 esp_websocket_client_handle_t client;
@@ -65,53 +65,52 @@ void safety_timer_callback(void *arg) {
     motorB_stop();
 }
 
-void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+void websocket_event_handler(void *handler_args, esp_event_base_t base,
+                             int32_t event_id, void *event_data) {
+	esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 
-    switch (event_id) {
-        case WEBSOCKET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "WebSocket connected");
-            break;
-        case WEBSOCKET_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "WebSocket disconnected");
-            break;
-        case WEBSOCKET_EVENT_DATA:
-            ESP_LOGI(TAG, "Received data: %.*s", data->data_len, (char *)data->data_ptr);
-			CommandPacket cmd_packet;
-			parse_cmd((uint8_t *)data->data_ptr, &cmd_packet);
-			handle_command(&cmd_packet);
-            break;
-        case WEBSOCKET_EVENT_ERROR:
-            ESP_LOGE(TAG, "WebSocket error");
-			break;
-    }
+	switch (event_id) {
+	case WEBSOCKET_EVENT_CONNECTED:
+		ESP_LOGI(TAG, "WebSocket connected");
+		break;
+	case WEBSOCKET_EVENT_DISCONNECTED:
+		ESP_LOGI(TAG, "WebSocket disconnected");
+		break;
+	case WEBSOCKET_EVENT_DATA:
+		ESP_LOGI(TAG, "Received data: %.*s", data->data_len,
+		         (char *)data->data_ptr);
+		CommandPacket cmd_packet;
+		parse_cmd((uint8_t *)data->data_ptr, &cmd_packet);
+		handle_command(&cmd_packet);
+		break;
+	case WEBSOCKET_EVENT_ERROR:
+		ESP_LOGE(TAG, "WebSocket error");
+		break;
+	}
 }
 
 void websocket_app_start() {
-	#ifndef SERVER_HOST
-	    ESP_LOGW(TAG, "SERVER_HOST not defined, skipping websocket initialization");
-	    return;
-	#endif
-	#ifdef SERVER_HOST
-	    ESP_LOGI(TAG, "SERVER_HOST defined, initializing websocket");
-		ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
-		esp_websocket_client_config_t websocket_cfg = {
-			.uri = WS_SERVER
-		};
+#ifndef SERVER_HOST
+	ESP_LOGW(TAG, "SERVER_HOST not defined, skipping websocket initialization");
+	return;
+#endif
+#ifdef SERVER_HOST
+	ESP_LOGI(TAG, "SERVER_HOST defined, initializing websocket");
+	ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
+	esp_websocket_client_config_t websocket_cfg = {.uri = WS_SERVER};
 
-		client = esp_websocket_client_init(&websocket_cfg);
-		esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
-		esp_websocket_client_start(client);
+	client = esp_websocket_client_init(&websocket_cfg);
+	esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY,
+	                              websocket_event_handler, NULL);
+	esp_websocket_client_start(client);
 
-		// Create the safety timer
-		const esp_timer_create_args_t safety_timer_args = {
-			.callback = safety_timer_callback,
-			.name = "safety_timer"
-		};
-		ESP_ERROR_CHECK(esp_timer_create(&safety_timer_args, &safety_timer));
-		// Start the safety timer (1 second = 1,000,000 microseconds)
-		ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
-	#endif
+	// Create the safety timer
+	const esp_timer_create_args_t safety_timer_args = {
+	    .callback = safety_timer_callback, .name = "safety_timer"};
+	ESP_ERROR_CHECK(esp_timer_create(&safety_timer_args, &safety_timer));
+	// Start the safety timer (1 second = 1,000,000 microseconds)
+	ESP_ERROR_CHECK(esp_timer_start_once(safety_timer, 1000000));
+#endif
 }
 
 #endif // WS_H

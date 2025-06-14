@@ -4,7 +4,6 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 
-
 // ---------------- GPIO Definitions ----------------
 
 // Left drive motor
@@ -38,6 +37,10 @@
 #define SERVO_DUTY_RES      LEDC_TIMER_16_BIT
 #define SERVO_FREQUENCY     50
 
+#define ENA_CHANNEL LEDC_CHANNEL_0
+#define ENB_CHANNEL LEDC_CHANNEL_1
+#define ENC_CHANNEL LEDC_CHANNEL_2
+#define END_CHANNEL LEDC_CHANNEL_3
 
 // ---------------- GPIO Init ----------------
 
@@ -57,21 +60,28 @@ void motor_gpio_init() {
 // ---------------- PWM Init ----------------
 
 void motor_pwm_init() {
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode = LEDC_MODE,
-        .timer_num = LEDC_TIMER,
-        .duty_resolution = LEDC_DUTY_RES,
-        .freq_hz = LEDC_FREQUENCY,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-    ledc_timer_config(&ledc_timer);
+	ledc_timer_config_t ledc_timer = {.speed_mode = LEDC_MODE,
+	                                  .timer_num = LEDC_TIMER,
+	                                  .duty_resolution = LEDC_DUTY_RES,
+	                                  .freq_hz = LEDC_FREQUENCY,
+	                                  .clk_cfg = LEDC_AUTO_CLK};
+	ledc_timer_config(&ledc_timer);
 
-    ledc_channel_config_t channels[] = {
-        { .speed_mode = LEDC_MODE, .channel = ENA_CHANNEL, .timer_sel = LEDC_TIMER,
-          .intr_type = LEDC_INTR_DISABLE, .gpio_num = ENA_GPIO, .duty = 0, .hpoint = 0 },
+	ledc_channel_config_t channels[] = {{.speed_mode = LEDC_MODE,
+	                                     .channel = ENA_CHANNEL,
+	                                     .timer_sel = LEDC_TIMER,
+	                                     .intr_type = LEDC_INTR_DISABLE,
+	                                     .gpio_num = ENA_GPIO,
+	                                     .duty = 0,
+	                                     .hpoint = 0},
 
-        { .speed_mode = LEDC_MODE, .channel = ENB_CHANNEL, .timer_sel = LEDC_TIMER,
-          .intr_type = LEDC_INTR_DISABLE, .gpio_num = ENB_GPIO, .duty = 0, .hpoint = 0 },
+	                                    {.speed_mode = LEDC_MODE,
+	                                     .channel = ENB_CHANNEL,
+	                                     .timer_sel = LEDC_TIMER,
+	                                     .intr_type = LEDC_INTR_DISABLE,
+	                                     .gpio_num = ENB_GPIO,
+	                                     .duty = 0,
+	                                     .hpoint = 0},
 
     };
 
@@ -101,28 +111,27 @@ void motor_pwm_init() {
     ledc_channel_config(&servo_channel);
 }
 
-
 // ---------------- Motor Control Functions ----------------
 
-#define DEFINE_MOTOR_FUNCTIONS(NAME, INx, INy, CHANNEL) \
-void NAME##_forward(uint8_t speed) { \
-    gpio_set_level(INx, 1); \
-    gpio_set_level(INy, 0); \
-    ledc_set_duty(LEDC_MODE, CHANNEL, speed); \
-    ledc_update_duty(LEDC_MODE, CHANNEL); \
-} \
-void NAME##_backward(uint8_t speed) { \
-    gpio_set_level(INx, 0); \
-    gpio_set_level(INy, 1); \
-    ledc_set_duty(LEDC_MODE, CHANNEL, speed); \
-    ledc_update_duty(LEDC_MODE, CHANNEL); \
-} \
-void NAME##_stop() { \
-    gpio_set_level(INx, 0); \
-    gpio_set_level(INy, 0); \
-    ledc_set_duty(LEDC_MODE, CHANNEL, 0); \
-    ledc_update_duty(LEDC_MODE, CHANNEL); \
-}
+#define DEFINE_MOTOR_FUNCTIONS(NAME, INx, INy, CHANNEL)                        \
+	void NAME##_forward(uint8_t speed) {                                       \
+		gpio_set_level(INx, 1);                                                \
+		gpio_set_level(INy, 0);                                                \
+		ledc_set_duty(LEDC_MODE, CHANNEL, speed);                              \
+		ledc_update_duty(LEDC_MODE, CHANNEL);                                  \
+	}                                                                          \
+	void NAME##_backward(uint8_t speed) {                                      \
+		gpio_set_level(INx, 0);                                                \
+		gpio_set_level(INy, 1);                                                \
+		ledc_set_duty(LEDC_MODE, CHANNEL, speed);                              \
+		ledc_update_duty(LEDC_MODE, CHANNEL);                                  \
+	}                                                                          \
+	void NAME##_stop() {                                                       \
+		gpio_set_level(INx, 0);                                                \
+		gpio_set_level(INy, 0);                                                \
+		ledc_set_duty(LEDC_MODE, CHANNEL, 0);                                  \
+		ledc_update_duty(LEDC_MODE, CHANNEL);                                  \
+	}
 
 // Create functions for each motor
 DEFINE_MOTOR_FUNCTIONS(motorA, IN1_GPIO, IN2_GPIO, ENA_CHANNEL)
