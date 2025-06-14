@@ -47,3 +47,12 @@ All multi-byte fields are little-endian.
 | Field    | Type   | Description                     |
 |----------|--------|---------------------------------|
 | MotorID  | uint8  | Target motor ID                 |
+
+## Android App
+
+A minimal Android application is available in the `android` directory. It provides placeholders to:
+1. Connect directly to the robot over Bluetooth.
+2. Connect to the bundled server.
+3. Host a server on the phone for the bot to connect.
+
+The implementation is currently minimal and only contains stubs.
