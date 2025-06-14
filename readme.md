@@ -36,15 +36,20 @@ All multi-byte fields are little-endian.
 | Field    | Type   | Description                     |
 |----------|--------|---------------------------------|
 | MotorID  | uint8  | Target motor ID                 |
-| type     | int8   | 0 = DC, 1 = Servo               |
-| speed    | int8   | -100% to 100%                     |
+| type     | int8   | 0 = DC                          |
+| speed    | int8   | -100% to 100%                   |
 | steps   | int16  | Number of steps to move         |
-| step_time | int16  | Time to wait between steps (micros) |
-| angle   | int16  | Angle to move (for servos)      |
+| step_time | int16 | Time to wait between steps (micros) |
 
 ### Servo Steering
 
-The ESP32 firmware now supports a steering servo connected to **GPIO13**. Two DC drive motors are still controlled via the L298N driver. Use the `DriveMotor` command with `motor_type` set to `SERVO_MOTOR` and provide an angle (0‑180°) to turn the wheels.
+The ESP32 firmware now supports a steering servo connected to **GPIO13**. Two DC drive motors are still controlled via the L298N driver. Use the new `TURN_SERVO` command to set the wheel angle (0‑180°).
+
+### TURN_SERVO
+
+| Field | Type  | Description                   |
+|-------|-------|-------------------------------|
+| angle | int16 | Angle to set for the servo    |
 
 ### STOP_MOTOR
 

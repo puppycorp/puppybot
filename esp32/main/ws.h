@@ -58,6 +58,10 @@ void handle_command(CommandPacket *cmd) {
 		motorA_stop();
 		motorB_stop();
 		break;
+	case CMD_TURN_SERVO:
+		ESP_LOGI(TAG, "turn servo %d", cmd->cmd.turn_servo.angle);
+		servo_set_angle(cmd->cmd.turn_servo.angle);
+		break;
 	}
 }
 

@@ -5,6 +5,7 @@
 #define CMD_DRIVE_MOTOR 2
 #define CMD_STOP_MOTOR 3
 #define CMD_STOP_ALL_MOTORS 4
+#define CMD_TURN_SERVO 5
 
 #define MSG_TO_SRV_TYPE 0x01
 
@@ -26,9 +27,14 @@ typedef struct {
 	int motor_id;
 } StopMotorCommand;
 
+typedef struct {
+	int angle;
+} TurnServoCommand;
+
 union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
+	TurnServoCommand turn_servo;
 };
 
 typedef struct {
@@ -69,6 +75,11 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	case CMD_STOP_ALL_MOTORS:
 		cmd_packet->cmd_type = CMD_STOP_ALL_MOTORS;
 		break;
+	case CMD_TURN_SERVO:
+		cmd_packet->cmd_type = CMD_TURN_SERVO;
+		cmd_packet->cmd.turn_servo.angle =
+		    (int16_t)(payload[0] | (payload[1] << 8));
+		break;
 	default:
 		break;
 	}
@@ -99,4 +110,20 @@ TEST(parse_cmd_test) {
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.steps, 3);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.step_time, 5);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.angle, 7);
+}
+
+TEST(parse_turn_servo_test) {
+	uint8_t data[] = {
+	    0x01,                       // version
+	    CMD_TURN_SERVO, 0x02, 0x00, // payload length = 2 (LE)
+
+	    // Payload (2 bytes):
+	    0x2D, 0x00 // angle = 45
+	};
+
+	CommandPacket cmd_packet;
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_TURN_SERVO);
+	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
 }
