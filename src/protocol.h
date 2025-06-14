@@ -37,10 +37,10 @@ typedef struct {
 } CommandPacket;
 
 void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
-	int version = data[0];
-	int cmd_type = data[1];
-	int payload_len = data[2];
-	uint8_t *payload = &data[4];
+        int version = data[0];
+        int cmd_type = data[1];
+        int payload_len = data[2] | (data[3] << 8);
+        uint8_t *payload = &data[4];
 
 	switch (cmd_type)
 	{
@@ -48,15 +48,17 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd_type = CMD_PING;
 		break;
 	case CMD_DRIVE_MOTOR:
-		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
-		cmd_packet->cmd.drive_motor.motor_id = payload[0];
-		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[1];
-		// cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
-		
-		// cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] | (payload[4] << 8));
-		// cmd_packet->cmd.drive_motor.step_time = (int16_t)(payload[5] | (payload[6] << 8));
-		// cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[7] | (payload[8] << 8));
-		break;
+                cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
+                cmd_packet->cmd.drive_motor.motor_id = payload[0];
+                cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
+                cmd_packet->cmd.drive_motor.speed = (int8_t)payload[2];
+                if (cmd_packet->cmd.drive_motor.motor_type == SERVO_MOTOR && payload_len >= 5) {
+                        cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[3] | (payload[4] << 8));
+                } else if (payload_len >= 7) {
+                        cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] | (payload[4] << 8));
+                        cmd_packet->cmd.drive_motor.step_time = (int16_t)(payload[5] | (payload[6] << 8));
+                }
+                break;
 	case CMD_STOP_MOTOR:
 		cmd_packet->cmd_type = CMD_STOP_MOTOR;
 		cmd_packet->cmd.stop_motor.motor_id = payload[0];

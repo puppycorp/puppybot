@@ -29,43 +29,33 @@ void handle_command(CommandPacket *cmd) {
 			// Reset the safety timer
 			esp_timer_stop(safety_timer);
 			esp_timer_start_once(safety_timer, 1000000);
-			if (cmd->cmd.drive_motor.motor_id == 1) {
-				if (cmd->cmd.drive_motor.speed > 0) motorA_forward(200);
-				else motorA_backward(200);
-			} else if (cmd->cmd.drive_motor.motor_id == 2) {
-				if (cmd->cmd.drive_motor.speed > 0) motorB_forward(200);
-				else motorB_backward(200);
-			} else if (cmd->cmd.drive_motor.motor_id == 3) {
-				if (cmd->cmd.drive_motor.speed > 0) motorC_forward(200);
-				else motorC_backward(200);
-			} else if (cmd->cmd.drive_motor.motor_id == 4) {
-				if (cmd->cmd.drive_motor.speed > 0) motorD_forward(200);
-				else motorD_backward(200);
-			} else {
-				ESP_LOGE(TAG, "Invalid motor ID");
-			}
+                        if (cmd->cmd.drive_motor.motor_type == SERVO_MOTOR) {
+                                servo_set_angle(cmd->cmd.drive_motor.angle);
+                        } else if (cmd->cmd.drive_motor.motor_id == 1) {
+                                if (cmd->cmd.drive_motor.speed > 0) motorA_forward(200);
+                                else motorA_backward(200);
+                        } else if (cmd->cmd.drive_motor.motor_id == 2) {
+                                if (cmd->cmd.drive_motor.speed > 0) motorB_forward(200);
+                                else motorB_backward(200);
+                        } else {
+                                ESP_LOGE(TAG, "Invalid motor ID");
+                        }
 			break;
 		case CMD_STOP_MOTOR:
 			ESP_LOGI(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
-			if (cmd->cmd.stop_motor.motor_id == 1) {
-				motorA_stop();
-			} else if (cmd->cmd.stop_motor.motor_id == 2) {
-				motorB_stop();
-			} else if (cmd->cmd.stop_motor.motor_id == 3) {
-				motorC_stop();
-			} else if (cmd->cmd.stop_motor.motor_id == 4) {
-				motorD_stop();
-			} else {
-				ESP_LOGE(TAG, "Invalid motor ID");
-			}
+                        if (cmd->cmd.stop_motor.motor_id == 1) {
+                                motorA_stop();
+                        } else if (cmd->cmd.stop_motor.motor_id == 2) {
+                                motorB_stop();
+                        } else {
+                                ESP_LOGE(TAG, "Invalid motor ID");
+                        }
 			break;
 		case CMD_STOP_ALL_MOTORS:
 			ESP_LOGI(TAG, "Stop all motors command received");
-			motorA_stop();
-			motorB_stop();
-			motorC_stop();
-			motorD_stop();
-			break;
+                        motorA_stop();
+                        motorB_stop();
+                        break;
 	}
 }
 
@@ -73,8 +63,6 @@ void safety_timer_callback(void *arg) {
     ESP_LOGW(TAG, "Safety timeout: stopping all motors");
     motorA_stop();
     motorB_stop();
-    motorC_stop();
-    motorD_stop();
 }
 
 void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {

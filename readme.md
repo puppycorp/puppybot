@@ -42,6 +42,10 @@ All multi-byte fields are little-endian.
 | step_time | int16  | Time to wait between steps (micros) |
 | angle   | int16  | Angle to move (for servos)      |
 
+### Servo Steering
+
+The ESP32 firmware now supports a steering servo connected to **GPIO13**. Two DC drive motors are still controlled via the L298N driver. Use the `DriveMotor` command with `motor_type` set to `SERVO_MOTOR` and provide an angle (0‑180°) to turn the wheels.
+
 ### STOP_MOTOR
 
 | Field    | Type   | Description                     |

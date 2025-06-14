@@ -17,10 +17,11 @@ void app_main(void)
 
 	wifi_init_sta();
 
-	motor_gpio_init();
-	motor_pwm_init();
+        motor_gpio_init();
+        motor_pwm_init();
+        servo_set_angle(90); // center wheels
 
-	vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
 
 	websocket_app_start();
 }
