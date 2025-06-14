@@ -1,5 +1,5 @@
-#include <stdint.h>
 #include "test.h"
+#include <stdint.h>
 
 #define CMD_PING 1
 #define CMD_DRIVE_MOTOR 2
@@ -42,8 +42,7 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	int payload_len = data[2];
 	uint8_t *payload = &data[4];
 
-	switch (cmd_type)
-	{
+	switch (cmd_type) {
 	case CMD_PING:
 		cmd_packet->cmd_type = CMD_PING;
 		break;
@@ -52,10 +51,12 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd.drive_motor.motor_id = payload[0];
 		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[1];
 		// cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
-		
-		// cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] | (payload[4] << 8));
-		// cmd_packet->cmd.drive_motor.step_time = (int16_t)(payload[5] | (payload[6] << 8));
-		// cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[7] | (payload[8] << 8));
+
+		// cmd_packet->cmd.drive_motor.steps = (int16_t)(payload[3] |
+		// (payload[4] << 8)); cmd_packet->cmd.drive_motor.step_time =
+		// (int16_t)(payload[5] | (payload[6] << 8));
+		// cmd_packet->cmd.drive_motor.angle = (int16_t)(payload[7] |
+		// (payload[8] << 8));
 		break;
 	case CMD_STOP_MOTOR:
 		cmd_packet->cmd_type = CMD_STOP_MOTOR;
@@ -76,12 +77,12 @@ TEST(parse_cmd_test) {
 	    0x09, 0x00,      // payload length = 9 (LE)
 
 	    // Payload (9 bytes):
-	    0x01,  // motor_id
-	    0x00,  // motor_type (DC_MOTOR)
-	    0x02,  // speed
-	    0x03, 0x00,  // steps = 3
-	    0x05, 0x00,  // step_time = 5
-	    0x07, 0x00   // angle = 7
+	    0x01,       // motor_id
+	    0x00,       // motor_type (DC_MOTOR)
+	    0x02,       // speed
+	    0x03, 0x00, // steps = 3
+	    0x05, 0x00, // step_time = 5
+	    0x07, 0x00  // angle = 7
 	};
 
 	CommandPacket cmd_packet;
