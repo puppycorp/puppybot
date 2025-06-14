@@ -1,0 +1,8 @@
+# .clang-format
+---
+BasedOnStyle: LLVM      # or “Google”, “Chromium”, etc.—pick your favorite fallback
+IndentWidth: 4          # logical indent level (clang-format still needs this even when using tabs)
+TabWidth: 4             # how wide each tab is rendered
+UseTab: ForIndentation  # emit real tabs for leading indentation only
+UseCRLF: false          # false → LF, true → CRLF  (requires clang-format 12+)
+...
