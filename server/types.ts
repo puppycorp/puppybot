@@ -1,4 +1,3 @@
-
 export type Bot = {
 	id: string
 	version: string

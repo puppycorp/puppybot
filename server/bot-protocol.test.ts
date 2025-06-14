@@ -2,11 +2,15 @@ import { encodeBotMsg } from "./bot-protocol"
 import type { MsgToBot } from "./types"
 
 describe("encodeBotMsg", () => {
-    test("encodes a drive message correctly", () => {
-        // Create a drive message with speed and angle values.
-        const driveMsg: MsgToBot = { type: "drive", speed: 10, angle: 45 } as any
+	test("encodes a drive message correctly", () => {
+		// Create a drive message with speed and angle values.
+		const driveMsg: MsgToBot = {
+			type: "drive",
+			speed: 10,
+			angle: 45,
+		} as any
 
-        const buffer = encodeBotMsg(driveMsg)
+		const buffer = encodeBotMsg(driveMsg)
 
         // Expected header:
         //  Byte 0: 0xAA
@@ -26,15 +30,15 @@ describe("encodeBotMsg", () => {
         expectedPayload.writeInt8(10, 1)           // speed
         expectedPayload.writeInt8(0, 2)            // reserved
 
-        const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
-        expect(buffer.equals(expectedBuffer)).toBe(true)
-    })
+		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
+		expect(buffer.equals(expectedBuffer)).toBe(true)
+	})
 
-    test("encodes a stop message correctly", () => {
-        // Create a stop message.
-        const stopMsg: MsgToBot = { type: "stop" } as any
+	test("encodes a stop message correctly", () => {
+		// Create a stop message.
+		const stopMsg: MsgToBot = { type: "stop" } as any
 
-        const buffer = encodeBotMsg(stopMsg)
+		const buffer = encodeBotMsg(stopMsg)
 
         // Expected header:
         //  Byte 0: 0xAA
@@ -42,9 +46,9 @@ describe("encodeBotMsg", () => {
         //  Bytes 2-3: Payload length (1 byte) in little-endian (1, 0)
         const expectedHeader = Buffer.from([0xAA, 3, 1, 0])
 
-        // Expected payload for a stop message is 1 byte:
-        //  Byte 0: MotorID (0)
-        const expectedPayload = Buffer.from([0])
+		// Expected payload for a stop message is 1 byte:
+		//  Byte 0: MotorID (0)
+		const expectedPayload = Buffer.from([0])
 
         const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
         expect(buffer.equals(expectedBuffer)).toBe(true)

@@ -1,0 +1,20 @@
+{
+	"name": "web",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"format": "prettier --write --no-semi ."
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@types/jest": "^29.5.14",
+		"i": "^0.3.7",
+		"prettier": "^3.5.3"
+	}
+}
