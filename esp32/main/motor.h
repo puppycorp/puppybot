@@ -9,12 +9,12 @@
 // Left drive motor
 #define IN1_GPIO GPIO_NUM_25
 #define IN2_GPIO GPIO_NUM_26
-#define ENA_GPIO GPIO_NUM_27
+#define ENA_GPIO GPIO_NUM_33
 
 // Right drive motor
-#define IN3_GPIO GPIO_NUM_18
-#define IN4_GPIO GPIO_NUM_21
-#define ENB_GPIO GPIO_NUM_19
+#define IN3_GPIO GPIO_NUM_27
+#define IN4_GPIO GPIO_NUM_14
+#define ENB_GPIO GPIO_NUM_32
 
 // Servo for steering
 #define SERVO_GPIO GPIO_NUM_13

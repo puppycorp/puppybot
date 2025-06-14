@@ -55,18 +55,18 @@ void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	case CMD_DRIVE_MOTOR:
 		cmd_packet->cmd_type = CMD_DRIVE_MOTOR;
 		cmd_packet->cmd.drive_motor.motor_id = payload[0];
-		cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
-		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[2];
-		if (cmd_packet->cmd.drive_motor.motor_type == SERVO_MOTOR &&
-		    payload_len >= 5) {
-			cmd_packet->cmd.drive_motor.angle =
-			    (int16_t)(payload[3] | (payload[4] << 8));
-		} else if (payload_len >= 7) {
-			cmd_packet->cmd.drive_motor.steps =
-			    (int16_t)(payload[3] | (payload[4] << 8));
-			cmd_packet->cmd.drive_motor.step_time =
-			    (int16_t)(payload[5] | (payload[6] << 8));
-		}
+		// cmd_packet->cmd.drive_motor.motor_type = (enum MotorType)payload[1];
+		cmd_packet->cmd.drive_motor.speed = (int8_t)payload[1];
+		// if (cmd_packet->cmd.drive_motor.motor_type == SERVO_MOTOR &&
+		//     payload_len >= 5) {
+		// 	cmd_packet->cmd.drive_motor.angle =
+		// 	    (int16_t)(payload[3] | (payload[4] << 8));
+		// } else if (payload_len >= 7) {
+		// 	cmd_packet->cmd.drive_motor.steps =
+		// 	    (int16_t)(payload[3] | (payload[4] << 8));
+		// 	cmd_packet->cmd.drive_motor.step_time =
+		// 	    (int16_t)(payload[5] | (payload[6] << 8));
+		// }
 		break;
 	case CMD_STOP_MOTOR:
 		cmd_packet->cmd_type = CMD_STOP_MOTOR;
