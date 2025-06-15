@@ -24,12 +24,12 @@ jobs:
             # - name: Build project
             #   working-directory: esp32
             #   run: idf.py build
-              #   - name: Upload firmware binaries
-              #     if: success()
-              #     uses: actions/upload-artifact@v3
-              #     with:
-              #       name: esp32-artifacts
-              #       path: |
-              #         esp32/build/puppybot.bin
-              #         esp32/build/puppybot.elf
-              #         esp32/build/puppybot.map
+            #   - name: Upload firmware binaries
+            #     if: success()
+            #     uses: actions/upload-artifact@v3
+            #     with:
+            #       name: esp32-artifacts
+            #       path: |
+            #         esp32/build/puppybot.bin
+            #         esp32/build/puppybot.elf
+            #         esp32/build/puppybot.map
