@@ -99,7 +99,8 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
 
 void websocket_app_start() {
 #ifndef SERVER_HOST
-	ESP_LOGW(WS_LOG_TAG, "SERVER_HOST not defined, skipping websocket initialization");
+	ESP_LOGW(WS_LOG_TAG,
+	         "SERVER_HOST not defined, skipping websocket initialization");
 	return;
 #endif
 #ifdef SERVER_HOST
