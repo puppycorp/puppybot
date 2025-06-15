@@ -20,7 +20,13 @@ type StopAllMotors = {
 	botId: string
 }
 
-export type MsgToServer = DriveMotor | Stop | StopAllMotors
+type TurnServo = {
+	type: "turnServo"
+	botId: string
+	angle: number
+}
+
+export type MsgToServer = DriveMotor | Stop | StopAllMotors | TurnServo
 
 export type BotConnected = {
 	type: "botConnected"
@@ -48,6 +54,7 @@ export type MsgToBot =
 	| Omit<Stop, "botId">
 	| Ping
 	| StopAllMotors
+	| Omit<TurnServo, "botId">
 
 // export type MyInfo = {
 // 	type: "myInfo"

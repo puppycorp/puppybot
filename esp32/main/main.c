@@ -19,6 +19,7 @@ void app_main(void) {
 
 	motor_gpio_init();
 	motor_pwm_init();
+	servo_set_angle(95); // center wheels
 
 	vTaskDelay(pdMS_TO_TICKS(5000));
 
