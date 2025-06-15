@@ -42,3 +42,8 @@ workdir
 build
 managed_components
 .env
+
+lib_pickle_dir
+
+design
+node_modules

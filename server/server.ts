@@ -1,8 +1,12 @@
-
 import type { ServerWebSocket } from "bun"
 import index from "../web/index.html"
 import type { MsgToBot, MsgToUi, MsgToServer } from "./types"
-import { decodeBotMsg, encodeBotMsg, MsgFromBotType, type MsgFromBot } from "./bot-protocol"
+import {
+	decodeBotMsg,
+	encodeBotMsg,
+	MsgFromBotType,
+	type MsgFromBot,
+} from "./bot-protocol"
 
 class BotConnection {
 	private ws: ServerWebSocket<Context>
@@ -71,6 +75,12 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "turnServo": {
+			const conn = ws.data.botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 	}
 }
 
@@ -83,12 +93,13 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 				client.send({
 					type: "botInfo",
 					botId: ws.data.botId,
-					version: msg.version + ""
+					version: msg.version + "",
 				})
 			}
 			break
 		}
-		case MsgFromBotType.Pong: break
+		case MsgFromBotType.Pong:
+			break
 		default:
 			throw new Error("Unknown bot message type")
 	}
@@ -108,37 +119,42 @@ Bun.serve<Context, {}>({
 	routes: {
 		"/api/bots": () => {
 			return new Response(JSON.stringify({ bots: [] }), {
-				headers: { "Content-Type": "application/json" }
+				headers: { "Content-Type": "application/json" },
 			})
 		},
 		"/api/bot/:id/ws": (req, server) => {
+			console.log("new bot connection")
 			const { id } = req.params as { id: string }
 			if (!id) {
 				return new Response("Bot ID is required", { status: 400 })
 			}
-			if (server.upgrade(req, {
-				data: {
-					clientType: "bot",
-					botId: id,
-					botConnections
-				}
-			})) {
+			if (
+				server.upgrade(req, {
+					data: {
+						clientType: "bot",
+						botId: id,
+						botConnections,
+					},
+				})
+			) {
 				return
 			}
 			return new Response("Upgrade failed", { status: 500 })
 		},
 		"/api/ws": (req, server) => {
-			if (server.upgrade(req, {
-				data: {
-					clientType: "ui",
-					botConnections
-				}
-			})) {
+			if (
+				server.upgrade(req, {
+					data: {
+						clientType: "ui",
+						botConnections,
+					},
+				})
+			) {
 				return
 			}
 			return new Response("Upgrade failed", { status: 500 })
 		},
-		"/*": index
+		"/*": index,
 	},
 	websocket: {
 		open(ws) {
@@ -149,7 +165,7 @@ Bun.serve<Context, {}>({
 				for (const conn of uiClients.values()) {
 					conn.send({
 						type: "botConnected",
-						botId: ws.data.botId
+						botId: ws.data.botId,
 					})
 				}
 			}
@@ -184,5 +200,5 @@ Bun.serve<Context, {}>({
 			}
 		},
 	},
-	development: true
+	development: true,
 })

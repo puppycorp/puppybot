@@ -1,5 +1,5 @@
-import { state } from "./state";
-import type { MsgToUi, MsgToServer } from "../server/types";
+import { state } from "./state"
+import type { MsgToUi, MsgToServer } from "../server/types"
 
 let wsclient: WebSocket | null = null
 
@@ -11,13 +11,15 @@ const handleMsg = (msg: MsgToUi) => {
 				...state.bots.get(),
 				{
 					id: msg.botId,
-					version: "1"
-				}
+					version: "1",
+				},
 			])
 			break
 		case "botDisconnected":
 			console.log("Bot disconnected:", msg.botId)
-			state.bots.set(state.bots.get().filter(bot => bot.id !== msg.botId))
+			state.bots.set(
+				state.bots.get().filter((bot) => bot.id !== msg.botId),
+			)
 			break
 		default:
 			console.log("Unknown message type:", msg)
@@ -63,5 +65,5 @@ export const ws = {
 		console.log("Sending message:", strMsg)
 		wsclient.send(strMsg)
 		return true
-	}
+	},
 }

@@ -14,7 +14,7 @@ export class NotifyValue<T> {
 
 	set(value: T) {
 		this.value = value
-		this.listeners.forEach(listener => listener(value))
+		this.listeners.forEach((listener) => listener(value))
 	}
 
 	onChange(listener: (value: T) => void) {
@@ -23,5 +23,5 @@ export class NotifyValue<T> {
 }
 
 export const state = {
-	bots: new NotifyValue<Bot[]>([])
+	bots: new NotifyValue<Bot[]>([]),
 }

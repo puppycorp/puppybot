@@ -16,7 +16,7 @@ export function runMigrations() {
 	try {
 		// Get all migration files and sort them in ascending order
 		const migrationFiles = readdirSync(MIGRATIONS_FOLDER)
-			.filter(file => file.endsWith(".sql"))
+			.filter((file) => file.endsWith(".sql"))
 			.sort()
 
 		// Wrap migration execution in a transaction

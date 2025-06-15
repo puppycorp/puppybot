@@ -488,7 +488,7 @@
       "plot": "",
       "pos_files": "",
       "specctra_dsn": "",
-      "step": "",
+      "step": "puppybot.step",
       "svg": "",
       "vrml": ""
     },
@@ -611,6 +611,14 @@
     [
       "e31c32b4-f1e1-48e5-93cb-ea24deebd220",
       "Root"
+    ],
+    [
+      "be8a1816-d7ae-48ee-9a95-4ef7abb77a9d",
+      "Power Regulator"
+    ],
+    [
+      "0aefe90a-4854-49ca-8b73-1d5762d91408",
+      "MotorDrive"
     ]
   ],
   "text_variables": {}
