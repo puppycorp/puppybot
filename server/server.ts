@@ -31,7 +31,7 @@ class BotConnection {
 		clearTimeout(this.pongTimeout)
 		this.pongTimeout = setTimeout(() => {
 			console.log("Ping timeout")
-			this.close()
+			// this.close()
 		}, 15_000)
 	}
 

@@ -7,7 +7,7 @@
 #define CMD_STOP_ALL_MOTORS 4
 #define CMD_TURN_SERVO 5
 
-#define MSG_TO_SRV_TYPE 0x01
+#define MSG_TO_SRV_PONG 0x01
 
 enum MotorType {
 	DC_MOTOR = 0,
@@ -42,7 +42,7 @@ typedef struct {
 	union Command cmd;
 } CommandPacket;
 
-void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
+static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	int version = data[0];
 	int cmd_type = data[1];
 	int payload_len = data[2] | (data[3] << 8);

@@ -178,9 +178,9 @@ export const botPage = (container: Container, botId: string) => {
 	const driveLeft = 1
 	const driveRight = 2
 
-	const centerAngle = 90
-	const leftAngle = 60
-	const rightAngle = 120
+	const centerAngle = 88
+	const leftAngle = 50
+	const rightAngle = 150
 
 	const moveForward = () => {
 		ws.send({ type: "drive", botId, motorId: driveLeft, speed: -speed })
@@ -204,8 +204,14 @@ export const botPage = (container: Container, botId: string) => {
 		ws.send({ type: "turnServo", botId, angle: centerAngle })
 	}
 
-	const stopAllMotors = () => {
+	// stop only drive motors without recentering servo
+	const stopDriveMotors = () => {
 		ws.send({ type: "stopAllMotors", botId })
+	}
+
+	// stop drive motors and recenter servo
+	const stopAllMotors = () => {
+		stopDriveMotors()
 		center()
 	}
 
@@ -227,11 +233,13 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	window.onkeyup = (e) => {
+		// on drive key release, stop drive but keep servo angle
 		if (driveIntervals[e.key]) {
 			clearInterval(driveIntervals[e.key])
 			driveIntervals[e.key] = undefined as any
-			stopAllMotors()
+			stopDriveMotors()
 		}
+		// on steering key release, recenter servo
 		if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
 			center()
 		}

@@ -1,7 +1,12 @@
 # File: esp32/main/CMakeLists.txt
 
+#
+# Collect every .c and .cpp file in this component (recursively)
+#
+file(GLOB_RECURSE COMPONENT_SRCS LIST_DIRECTORIES false "*.c")
+
 idf_component_register(
-    SRCS "main.c"
+    SRCS ${COMPONENT_SRCS}
     INCLUDE_DIRS "."
     REQUIRES
         bt
@@ -10,6 +15,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         esp_timer
+		esp_http_server
         esp_websocket_client
         app_update
         driver

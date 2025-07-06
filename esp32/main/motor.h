@@ -42,7 +42,7 @@
 
 // ---------------- GPIO Init ----------------
 
-void motor_gpio_init() {
+static inline void motor_gpio_init() {
 	gpio_config_t io_conf = {.pin_bit_mask =
 	                             (1ULL << IN1_GPIO) | (1ULL << IN2_GPIO) |
 	                             (1ULL << IN3_GPIO) | (1ULL << IN4_GPIO) |
@@ -56,7 +56,7 @@ void motor_gpio_init() {
 
 // ---------------- PWM Init ----------------
 
-void motor_pwm_init() {
+static inline void motor_pwm_init() {
 	ledc_timer_config_t ledc_timer = {.speed_mode = LEDC_MODE,
 	                                  .timer_num = LEDC_TIMER,
 	                                  .duty_resolution = LEDC_DUTY_RES,
@@ -108,19 +108,19 @@ void motor_pwm_init() {
 // ---------------- Motor Control Functions ----------------
 
 #define DEFINE_MOTOR_FUNCTIONS(NAME, INx, INy, CHANNEL)                        \
-	void NAME##_forward(uint8_t speed) {                                       \
+	static inline void NAME##_forward(uint8_t speed) {                        \
 		gpio_set_level(INx, 1);                                                \
 		gpio_set_level(INy, 0);                                                \
 		ledc_set_duty(LEDC_MODE, CHANNEL, speed);                              \
 		ledc_update_duty(LEDC_MODE, CHANNEL);                                  \
 	}                                                                          \
-	void NAME##_backward(uint8_t speed) {                                      \
+	static inline void NAME##_backward(uint8_t speed) {                       \
 		gpio_set_level(INx, 0);                                                \
 		gpio_set_level(INy, 1);                                                \
 		ledc_set_duty(LEDC_MODE, CHANNEL, speed);                              \
 		ledc_update_duty(LEDC_MODE, CHANNEL);                                  \
 	}                                                                          \
-	void NAME##_stop() {                                                       \
+	static inline void NAME##_stop() {                                        \
 		gpio_set_level(INx, 0);                                                \
 		gpio_set_level(INy, 0);                                                \
 		ledc_set_duty(LEDC_MODE, CHANNEL, 0);                                  \

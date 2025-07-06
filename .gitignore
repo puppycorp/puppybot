@@ -47,3 +47,4 @@ lib_pickle_dir
 
 design
 node_modules
+.gradle
