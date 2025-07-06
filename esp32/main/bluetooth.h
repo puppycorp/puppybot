@@ -124,7 +124,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
 			uint8_t *data = param->write.value;
 			CommandPacket pkt;
 			parse_cmd(data, &pkt);
-			handle_command(&pkt);
+			//handle_command(&pkt);
 		}
 		break;
 	case ESP_GATTS_CONNECT_EVT:
