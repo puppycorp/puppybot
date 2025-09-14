@@ -1,6 +1,7 @@
 export type Bot = {
 	id: string
 	version: string
+	connected: boolean
 }
 
 type DriveMotor = {

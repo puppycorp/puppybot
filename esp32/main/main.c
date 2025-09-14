@@ -51,7 +51,7 @@ void app_main(void) {
 	ESP_ERROR_CHECK(ret);
 
 	wifi_init_sta();
-	//my_mdns_init();
+	my_mdns_init();
 
 	motor_gpio_init();
 	motor_pwm_init();

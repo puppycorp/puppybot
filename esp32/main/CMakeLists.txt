@@ -45,3 +45,8 @@ if(DEFINED ENV{SERVER_HOST})
 	message("Using SERVER_HOST: $ENV{SERVER_HOST}")
 	target_compile_definitions(${COMPONENT_LIB} PRIVATE SERVER_HOST="$ENV{SERVER_HOST}")
 endif()
+
+if(DEFINED ENV{DEVICE_ID})
+    message("Using DEVICE_ID: $ENV{DEVICE_ID}")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE DEVICE_ID="$ENV{DEVICE_ID}")
+endif()

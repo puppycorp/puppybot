@@ -14,7 +14,7 @@ void safety_timer_callback(void *arg) {
 	motorB_stop();
 }
 
-void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t *client) {
+void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 	switch (cmd->cmd_type) {
 	case CMD_PING:
 		ESP_LOGI(TAG, "Ping command received");

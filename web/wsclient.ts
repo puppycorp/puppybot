@@ -7,18 +7,43 @@ const handleMsg = (msg: MsgToUi) => {
 	switch (msg.type) {
 		case "botConnected":
 			console.log("Bot connected:", msg.botId)
-			state.bots.set([
-				...state.bots.get(),
-				{
-					id: msg.botId,
-					version: "1",
-				},
-			])
+			{
+				const bots = state.bots.get()
+				const idx = bots.findIndex((b) => b.id === msg.botId)
+				if (idx >= 0) {
+					const updated = bots.slice()
+					updated[idx] = { ...updated[idx], connected: true }
+					state.bots.set(updated)
+					break
+				}
+				state.bots.set([
+					...bots,
+					{
+						id: msg.botId,
+						version: "",
+						connected: true,
+					},
+				])
+			}
+			break
+		case "botInfo":
+			console.log("Bot info:", msg.botId, msg.version)
+			state.bots.set(
+				state.bots
+					.get()
+					.map((b) =>
+						b.id === msg.botId ? { ...b, version: msg.version } : b,
+					),
+			)
 			break
 		case "botDisconnected":
 			console.log("Bot disconnected:", msg.botId)
 			state.bots.set(
-				state.bots.get().filter((bot) => bot.id !== msg.botId),
+				state.bots
+					.get()
+					.map((b) =>
+						b.id === msg.botId ? { ...b, connected: false } : b,
+					),
 			)
 			break
 		default:

@@ -5,7 +5,7 @@
 
 #include "../../src/protocol.h"
 
-void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t *client);
+void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client);
 void init_command_handler();
 
 #endif // COMMAND_H

@@ -4,7 +4,9 @@
 #include <string.h>
 // #include "wss_server.h"
 
-#if defined(SERVER_HOST)
+#if defined(SERVER_HOST) && defined(DEVICE_ID)
+#define WS_SERVER "ws://" SERVER_HOST "/api/bot/" DEVICE_ID "/ws"
+#elif defined(SERVER_HOST)
 #define WS_SERVER "ws://" SERVER_HOST "/api/bot/1/ws"
 #endif
 
@@ -33,12 +35,13 @@ static void heartbeat_timer_callback(void *arg) {
     if (websocket_connected && client) {
         ESP_LOGI(TAG, "Sending heartbeat ping");
         esp_err_t err = esp_websocket_client_send_text(client, "ping", 4, portMAX_DELAY);
-        if (err != ESP_OK) {
+        ESP_LOGI(TAG, "heartbeat ping result: %s", esp_err_to_name(err));
+        /*if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to send heartbeat: %s", esp_err_to_name(err));
             websocket_connected = false;
             esp_timer_stop(heartbeat_timer);
             websocket_reconnect();
-        }
+        }*/
     }
 }
 
@@ -84,7 +87,7 @@ static esp_err_t ws_httpd_handler(httpd_req_t *req)
         if (ret == ESP_OK) {
             CommandPacket cmd_packet;
             parse_cmd(ws_pkt.payload, &cmd_packet);
-            handle_command(&cmd_packet, &client);
+            handle_command(&cmd_packet, client);
         } else {
             ESP_LOGE(TAG, "Failed to receive binary WS frame: %d", ret);
         }
@@ -118,7 +121,7 @@ static esp_err_t ws_httpd_handler(httpd_req_t *req)
     if (ret == ESP_OK) {
         CommandPacket cmd_packet;
         parse_cmd(ws_pkt.payload, &cmd_packet);
-        handle_command(&cmd_packet, &client);   /* Re‑use existing command handler */
+        handle_command(&cmd_packet, client);   /* Re‑use existing command handler */
     } else {
         ESP_LOGE(TAG, "Failed to receive WS frame: %d", ret);
     }
@@ -177,8 +180,7 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
 		websocket_reconnect();
 		break;
 	case WEBSOCKET_EVENT_DATA:
-		ESP_LOGI(TAG, "Received data: %.*s", data->data_len,
-		         (char *)data->data_ptr);
+		ESP_LOGI(TAG, "Received data: %.*s", data->data_len, (char *)data->data_ptr);
 		// Handle pong responses or ignore ping/pong messages
 		if (data->data_len == 4 && strncmp((char*)data->data_ptr, "pong", 4) == 0) {
 			ESP_LOGI(TAG, "Received heartbeat pong");
@@ -191,7 +193,7 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
 		// Parse and handle command
 		CommandPacket cmd_packet;
 		parse_cmd((uint8_t *)data->data_ptr, &cmd_packet);
-		handle_command(&cmd_packet, &client);
+		handle_command(&cmd_packet, client);
 		break;
 	case WEBSOCKET_EVENT_ERROR:
 		ESP_LOGE(TAG, "WebSocket error");

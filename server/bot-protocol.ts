@@ -141,7 +141,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 }
 
 export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
-	let version = buffer.readUint16LE(0)
+	const version = buffer.readUInt16LE(0)
 	const cmd = buffer.readUInt8(2)
 	switch (cmd) {
 		case MsgFromBotType.Pong: {

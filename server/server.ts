@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun"
 import index from "../web/index.html"
-import type { MsgToBot, MsgToUi, MsgToServer } from "./types"
+import type { MsgToBot, MsgToUi, MsgToServer, Bot } from "./types"
 import {
 	decodeBotMsg,
 	encodeBotMsg,
@@ -15,10 +15,8 @@ class BotConnection {
 	constructor(ws: ServerWebSocket<Context>) {
 		this.ws = ws
 		this.handlePong()
-		this.pingInterval = setInterval(() => {
-			console.log("ping")
-			this.send({ type: "ping" })
-		}, 10_000)
+		// Disable server-initiated binary ping; rely on device heartbeat
+		// If needed later, prefer WebSocket control ping over app-level ping
 	}
 
 	public send(msg: MsgToBot) {
@@ -28,16 +26,18 @@ class BotConnection {
 	}
 
 	public handlePong() {
+		console.log("handlePong")
 		clearTimeout(this.pongTimeout)
 		this.pongTimeout = setTimeout(() => {
 			console.log("Ping timeout")
 			// this.close()
-		}, 15_000)
+		}, 65_000) // allow >2x device heartbeat (30s)
 	}
 
 	public close() {
+		console.log("BotConnection close")
 		clearTimeout(this.pongTimeout)
-		clearInterval(this.pingInterval)
+		if (this.pingInterval) clearInterval(this.pingInterval)
 		this.ws.close()
 	}
 }
@@ -89,6 +89,13 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 	console.log("handleBotMsg", msg)
 	switch (msg.type) {
 		case MsgFromBotType.MyInfo: {
+			// Update known info for this bot
+			connectedBots.set(ws.data.botId, {
+				id: ws.data.botId,
+				version: msg.version + "",
+				connected: true,
+			})
+			logConnectionsTable()
 			for (const client of uiClients.values()) {
 				client.send({
 					type: "botInfo",
@@ -113,12 +120,25 @@ type Context = {
 
 const botConnections = new Map<string, BotConnection>()
 const uiClients = new Map<ServerWebSocket<Context>, UiConnection>()
+// Track currently connected bots and (optionally) latest known info
+const connectedBots = new Map<string, Bot>()
+
+const logConnectionsTable = () => {
+	const bots = Array.from(connectedBots.values()).map((b) => ({
+		id: b.id,
+		state: b.connected ? "connected" : "disconnected",
+		version: b.version || "-",
+	}))
+	console.log(`Connected bots: ${bots.length}`)
+	console.log(`UI clients: ${uiClients.size}`)
+}
 
 Bun.serve<Context, {}>({
 	port: 7775,
 	routes: {
 		"/api/bots": () => {
-			return new Response(JSON.stringify({ bots: [] }), {
+			const bots = Array.from(connectedBots.values())
+			return new Response(JSON.stringify({ bots }), {
 				headers: { "Content-Type": "application/json" },
 			})
 		},
@@ -160,8 +180,24 @@ Bun.serve<Context, {}>({
 		open(ws) {
 			console.log(`${ws.data.clientType} connection opened`)
 			if (ws.data.clientType === "bot") {
+				// If a bot with this ID already exists, close the old connection first
+				const existing = ws.data.botConnections.get(ws.data.botId)
+				if (existing) {
+					try {
+						existing.close()
+					} catch (e) {
+						console.log("Error closing existing bot connection", e)
+					}
+				}
 				const conn = new BotConnection(ws)
 				ws.data.botConnections.set(ws.data.botId, conn)
+				// Remember this bot as connected (version unknown until MyInfo)
+				connectedBots.set(ws.data.botId, {
+					id: ws.data.botId,
+					version: "",
+					connected: true,
+				})
+				logConnectionsTable()
 				for (const conn of uiClients.values()) {
 					conn.send({
 						type: "botConnected",
@@ -172,15 +208,36 @@ Bun.serve<Context, {}>({
 			if (ws.data.clientType === "ui") {
 				const conn = new UiConnection(ws)
 				uiClients.set(ws, conn)
+				logConnectionsTable()
+				// Send current snapshot of connected bots to this UI client
+				for (const bot of connectedBots.values()) {
+					conn.send({ type: "botConnected", botId: bot.id })
+					if (bot.version) {
+						conn.send({
+							type: "botInfo",
+							botId: bot.id,
+							version: bot.version,
+						})
+					}
+				}
 			}
 		},
 		close(ws) {
 			console.log(`${ws.data.clientType} connection closed`)
 			if (ws.data.clientType === "bot") {
 				ws.data.botConnections.delete(ws.data.botId)
+				connectedBots.delete(ws.data.botId)
+				logConnectionsTable()
+				for (const conn of uiClients.values()) {
+					conn.send({
+						type: "botDisconnected",
+						botId: ws.data.botId,
+					})
+				}
 			}
 			if (ws.data.clientType === "ui") {
 				uiClients.delete(ws)
+				logConnectionsTable()
 			}
 		},
 		async message(ws, message) {
@@ -191,8 +248,23 @@ Bun.serve<Context, {}>({
 				}
 
 				if (ws.data.clientType === "bot") {
+					// Bots may send text heartbeats ("ping") or binary frames
+					if (typeof message === "string") {
+						console.log("received bot text message", message)
+						if (message === "ping") {
+							// Treat as liveness signal
+							ws.data.botConnections
+								.get(ws.data.botId)
+								?.handlePong()
+							ws.send("pong")
+						}
+						return
+					}
 					console.log("received bot message", message)
-					const msg = decodeBotMsg(message as Buffer)
+					const binary = Buffer.isBuffer(message)
+						? (message as Buffer)
+						: Buffer.from(message as Uint8Array)
+					const msg = decodeBotMsg(binary)
 					await handleBotMsg(ws, msg)
 				}
 			} catch (error) {
