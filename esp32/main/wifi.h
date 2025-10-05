@@ -77,7 +77,7 @@ void wifi_init_sta() {
 	};
 
 	esp_wifi_set_mode(WIFI_MODE_STA);
-	esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
+	esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
 	esp_wifi_set_ps(WIFI_PS_NONE);
 	esp_wifi_start();
 
@@ -125,7 +125,7 @@ void wifi_init_ap(void) {
 	}
 
 	esp_wifi_set_mode(WIFI_MODE_AP);
-	esp_wifi_set_config(ESP_IF_WIFI_AP, &ap_config);
+	esp_wifi_set_config(WIFI_IF_AP, &ap_config);
 	esp_wifi_start();
 
 	ESP_LOGI(TAG, "🚀 Soft‑AP started. SSID: %s  PASS: %s", WIFI_AP_SSID,
