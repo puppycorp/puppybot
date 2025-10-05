@@ -33,12 +33,12 @@ void my_mdns_init(void) {
     mdns_hostname_set("puppybot_1");        // A/AAAA
     mdns_instance_name_set("PuppyBot");
 
-    // Advertise the WebSocket service:
-    mdns_service_add("ws", "_ws", "_tcp", 80, NULL, 0);    // PTR + SRV
+    // // Advertise the WebSocket service:
+    // mdns_service_add("ws", "_ws", "_tcp", 80, NULL, 0);    // PTR + SRV
 
-    // Optional TXT key=value metadata
-    mdns_service_txt_item_set("_ws", "_tcp", "fw",  "1.3.2");
-    mdns_service_txt_item_set("_ws", "_tcp", "role","gateway");
+    // // Optional TXT key=value metadata
+    // mdns_service_txt_item_set("_ws", "_tcp", "fw",  "1.3.2");
+    // mdns_service_txt_item_set("_ws", "_tcp", "role","gateway");
 }
 
 void app_main(void) {

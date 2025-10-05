@@ -1,6 +1,7 @@
 #include "ws.h"
 #include "esp_log.h"
 #include "esp_websocket_client.h"
+#include <stdlib.h>
 #include <string.h>
 // #include "wss_server.h"
 
@@ -50,83 +51,103 @@ static void heartbeat_timer_callback(void *arg) {
  * -------------------------------------------------------------------------*/
 static esp_err_t ws_httpd_handler(httpd_req_t *req)
 {
-    /* For the initial handshake we only need to return OK */
     if (req->method == HTTP_GET) {
-        ESP_LOGI(TAG, "WebSocket handshake completed");
+        ESP_LOGI(TAG, "WebSocket server handshake completed");
         return ESP_OK;
     }
 
-    /* Prepare to receive the WebSocket frame */
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(ws_pkt));
     ws_pkt.type = HTTPD_WS_TYPE_BINARY;
 
-    /* First call to learn payload length */
     esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get WS frame length: %d", ret);
-        return ret;
-    }
-	ESP_LOGI(TAG, "frame len is %d", ws_pkt.len);
-
-    uint8_t *payload = (uint8_t *)malloc(ws_pkt.len);
-    if (!payload) {
-        ESP_LOGE(TAG, "Out of memory for WS payload");
-        return ESP_ERR_NO_MEM;
-    }
-    ws_pkt.payload = payload;
-
-	if (ws_pkt.type == HTTPD_WS_TYPE_PONG) {
-        free(payload);
-        // return wss_keep_alive_client_is_active(httpd_get_global_user_ctx(req->handle),
-        //         httpd_req_to_sockfd(req));
-		return ESP_OK;
-    } else if (ws_pkt.type == HTTPD_WS_TYPE_BINARY) {
-        // Receive full binary payload and process as command
-        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
-        if (ret == ESP_OK) {
-            CommandPacket cmd_packet;
-            parse_cmd(ws_pkt.payload, &cmd_packet);
-            handle_command(&cmd_packet, client);
-        } else {
-            ESP_LOGE(TAG, "Failed to receive binary WS frame: %d", ret);
-        }
-        free(payload);
-        return ret;
-    } else if (ws_pkt.type == HTTPD_WS_TYPE_TEXT || ws_pkt.type == HTTPD_WS_TYPE_PING || ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
-        if (ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
-            ESP_LOGI(TAG, "Received packet with message: %s", ws_pkt.payload);
-        } else if (ws_pkt.type == HTTPD_WS_TYPE_PING) {
-            // Response PONG packet to peer
-            ESP_LOGI(TAG, "Got a WS PING frame, Replying PONG");
-            ws_pkt.type = HTTPD_WS_TYPE_PONG;
-        } else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
-            // Response CLOSE packet with no payload to peer
-            ws_pkt.len = 0;
-            ws_pkt.payload = NULL;
-        }
-        ret = httpd_ws_send_frame(req, &ws_pkt);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "httpd_ws_send_frame failed with %d", ret);
-        }
-        ESP_LOGI(TAG, "ws_handler: httpd_handle_t=%p, sockfd=%d, client_info:%d", req->handle,
-                 httpd_req_to_sockfd(req), httpd_ws_get_fd_info(req->handle, httpd_req_to_sockfd(req)));
-        free(payload);
+        ESP_LOGE(TAG, "Failed to get WS frame length: %s", esp_err_to_name(ret));
         return ret;
     }
 
+    if (ws_pkt.len > 0) {
+        ws_pkt.payload = (uint8_t *)malloc(ws_pkt.len + 1);
+        if (ws_pkt.payload == NULL) {
+            ESP_LOGE(TAG, "Out of memory for WS payload len=%zu", ws_pkt.len);
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
-    /* Receive the full frame payload */
     ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
-    if (ret == ESP_OK) {
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to receive WS frame: %s", esp_err_to_name(ret));
+        free(ws_pkt.payload);
+        return ret;
+    }
+
+    if (ws_pkt.payload && ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
+        ((uint8_t *)ws_pkt.payload)[ws_pkt.len] = '\0';
+    }
+
+    switch (ws_pkt.type) {
+    case HTTPD_WS_TYPE_BINARY:
+        if (ws_pkt.len < 4) {
+            ESP_LOGW(TAG, "Ignoring short binary frame len=%zu", ws_pkt.len);
+            break;
+        }
+        ESP_LOGI(TAG, "Processing binary frame len=%zu", ws_pkt.len);
         CommandPacket cmd_packet;
         parse_cmd(ws_pkt.payload, &cmd_packet);
-        handle_command(&cmd_packet, client);   /* Re‑use existing command handler */
-    } else {
-        ESP_LOGE(TAG, "Failed to receive WS frame: %d", ret);
+        handle_command(&cmd_packet, NULL);
+
+        if (cmd_packet.cmd_type == CMD_PING) {
+            const uint8_t pong_payload[] = {1, 0, MSG_TO_SRV_PONG};
+            httpd_ws_frame_t pong_frame = {
+                .final = true,
+                .fragmented = false,
+                .type = HTTPD_WS_TYPE_BINARY,
+                .payload = (uint8_t *)pong_payload,
+                .len = sizeof(pong_payload),
+            };
+            ret = httpd_ws_send_frame(req, &pong_frame);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to send protocol pong: %s", esp_err_to_name(ret));
+            }
+        }
+        break;
+    case HTTPD_WS_TYPE_TEXT:
+        ESP_LOGI(TAG, "WS text frame: %s", ws_pkt.payload ? (char *)ws_pkt.payload : "<empty>");
+        break;
+    case HTTPD_WS_TYPE_PING: {
+        ESP_LOGI(TAG, "WS ping frame received, replying pong");
+        httpd_ws_frame_t pong_frame = ws_pkt;
+        pong_frame.type = HTTPD_WS_TYPE_PONG;
+        ret = httpd_ws_send_frame(req, &pong_frame);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to send WS pong: %s", esp_err_to_name(ret));
+        }
+        break;
+    }
+    case HTTPD_WS_TYPE_PONG:
+        ESP_LOGI(TAG, "WS pong frame received");
+        break;
+    case HTTPD_WS_TYPE_CLOSE: {
+        ESP_LOGI(TAG, "WS close frame received, acknowledging");
+        httpd_ws_frame_t close_frame = {
+            .final = true,
+            .fragmented = false,
+            .type = HTTPD_WS_TYPE_CLOSE,
+            .payload = NULL,
+            .len = 0,
+        };
+        ret = httpd_ws_send_frame(req, &close_frame);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to acknowledge close frame: %s", esp_err_to_name(ret));
+        }
+        break;
+    }
+    default:
+        ESP_LOGW(TAG, "Unhandled WS frame type %d", ws_pkt.type);
+        break;
     }
 
-    free(payload);
+    free(ws_pkt.payload);
     return ret;
 }
 
@@ -144,6 +165,11 @@ static const httpd_uri_t ws_uri_handler = {
 /* Start the HTTP‑based WebSocket server */
 static void websocket_server_start(void)
 {
+    if (ws_server != NULL) {
+        ESP_LOGI(TAG, "WebSocket server already running");
+        return;
+    }
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
     esp_err_t ret = httpd_start(&ws_server, &config);
@@ -151,7 +177,8 @@ static void websocket_server_start(void)
         ESP_LOGI(TAG, "WebSocket server started on port %d", config.server_port);
         httpd_register_uri_handler(ws_server, &ws_uri_handler);
     } else {
-        ESP_LOGE(TAG, "Failed to start WebSocket server: %d", ret);
+        ESP_LOGE(TAG, "Failed to start WebSocket server: %s", esp_err_to_name(ret));
+        ws_server = NULL;
     }
 }
 
@@ -229,16 +256,16 @@ void websocket_send_status(void) {
 }
 
 void websocket_app_start() {
+    websocket_server_start();
+
 #ifndef SERVER_HOST
 	ESP_LOGW(TAG,
-	         "SERVER_HOST not defined, skipping websocket initialization");
+	         "SERVER_HOST not defined, skipping outbound websocket initialization");
 	return;
-#endif
-#ifdef SERVER_HOST
+#else
 	ESP_LOGI(TAG, "SERVER_HOST defined, initializing websocket");
 	ESP_LOGI(TAG, "connecting to %s", WS_SERVER);
 	
-	// Create heartbeat timer
 	const esp_timer_create_args_t heartbeat_timer_args = {
 		.callback = heartbeat_timer_callback,
 		.name = "websocket_heartbeat"
@@ -250,8 +277,8 @@ void websocket_app_start() {
 	
 	esp_websocket_client_config_t websocket_cfg = {
 		.uri = WS_SERVER,
-		.reconnect_timeout_ms = 10000,  // 10 second reconnect timeout
-		.network_timeout_ms = 10000,    // 10 second network timeout
+		.reconnect_timeout_ms = 10000,
+		.network_timeout_ms = 10000,
 	};
 
 	client = esp_websocket_client_init(&websocket_cfg);
@@ -259,7 +286,7 @@ void websocket_app_start() {
 		ESP_LOGE(TAG, "Failed to initialize WebSocket client");
 		return;
 	}
-	
+
 	esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY,
 	                              websocket_event_handler, NULL);
 	                              
@@ -268,6 +295,4 @@ void websocket_app_start() {
 		ESP_LOGE(TAG, "Failed to start WebSocket client: %s", esp_err_to_name(ret));
 	}
 #endif
-    /* Always start our built‑in WebSocket server so others can connect */
-    //websocket_server_start();
 }

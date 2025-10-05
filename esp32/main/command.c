@@ -18,9 +18,11 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 	switch (cmd->cmd_type) {
 	case CMD_PING:
 		ESP_LOGI(TAG, "Ping command received");
-		char buff[] = {1, 0, MSG_TO_SRV_PONG};
-		esp_websocket_client_send_bin(client, buff, sizeof(buff),
-		                              portMAX_DELAY);
+		if (client) {
+			char buff[] = {1, 0, MSG_TO_SRV_PONG};
+			esp_websocket_client_send_bin(client, buff, sizeof(buff),
+			                              portMAX_DELAY);
+		}
 		break;
 	case CMD_DRIVE_MOTOR:
 		ESP_LOGI(TAG, "drive motor %d with speed %d",

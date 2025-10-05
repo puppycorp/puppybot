@@ -173,7 +173,7 @@ export const botPage = (container: Container, botId: string) => {
 	// ensure wheels are centered on load
 	ws.send({ type: "turnServo", botId, angle: 90 })
 
-	const speed = 80
+	const speed = -80
 
 	const driveLeft = 1
 	const driveRight = 2
