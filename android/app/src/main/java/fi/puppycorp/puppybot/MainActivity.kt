@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -38,7 +37,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
@@ -427,7 +426,9 @@ private fun VerticalThumbPad(
     val density = LocalDensity.current
     val cornerRadius = with(density) { 24.dp.toPx() }
     val outlineStroke = with(density) { 2.dp.toPx() }
-    val indicatorColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+    val palette = MaterialTheme.colorScheme
+    val indicatorColor = if (active) palette.primary else palette.primary.copy(alpha = 0.6f)
+    val outlineColor = palette.outline
 
     Box(
         modifier = modifier
@@ -435,13 +436,13 @@ private fun VerticalThumbPad(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        val normalized = verticalToNormalized(offset.y, size.height)
+                        val normalized = verticalToNormalized(offset.y, size.height.toFloat())
                         onValueChanged(normalized, true)
                     },
                     onDrag = { change, _ ->
-                        val normalized = verticalToNormalized(change.position.y, size.height)
+                        val normalized = verticalToNormalized(change.position.y, size.height.toFloat())
                         onValueChanged(normalized, true)
-                        change.consume()
+                        change.consumeAllChanges()
                     },
                     onDragEnd = {
                         onValueChanged(0f, false)
@@ -452,9 +453,9 @@ private fun VerticalThumbPad(
                 )
             }
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             drawRoundRect(
-                color = MaterialTheme.colorScheme.outline,
+                color = outlineColor,
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius, cornerRadius),
                 style = Stroke(width = outlineStroke)
             )
@@ -479,7 +480,9 @@ private fun HorizontalThumbPad(
     val density = LocalDensity.current
     val cornerRadius = with(density) { 24.dp.toPx() }
     val outlineStroke = with(density) { 2.dp.toPx() }
-    val indicatorColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+    val palette = MaterialTheme.colorScheme
+    val indicatorColor = if (active) palette.primary else palette.primary.copy(alpha = 0.6f)
+    val outlineColor = palette.outline
 
     Box(
         modifier = modifier
@@ -487,13 +490,13 @@ private fun HorizontalThumbPad(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        val normalized = horizontalToNormalized(offset.x, size.width)
+                        val normalized = horizontalToNormalized(offset.x, size.width.toFloat())
                         onValueChanged(normalized, true)
                     },
                     onDrag = { change, _ ->
-                        val normalized = horizontalToNormalized(change.position.x, size.width)
+                        val normalized = horizontalToNormalized(change.position.x, size.width.toFloat())
                         onValueChanged(normalized, true)
-                        change.consume()
+                        change.consumeAllChanges()
                     },
                     onDragEnd = {
                         onValueChanged(0f, false)
@@ -504,9 +507,9 @@ private fun HorizontalThumbPad(
                 )
             }
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             drawRoundRect(
-                color = MaterialTheme.colorScheme.outline,
+                color = outlineColor,
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius, cornerRadius),
                 style = Stroke(width = outlineStroke)
             )
