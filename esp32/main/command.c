@@ -3,6 +3,7 @@
 #include "motor.h"
 #include "esp_websocket_client.h"
 #include "esp_timer.h"
+#include <stdlib.h>
 
 #define TAG "COMMAND"
 
@@ -12,6 +13,16 @@ void safety_timer_callback(void *arg) {
 	ESP_LOGW(TAG, "Safety timeout: stopping all motors");
 	motorA_stop();
 	motorB_stop();
+}
+
+static uint8_t speed_to_duty(int speed) {
+	int magnitude = abs(speed);
+	if (magnitude > 127) {
+		magnitude = 127;
+	}
+
+	// Map 0..127 -> 0..255 for LEDC 8-bit duty cycle
+	return (uint8_t)((magnitude * 255) / 127);
 }
 
 void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
@@ -34,19 +45,31 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 		}
 		if (cmd->cmd.drive_motor.motor_type == SERVO_MOTOR) {
 			servo_set_angle(cmd->cmd.drive_motor.angle);
-		} else if (cmd->cmd.drive_motor.motor_id == 1) {
-			if (cmd->cmd.drive_motor.speed > 0)
-				motorA_forward(200);
-			else
-				motorA_backward(200);
-		} else if (cmd->cmd.drive_motor.motor_id == 2) {
-			if (cmd->cmd.drive_motor.speed > 0)
-				motorB_forward(200);
-			else
-				motorB_backward(200);
-		} else {
-			ESP_LOGE(TAG, "Invalid motor ID");
+	} else if (cmd->cmd.drive_motor.motor_id == 1) {
+		if (cmd->cmd.drive_motor.speed == 0) {
+			motorA_stop();
+			break;
 		}
+		uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
+		if (cmd->cmd.drive_motor.speed > 0) {
+			motorA_forward(duty);
+		} else {
+			motorA_backward(duty);
+		}
+	} else if (cmd->cmd.drive_motor.motor_id == 2) {
+		if (cmd->cmd.drive_motor.speed == 0) {
+			motorB_stop();
+			break;
+		}
+		uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
+		if (cmd->cmd.drive_motor.speed > 0) {
+			motorB_forward(duty);
+		} else {
+			motorB_backward(duty);
+		}
+	} else {
+		ESP_LOGE(TAG, "Invalid motor ID");
+	}
 		break;
 	case CMD_STOP_MOTOR:
 		ESP_LOGI(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);

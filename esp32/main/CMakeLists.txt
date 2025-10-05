@@ -19,6 +19,8 @@ idf_component_register(
         esp_websocket_client
         app_update
         driver
+        esp_driver_gpio
+        esp_driver_ledc
 )
 
 if(DEFINED ENV{WIFI_SSID})
