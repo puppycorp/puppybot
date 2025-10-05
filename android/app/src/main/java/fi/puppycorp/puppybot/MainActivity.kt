@@ -574,6 +574,7 @@ private fun HoldRepeatButton(
     onRelease: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(isPressed) {
         if (isPressed) {
@@ -593,6 +594,7 @@ private fun HoldRepeatButton(
                 isPressed = false
                 onRelease()
             }
+            activePointerId = null
         }
     }
 
@@ -600,18 +602,32 @@ private fun HoldRepeatButton(
         onClick = {},
         modifier = modifier
             .pointerInteropFilter { event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        isPressed = true
-                        true
+                fun releaseIfActive(): Boolean {
+                    if (isPressed) {
+                        isPressed = false
+                        onRelease()
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (isPressed) {
-                            isPressed = false
-                            onRelease()
+                    activePointerId = null
+                    return true
+                }
+
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                        if (activePointerId == null) {
+                            activePointerId = event.getPointerId(event.actionIndex)
+                            isPressed = true
                         }
                         true
                     }
+                    MotionEvent.ACTION_UP -> releaseIfActive()
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        val pointerId = event.getPointerId(event.actionIndex)
+                        if (pointerId == activePointerId) {
+                            releaseIfActive()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> releaseIfActive()
                     else -> false
                 }
             }
