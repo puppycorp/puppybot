@@ -1,6 +1,7 @@
 package fi.puppycorp.puppybot.ws
 
 import android.util.Log
+import fi.puppycorp.puppybot.control.PuppybotCommandSender
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,7 @@ sealed class WebSocketState(open val device: PuppybotDevice?) {
     data class Connected(override val device: PuppybotDevice, val url: String) : WebSocketState(device)
 }
 
-class PuppybotWebSocket {
+class PuppybotWebSocket : PuppybotCommandSender {
     companion object {
         private const val TAG = "PuppybotWebSocket"
         private const val PROTOCOL_VERSION: Byte = 0x01
@@ -139,7 +140,7 @@ class PuppybotWebSocket {
         webSocket?.let { sendPing(it) }
     }
 
-    fun driveMotor(motorId: Int, speed: Int) {
+    override fun driveMotor(motorId: Int, speed: Int) {
         val payload = byteArrayOf(
             (motorId and 0xFF).toByte(),
             speed.coerceIn(-128, 127).toByte()
@@ -147,15 +148,15 @@ class PuppybotWebSocket {
         sendCommand(CMD_DRIVE_MOTOR, payload)
     }
 
-    fun stopMotor(motorId: Int) {
+    override fun stopMotor(motorId: Int) {
         sendCommand(CMD_STOP_MOTOR, byteArrayOf((motorId and 0xFF).toByte()))
     }
 
-    fun stopAllMotors() {
+    override fun stopAllMotors() {
         sendCommand(CMD_STOP_ALL_MOTORS, byteArrayOf())
     }
 
-    fun turnServo(angle: Int) {
+    override fun turnServo(angle: Int) {
         val sanitized = angle.coerceIn(0, 180)
         val payload = byteArrayOf(
             (sanitized and 0xFF).toByte(),

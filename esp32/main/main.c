@@ -1,6 +1,7 @@
 #include "esp_err.h"
 #include "nvs_flash.h"
 #include "wifi.h"
+#include "bluetooth.h"
 #include "mdns.h"
 #include "ws.h"
 #include "motor.h"
@@ -59,5 +60,6 @@ void app_main(void) {
 	vTaskDelay(pdMS_TO_TICKS(5000));
 
 	init_command_handler();
+	ESP_ERROR_CHECK(bluetooth_app_start());
 	websocket_app_start();
 }

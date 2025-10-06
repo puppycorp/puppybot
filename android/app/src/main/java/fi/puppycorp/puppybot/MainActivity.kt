@@ -1,10 +1,14 @@
 package fi.puppycorp.puppybot
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -43,6 +47,11 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import fi.puppycorp.puppybot.ble.BleState
+import fi.puppycorp.puppybot.ble.PuppybotBleController
+import fi.puppycorp.puppybot.ble.PuppybotBleDevice
+import fi.puppycorp.puppybot.control.PuppybotCommandSender
 import fi.puppycorp.puppybot.mdns.PuppybotMdns
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import fi.puppycorp.puppybot.ui.theme.PuppybotTheme
@@ -55,17 +64,56 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     private lateinit var mdns: PuppybotMdns
     private lateinit var ws: PuppybotWebSocket
+    private lateinit var ble: PuppybotBleController
+
+    private val blePermissions: Array<String>
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+    private val blePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            val granted = result.values.all { it }
+            if (granted) {
+                ble.startScan()
+            }
+        }
+
+    private fun hasBlePermissions(): Boolean {
+        return blePermissions.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun ensureBleScanning() {
+        if (hasBlePermissions()) {
+            ble.startScan()
+        } else {
+            blePermissionLauncher.launch(blePermissions)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         mdns = PuppybotMdns(this)
         ws = PuppybotWebSocket()
+        ble = PuppybotBleController(this)
         setContent {
             PuppybotTheme {
                 val devices by mdns.devices.collectAsState(initial = emptyList())
                 val wsState by ws.state.collectAsState()
-                val lastEvent by ws.events.collectAsState(initial = "")
+                val lastWsEvent by ws.events.collectAsState(initial = "")
+                val bleDevices by ble.devices.collectAsState()
+                val bleState by ble.state.collectAsState()
+                val lastBleEvent by ble.events.collectAsState(initial = "")
+
+                var transportMode by remember { mutableStateOf(TransportMode.Network) }
 
                 LaunchedEffect(devices, wsState) {
                     val first = devices.firstOrNull()
@@ -91,13 +139,55 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                LaunchedEffect(bleState) {
+                    if (bleState is BleState.Connected) {
+                        ble.turnServo(CENTER_ANGLE)
+                    }
+                }
+
+                LaunchedEffect(transportMode, bleDevices, bleState) {
+                    if (transportMode != TransportMode.Bluetooth || !hasBlePermissions()) return@LaunchedEffect
+                    val first = bleDevices.firstOrNull()
+                    if (first == null) {
+                        if (ble.isConnected) {
+                            ble.disconnect("No BLE PuppyBots discovered")
+                        }
+                        return@LaunchedEffect
+                    }
+                    val stateDevice = bleState.device
+                    val alreadyConnecting =
+                        bleState is BleState.Connecting && stateDevice?.address == first.address
+                    val alreadyConnected =
+                        bleState is BleState.Connected && stateDevice?.address == first.address
+                    if (!alreadyConnecting && !alreadyConnected) {
+                        ble.connectTo(first)
+                    }
+                }
+
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     PuppybotScreen(
                         modifier = Modifier.padding(innerPadding),
-                        devices = devices,
+                        networkDevices = devices,
                         wsState = wsState,
-                        lastEvent = lastEvent.takeIf { it.isNotBlank() },
-                        ws = ws
+                        lastWsEvent = lastWsEvent.takeIf { it.isNotBlank() },
+                        networkController = ws,
+                        bleDevices = bleDevices,
+                        bleState = bleState,
+                        lastBleEvent = lastBleEvent.takeIf { it.isNotBlank() },
+                        bleController = ble,
+                        transportMode = transportMode,
+                        onTransportModeChange = { mode ->
+                            transportMode = mode
+                            when (mode) {
+                                TransportMode.Network -> {
+                                    if (hasBlePermissions()) {
+                                        ble.stopScan()
+                                        ble.disconnect("Switched to network")
+                                    }
+                                }
+                                TransportMode.Bluetooth -> ensureBleScanning()
+                            }
+                        }
                     )
                 }
             }
@@ -113,60 +203,125 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         mdns.stop()
         ws.disconnect("Activity stopped")
+        if (hasBlePermissions()) {
+            ble.stopScan()
+            ble.disconnect("Activity stopped")
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         ws.shutdown()
+        ble.shutdown()
     }
 }
 
 @Composable
 private fun PuppybotScreen(
     modifier: Modifier = Modifier,
-    devices: List<PuppybotDevice>,
+    networkDevices: List<PuppybotDevice>,
     wsState: WebSocketState,
-    lastEvent: String?,
-    ws: PuppybotWebSocket
+    lastWsEvent: String?,
+    networkController: PuppybotCommandSender,
+    bleDevices: List<PuppybotBleDevice>,
+    bleState: BleState,
+    lastBleEvent: String?,
+    bleController: PuppybotCommandSender,
+    transportMode: TransportMode,
+    onTransportModeChange: (TransportMode) -> Unit
 ) {
     Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        val stateText = when (wsState) {
-            is WebSocketState.Connected -> "Connected to ${wsState.device?.name}"
-            is WebSocketState.Connecting -> "Connecting to ${wsState.device?.name}..."
-            is WebSocketState.Disconnected -> wsState.reason?.let { reason ->
-                if (wsState.device != null) "Disconnected from ${wsState.device.name}: $reason"
-                else reason
+        TransportToggle(transportMode = transportMode, onTransportModeChange = onTransportModeChange)
+
+        val stateText: String?
+        val lastEvent: String?
+        val deviceSummary: @Composable () -> Unit
+        val controller: PuppybotCommandSender
+        val isConnected: Boolean
+
+        when (transportMode) {
+            TransportMode.Network -> {
+                stateText = when (wsState) {
+                    is WebSocketState.Connected -> "Connected to ${wsState.device?.name}"
+                    is WebSocketState.Connecting -> "Connecting to ${wsState.device?.name}..."
+                    is WebSocketState.Disconnected -> wsState.reason?.let { reason ->
+                        wsState.device?.let { "Disconnected from ${it.name}: $reason" } ?: reason
+                    }
+                }
+                lastEvent = lastWsEvent
+                deviceSummary = {
+                    if (networkDevices.isEmpty()) {
+                        Text("Searching for PuppyBots on _ws._tcp...", style = MaterialTheme.typography.bodyLarge)
+                    } else {
+                        Text("Found ${networkDevices.size} PuppyBot(s) on network:", style = MaterialTheme.typography.titleMedium)
+                        for (d in networkDevices) {
+                            val host = d.host?.hostAddress ?: "?"
+                            val fw = d.attributes["fw"] ?: "?"
+                            Text("• ${d.name} @ $host:${d.port} (fw $fw)")
+                        }
+                    }
+                }
+                controller = networkController
+                isConnected = wsState is WebSocketState.Connected
+            }
+
+            TransportMode.Bluetooth -> {
+                stateText = when (bleState) {
+                    is BleState.Connected -> "Connected to ${bleState.device?.name}"
+                    is BleState.Connecting -> "Connecting to ${bleState.device?.name}..."
+                    is BleState.Disconnected -> bleState.reason?.let { reason ->
+                        bleState.device?.let { "Disconnected from ${it.name}: $reason" } ?: reason
+                    }
+                }
+                lastEvent = lastBleEvent
+                deviceSummary = {
+                    if (bleDevices.isEmpty()) {
+                        Text("Scanning for PuppyBots over BLE...", style = MaterialTheme.typography.bodyLarge)
+                    } else {
+                        Text("Found ${bleDevices.size} PuppyBot(s) over BLE:", style = MaterialTheme.typography.titleMedium)
+                        for (d in bleDevices) {
+                            val rssi = d.rssi?.let { " (RSSI $it dBm)" } ?: ""
+                            Text("• ${d.name} @ ${d.address}$rssi")
+                        }
+                    }
+                }
+                controller = bleController
+                isConnected = bleState is BleState.Connected
             }
         }
 
-        stateText?.let {
-            Text(it, style = MaterialTheme.typography.titleMedium)
-        }
+        stateText?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+        lastEvent?.let { Text("Last event: $it", style = MaterialTheme.typography.bodySmall) }
+        deviceSummary()
 
-        lastEvent?.let {
-            Text("Last event: $it", style = MaterialTheme.typography.bodySmall)
-        }
-
-        if (devices.isEmpty()) {
-            Text("Searching for PuppyBots on _ws._tcp...", style = MaterialTheme.typography.bodyLarge)
-        } else {
-            Text("Found ${devices.size} PuppyBot(s):", style = MaterialTheme.typography.titleMedium)
-            for (d in devices) {
-                val host = d.host?.hostAddress ?: "?"
-                val fw = d.attributes["fw"] ?: "?"
-                Text("• ${d.name} @ $host:${d.port} (fw $fw)")
-            }
-        }
-
-        val connected = wsState is WebSocketState.Connected
-        if (connected) {
-            ControlPanel(ws = ws)
+        if (isConnected) {
+            ControlPanel(controller)
         }
     }
 }
 
 @Composable
-private fun ControlPanel(ws: PuppybotWebSocket) {
+private fun TransportToggle(
+    transportMode: TransportMode,
+    onTransportModeChange: (TransportMode) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ModeSelectionButton(
+            label = "Network",
+            selected = transportMode == TransportMode.Network,
+            onClick = { onTransportModeChange(TransportMode.Network) }
+        )
+
+        ModeSelectionButton(
+            label = "Bluetooth",
+            selected = transportMode == TransportMode.Bluetooth,
+            onClick = { onTransportModeChange(TransportMode.Bluetooth) }
+        )
+    }
+}
+
+@Composable
+private fun ControlPanel(controller: PuppybotCommandSender) {
     var mode by remember { mutableStateOf(ControlMode.Buttons) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -185,14 +340,14 @@ private fun ControlPanel(ws: PuppybotWebSocket) {
         }
 
         when (mode) {
-            ControlMode.Buttons -> ButtonsControlPanel(ws)
-            ControlMode.Joystick -> JoystickControlPanel(ws)
+            ControlMode.Buttons -> ButtonsControlPanel(controller)
+            ControlMode.Joystick -> JoystickControlPanel(controller)
         }
     }
 }
 
 @Composable
-private fun ButtonsControlPanel(ws: PuppybotWebSocket) {
+private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
     var speed by remember { mutableStateOf(DEFAULT_SPEED.toFloat()) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -210,12 +365,12 @@ private fun ButtonsControlPanel(ws: PuppybotWebSocket) {
             modifier = Modifier.fillMaxWidth(),
             onRepeat = {
                 val magnitude = speed.toInt()
-                ws.driveMotor(DRIVE_LEFT, magnitude)
-                ws.driveMotor(DRIVE_RIGHT, -magnitude)
+                controller.driveMotor(DRIVE_LEFT, magnitude)
+                controller.driveMotor(DRIVE_RIGHT, -magnitude)
             },
             onRelease = {
-                ws.stopAllMotors()
-                ws.turnServo(CENTER_ANGLE)
+                controller.stopAllMotors()
+                controller.turnServo(CENTER_ANGLE)
             }
         )
 
@@ -223,14 +378,14 @@ private fun ButtonsControlPanel(ws: PuppybotWebSocket) {
             HoldRepeatButton(
                 label = "Left",
                 modifier = Modifier.weight(1f),
-                onRepeat = { ws.turnServo(LEFT_ANGLE) },
-                onRelease = { ws.turnServo(CENTER_ANGLE) }
+                onRepeat = { controller.turnServo(LEFT_ANGLE) },
+                onRelease = { controller.turnServo(CENTER_ANGLE) }
             )
 
             Button(
                 onClick = {
-                    ws.stopAllMotors()
-                    ws.turnServo(CENTER_ANGLE)
+                    controller.stopAllMotors()
+                    controller.turnServo(CENTER_ANGLE)
                 },
                 modifier = Modifier.weight(1f)
             ) {
@@ -240,8 +395,8 @@ private fun ButtonsControlPanel(ws: PuppybotWebSocket) {
             HoldRepeatButton(
                 label = "Right",
                 modifier = Modifier.weight(1f),
-                onRepeat = { ws.turnServo(RIGHT_ANGLE) },
-                onRelease = { ws.turnServo(CENTER_ANGLE) }
+                onRepeat = { controller.turnServo(RIGHT_ANGLE) },
+                onRelease = { controller.turnServo(CENTER_ANGLE) }
             )
         }
 
@@ -250,19 +405,19 @@ private fun ButtonsControlPanel(ws: PuppybotWebSocket) {
             modifier = Modifier.fillMaxWidth(),
             onRepeat = {
                 val magnitude = speed.toInt()
-                ws.driveMotor(DRIVE_LEFT, -magnitude)
-                ws.driveMotor(DRIVE_RIGHT, magnitude)
+                controller.driveMotor(DRIVE_LEFT, -magnitude)
+                controller.driveMotor(DRIVE_RIGHT, magnitude)
             },
             onRelease = {
-                ws.stopAllMotors()
-                ws.turnServo(CENTER_ANGLE)
+                controller.stopAllMotors()
+                controller.turnServo(CENTER_ANGLE)
             }
         )
 
         OutlinedButton(
             onClick = {
-                ws.stopAllMotors()
-                ws.turnServo(CENTER_ANGLE)
+                controller.stopAllMotors()
+                controller.turnServo(CENTER_ANGLE)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -289,7 +444,7 @@ private fun ModeSelectionButton(label: String, selected: Boolean, onClick: () ->
 }
 
 @Composable
-private fun JoystickControlPanel(ws: PuppybotWebSocket) {
+private fun JoystickControlPanel(controller: PuppybotCommandSender) {
     var throttle by remember { mutableStateOf(0f) }
     var throttleActive by remember { mutableStateOf(false) }
     var steering by remember { mutableStateOf(0f) }
@@ -297,30 +452,30 @@ private fun JoystickControlPanel(ws: PuppybotWebSocket) {
 
     DisposableEffect(Unit) {
         onDispose {
-            ws.stopAllMotors()
-            ws.turnServo(CENTER_ANGLE)
+            controller.stopAllMotors()
+            controller.turnServo(CENTER_ANGLE)
         }
     }
 
     LaunchedEffect(throttleActive, throttle) {
         if (!throttleActive || throttle.absoluteValue < JOYSTICK_DEAD_ZONE) {
-            ws.stopAllMotors()
+            controller.stopAllMotors()
         } else {
             while (true) {
                 val active = throttleActive
                 val value = throttle
                 if (!active || value.absoluteValue < JOYSTICK_DEAD_ZONE) {
-                    ws.stopAllMotors()
+                    controller.stopAllMotors()
                     break
                 }
 
                 val magnitude = throttleToMagnitude(value)
                 if (value > 0f) {
-                    ws.driveMotor(DRIVE_LEFT, magnitude)
-                    ws.driveMotor(DRIVE_RIGHT, -magnitude)
+                    controller.driveMotor(DRIVE_LEFT, magnitude)
+                    controller.driveMotor(DRIVE_RIGHT, -magnitude)
                 } else {
-                    ws.driveMotor(DRIVE_LEFT, -magnitude)
-                    ws.driveMotor(DRIVE_RIGHT, magnitude)
+                    controller.driveMotor(DRIVE_LEFT, -magnitude)
+                    controller.driveMotor(DRIVE_RIGHT, magnitude)
                 }
 
                 delay(JOYSTICK_COMMAND_INTERVAL)
@@ -330,9 +485,9 @@ private fun JoystickControlPanel(ws: PuppybotWebSocket) {
 
     LaunchedEffect(steeringActive, steering) {
         if (!steeringActive || steering.absoluteValue < 0.05f) {
-            ws.turnServo(CENTER_ANGLE)
+            controller.turnServo(CENTER_ANGLE)
         } else {
-            ws.turnServo(servoAngleFromInput(steering))
+            controller.turnServo(servoAngleFromInput(steering))
         }
     }
 
@@ -406,8 +561,8 @@ private fun JoystickControlPanel(ws: PuppybotWebSocket) {
                 throttleActive = false
                 steering = 0f
                 steeringActive = false
-                ws.stopAllMotors()
-                ws.turnServo(CENTER_ANGLE)
+                controller.stopAllMotors()
+                controller.turnServo(CENTER_ANGLE)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -554,6 +709,11 @@ private fun lerpInt(start: Int, stop: Int, fraction: Float): Int {
     return (start + (stop - start) * fraction).roundToInt()
 }
 
+private enum class TransportMode {
+    Network,
+    Bluetooth
+}
+
 private enum class ControlMode {
     Buttons,
     Joystick
@@ -647,13 +807,25 @@ private const val DEFAULT_SPEED = 80
 @Composable
 private fun PuppybotScreenPreview() {
     PuppybotTheme {
+        val stubController = object : PuppybotCommandSender {
+            override fun driveMotor(motorId: Int, speed: Int) {}
+            override fun stopMotor(motorId: Int) {}
+            override fun stopAllMotors() {}
+            override fun turnServo(angle: Int) {}
+        }
         PuppybotScreen(
-            devices = listOf(
+            networkDevices = listOf(
                 PuppybotDevice("puppybot", null, 80)
             ),
             wsState = WebSocketState.Connected(device = PuppybotDevice("puppybot", null, 80), url = "ws://example/ws"),
-            lastEvent = "-> cmd=2 len=2",
-            ws = PuppybotWebSocket()
+            lastWsEvent = "-> cmd=2 len=2",
+            networkController = stubController,
+            bleDevices = emptyList(),
+            bleState = BleState.Disconnected(null),
+            lastBleEvent = null,
+            bleController = stubController,
+            transportMode = TransportMode.Network,
+            onTransportModeChange = {}
         )
     }
 }

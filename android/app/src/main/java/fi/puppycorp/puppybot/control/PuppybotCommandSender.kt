@@ -1,0 +1,8 @@
+package fi.puppycorp.puppybot.control
+
+interface PuppybotCommandSender {
+    fun driveMotor(motorId: Int, speed: Int)
+    fun stopMotor(motorId: Int)
+    fun stopAllMotors()
+    fun turnServo(angle: Int)
+}
