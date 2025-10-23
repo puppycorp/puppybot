@@ -1,5 +1,6 @@
 #define UNIT_TEST
 #include "test.h"
+#include "protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +49,7 @@ void register_test(char *name, TestFunc func) {
 }
 
 int fnmatch(const char *pattern, const char *string, int flags) {
+	(void)flags;
 	if (!pattern || pattern[0] == '\0')
 		return 0;
 	return (strstr(string, pattern) != NULL) ? 0 : 1;
