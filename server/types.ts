@@ -24,6 +24,7 @@ type StopAllMotors = {
 type TurnServo = {
 	type: "turnServo"
 	botId: string
+	servoId: number
 	angle: number
 }
 

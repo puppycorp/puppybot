@@ -1,10 +1,13 @@
-#include "esp_err.h"
-#include "nvs_flash.h"
-#include "wifi.h"
 #include "bluetooth.h"
+#include "esp_err.h"
+#include "esp_log.h"
 #include "mdns.h"
-#include "ws.h"
 #include "motor.h"
+#include "nvs_flash.h"
+#include "variant_config.h"
+#include "wifi.h"
+#include "ws.h"
+#include <stdint.h>
 #include <stdio.h>
 
 void my_mdns_init(void) {
@@ -15,30 +18,33 @@ void my_mdns_init(void) {
 	}
 
 	// Set the hostname and instance name:
-	ret = mdns_hostname_set("puppybot");
+	ret = mdns_hostname_set(PUPPY_HOSTNAME);
 	if (ret != ESP_OK) {
 		ESP_LOGE("MDNS", "Failed to set hostname: %s", esp_err_to_name(ret));
 		return;
 	}
 
-	ret = mdns_instance_name_set("PuppyBot");
+	ret = mdns_instance_name_set(PUPPY_INSTANCE_NAME);
 	if (ret != ESP_OK) {
-		ESP_LOGE("MDNS", "Failed to set instance name: %s", esp_err_to_name(ret));
+		ESP_LOGE("MDNS", "Failed to set instance name: %s",
+		         esp_err_to_name(ret));
 		return;
 	}
 
 	// Add a service:
-	ret = mdns_service_add("puppybot", "_ws", "_tcp", 80, NULL, 0);
+	ret = mdns_service_add(PUPPY_HOSTNAME, "_ws", "_tcp", 80, NULL, 0);
 	ESP_ERROR_CHECK(ret);
-    mdns_hostname_set("puppybot_1");        // A/AAAA
-    mdns_instance_name_set("PuppyBot");
+	char hostname_alias[32];
+	snprintf(hostname_alias, sizeof(hostname_alias), "%s_1", PUPPY_HOSTNAME);
+	mdns_hostname_set(hostname_alias); // A/AAAA
+	mdns_instance_name_set(PUPPY_INSTANCE_NAME);
 
-    // // Advertise the WebSocket service:
-    // mdns_service_add("ws", "_ws", "_tcp", 80, NULL, 0);    // PTR + SRV
+	// // Advertise the WebSocket service:
+	// mdns_service_add("ws", "_ws", "_tcp", 80, NULL, 0);    // PTR + SRV
 
-    // // Optional TXT key=value metadata
-    // mdns_service_txt_item_set("_ws", "_tcp", "fw",  "1.3.2");
-    // mdns_service_txt_item_set("_ws", "_tcp", "role","gateway");
+	// // Optional TXT key=value metadata
+	// mdns_service_txt_item_set("_ws", "_tcp", "fw",  "1.3.2");
+	// mdns_service_txt_item_set("_ws", "_tcp", "role","gateway");
 }
 
 void app_main(void) {
@@ -50,12 +56,16 @@ void app_main(void) {
 	}
 	ESP_ERROR_CHECK(ret);
 
+	ESP_LOGI("MAIN", "Booting %s firmware variant", PUPPY_INSTANCE_NAME);
+
 	wifi_init_sta();
 	my_mdns_init();
 
 	motor_gpio_init();
 	motor_pwm_init();
-	servo_set_angle(88); // center wheels
+	for (uint8_t servo = 0; servo < SERVO_COUNT; ++servo) {
+		servo_set_angle(servo, puppy_servo_boot_angle(servo));
+	}
 
 	vTaskDelay(pdMS_TO_TICKS(5000));
 
