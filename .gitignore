@@ -48,3 +48,4 @@ lib_pickle_dir
 design
 node_modules
 .gradle
+esp32/.cache/
