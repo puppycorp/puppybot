@@ -4,7 +4,8 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"format": "prettier --write --no-semi ."
+		"format": "prettier --write --no-semi .",
+		"start": "bun run ./server/server.ts"
 	},
 	"devDependencies": {
 		"@types/bun": "latest"
