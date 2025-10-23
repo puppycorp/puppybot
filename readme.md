@@ -2,6 +2,29 @@
 
 PuppyBot is a distributed robot platform powered by an ESP32-based body and an AI "brain" running on a PC or phone. The robot executes motor, sensor, and actuator instructions sent in a compact binary protocol designed for real-time performance and parallel task execution.
 
+## Development
+
+**server**
+
+```
+bun install
+bun run start
+```
+
+**esp32**
+
+Requires ESP-idf sdk either install it your self or run
+
+```
+git submodule update --init --recursive
+./deps/espidf/install.sh
+. ./deps/espidf/export.sh
+```
+
+**android**
+
+Open android folder with android studio and run.
+
 ## Features
 
 - Parallel task execution across motors, arms, grippers, and sensors
