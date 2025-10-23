@@ -9,3 +9,8 @@ git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
 cd ~/esp/esp-idf
 ./install.sh esp32
 . $HOME/esp/esp-idf/export.sh
+
+bun install
+
+cd android
+./gradlew assembleDebug
