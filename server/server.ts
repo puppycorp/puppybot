@@ -92,7 +92,8 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 			// Update known info for this bot
 			connectedBots.set(ws.data.botId, {
 				id: ws.data.botId,
-				version: msg.version + "",
+				version: msg.firmwareVersion || "",
+				variant: msg.variant || "",
 				connected: true,
 			})
 			logConnectionsTable()
@@ -100,7 +101,8 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 				client.send({
 					type: "botInfo",
 					botId: ws.data.botId,
-					version: msg.version + "",
+					version: msg.firmwareVersion || "",
+					variant: msg.variant || "",
 				})
 			}
 			break
@@ -128,6 +130,7 @@ const logConnectionsTable = () => {
 		id: b.id,
 		state: b.connected ? "connected" : "disconnected",
 		version: b.version || "-",
+		variant: b.variant || "-",
 	}))
 	console.log(`Connected bots: ${bots.length}`)
 	console.log(`UI clients: ${uiClients.size}`)
@@ -195,6 +198,7 @@ Bun.serve<Context, {}>({
 				connectedBots.set(ws.data.botId, {
 					id: ws.data.botId,
 					version: "",
+					variant: "",
 					connected: true,
 				})
 				logConnectionsTable()
@@ -212,11 +216,12 @@ Bun.serve<Context, {}>({
 				// Send current snapshot of connected bots to this UI client
 				for (const bot of connectedBots.values()) {
 					conn.send({ type: "botConnected", botId: bot.id })
-					if (bot.version) {
+					if (bot.version || bot.variant) {
 						conn.send({
 							type: "botInfo",
 							botId: bot.id,
 							version: bot.version,
+							variant: bot.variant,
 						})
 					}
 				}

@@ -1,3 +1,6 @@
+#ifndef PROTOCOL_H
+#define PROTOCOL_H
+
 #include "test.h"
 #include <stdint.h>
 
@@ -8,6 +11,9 @@
 #define CMD_TURN_SERVO 5
 
 #define MSG_TO_SRV_PONG 0x01
+#define MSG_TO_SRV_MY_INFO 0x02
+
+#define PUPPY_PROTOCOL_VERSION 1
 
 enum MotorType {
 	DC_MOTOR = 0,
@@ -133,3 +139,5 @@ TEST(parse_turn_servo_test) {
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.servo_id, 2);
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
 }
+
+#endif // PROTOCOL_H

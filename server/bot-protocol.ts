@@ -53,11 +53,14 @@ type Command = StopAll
 
 export type PongMsg = {
 	type: MsgFromBotType.Pong
+	protocolVersion: number
 }
 
 export type MyInfoMsg = {
 	type: MsgFromBotType.MyInfo
-	version: number
+	protocolVersion: number
+	firmwareVersion: string
+	variant: string
 }
 
 export type MsgFromBot = PongMsg | MyInfoMsg
@@ -142,16 +145,37 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 }
 
 export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
-	const version = buffer.readUInt16LE(0)
+	if (buffer.length < 3) {
+		throw new Error("Invalid message from bot: too short")
+	}
+	const protocolVersion = buffer.readUInt16LE(0)
 	const cmd = buffer.readUInt8(2)
 	switch (cmd) {
 		case MsgFromBotType.Pong: {
-			return { type: MsgFromBotType.Pong }
+			return { type: MsgFromBotType.Pong, protocolVersion }
 		}
 		case MsgFromBotType.MyInfo: {
+			let offset = 3
+			const readString = () => {
+				if (offset >= buffer.length) return ""
+				const length = buffer.readUInt8(offset)
+				offset += 1
+				const available = Math.min(length, buffer.length - offset)
+				const value = buffer
+					.subarray(offset, offset + available)
+					.toString("utf8")
+				offset += available
+				return value
+			}
+
+			const firmwareVersion = readString()
+			const variant = readString()
+
 			return {
 				type: MsgFromBotType.MyInfo,
-				version: 1,
+				protocolVersion,
+				firmwareVersion,
+				variant,
 			}
 		}
 		default:

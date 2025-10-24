@@ -1,6 +1,7 @@
 export type Bot = {
 	id: string
 	version: string
+	variant: string
 	connected: boolean
 }
 
@@ -44,6 +45,7 @@ export type BotInfo = {
 	type: "botInfo"
 	botId: string
 	version: string
+	variant: string
 }
 
 export type Ping = {

@@ -1,4 +1,4 @@
-import { encodeBotMsg } from "./bot-protocol"
+import { decodeBotMsg, encodeBotMsg, MsgFromBotType } from "./bot-protocol"
 import type { MsgToBot } from "./types"
 
 describe("encodeBotMsg", () => {
@@ -69,5 +69,29 @@ describe("encodeBotMsg", () => {
 		expectedPayload.writeInt16LE(45, 1)
 		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
 		expect(buffer.equals(expectedBuffer)).toBe(true)
+	})
+
+	test("decodes a MyInfo message with version and variant", () => {
+		const version = "3.2.1"
+		const variant = "PuppyBot"
+		const buffer = Buffer.alloc(3 + 1 + version.length + 1 + variant.length)
+		buffer.writeUInt16LE(1, 0)
+		buffer.writeUInt8(MsgFromBotType.MyInfo, 2)
+		let offset = 3
+		buffer.writeUInt8(version.length, offset)
+		offset += 1
+		buffer.write(version, offset)
+		offset += version.length
+		buffer.writeUInt8(variant.length, offset)
+		offset += 1
+		buffer.write(variant, offset)
+
+		const msg = decodeBotMsg(buffer)
+		expect(msg).toEqual({
+			type: MsgFromBotType.MyInfo,
+			protocolVersion: 1,
+			firmwareVersion: version,
+			variant,
+		})
 	})
 })

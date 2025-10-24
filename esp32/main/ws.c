@@ -1,5 +1,7 @@
 #include "ws.h"
+#include "../../src/protocol.h"
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "esp_websocket_client.h"
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +20,56 @@ static bool websocket_connected = false;
 
 #define TAG "WEBSOCKET"
 #define HEARTBEAT_INTERVAL_MS 30000  // 30 seconds
+
+static void websocket_send_my_info(void) {
+        if (!client) {
+                return;
+        }
+
+        const esp_app_desc_t *app_desc = esp_app_get_description();
+        const char *fw_version = app_desc ? app_desc->version : "unknown";
+        const char *variant = PUPPY_INSTANCE_NAME;
+
+        size_t version_len = strlen(fw_version);
+        if (version_len > 255) {
+                version_len = 255;
+        }
+        size_t variant_len = strlen(variant);
+        if (variant_len > 255) {
+                variant_len = 255;
+        }
+
+        const size_t total_len = 3 + 1 + version_len + 1 + variant_len;
+        uint8_t *payload = (uint8_t *)malloc(total_len);
+        if (!payload) {
+                ESP_LOGE(TAG, "Failed to allocate buffer for MyInfo message");
+                return;
+        }
+
+        size_t offset = 0;
+        payload[offset++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+        payload[offset++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+        payload[offset++] = MSG_TO_SRV_MY_INFO;
+        payload[offset++] = (uint8_t)version_len;
+        memcpy(&payload[offset], fw_version, version_len);
+        offset += version_len;
+        payload[offset++] = (uint8_t)variant_len;
+        memcpy(&payload[offset], variant, variant_len);
+        offset += variant_len;
+
+        esp_err_t err = esp_websocket_client_send_bin(
+                client,
+                (const char *)payload,
+                offset,
+                portMAX_DELAY);
+        if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to send MyInfo message: %s", esp_err_to_name(err));
+        } else {
+                ESP_LOGI(TAG, "Sent MyInfo (fw=%.*s, variant=%.*s)", (int)version_len, fw_version, (int)variant_len, variant);
+        }
+
+        free(payload);
+}
 
 /* ---------------------------------------------------------------------------
  * WebSocket client heartbeat and reconnection logic
@@ -186,15 +238,16 @@ void websocket_event_handler(void *handler_args, esp_event_base_t base,
                              int32_t event_id, void *event_data) {
 	esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 
-	switch (event_id) {
-	case WEBSOCKET_EVENT_CONNECTED:
-		ESP_LOGI(TAG, "WebSocket connected");
-		websocket_connected = true;
-		// Start heartbeat timer
-		if (heartbeat_timer) {
-			esp_timer_start_periodic(heartbeat_timer, HEARTBEAT_INTERVAL_MS * 1000);
-		}
-		break;
+        switch (event_id) {
+        case WEBSOCKET_EVENT_CONNECTED:
+                ESP_LOGI(TAG, "WebSocket connected");
+                websocket_connected = true;
+                websocket_send_my_info();
+                // Start heartbeat timer
+                if (heartbeat_timer) {
+                        esp_timer_start_periodic(heartbeat_timer, HEARTBEAT_INTERVAL_MS * 1000);
+                }
+                break;
 	case WEBSOCKET_EVENT_DISCONNECTED:
 		ESP_LOGI(TAG, "WebSocket disconnected");
 		websocket_connected = false;

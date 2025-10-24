@@ -8,11 +8,12 @@ export const botsPage = (container: Container) => {
 
 	state.bots.onChange((bots) => {
 		table.update({
-			headers: ["ID", "State", "Version"],
+			headers: ["ID", "State", "Version", "Variant"],
 			rows: bots.map((bot) => [
 				{ href: `/bot/${bot.id}`, value: bot.id },
 				bot.connected ? "Connected" : "Disconnected",
-				bot.version,
+				bot.version || "-",
+				bot.variant || "-",
 			]),
 		})
 	})

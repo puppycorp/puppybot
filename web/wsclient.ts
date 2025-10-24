@@ -21,19 +21,24 @@ const handleMsg = (msg: MsgToUi) => {
 					{
 						id: msg.botId,
 						version: "",
+						variant: "",
 						connected: true,
 					},
 				])
 			}
 			break
 		case "botInfo":
-			console.log("Bot info:", msg.botId, msg.version)
+			console.log("Bot info:", msg.botId, msg.version, msg.variant)
 			state.bots.set(
-				state.bots
-					.get()
-					.map((b) =>
-						b.id === msg.botId ? { ...b, version: msg.version } : b,
-					),
+				state.bots.get().map((b) =>
+					b.id === msg.botId
+						? {
+								...b,
+								version: msg.version,
+								variant: msg.variant,
+							}
+						: b,
+				),
 			)
 			break
 		case "botDisconnected":

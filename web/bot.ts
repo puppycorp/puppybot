@@ -155,20 +155,34 @@ export const botPage = (container: Container, botId: string) => {
 
 	container.clear()
 
-	const div = document.createElement("div")
-	div.innerText = "Disconnected"
-	div.style.color = "red"
+	const statusDiv = document.createElement("div")
+	statusDiv.innerText = "Disconnected"
+	statusDiv.style.color = "red"
+
+	const firmwareDiv = document.createElement("div")
+	firmwareDiv.innerText = "Firmware: -"
+
+	const variantDiv = document.createElement("div")
+	variantDiv.innerText = "Variant: -"
+
 	state.bots.onChange((bots) => {
 		const bot = bots.find((bot) => bot.id === botId)
 		if (bot) {
-			div.innerText = "Connected"
-			div.style.color = "green"
+			statusDiv.innerText = bot.connected ? "Connected" : "Disconnected"
+			statusDiv.style.color = bot.connected ? "green" : "red"
+			firmwareDiv.innerText = `Firmware: ${bot.version || "-"}`
+			variantDiv.innerText = `Variant: ${bot.variant || "-"}`
 		} else {
-			div.innerText = "Disconnected"
-			div.style.color = "red"
+			statusDiv.innerText = "Disconnected"
+			statusDiv.style.color = "red"
+			firmwareDiv.innerText = "Firmware: -"
+			variantDiv.innerText = "Variant: -"
 		}
 	})
-	container.root.appendChild(div)
+
+	container.root.appendChild(statusDiv)
+	container.root.appendChild(firmwareDiv)
+	container.root.appendChild(variantDiv)
 
 	// ensure wheels are centered on load
 	const centerAngle = 88
