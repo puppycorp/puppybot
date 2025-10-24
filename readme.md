@@ -39,6 +39,52 @@ git submodule update --init --recursive
 
 Open android folder with android studio and run.
 
+## ESP32 Wiring Guide
+
+The firmware expects an ESP32-DevKit-style board driving two DC motors through an
+H-bridge and up to four hobby servos. Wire the control electronics before
+flashing the firmware so the boot calibration routine can centre each actuator.
+
+### Power and common ground
+
+- Power the ESP32 from USB or a regulated 5 V rail that can supply at least
+  500 mA.
+- Feed the H-bridge driver and servos from a dedicated motor supply sized for
+  your hardware.
+- Tie the grounds of the ESP32, motor driver and servo supply together to give
+  the PWM signals a common reference.
+
+### DC motor driver pins
+
+Connect the direction and PWM inputs of your dual H-bridge (for example, an
+L298N or TB6612 breakout) to the ESP32 pins shown below. The `INx` signals set
+motor direction and the `ENx` pins carry the 1 kHz PWM drive from the firmware.
+
+| Function                        | ESP32 GPIO |
+| ------------------------------- | ---------- |
+| Left motor direction A (`IN1`)  | 25         |
+| Left motor direction B (`IN2`)  | 26         |
+| Left motor enable (`ENA`)       | 33         |
+| Right motor direction A (`IN3`) | 27         |
+| Right motor direction B (`IN4`) | 14         |
+| Right motor enable (`ENB`)      | 32         |
+
+### Servo headers
+
+Four 3-pin servo headers provide 50 Hz PWM outputs. Supply 5 V and ground to the
+servo rail, then connect the signal lines as shown:
+
+| Servo ID | ESP32 GPIO | Typical usage     |
+| -------- | ---------- | ----------------- |
+| 0        | 13         | PuppyBot steering |
+| 1        | 21         | PuppyArm shoulder |
+| 2        | 22         | PuppyArm elbow    |
+| 3        | 23         | PuppyArm gripper  |
+
+The firmware automatically recentres each servo on boot using the variant’s
+`puppy_servo_boot_angle` profile. Keep the robot clear of obstacles while it
+initialises.
+
 ## Features
 
 - Parallel task execution across motors, arms, grippers, and sensors
