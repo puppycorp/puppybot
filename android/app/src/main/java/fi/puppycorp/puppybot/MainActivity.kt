@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -349,6 +351,26 @@ private fun ControlPanel(controller: PuppybotCommandSender) {
 @Composable
 private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
     var speed by remember { mutableStateOf(DEFAULT_SPEED.toFloat()) }
+    val servoAngles = remember { mutableStateListOf(*SERVO_INITIAL_ANGLES.toTypedArray()) }
+    var selectedPulse by remember { mutableStateOf(PULSE_OPTIONS.first()) }
+
+    fun updateServoAngle(servoId: Int, angle: Int) {
+        val clamped = angle.coerceIn(0, 180)
+        if (servoId in 0 until servoAngles.size) {
+            servoAngles[servoId] = clamped
+        }
+        controller.turnServo(servoId, clamped)
+    }
+
+    fun centerServo(servoId: Int) {
+        val fallback = SERVO_INITIAL_ANGLES.getOrNull(servoId) ?: 90
+        updateServoAngle(servoId, fallback)
+    }
+
+    fun stopAndCenter(servoId: Int) {
+        controller.stopAllMotors()
+        centerServo(servoId)
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Drive speed: ${speed.toInt()}", style = MaterialTheme.typography.bodyLarge)
@@ -369,8 +391,7 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
                 controller.driveMotor(DRIVE_RIGHT, -magnitude)
             },
             onRelease = {
-                controller.stopAllMotors()
-                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+                stopAndCenter(STEERING_SERVO_ID)
             }
         )
 
@@ -378,25 +399,31 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             HoldRepeatButton(
                 label = "Left",
                 modifier = Modifier.weight(1f),
-                onRepeat = { controller.turnServo(STEERING_SERVO_ID, LEFT_ANGLE) },
-                onRelease = { controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE) }
+                onRepeat = { updateServoAngle(STEERING_SERVO_ID, LEFT_ANGLE) },
+                onRelease = { centerServo(STEERING_SERVO_ID) }
             )
 
-                Button(
-                    onClick = {
-                    controller.stopAllMotors()
-                    controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
-                },
+            Button(
+                onClick = { centerServo(STEERING_SERVO_ID) },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Center")
             }
 
+            Button(
+                onClick = {
+                    stopAndCenter(STEERING_SERVO_ID)
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Stop")
+            }
+
             HoldRepeatButton(
                 label = "Right",
                 modifier = Modifier.weight(1f),
-                onRepeat = { controller.turnServo(STEERING_SERVO_ID, RIGHT_ANGLE) },
-                onRelease = { controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE) }
+                onRepeat = { updateServoAngle(STEERING_SERVO_ID, RIGHT_ANGLE) },
+                onRelease = { centerServo(STEERING_SERVO_ID) }
             )
         }
 
@@ -409,19 +436,106 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
                 controller.driveMotor(DRIVE_RIGHT, magnitude)
             },
             onRelease = {
-                controller.stopAllMotors()
-                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+                stopAndCenter(STEERING_SERVO_ID)
             }
         )
 
+        Text("Pulse drive", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Selected pulses: $selectedPulse",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PULSE_OPTIONS.forEach { option ->
+                if (option == selectedPulse) {
+                    Button(onClick = { selectedPulse = option }) {
+                        Text("$option")
+                    }
+                } else {
+                    OutlinedButton(onClick = { selectedPulse = option }) {
+                        Text("$option")
+                    }
+                }
+            }
+        }
+
+        val sendPulse: (motorId: Int, forward: Boolean) -> Unit = { motorId, forward ->
+            val forwardSpeed = if (motorId == DRIVE_LEFT) DEFAULT_SPEED else -DEFAULT_SPEED
+            val speedValue = if (forward) forwardSpeed else -forwardSpeed
+            controller.runMotorPulses(
+                motorId = motorId,
+                speed = speedValue,
+                pulses = selectedPulse,
+                stepMicros = PULSE_STEP_TIME_US
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { sendPulse(DRIVE_LEFT, true) }, modifier = Modifier.weight(1f)) {
+                    Text("Left forward")
+                }
+                Button(onClick = { sendPulse(DRIVE_LEFT, false) }, modifier = Modifier.weight(1f)) {
+                    Text("Left backward")
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { sendPulse(DRIVE_RIGHT, true) }, modifier = Modifier.weight(1f)) {
+                    Text("Right forward")
+                }
+                Button(onClick = { sendPulse(DRIVE_RIGHT, false) }, modifier = Modifier.weight(1f)) {
+                    Text("Right backward")
+                }
+            }
+        }
+
         OutlinedButton(
-            onClick = {
-                controller.stopAllMotors()
-                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
-            },
+            onClick = { stopAndCenter(STEERING_SERVO_ID) },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Emergency Stop")
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Servo controls", style = MaterialTheme.typography.titleMedium)
+            servoAngles.forEachIndexed { servoId, angle ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Servo ${servoId + 1}",
+                        modifier = Modifier.width(80.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Slider(
+                        value = angle.toFloat(),
+                        onValueChange = { newAngle ->
+                            updateServoAngle(servoId, newAngle.roundToInt())
+                        },
+                        valueRange = 0f..180f,
+                        steps = 0,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Text(
+                        text = "${angle}°",
+                        modifier = Modifier.width(52.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Button(onClick = { centerServo(servoId) }) {
+                        Text("Center")
+                    }
+
+                    Button(onClick = { stopAndCenter(servoId) }) {
+                        Text("Stop")
+                    }
+                }
+            }
         }
     }
 }
@@ -802,7 +916,10 @@ private const val STEERING_SERVO_ID = 0
 private const val CENTER_ANGLE = 88
 private const val LEFT_ANGLE = 50
 private const val RIGHT_ANGLE = 150
+private val SERVO_INITIAL_ANGLES = listOf(CENTER_ANGLE, 90, 90, 90)
 private const val DEFAULT_SPEED = 80
+private val PULSE_OPTIONS = listOf(50, 100, 200, 400)
+private const val PULSE_STEP_TIME_US = 1_000
 
 @Preview(showBackground = true)
 @Composable
@@ -813,6 +930,7 @@ private fun PuppybotScreenPreview() {
             override fun stopMotor(motorId: Int) {}
             override fun stopAllMotors() {}
             override fun turnServo(servoId: Int, angle: Int) {}
+            override fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int) {}
         }
         PuppybotScreen(
             networkDevices = listOf(

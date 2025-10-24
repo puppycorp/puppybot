@@ -10,6 +10,10 @@ type DriveMotor = {
 	botId: string
 	motorId: number
 	speed: number
+	motorType?: "dc" | "servo"
+	steps?: number
+	stepTimeMicros?: number
+	angle?: number
 }
 
 type Stop = {

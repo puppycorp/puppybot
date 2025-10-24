@@ -141,10 +141,12 @@ class PuppybotWebSocket : PuppybotCommandSender {
     }
 
     override fun driveMotor(motorId: Int, speed: Int) {
-        val payload = byteArrayOf(
-            (motorId and 0xFF).toByte(),
-            speed.coerceIn(-128, 127).toByte()
-        )
+        val payload = buildDrivePayload(motorId, speed, pulses = 0, stepMicros = 0)
+        sendCommand(CMD_DRIVE_MOTOR, payload)
+    }
+
+    override fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int) {
+        val payload = buildDrivePayload(motorId, speed, pulses, stepMicros)
         sendCommand(CMD_DRIVE_MOTOR, payload)
     }
 
@@ -165,6 +167,31 @@ class PuppybotWebSocket : PuppybotCommandSender {
             ((sanitizedAngle shr 8) and 0xFF).toByte()
         )
         sendCommand(CMD_TURN_SERVO, payload)
+    }
+
+    private fun buildDrivePayload(
+        motorId: Int,
+        speed: Int,
+        pulses: Int,
+        stepMicros: Int,
+        angle: Int = 0
+    ): ByteArray {
+        val sanitizedMotor = motorId.coerceIn(0, 255)
+        val sanitizedSpeed = speed.coerceIn(-128, 127)
+        val sanitizedPulses = pulses.coerceIn(0, 0xFFFF)
+        val sanitizedStepMicros = stepMicros.coerceIn(0, 0xFFFF)
+        val sanitizedAngle = angle.coerceIn(0, 0xFFFF)
+        return byteArrayOf(
+            (sanitizedMotor and 0xFF).toByte(),
+            0x00,
+            sanitizedSpeed.toByte(),
+            (sanitizedPulses and 0xFF).toByte(),
+            ((sanitizedPulses shr 8) and 0xFF).toByte(),
+            (sanitizedStepMicros and 0xFF).toByte(),
+            ((sanitizedStepMicros shr 8) and 0xFF).toByte(),
+            (sanitizedAngle and 0xFF).toByte(),
+            ((sanitizedAngle shr 8) and 0xFF).toByte()
+        )
     }
 
     private fun sendPing(socket: WebSocket) {

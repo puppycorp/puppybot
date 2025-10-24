@@ -93,16 +93,34 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
 		case "drive": {
 			const commandType = MsgToBotType.DriveMotor
-			const payloadLength = 3
+			const payloadLength = 9
 			const payload = Buffer.alloc(payloadLength)
 
-			// Set payload fields
-			payload.writeUInt8(msg.motorId, 0) // MotorID
-			payload.writeInt8(msg.speed, 1) // speed
-			// payload.writeInt8(0, 1)            // type (0 = DC)
-			// payload.writeInt16LE(0, 3)         // steps
-			// payload.writeInt16LE(0, 5)         // step_time
-			// payload.writeInt16LE(msg.angle, 7) // angle
+			const motorId = msg.motorId ?? 0
+			const motorType = msg.motorType === "servo" ? 1 : 0
+			const speed = Math.max(
+				-128,
+				Math.min(127, Math.round(msg.speed ?? 0)),
+			)
+			const steps = Math.max(
+				0,
+				Math.min(0xffff, Math.round(msg.steps ?? 0)),
+			)
+			const stepTime = Math.max(
+				0,
+				Math.min(0xffff, Math.round(msg.stepTimeMicros ?? 0)),
+			)
+			const angle = Math.max(
+				0,
+				Math.min(0xffff, Math.round(msg.angle ?? 0)),
+			)
+
+			payload.writeUInt8(motorId & 0xff, 0) // MotorID
+			payload.writeUInt8(motorType & 0xff, 1) // Motor type (0 = DC)
+			payload.writeInt8(speed, 2) // Speed (-128..127)
+			payload.writeUInt16LE(steps, 3) // Steps / pulse count
+			payload.writeUInt16LE(stepTime, 5) // Step time (microseconds)
+			payload.writeUInt16LE(angle, 7) // Angle for servo mode
 
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])

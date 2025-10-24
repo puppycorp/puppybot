@@ -86,6 +86,12 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 		ESP_LOGI(TAG, "Stop all motors command received");
 		motorA_stop();
 		motorB_stop();
+		if (safety_timer) {
+			esp_timer_stop(safety_timer);
+		}
+		for (uint8_t servo = 0; servo < PUPPY_SERVO_COUNT; ++servo) {
+			servo_set_angle(servo, puppy_servo_boot_angle(servo));
+		}
 		break;
 	case CMD_TURN_SERVO:
 		ESP_LOGI(TAG, "turn servo %d -> %d", cmd->cmd.turn_servo.servo_id,

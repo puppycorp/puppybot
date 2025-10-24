@@ -212,7 +212,7 @@ export const botPage = (container: Container, botId: string) => {
 		ws.send({ type: "turnServo", botId, servoId, angle: clamped })
 	}
 
-	sendServoAngle(0, centerAngle)
+	const steeringServoId = 0
 
 	const moveForward = () => {
 		ws.send({ type: "drive", botId, motorId: driveLeft, speed: -speed })
@@ -225,16 +225,24 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	const turnLeft = () => {
-		sendServoAngle(0, leftAngle)
+		sendServoAngle(steeringServoId, leftAngle)
 	}
 
 	const turnRight = () => {
-		sendServoAngle(0, rightAngle)
+		sendServoAngle(steeringServoId, rightAngle)
 	}
 
-	const center = () => {
-		sendServoAngle(0, centerAngle)
+	const centerServo = (servoId: number) => {
+		const fallbackAngle = servoInitialAngles[servoId]
+		const targetAngle = fallbackAngle !== undefined ? fallbackAngle : 90
+		sendServoAngle(servoId, targetAngle)
 	}
+
+	const centerSteering = () => {
+		centerServo(steeringServoId)
+	}
+
+	centerSteering()
 
 	const servoSection = document.createElement("div")
 	servoSection.style.display = "flex"
@@ -288,14 +296,131 @@ export const botPage = (container: Container, botId: string) => {
 		const centerButton = document.createElement("button")
 		centerButton.textContent = "Center"
 		centerButton.onclick = () => {
-			sendServoAngle(servoId, servoInitialAngles[servoId] ?? 90)
+			centerServo(servoId)
 		}
 		row.appendChild(centerButton)
+
+		const stopButton = document.createElement("button")
+		stopButton.textContent = "Stop"
+		stopButton.onclick = () => {
+			stopAllMotors(servoId)
+		}
+		row.appendChild(stopButton)
 
 		servoControls.appendChild(row)
 	})
 
 	container.root.appendChild(servoSection)
+
+	const pulseOptions = [50, 100, 200, 400]
+	let selectedPulseCount = pulseOptions[0]
+	const pulseStepTimeMicros = 1000
+	const basePulseSpeed = Math.abs(speed)
+
+	const forwardSpeedForMotor = (motorId: number) =>
+		motorId === driveLeft ? basePulseSpeed : -basePulseSpeed
+	const backwardSpeedForMotor = (motorId: number) =>
+		-forwardSpeedForMotor(motorId)
+
+	const sendPulseDrive = (
+		motorId: number,
+		direction: "forward" | "backward",
+	) => {
+		const steps = selectedPulseCount
+		if (!steps) return
+		const motorSpeed =
+			direction === "forward"
+				? forwardSpeedForMotor(motorId)
+				: backwardSpeedForMotor(motorId)
+		ws.send({
+			type: "drive",
+			botId,
+			motorId,
+			speed: motorSpeed,
+			steps,
+			stepTimeMicros: pulseStepTimeMicros,
+		})
+	}
+
+	const pulseSection = document.createElement("div")
+	pulseSection.style.display = "flex"
+	pulseSection.style.flexDirection = "column"
+	pulseSection.style.gap = "8px"
+	pulseSection.style.marginTop = "16px"
+
+	const pulseTitle = document.createElement("h3")
+	pulseTitle.innerText = "Pulse drive"
+	pulseTitle.style.margin = "0"
+	pulseSection.appendChild(pulseTitle)
+
+	const pulseSummary = document.createElement("span")
+	pulseSummary.textContent = `Selected pulses: ${selectedPulseCount}`
+	pulseSection.appendChild(pulseSummary)
+
+	const pulseButtonsRow = document.createElement("div")
+	pulseButtonsRow.style.display = "flex"
+	pulseButtonsRow.style.gap = "8px"
+	const pulseButtons: HTMLButtonElement[] = []
+
+	const updatePulseButtons = () => {
+		pulseSummary.textContent = `Selected pulses: ${selectedPulseCount}`
+		pulseButtons.forEach((button, idx) => {
+			const isSelected = pulseOptions[idx] === selectedPulseCount
+			button.disabled = isSelected
+			button.style.fontWeight = isSelected ? "bold" : "normal"
+		})
+	}
+
+	pulseOptions.forEach((option) => {
+		const button = document.createElement("button")
+		button.textContent = `${option}`
+		button.onclick = () => {
+			selectedPulseCount = option
+			updatePulseButtons()
+		}
+		pulseButtons.push(button)
+		pulseButtonsRow.appendChild(button)
+	})
+	updatePulseButtons()
+	pulseSection.appendChild(pulseButtonsRow)
+
+	const pulseControls = document.createElement("div")
+	pulseControls.style.display = "flex"
+	pulseControls.style.flexDirection = "column"
+	pulseControls.style.gap = "8px"
+
+	const createPulseControlRow = (
+		label: string,
+		motorId: number,
+	): HTMLDivElement => {
+		const row = document.createElement("div")
+		row.style.display = "flex"
+		row.style.gap = "8px"
+		row.style.alignItems = "center"
+
+		const text = document.createElement("span")
+		text.textContent = label
+		text.style.width = "80px"
+		row.appendChild(text)
+
+		const forwardButton = document.createElement("button")
+		forwardButton.textContent = "Forward"
+		forwardButton.onclick = () => sendPulseDrive(motorId, "forward")
+		row.appendChild(forwardButton)
+
+		const backwardButton = document.createElement("button")
+		backwardButton.textContent = "Backward"
+		backwardButton.onclick = () => sendPulseDrive(motorId, "backward")
+		row.appendChild(backwardButton)
+
+		return row
+	}
+
+	pulseControls.appendChild(createPulseControlRow("Left motor", driveLeft))
+	pulseControls.appendChild(createPulseControlRow("Right motor", driveRight))
+	pulseSection.appendChild(pulseControls)
+
+	container.root.appendChild(pulseSection)
 
 	// stop only drive motors without recentering servo
 	const stopDriveMotors = () => {
@@ -303,9 +428,9 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	// stop drive motors and recenter servo
-	const stopAllMotors = () => {
+	const stopAllMotors = (servoId: number = steeringServoId) => {
 		stopDriveMotors()
-		center()
+		centerServo(servoId)
 	}
 
 	let driveIntervals: { [key: string]: number } = {}
@@ -334,7 +459,7 @@ export const botPage = (container: Container, botId: string) => {
 		}
 		// on steering key release, recenter servo
 		if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-			center()
+			centerSteering()
 		}
 	}
 

@@ -3,32 +3,26 @@ import type { MsgToBot } from "./types"
 
 describe("encodeBotMsg", () => {
 	test("encodes a drive message correctly", () => {
-		// Create a drive message with speed and angle values.
 		const driveMsg: MsgToBot = {
 			type: "drive",
+			motorId: 2,
 			speed: 10,
+			motorType: "dc",
+			steps: 123,
+			stepTimeMicros: 456,
 			angle: 45,
-		} as any
+		}
 
 		const buffer = encodeBotMsg(driveMsg)
 
-		// Expected header:
-		//  Byte 0: 0xAA
-		//  Byte 1: Command Type for drive -> 1
-		//  Bytes 2-3: Payload length (9 bytes) in little-endian (9, 0)
-		const expectedHeader = Buffer.from([0xaa, 2, 3, 0])
-
-		// Expected payload for a drive message is 9 bytes:
-		//  Byte 0: MotorID (0)
-		//  Byte 1: type (0, representing DC)
-		//  Byte 2: speed (10)
-		//  Bytes 3-4: steps (0 as int16 little-endian)
-		//  Bytes 5-6: step_time (0 as int16 little-endian)
-		//  Bytes 7-8: angle (45 as int16 little-endian: 45 = 0x2D, 0x00)
-		const expectedPayload = Buffer.alloc(3)
-		expectedPayload.writeUInt8(0, 0) // MotorID
-		expectedPayload.writeInt8(10, 1) // speed
-		expectedPayload.writeInt8(0, 2) // reserved
+		const expectedHeader = Buffer.from([0xaa, 2, 9, 0])
+		const expectedPayload = Buffer.alloc(9)
+		expectedPayload.writeUInt8(2, 0)
+		expectedPayload.writeUInt8(0, 1)
+		expectedPayload.writeInt8(10, 2)
+		expectedPayload.writeUInt16LE(123, 3)
+		expectedPayload.writeUInt16LE(456, 5)
+		expectedPayload.writeUInt16LE(45, 7)
 
 		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
 		expect(buffer.equals(expectedBuffer)).toBe(true)

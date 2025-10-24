@@ -49,6 +49,23 @@ static inline servo_output_t get_servo_output(int index) {
 	return output;
 }
 
+// ---------------- Servo angle conversion ----------------
+
+// Safer angle clamp + configurable pulse range
+static inline uint32_t angle_to_duty(uint32_t angle_deg) {
+	if (angle_deg > 180) angle_deg = 180; // clamp
+
+	const uint32_t min_pulse = 1000;  // µs
+	const uint32_t max_pulse = 2000;  // µs  (consider making these per-servo)
+	const uint32_t period_us = 1000000 / SERVO_FREQUENCY; // 20000 at 50 Hz
+	const uint32_t max_duty  = (1U << SERVO_DUTY_RES) - 1;
+
+	uint32_t pulse = min_pulse + (angle_deg * (max_pulse - min_pulse)) / 180;
+	// round instead of truncate
+	uint64_t num = (uint64_t)pulse * max_duty + (period_us/2);
+	return (uint32_t)(num / period_us);
+}
+
 // ---------------- GPIO Init ----------------
 
 static inline void motor_gpio_init() {
@@ -119,6 +136,11 @@ static inline void motor_pwm_init() {
 		                                       .duty = 0,
 		                                       .hpoint = 0};
 		ledc_channel_config(&servo_channel);
+
+		// Immediately go to center to avoid twitching on first command
+		uint32_t center = angle_to_duty(90);
+		ledc_set_duty(LEDC_MODE, output.channel, center);
+		ledc_update_duty(LEDC_MODE, output.channel);
 	}
 }
 
@@ -148,18 +170,9 @@ static inline void motor_pwm_init() {
 DEFINE_MOTOR_FUNCTIONS(motorA, IN1_GPIO, IN2_GPIO, ENA_CHANNEL)
 DEFINE_MOTOR_FUNCTIONS(motorB, IN3_GPIO, IN4_GPIO, ENB_CHANNEL)
 
-static inline uint32_t angle_to_duty(uint32_t angle) {
-	const uint32_t min_pulse = 500;  // microseconds
-	const uint32_t max_pulse = 2500; // microseconds
-	uint32_t pulse = min_pulse + (angle * (max_pulse - min_pulse)) / 180;
-	uint32_t max_duty = (1 << SERVO_DUTY_RES) - 1;
-	return (pulse * max_duty) / (1000000 / SERVO_FREQUENCY);
-}
-
 static inline void servo_set_angle(uint8_t servo_id, uint32_t angle) {
-	if (servo_id >= SERVO_COUNT) {
-		return;
-	}
+	if (servo_id >= SERVO_COUNT) return;
+	if (angle > 180) angle = 180;
 
 	servo_output_t output = get_servo_output(servo_id);
 	uint32_t duty = angle_to_duty(angle);
