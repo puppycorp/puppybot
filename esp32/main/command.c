@@ -1,8 +1,8 @@
 #include "command.h"
 #include "esp_log.h"
-#include "motor.h"
-#include "esp_websocket_client.h"
 #include "esp_timer.h"
+#include "esp_websocket_client.h"
+#include "motor.h"
 #include <stdlib.h>
 
 #define TAG "COMMAND"
@@ -44,32 +44,33 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 			esp_timer_start_once(safety_timer, 1000000); // 1 second timeout
 		}
 		if (cmd->cmd.drive_motor.motor_type == SERVO_MOTOR) {
-			servo_set_angle(cmd->cmd.drive_motor.angle);
-	} else if (cmd->cmd.drive_motor.motor_id == 1) {
-		if (cmd->cmd.drive_motor.speed == 0) {
-			motorA_stop();
-			break;
-		}
-		uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-		if (cmd->cmd.drive_motor.speed > 0) {
-			motorA_forward(duty);
+			servo_set_angle(cmd->cmd.drive_motor.motor_id,
+			                cmd->cmd.drive_motor.angle);
+		} else if (cmd->cmd.drive_motor.motor_id == 1) {
+			if (cmd->cmd.drive_motor.speed == 0) {
+				motorA_stop();
+				break;
+			}
+			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
+			if (cmd->cmd.drive_motor.speed > 0) {
+				motorA_forward(duty);
+			} else {
+				motorA_backward(duty);
+			}
+		} else if (cmd->cmd.drive_motor.motor_id == 2) {
+			if (cmd->cmd.drive_motor.speed == 0) {
+				motorB_stop();
+				break;
+			}
+			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
+			if (cmd->cmd.drive_motor.speed > 0) {
+				motorB_forward(duty);
+			} else {
+				motorB_backward(duty);
+			}
 		} else {
-			motorA_backward(duty);
+			ESP_LOGE(TAG, "Invalid motor ID");
 		}
-	} else if (cmd->cmd.drive_motor.motor_id == 2) {
-		if (cmd->cmd.drive_motor.speed == 0) {
-			motorB_stop();
-			break;
-		}
-		uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-		if (cmd->cmd.drive_motor.speed > 0) {
-			motorB_forward(duty);
-		} else {
-			motorB_backward(duty);
-		}
-	} else {
-		ESP_LOGE(TAG, "Invalid motor ID");
-	}
 		break;
 	case CMD_STOP_MOTOR:
 		ESP_LOGI(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
@@ -87,8 +88,10 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 		motorB_stop();
 		break;
 	case CMD_TURN_SERVO:
-		ESP_LOGI(TAG, "turn servo %d", cmd->cmd.turn_servo.angle);
-		servo_set_angle(cmd->cmd.turn_servo.angle);
+		ESP_LOGI(TAG, "turn servo %d -> %d", cmd->cmd.turn_servo.servo_id,
+		         cmd->cmd.turn_servo.angle);
+		servo_set_angle(cmd->cmd.turn_servo.servo_id,
+		                cmd->cmd.turn_servo.angle);
 		break;
 	}
 }
@@ -98,7 +101,8 @@ void init_command_handler() {
 	    .callback = safety_timer_callback, .name = "safety_timer"};
 	esp_err_t ret = esp_timer_create(&safety_timer_args, &safety_timer);
 	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to create safety timer: %s", esp_err_to_name(ret));
+		ESP_LOGE(TAG, "Failed to create safety timer: %s",
+		         esp_err_to_name(ret));
 	} else {
 		ESP_LOGI(TAG, "Safety timer created successfully");
 	}

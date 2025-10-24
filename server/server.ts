@@ -274,3 +274,5 @@ Bun.serve<Context, {}>({
 	},
 	development: true,
 })
+
+console.log("listening on http://localhost:7775")

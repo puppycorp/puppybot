@@ -190,9 +190,14 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
         sendCommand(CMD_STOP_ALL_MOTORS, byteArrayOf())
     }
 
-    override fun turnServo(angle: Int) {
-        val sanitized = angle.coerceIn(0, 180)
-        val payload = byteArrayOf((sanitized and 0xFF).toByte(), ((sanitized shr 8) and 0xFF).toByte())
+    override fun turnServo(servoId: Int, angle: Int) {
+        val sanitizedServo = servoId.coerceIn(0, 255)
+        val sanitizedAngle = angle.coerceIn(0, 180)
+        val payload = byteArrayOf(
+            (sanitizedServo and 0xFF).toByte(),
+            (sanitizedAngle and 0xFF).toByte(),
+            ((sanitizedAngle shr 8) and 0xFF).toByte()
+        )
         sendCommand(CMD_TURN_SERVO, payload)
     }
 

@@ -125,10 +125,11 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 		}
 		case "turnServo": {
 			const commandType = MsgToBotType.TurnServo
-			const payloadLength = 2
+			const payloadLength = 3
 			const payload = Buffer.alloc(payloadLength)
 
-			payload.writeInt16LE(msg.angle, 0)
+			payload.writeUInt8(msg.servoId, 0)
+			payload.writeInt16LE(msg.angle, 1)
 
 			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])

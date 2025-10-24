@@ -135,13 +135,13 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(wsState) {
                     if (wsState is WebSocketState.Connected) {
-                        ws.turnServo(CENTER_ANGLE)
+                        ws.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
                     }
                 }
 
                 LaunchedEffect(bleState) {
                     if (bleState is BleState.Connected) {
-                        ble.turnServo(CENTER_ANGLE)
+                        ble.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
                     }
                 }
 
@@ -370,7 +370,7 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             },
             onRelease = {
                 controller.stopAllMotors()
-                controller.turnServo(CENTER_ANGLE)
+                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
             }
         )
 
@@ -378,14 +378,14 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             HoldRepeatButton(
                 label = "Left",
                 modifier = Modifier.weight(1f),
-                onRepeat = { controller.turnServo(LEFT_ANGLE) },
-                onRelease = { controller.turnServo(CENTER_ANGLE) }
+                onRepeat = { controller.turnServo(STEERING_SERVO_ID, LEFT_ANGLE) },
+                onRelease = { controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE) }
             )
 
-            Button(
-                onClick = {
+                Button(
+                    onClick = {
                     controller.stopAllMotors()
-                    controller.turnServo(CENTER_ANGLE)
+                    controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
                 },
                 modifier = Modifier.weight(1f)
             ) {
@@ -395,8 +395,8 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             HoldRepeatButton(
                 label = "Right",
                 modifier = Modifier.weight(1f),
-                onRepeat = { controller.turnServo(RIGHT_ANGLE) },
-                onRelease = { controller.turnServo(CENTER_ANGLE) }
+                onRepeat = { controller.turnServo(STEERING_SERVO_ID, RIGHT_ANGLE) },
+                onRelease = { controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE) }
             )
         }
 
@@ -410,14 +410,14 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             },
             onRelease = {
                 controller.stopAllMotors()
-                controller.turnServo(CENTER_ANGLE)
+                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
             }
         )
 
         OutlinedButton(
             onClick = {
                 controller.stopAllMotors()
-                controller.turnServo(CENTER_ANGLE)
+                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -453,7 +453,7 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
     DisposableEffect(Unit) {
         onDispose {
             controller.stopAllMotors()
-            controller.turnServo(CENTER_ANGLE)
+            controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
         }
     }
 
@@ -485,9 +485,9 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
 
     LaunchedEffect(steeringActive, steering) {
         if (!steeringActive || steering.absoluteValue < 0.05f) {
-            controller.turnServo(CENTER_ANGLE)
+            controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
         } else {
-            controller.turnServo(servoAngleFromInput(steering))
+            controller.turnServo(STEERING_SERVO_ID, servoAngleFromInput(steering))
         }
     }
 
@@ -562,7 +562,7 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
                 steering = 0f
                 steeringActive = false
                 controller.stopAllMotors()
-                controller.turnServo(CENTER_ANGLE)
+                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
             },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -798,6 +798,7 @@ private fun HoldRepeatButton(
 
 private const val DRIVE_LEFT = 1
 private const val DRIVE_RIGHT = 2
+private const val STEERING_SERVO_ID = 0
 private const val CENTER_ANGLE = 88
 private const val LEFT_ANGLE = 50
 private const val RIGHT_ANGLE = 150
@@ -811,7 +812,7 @@ private fun PuppybotScreenPreview() {
             override fun driveMotor(motorId: Int, speed: Int) {}
             override fun stopMotor(motorId: Int) {}
             override fun stopAllMotors() {}
-            override fun turnServo(angle: Int) {}
+            override fun turnServo(servoId: Int, angle: Int) {}
         }
         PuppybotScreen(
             networkDevices = listOf(

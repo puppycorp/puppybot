@@ -13,12 +13,26 @@ bun run start
 
 **esp32**
 
-Requires ESP-idf sdk either install it your self or run
+Requires ESP-idf sdk either install it your self.
+
+First create .env file in esp32 directory.
+
+.env
+
+```
+WIFI_SSID=STRING
+WIFI_PASS=STRING_PASSWORD
+SERVER_HOST=IP_ADDRESS
+DEVICE_ID=NUMBER
+VERSION=NUMBER
+PUPPY_VARIANT=STRING
+```
 
 ```
 git submodule update --init --recursive
 ./deps/espidf/install.sh
 . ./deps/espidf/export.sh
+./esp32/build.sh
 ```
 
 **android**
@@ -63,15 +77,40 @@ All multi-byte fields are little-endian.
 | steps     | int16 | Number of steps to move             |
 | step_time | int16 | Time to wait between steps (micros) |
 
-### Servo Steering
+### Servo Outputs
 
-The ESP32 firmware now supports a steering servo connected to **GPIO13**. Two DC drive motors are still controlled via the L298N driver. Use the new `TURN_SERVO` command to set the wheel angle (0‑180°).
+The ESP32 firmware now exposes four MG90S-compatible servo outputs over the same binary protocol. Servo **0** remains the PuppyBot steering servo on **GPIO13**; servos **1**–**3** are routed to GPIO21, GPIO22 and GPIO23 for PuppyArm joints or other accessories. All servos share a 50 Hz PWM source and accept angles in the 0–180° range. Send `TURN_SERVO` commands over the WebSocket connection to position each servo independently in real time.
+
+| Servo ID | GPIO | Typical usage     |
+| -------- | ---- | ----------------- |
+| 0        | 13   | PuppyBot steering |
+| 1        | 21   | PuppyArm shoulder |
+| 2        | 22   | PuppyArm elbow    |
+| 3        | 23   | PuppyArm gripper  |
+
+### Firmware variants
+
+Set the `PUPPY_VARIANT` environment variable at build time to describe the hardware the firmware is targeting. The ESP32 build will default to `PUPPYBOT`, but you can switch to the PuppyArm profile—which adjusts the advertised mDNS identity and default servo centering—by exporting `PUPPY_VARIANT=puppyarm` before calling `idf.py`:
+
+```bash
+PUPPY_VARIANT=puppyarm idf.py build flash
+```
+
+Additional variants can be introduced by extending `esp32/main/variant_config.h`. The build system uppercases the value you provide and strips non-alphanumeric characters before exporting a matching preprocessor define (`PUPPY_VARIANT_<VALUE>`). Empty or unknown values fall back to `PUPPY_VARIANT_PUPPYBOT`.
+
+| Variant  | `PUPPY_VARIANT` value | Hostname   | Servo count | Drive motors | Steering servo center | Notes                                                                                                           |
+| -------- | --------------------- | ---------- | ----------- | ------------ | --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| PuppyBot | `puppybot` (default)  | `puppybot` | 4           | Yes          | 88°                   | Rover chassis; steering servo on GPIO13 is required, the remaining three headers are optional accessory servos. |
+| PuppyArm | `puppyarm`            | `puppyarm` | 4           | No           | 90°                   | Arm-focused build; disables drive motors and recenters all servos.                                              |
+
+Define additional variants by adding a new `VARIANT_*` entry and configuration block in `esp32/main/variant_config.h`, then set `PUPPY_VARIANT` to the lowercase variant key.
 
 ### TURN_SERVO
 
-| Field | Type  | Description                |
-| ----- | ----- | -------------------------- |
-| angle | int16 | Angle to set for the servo |
+| Field   | Type  | Description                         |
+| ------- | ----- | ----------------------------------- |
+| servoId | uint8 | Servo index to control (0–3)        |
+| angle   | int16 | Target angle for the servo (0–180°) |
 
 ### STOP_MOTOR
 

@@ -28,6 +28,7 @@ typedef struct {
 } StopMotorCommand;
 
 typedef struct {
+	int servo_id;
 	int angle;
 } TurnServoCommand;
 
@@ -77,8 +78,11 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		break;
 	case CMD_TURN_SERVO:
 		cmd_packet->cmd_type = CMD_TURN_SERVO;
-		cmd_packet->cmd.turn_servo.angle =
-		    (int16_t)(payload[0] | (payload[1] << 8));
+		if (payload_len >= 3) {
+			cmd_packet->cmd.turn_servo.servo_id = payload[0];
+			cmd_packet->cmd.turn_servo.angle =
+			    (int16_t)(payload[1] | (payload[2] << 8));
+		}
 		break;
 	default:
 		break;
@@ -115,9 +119,10 @@ TEST(parse_cmd_test) {
 TEST(parse_turn_servo_test) {
 	uint8_t data[] = {
 	    0x01,                       // version
-	    CMD_TURN_SERVO, 0x02, 0x00, // payload length = 2 (LE)
+	    CMD_TURN_SERVO, 0x03, 0x00, // payload length = 3 (LE)
 
-	    // Payload (2 bytes):
+	    // Payload (3 bytes):
+	    0x02,      // servo_id
 	    0x2D, 0x00 // angle = 45
 	};
 
@@ -125,5 +130,6 @@ TEST(parse_turn_servo_test) {
 	parse_cmd(data, &cmd_packet);
 
 	ASSERT_EQ(cmd_packet.cmd_type, CMD_TURN_SERVO);
+	ASSERT_EQ(cmd_packet.cmd.turn_servo.servo_id, 2);
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
 }

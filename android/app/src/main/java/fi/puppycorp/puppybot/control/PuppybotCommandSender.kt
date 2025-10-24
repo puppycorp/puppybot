@@ -4,5 +4,5 @@ interface PuppybotCommandSender {
     fun driveMotor(motorId: Int, speed: Int)
     fun stopMotor(motorId: Int)
     fun stopAllMotors()
-    fun turnServo(angle: Int)
+    fun turnServo(servoId: Int, angle: Int)
 }
