@@ -67,14 +67,14 @@ static int esp_mdns_init(void) {
 	return 0;
 }
 
-static void esp_motor_gpio_init(void) { motor_gpio_init(); }
+static void esp_motor_gpio_init(void) { motor_system_init(); }
 
-static void esp_motor_pwm_init(void) { motor_pwm_init(); }
+static void esp_motor_pwm_init(void) {}
 
-static uint32_t esp_servo_count(void) { return SERVO_COUNT; }
+static uint32_t esp_servo_count(void) { return motor_servo_count(); }
 
 static uint32_t esp_servo_boot_angle(uint32_t servo) {
-	return puppy_servo_boot_angle((uint8_t)servo);
+	return motor_servo_boot_angle((uint8_t)servo);
 }
 
 static void esp_servo_set_angle(uint32_t servo, uint32_t angle) {
@@ -95,6 +95,7 @@ static int esp_websocket_start(void) {
 }
 
 void app_main(void) {
+	motor_system_init();
 	PuppyHardwareOps ops = {
 	    .storage_init = esp_storage_init,
 	    .instance_name = esp_instance_name,

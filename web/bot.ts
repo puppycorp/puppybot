@@ -1,7 +1,6 @@
 import type { MsgToServer } from "../server/types"
 import { state } from "./state"
 import { Container, UiComponent } from "./ui"
-import { getQueryParam } from "./utility "
 import { ws } from "./wsclient"
 
 // class MotorController extends UiComponent<HTMLDivElement> {
@@ -184,6 +183,69 @@ export const botPage = (container: Container, botId: string) => {
 	container.root.appendChild(statusDiv)
 	container.root.appendChild(firmwareDiv)
 	container.root.appendChild(variantDiv)
+
+	const configSection = document.createElement("div")
+	configSection.style.display = "flex"
+	configSection.style.flexDirection = "column"
+	configSection.style.gap = "8px"
+	configSection.style.margin = "16px 0"
+
+	const configTitle = document.createElement("h3")
+	configTitle.innerText = "Motor configuration"
+	configTitle.style.margin = "0"
+	configSection.appendChild(configTitle)
+
+	const configHelp = document.createElement("p")
+	configHelp.innerText =
+		"Edit the PBCL motor config (JSON array) and apply to sync with the bot."
+	configHelp.style.margin = "0"
+	configHelp.style.opacity = "0.7"
+	configHelp.style.fontSize = "12px"
+	configSection.appendChild(configHelp)
+
+	const configTextarea = document.createElement("textarea")
+	configTextarea.style.width = "100%"
+	configTextarea.style.minHeight = "160px"
+	configTextarea.style.fontFamily = "monospace"
+	configTextarea.style.fontSize = "12px"
+	configTextarea.style.padding = "8px"
+	configTextarea.style.boxSizing = "border-box"
+	configSection.appendChild(configTextarea)
+
+	const applyConfigButton = document.createElement("button")
+	applyConfigButton.textContent = "Apply configuration"
+	applyConfigButton.onclick = () => {
+		try {
+			const parsed = JSON.parse(configTextarea.value)
+			if (!Array.isArray(parsed)) {
+				throw new Error("Configuration must be an array of motors")
+			}
+			ws.send({
+				type: "updateConfig",
+				botId,
+				motors: parsed,
+			} as MsgToServer)
+		} catch (err) {
+			console.error("Failed to apply config", err)
+			alert(`Invalid configuration: ${err}`)
+		}
+	}
+	configSection.appendChild(applyConfigButton)
+
+	state.configs.onChange((configs) => {
+		const motors = configs[botId]
+		if (motors) {
+			configTextarea.value = JSON.stringify(motors, null, 2)
+		}
+	})
+	const initialConfig = state.configs.get()[botId]
+	if (initialConfig) {
+		configTextarea.value = JSON.stringify(initialConfig, null, 2)
+	} else {
+		configTextarea.value = JSON.stringify([], null, 2)
+	}
+
+	container.root.appendChild(configSection)
 
 	// ensure wheels are centered on load
 	const centerAngle = 88

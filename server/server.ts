@@ -1,12 +1,13 @@
 import type { ServerWebSocket } from "bun"
 import index from "../web/index.html"
-import type { MsgToBot, MsgToUi, MsgToServer, Bot } from "./types"
+import type { MsgToBot, MsgToUi, MsgToServer, Bot, MotorConfig } from "./types"
 import {
 	decodeBotMsg,
 	encodeBotMsg,
 	MsgFromBotType,
 	type MsgFromBot,
 } from "./bot-protocol"
+import { buildMotorBlob } from "./pbcl"
 
 class BotConnection {
 	private ws: ServerWebSocket<Context>
@@ -81,6 +82,24 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "updateConfig": {
+			const motors = msg.motors ?? []
+			botConfigs.set(msg.botId, motors)
+			const blob = buildMotorBlob(motors)
+			const conn = ws.data.botConnections.get(msg.botId)
+			if (conn) {
+				conn.send({ type: "applyConfig", blob: new Uint8Array(blob) })
+			}
+			const broadcast: MsgToUi = {
+				type: "config",
+				botId: msg.botId,
+				motors,
+			}
+			for (const client of uiClients.values()) {
+				client.send(broadcast)
+			}
+			break
+		}
 	}
 }
 
@@ -124,6 +143,56 @@ const botConnections = new Map<string, BotConnection>()
 const uiClients = new Map<ServerWebSocket<Context>, UiConnection>()
 // Track currently connected bots and (optionally) latest known info
 const connectedBots = new Map<string, Bot>()
+const botConfigs = new Map<string, MotorConfig[]>()
+
+const defaultConfig: MotorConfig[] = [
+	{
+		nodeId: 1,
+		type: "hbridge",
+		name: "drive_left",
+		pwm: { pin: 33, channel: 0, freqHz: 1000, minUs: 1000, maxUs: 2000 },
+		hbridge: { in1: 25, in2: 26, brakeMode: false },
+	},
+	{
+		nodeId: 2,
+		type: "hbridge",
+		name: "drive_right",
+		pwm: { pin: 32, channel: 1, freqHz: 1000, minUs: 1000, maxUs: 2000 },
+		hbridge: { in1: 27, in2: 14, brakeMode: false },
+	},
+	{
+		nodeId: 100,
+		type: "angle",
+		name: "servo_0",
+		pwm: { pin: 13, channel: 2, freqHz: 50, minUs: 1000, maxUs: 2000 },
+	},
+	{
+		nodeId: 101,
+		type: "angle",
+		name: "servo_1",
+		pwm: { pin: 21, channel: 3, freqHz: 50, minUs: 1000, maxUs: 2000 },
+	},
+	{
+		nodeId: 102,
+		type: "angle",
+		name: "servo_2",
+		pwm: { pin: 22, channel: 4, freqHz: 50, minUs: 1000, maxUs: 2000 },
+	},
+	{
+		nodeId: 103,
+		type: "angle",
+		name: "servo_3",
+		pwm: { pin: 23, channel: 5, freqHz: 50, minUs: 1000, maxUs: 2000 },
+	},
+]
+
+const cloneConfig = (motors: MotorConfig[]): MotorConfig[] =>
+	motors.map((m) => ({
+		...m,
+		pwm: m.pwm ? { ...m.pwm } : undefined,
+		hbridge: m.hbridge ? { ...m.hbridge } : undefined,
+		analog: m.analog ? { ...m.analog } : undefined,
+	}))
 
 const logConnectionsTable = () => {
 	const bots = Array.from(connectedBots.values()).map((b) => ({
@@ -201,11 +270,30 @@ Bun.serve<Context, {}>({
 					variant: "",
 					connected: true,
 				})
+				if (!botConfigs.has(ws.data.botId)) {
+					botConfigs.set(ws.data.botId, cloneConfig(defaultConfig))
+				}
 				logConnectionsTable()
 				for (const conn of uiClients.values()) {
 					conn.send({
 						type: "botConnected",
 						botId: ws.data.botId,
+					})
+				}
+				const motors = botConfigs.get(ws.data.botId) ?? []
+				const configMsg: MsgToUi = {
+					type: "config",
+					botId: ws.data.botId,
+					motors,
+				}
+				for (const ui of uiClients.values()) {
+					ui.send(configMsg)
+				}
+				if (motors.length > 0) {
+					const blob = buildMotorBlob(motors)
+					ws.data.botConnections.get(ws.data.botId)?.send({
+						type: "applyConfig",
+						blob: new Uint8Array(blob),
 					})
 				}
 			}
@@ -224,6 +312,9 @@ Bun.serve<Context, {}>({
 							variant: bot.variant,
 						})
 					}
+				}
+				for (const [botId, motors] of botConfigs.entries()) {
+					conn.send({ type: "config", botId, motors })
 				}
 			}
 		},

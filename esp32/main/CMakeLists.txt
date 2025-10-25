@@ -6,8 +6,25 @@
 file(GLOB_RECURSE COMPONENT_SRCS LIST_DIRECTORIES false "*.c")
 
 # Add platform-agnostic source files from src/
-list(APPEND COMPONENT_SRCS "../../src/command_handler.c")
-list(APPEND COMPONENT_SRCS "../../src/puppy_app.c")
+list(APPEND COMPONENT_SRCS
+        "../../src/command_handler.c"
+        "../../src/motor_runtime.c"
+        "../../src/motor_hw.c"
+        "../../src/motor_slots.c"
+        "../../src/pbcl_motor_handler.c"
+        "../../src/puppy_app.c"
+)
+
+set(DRIVER_COMPONENTS driver)
+idf_build_get_property(idf_path IDF_PATH)
+if(idf_path)
+        if(EXISTS "${idf_path}/components/esp_driver_gpio")
+                list(APPEND DRIVER_COMPONENTS esp_driver_gpio)
+        endif()
+        if(EXISTS "${idf_path}/components/esp_driver_ledc")
+                list(APPEND DRIVER_COMPONENTS esp_driver_ledc)
+        endif()
+endif()
 
 idf_component_register(
     SRCS ${COMPONENT_SRCS}
@@ -19,12 +36,10 @@ idf_component_register(
         esp_netif
         esp_wifi
         esp_timer
-		esp_http_server
+        esp_http_server
         esp_websocket_client
         app_update
-        driver
-        esp_driver_gpio
-        esp_driver_ledc
+        ${DRIVER_COMPONENTS}
 )
 
 if(DEFINED ENV{WIFI_CREDENTIALS})

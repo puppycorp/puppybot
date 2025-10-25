@@ -6,6 +6,7 @@ enum MsgToBotType {
 	StopMotor = 3,
 	StopAllMotors = 4,
 	TurnServo = 5,
+	ApplyConfig = 6,
 }
 
 export enum MsgFromBotType {
@@ -155,6 +156,14 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			payload.writeUInt16LE(duration, 3)
 
 			const header = createHeader(commandType, payloadLength)
+			return Buffer.concat([header, payload])
+		}
+		case "applyConfig": {
+			const payload = Buffer.from(msg.blob)
+			const header = createHeader(
+				MsgToBotType.ApplyConfig,
+				payload.length,
+			)
 			return Buffer.concat([header, payload])
 		}
 		case "ping":

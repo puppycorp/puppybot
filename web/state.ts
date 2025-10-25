@@ -1,4 +1,4 @@
-import type { Bot } from "../server/types"
+import type { Bot, MotorConfig } from "../server/types"
 
 export class NotifyValue<T> {
 	private value: T
@@ -24,4 +24,5 @@ export class NotifyValue<T> {
 
 export const state = {
 	bots: new NotifyValue<Bot[]>([]),
+	configs: new NotifyValue<Record<string, MotorConfig[]>>({}),
 }

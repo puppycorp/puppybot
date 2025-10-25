@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_app_desc.h"
 #include "esp_websocket_client.h"
+#include "variant_config.h"
 #include <stdlib.h>
 #include <string.h>
 // #include "wss_server.h"

@@ -85,6 +85,17 @@ describe("encodeBotMsg", () => {
 		expect(buffer.equals(expectedBuffer)).toBe(true)
 	})
 
+	test("encodes an apply config message", () => {
+		const blob = new Uint8Array([1, 2, 3, 4])
+		const msg: MsgToBot = { type: "applyConfig", blob }
+		const buffer = encodeBotMsg(msg)
+		const expectedHeader = Buffer.from([0xaa, 6, 4, 0])
+		const expectedPayload = Buffer.from(blob)
+		expect(
+			buffer.equals(Buffer.concat([expectedHeader, expectedPayload])),
+		).toBe(true)
+	})
+
 	test("decodes a MyInfo message with version and variant", () => {
 		const version = "3.2.1"
 		const variant = "PuppyBot"

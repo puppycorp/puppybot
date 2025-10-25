@@ -9,6 +9,7 @@
 #define CMD_STOP_MOTOR 3
 #define CMD_STOP_ALL_MOTORS 4
 #define CMD_TURN_SERVO 5
+#define CMD_APPLY_CONFIG 6
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -43,6 +44,10 @@ union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
 	TurnServoCommand turn_servo;
+	struct {
+		const uint8_t *data;
+		uint16_t length;
+	} apply_config;
 };
 
 typedef struct {
@@ -85,15 +90,17 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		break;
 	case CMD_TURN_SERVO:
 		cmd_packet->cmd_type = CMD_TURN_SERVO;
-		cmd_packet->cmd.turn_servo.servo_id = (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.turn_servo.servo_id =
+		    (payload_len >= 1) ? payload[0] : 0;
 		cmd_packet->cmd.turn_servo.angle =
-		    (payload_len >= 3)
-		        ? (int16_t)(payload[1] | (payload[2] << 8))
-		        : 0;
+		    (payload_len >= 3) ? (int16_t)(payload[1] | (payload[2] << 8)) : 0;
 		cmd_packet->cmd.turn_servo.duration_ms =
-		    (payload_len >= 5)
-		        ? (int16_t)(payload[3] | (payload[4] << 8))
-		        : 0;
+		    (payload_len >= 5) ? (int16_t)(payload[3] | (payload[4] << 8)) : 0;
+		break;
+	case CMD_APPLY_CONFIG:
+		cmd_packet->cmd_type = CMD_APPLY_CONFIG;
+		cmd_packet->cmd.apply_config.data = payload;
+		cmd_packet->cmd.apply_config.length = (uint16_t)payload_len;
 		break;
 	default:
 		break;
@@ -164,6 +171,26 @@ TEST(parse_turn_servo_with_timeout_test) {
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.servo_id, 1);
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
 	ASSERT_EQ(cmd_packet.cmd.turn_servo.duration_ms, 500);
+}
+
+TEST(parse_apply_config_test) {
+	uint8_t blob[] = {0x01, // version
+	                  CMD_APPLY_CONFIG,
+	                  0x04,
+	                  0x00, // payload length = 4
+	                  0xAA,
+	                  0xBB,
+	                  0xCC,
+	                  0xDD};
+
+	CommandPacket cmd_packet;
+	parse_cmd(blob, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_APPLY_CONFIG);
+	ASSERT_EQ(cmd_packet.cmd.apply_config.length, 4u);
+	ASSERT(cmd_packet.cmd.apply_config.data != NULL);
+	ASSERT_EQ(cmd_packet.cmd.apply_config.data[0], 0xAA);
+	ASSERT_EQ(cmd_packet.cmd.apply_config.data[3], 0xDD);
 }
 
 #endif // PROTOCOL_H

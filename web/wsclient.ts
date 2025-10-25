@@ -51,6 +51,13 @@ const handleMsg = (msg: MsgToUi) => {
 					),
 			)
 			break
+		case "config":
+			console.log("Config update:", msg.botId, msg.motors)
+			state.configs.set({
+				...state.configs.get(),
+				[msg.botId]: msg.motors,
+			})
+			break
 		default:
 			console.log("Unknown message type:", msg)
 	}

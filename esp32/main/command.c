@@ -14,7 +14,8 @@
 
 // ESP-IDF specific timer operations
 static CommandTimerHandle esp_timer_create_wrapper(void (*callback)(void *),
-                                                    void *arg, const char *name) {
+                                                   void *arg,
+                                                   const char *name) {
 	esp_timer_handle_t timer = NULL;
 	const esp_timer_create_args_t timer_args = {
 	    .callback = callback,
@@ -23,8 +24,8 @@ static CommandTimerHandle esp_timer_create_wrapper(void (*callback)(void *),
 	};
 	esp_err_t ret = esp_timer_create(&timer_args, &timer);
 	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to create timer %s: %s", name ? name : "(unnamed)",
-		         esp_err_to_name(ret));
+		ESP_LOGE(TAG, "Failed to create timer %s: %s",
+		         name ? name : "(unnamed)", esp_err_to_name(ret));
 		return NULL;
 	}
 	return (CommandTimerHandle)timer;
@@ -126,7 +127,9 @@ static void esp_log_info_wrapper(const char *tag, const char *format, ...) {
 }
 
 // ESP-IDF specific motor control operations
-static void esp_motor_a_forward_wrapper(uint8_t speed) { motorA_forward(speed); }
+static void esp_motor_a_forward_wrapper(uint8_t speed) {
+	motorA_forward(speed);
+}
 
 static void esp_motor_a_backward_wrapper(uint8_t speed) {
 	motorA_backward(speed);
@@ -134,7 +137,9 @@ static void esp_motor_a_backward_wrapper(uint8_t speed) {
 
 static void esp_motor_a_stop_wrapper(void) { motorA_stop(); }
 
-static void esp_motor_b_forward_wrapper(uint8_t speed) { motorB_forward(speed); }
+static void esp_motor_b_forward_wrapper(uint8_t speed) {
+	motorB_forward(speed);
+}
 
 static void esp_motor_b_backward_wrapper(uint8_t speed) {
 	motorB_backward(speed);
@@ -147,10 +152,10 @@ static void esp_servo_set_angle_wrapper(uint8_t servo_id, uint32_t angle) {
 	servo_set_angle(servo_id, angle);
 }
 
-static uint32_t esp_servo_count_wrapper(void) { return PUPPY_SERVO_COUNT; }
+static uint32_t esp_servo_count_wrapper(void) { return motor_servo_count(); }
 
 static uint32_t esp_servo_boot_angle_wrapper(uint8_t servo_id) {
-	return puppy_servo_boot_angle(servo_id);
+	return motor_servo_boot_angle(servo_id);
 }
 
 // ESP-IDF specific websocket operations
@@ -161,7 +166,7 @@ static int esp_websocket_send_pong_wrapper(void *client) {
 	    (esp_websocket_client_handle_t)client;
 	char buff[] = {1, 0, MSG_TO_SRV_PONG};
 	int ret = esp_websocket_client_send_bin(ws_client, buff, sizeof(buff),
-	                                         portMAX_DELAY);
+	                                        portMAX_DELAY);
 	return ret >= 0 ? 0 : -1;
 }
 
@@ -188,5 +193,22 @@ static const CommandOps esp_command_ops = {
 void init_command_handler() { command_handler_init(&esp_command_ops); }
 
 void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
+	if (!cmd)
+		return;
+	if (cmd->cmd_type == CMD_APPLY_CONFIG) {
+		if (!cmd->cmd.apply_config.data || cmd->cmd.apply_config.length == 0) {
+			ESP_LOGW(TAG, "Received empty PBCL config payload");
+			return;
+		}
+		int rc = motor_apply_pbcl_blob(cmd->cmd.apply_config.data,
+		                               cmd->cmd.apply_config.length);
+		if (rc != 0) {
+			ESP_LOGE(TAG, "motor_apply_pbcl_blob failed (%d)", rc);
+		} else {
+			ESP_LOGI(TAG, "Motor configuration applied (%u bytes)",
+			         (unsigned)cmd->cmd.apply_config.length);
+		}
+		return;
+	}
 	command_handler_handle(cmd, (void *)client);
 }

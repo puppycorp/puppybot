@@ -5,6 +5,41 @@ export type Bot = {
 	connected: boolean
 }
 
+export type MotorPwmConfig = {
+	pin: number
+	channel: number
+	freqHz: number
+	minUs: number
+	maxUs: number
+	neutralUs?: number
+	invert?: boolean
+}
+
+export type MotorHBridgeConfig = {
+	in1: number
+	in2: number
+	brakeMode?: boolean
+}
+
+export type MotorAnalogFeedbackConfig = {
+	adcPin: number
+	adcMin: number
+	adcMax: number
+	degMin: number
+	degMax: number
+}
+
+export type MotorConfig = {
+	nodeId: number
+	type: "angle" | "continuous" | "hbridge"
+	name?: string
+	timeoutMs?: number
+	maxSpeed?: number
+	pwm?: MotorPwmConfig
+	hbridge?: MotorHBridgeConfig
+	analog?: MotorAnalogFeedbackConfig
+}
+
 type DriveMotor = {
 	type: "drive"
 	botId: string
@@ -34,7 +69,18 @@ type TurnServo = {
 	durationMs?: number
 }
 
-export type MsgToServer = DriveMotor | Stop | StopAllMotors | TurnServo
+type UpdateConfig = {
+	type: "updateConfig"
+	botId: string
+	motors: MotorConfig[]
+}
+
+export type MsgToServer =
+	| DriveMotor
+	| Stop
+	| StopAllMotors
+	| TurnServo
+	| UpdateConfig
 
 export type BotConnected = {
 	type: "botConnected"
@@ -57,13 +103,25 @@ export type Ping = {
 	type: "ping"
 }
 
-export type MsgToUi = BotConnected | BotDisconnected | BotInfo
+export type ConfigBroadcast = {
+	type: "config"
+	botId: string
+	motors: MotorConfig[]
+}
+
+export type MsgToUi = BotConnected | BotDisconnected | BotInfo | ConfigBroadcast
+type ApplyConfig = {
+	type: "applyConfig"
+	blob: Uint8Array
+}
+
 export type MsgToBot =
 	| Omit<DriveMotor, "botId">
 	| Omit<Stop, "botId">
 	| Ping
 	| StopAllMotors
 	| Omit<TurnServo, "botId">
+	| ApplyConfig
 
 // export type MyInfo = {
 // 	type: "myInfo"
