@@ -1,0 +1,48 @@
+name: Build Android release APK
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    build-release:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Java
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: "17"
+
+            - name: Set up Android SDK
+              uses: android-actions/setup-android@v3
+
+            - name: Grant execute permission for gradlew
+              run: chmod +x android/gradlew
+
+            - name: Build release APK
+              working-directory: android
+              run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
+
+            - name: Prepare universal artifact
+              run: |
+                  RELEASE_APK="android/app/build/outputs/apk/release/app-release.apk"
+                  if [ ! -f "$RELEASE_APK" ]; then
+                    echo "Release APK not found at $RELEASE_APK" >&2
+                    exit 1
+                  fi
+                  mkdir -p dist
+                  cp "$RELEASE_APK" dist/puppybot-universal.apk
+
+            - name: Upload release asset
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: dist/puppybot-universal.apk
