@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -46,6 +47,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -57,9 +59,12 @@ import fi.puppycorp.puppybot.control.PuppybotCommandSender
 import fi.puppycorp.puppybot.mdns.PuppybotMdns
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import fi.puppycorp.puppybot.ui.theme.PuppybotTheme
+import fi.puppycorp.puppybot.update.UpdateManager
 import fi.puppycorp.puppybot.ws.PuppybotWebSocket
 import fi.puppycorp.puppybot.ws.WebSocketState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -106,6 +111,7 @@ class MainActivity : ComponentActivity() {
         mdns = PuppybotMdns(this)
         ws = PuppybotWebSocket()
         ble = PuppybotBleController(this)
+
         setContent {
             PuppybotTheme {
                 val devices by mdns.devices.collectAsState(initial = emptyList())
@@ -232,7 +238,18 @@ private fun PuppybotScreen(
     transportMode: TransportMode,
     onTransportModeChange: (TransportMode) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
     Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = {
+            coroutineScope.launch(Dispatchers.IO) {
+                UpdateManager.checkAndPrompt(context.applicationContext)
+            }
+        }) {
+            Text("Check for updates")
+        }
+
         TransportToggle(transportMode = transportMode, onTransportModeChange = onTransportModeChange)
 
         val stateText: String?

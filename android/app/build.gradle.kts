@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val githubReleaseOwner = providers.gradleProperty("githubReleaseOwner").orElse("puppycorp")
+val githubReleaseRepo = providers.gradleProperty("githubReleaseRepo").orElse("puppybot")
+val pinnedReleaseCertSha256 = providers.gradleProperty("pinnedReleaseCertSha256").orElse("REPLACE_WITH_CERT_SHA256")
+
 android {
     namespace = "fi.puppycorp.puppybot"
     compileSdk = 36
@@ -16,6 +20,10 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "GITHUB_RELEASE_OWNER", "\"${githubReleaseOwner.get()}\"")
+        buildConfigField("String", "GITHUB_RELEASE_REPO", "\"${githubReleaseRepo.get()}\"")
+        buildConfigField("String", "PINNED_RELEASE_CERT_SHA256", "\"${pinnedReleaseCertSha256.get()}\"")
     }
 
     buildTypes {
@@ -25,6 +33,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            setProperty("archivesBaseName", "puppybot")
         }
     }
     compileOptions {
@@ -36,6 +45,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -50,6 +60,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.okhttp)
+    implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
