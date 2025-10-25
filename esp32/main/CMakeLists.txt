@@ -7,6 +7,7 @@ file(GLOB_RECURSE COMPONENT_SRCS LIST_DIRECTORIES false "*.c")
 
 # Add platform-agnostic source files from src/
 list(APPEND COMPONENT_SRCS "../../src/command_handler.c")
+list(APPEND COMPONENT_SRCS "../../src/puppy_app.c")
 
 idf_component_register(
     SRCS ${COMPONENT_SRCS}

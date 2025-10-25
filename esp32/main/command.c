@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define TAG "COMMAND"
 #define MSG_TO_SRV_PONG 0x01
@@ -46,27 +47,81 @@ static int esp_timer_stop_wrapper(CommandTimerHandle timer) {
 }
 
 // ESP-IDF specific logging operations
-static void esp_log_info_wrapper(const char *tag, const char *format, ...) {
-	va_list args;
-	va_start(args, format);
-	esp_log_write(ESP_LOG_INFO, tag, LOG_FORMAT(I, format), esp_log_timestamp(),
-	              tag, args);
-	va_end(args);
+static void esp_log_vwrapper(esp_log_level_t level, const char *tag,
+                             const char *format, va_list args) {
+	char stack_buffer[128];
+	char *buffer = stack_buffer;
+	size_t buffer_size = sizeof(stack_buffer);
+
+	va_list args_copy;
+	va_copy(args_copy, args);
+	int needed = vsnprintf(stack_buffer, buffer_size, format, args_copy);
+	va_end(args_copy);
+
+	if (needed < 0) {
+		return;
+	}
+
+	if (needed >= (int)buffer_size) {
+		buffer_size = (size_t)needed + 1;
+		buffer = (char *)malloc(buffer_size);
+		if (buffer) {
+			va_list args_full;
+			va_copy(args_full, args);
+			vsnprintf(buffer, buffer_size, format, args_full);
+			va_end(args_full);
+		} else {
+			buffer = stack_buffer;
+			if (sizeof(stack_buffer) >= 4) {
+				stack_buffer[sizeof(stack_buffer) - 4] = '.';
+				stack_buffer[sizeof(stack_buffer) - 3] = '.';
+				stack_buffer[sizeof(stack_buffer) - 2] = '.';
+			}
+			stack_buffer[sizeof(stack_buffer) - 1] = '\0';
+		}
+	}
+
+	switch (level) {
+	case ESP_LOG_ERROR:
+		ESP_LOGE(tag, "%s", buffer);
+		break;
+	case ESP_LOG_WARN:
+		ESP_LOGW(tag, "%s", buffer);
+		break;
+	case ESP_LOG_DEBUG:
+		ESP_LOGD(tag, "%s", buffer);
+		break;
+	case ESP_LOG_VERBOSE:
+		ESP_LOGV(tag, "%s", buffer);
+		break;
+	default:
+		ESP_LOGI(tag, "%s", buffer);
+		break;
+	}
+
+	if (buffer != stack_buffer) {
+		free(buffer);
+	}
 }
 
 static void esp_log_warning_wrapper(const char *tag, const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	esp_log_write(ESP_LOG_WARN, tag, LOG_FORMAT(W, format), esp_log_timestamp(),
-	              tag, args);
+	esp_log_vwrapper(ESP_LOG_WARN, tag, format, args);
 	va_end(args);
 }
 
 static void esp_log_error_wrapper(const char *tag, const char *format, ...) {
 	va_list args;
 	va_start(args, format);
-	esp_log_write(ESP_LOG_ERROR, tag, LOG_FORMAT(E, format),
-	              esp_log_timestamp(), tag, args);
+	esp_log_vwrapper(ESP_LOG_ERROR, tag, format, args);
+	va_end(args);
+}
+
+static void esp_log_info_wrapper(const char *tag, const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	esp_log_vwrapper(ESP_LOG_INFO, tag, format, args);
 	va_end(args);
 }
 

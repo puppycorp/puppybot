@@ -29,7 +29,7 @@ static void esp_log_boot(const char *instance_name) {
 	ESP_LOGI("MAIN", "Booting %s firmware variant", instance_name);
 }
 
-static int esp_wifi_init(void) {
+static int puppy_wifi_init(void) {
 	wifi_init_sta();
 	return 0;
 }
@@ -99,7 +99,7 @@ void app_main(void) {
 	    .storage_init = esp_storage_init,
 	    .instance_name = esp_instance_name,
 	    .log_boot = esp_log_boot,
-	    .wifi_init = esp_wifi_init,
+	    .wifi_init = puppy_wifi_init,
 	    .mdns_init = esp_mdns_init,
 	    .motor_gpio_init = esp_motor_gpio_init,
 	    .motor_pwm_init = esp_motor_pwm_init,

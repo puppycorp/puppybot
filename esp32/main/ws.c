@@ -84,7 +84,11 @@ static void websocket_reconnect(void) {
     }
 }
 
+#if defined(__GNUC__)
+static void __attribute__((unused)) heartbeat_timer_callback(void *arg) {
+#else
 static void heartbeat_timer_callback(void *arg) {
+#endif
     if (websocket_connected && client) {
         ESP_LOGI(TAG, "Sending heartbeat ping");
         esp_err_t err = esp_websocket_client_send_text(client, "ping", 4, portMAX_DELAY);

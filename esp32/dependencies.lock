@@ -1,6 +1,7 @@
 dependencies:
   espressif/esp_websocket_client:
-    component_hash: f77326f0e1c38da4e9c97e17c5d649b0dd13027f2645e720e48db269638fd622
+    component_hash: 
+      f77326f0e1c38da4e9c97e17c5d649b0dd13027f2645e720e48db269638fd622
     dependencies:
     - name: idf
       require: private
@@ -10,7 +11,8 @@ dependencies:
       type: service
     version: 1.4.0
   espressif/mdns:
-    component_hash: 3ec0af5f6bce310512e90f482388d21cc7c0e99668172d2f895356165fc6f7c5
+    component_hash: 
+      3ec0af5f6bce310512e90f482388d21cc7c0e99668172d2f895356165fc6f7c5
     dependencies:
     - name: idf
       require: private
