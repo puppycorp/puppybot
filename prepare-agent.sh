@@ -11,15 +11,13 @@ sudo apt-get install -y git wget flex bison gperf python3 python3-pip \
   python3-venv cmake ninja-build ccache libffi-dev libssl-dev \
   dfu-util libusb-1.0-0 clang-format
 
-mkdir -p "$HOME/esp"
-cd "$HOME/esp"
-if [ ! -d "$HOME/esp/esp-idf" ]; then
-  git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
-fi
+git submodule sync --recursive
+git submodule update --init --recursive
 
-cd "$HOME/esp/esp-idf"
+ESP_IDF_DIR="$ROOT_DIR/deps/espidf"
+cd "$ESP_IDF_DIR"
 ./install.sh esp32
-. "$HOME/esp/esp-idf/export.sh"
+. "$ESP_IDF_DIR/export.sh"
 
 cd "$ROOT_DIR"
 bun install
