@@ -42,7 +42,7 @@ jobs:
 
             - name: Prepare artifact
               run: |
-                  RELEASE_APK="android/app/build/outputs/apk/release/app-release.apk"
+                  RELEASE_APK="android/app/build/outputs/apk/release/puppybot-release-unsigned.apk"
                   test -f "$RELEASE_APK"
                   mkdir -p dist
                   cp "$RELEASE_APK" "dist/puppybot.apk"
