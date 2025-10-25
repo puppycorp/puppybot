@@ -145,14 +145,14 @@ Set the `PUPPY_VARIANT` environment variable at build time to describe the hardw
 PUPPY_VARIANT=puppyarm idf.py build flash
 ```
 
-Additional variants can be introduced by extending `esp32/main/variant_config.h`. The build system uppercases the value you provide and strips non-alphanumeric characters before exporting a matching preprocessor define (`PUPPY_VARIANT_<VALUE>`). Empty or unknown values fall back to `PUPPY_VARIANT_PUPPYBOT`.
+Additional variants can be introduced by extending `src/variant_config.h`. The build system uppercases the value you provide and strips non-alphanumeric characters before exporting a matching preprocessor define (`PUPPY_VARIANT_<VALUE>`). Empty or unknown values fall back to `PUPPY_VARIANT_PUPPYBOT`.
 
 | Variant  | `PUPPY_VARIANT` value | Hostname   | Servo count | Drive motors | Steering servo center | Notes                                                                                                           |
 | -------- | --------------------- | ---------- | ----------- | ------------ | --------------------- | --------------------------------------------------------------------------------------------------------------- |
 | PuppyBot | `puppybot` (default)  | `puppybot` | 4           | Yes          | 88°                   | Rover chassis; steering servo on GPIO13 is required, the remaining three headers are optional accessory servos. |
 | PuppyArm | `puppyarm`            | `puppyarm` | 4           | No           | 90°                   | Arm-focused build; disables drive motors and recenters all servos.                                              |
 
-Define additional variants by adding a new `VARIANT_*` entry and configuration block in `esp32/main/variant_config.h`, then set `PUPPY_VARIANT` to the lowercase variant key.
+Define additional variants by adding a new `VARIANT_*` entry and configuration block in `src/variant_config.h`, then set `PUPPY_VARIANT` to the lowercase variant key.
 
 ### TURN_SERVO
 

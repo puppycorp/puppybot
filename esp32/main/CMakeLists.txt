@@ -7,7 +7,7 @@ file(GLOB_RECURSE COMPONENT_SRCS LIST_DIRECTORIES false "*.c")
 
 idf_component_register(
     SRCS ${COMPONENT_SRCS}
-    INCLUDE_DIRS "."
+    INCLUDE_DIRS "." "../../src"
     REQUIRES
         bt
         nvs_flash

@@ -8,7 +8,12 @@ mkdir -p "$BUILD_DIR"
 : "${CC:=gcc}"
 : "${CFLAGS:=}"
 
-"$CC" -std=c11 -Wall -Wextra -Werror -Isrc $CFLAGS \
-  "$ROOT_DIR/src/test_main.c" -o "$BUILD_DIR/test_runner" -lm
+"$CC" -std=c11 -Wall -Wextra -Werror -DUNIT_TEST -Isrc -Iesp32/main $CFLAGS \
+  "$ROOT_DIR/src/test_main.c" \
+  "$ROOT_DIR/src/motor_tests.c" \
+  "$ROOT_DIR/src/app_tests.c" \
+  "$ROOT_DIR/src/puppy_app.c" \
+  "$ROOT_DIR/src/espidf_stubs.c" \
+  -o "$BUILD_DIR/test_runner" -lm
 
 "$BUILD_DIR/test_runner" "$@"

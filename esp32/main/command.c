@@ -1,218 +1,137 @@
 #include "command.h"
+#include "command_handler.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "motor.h"
-#include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
-#include <stdlib.h>
+#include <stdio.h>
 
 #define TAG "COMMAND"
+#define MSG_TO_SRV_PONG 0x01
 
-esp_timer_handle_t safety_timer;
-typedef struct {
-	esp_timer_handle_t timer;
-	uint16_t restore_angle;
-	bool active;
-} servo_timeout_state_t;
-
-static servo_timeout_state_t servo_timeouts[PUPPY_SERVO_COUNT];
-static uint16_t servo_current_angle[PUPPY_SERVO_COUNT];
-
-static void servo_timeout_callback(void *arg) {
-	uint32_t servo_id = (uint32_t)(uintptr_t)arg;
-	if (servo_id >= PUPPY_SERVO_COUNT) {
-		return;
+// ESP-IDF specific timer operations
+static CommandTimerHandle esp_timer_create_wrapper(void (*callback)(void *),
+                                                    void *arg, const char *name) {
+	esp_timer_handle_t timer = NULL;
+	const esp_timer_create_args_t timer_args = {
+	    .callback = callback,
+	    .arg = arg,
+	    .name = name,
+	};
+	esp_err_t ret = esp_timer_create(&timer_args, &timer);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to create timer %s: %s", name ? name : "(unnamed)",
+		         esp_err_to_name(ret));
+		return NULL;
 	}
-	servo_timeout_state_t *state = &servo_timeouts[servo_id];
-	ESP_LOGI(TAG, "Servo %lu timeout -> restoring to %d", (unsigned long)servo_id,
-	         state->restore_angle);
-	servo_set_angle((uint8_t)servo_id, state->restore_angle);
-	servo_current_angle[servo_id] = state->restore_angle;
-	state->active = false;
+	return (CommandTimerHandle)timer;
 }
 
-static void cancel_servo_timeout(uint8_t servo_id) {
-	if (servo_id >= PUPPY_SERVO_COUNT) {
-		return;
-	}
-	servo_timeout_state_t *state = &servo_timeouts[servo_id];
-	if (state->timer == NULL) {
-		return;
-	}
-	esp_err_t stop_result = esp_timer_stop(state->timer);
-	if (stop_result != ESP_OK && stop_result != ESP_ERR_INVALID_STATE) {
-		ESP_LOGW(TAG, "Failed to stop servo timeout %u: %s", servo_id,
-		         esp_err_to_name(stop_result));
-	}
-	state->active = false;
+static int esp_timer_start_once_wrapper(CommandTimerHandle timer,
+                                        uint64_t timeout_us) {
+	if (!timer)
+		return -1;
+	esp_err_t ret = esp_timer_start_once((esp_timer_handle_t)timer, timeout_us);
+	return ret == ESP_OK ? 0 : -1;
 }
 
-void safety_timer_callback(void *arg) {
-	ESP_LOGW(TAG, "Safety timeout: stopping all motors");
-	motorA_stop();
-	motorB_stop();
+static int esp_timer_stop_wrapper(CommandTimerHandle timer) {
+	if (!timer)
+		return -1;
+	esp_err_t ret = esp_timer_stop((esp_timer_handle_t)timer);
+	// ESP_ERR_INVALID_STATE means timer is not running, which is acceptable
+	return (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) ? 0 : -1;
 }
 
-static uint8_t speed_to_duty(int speed) {
-	int magnitude = abs(speed);
-	if (magnitude > 127) {
-		magnitude = 127;
-	}
-
-	// Map 0..127 -> 0..255 for LEDC 8-bit duty cycle
-	return (uint8_t)((magnitude * 255) / 127);
+// ESP-IDF specific logging operations
+static void esp_log_info_wrapper(const char *tag, const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	esp_log_write(ESP_LOG_INFO, tag, LOG_FORMAT(I, format), esp_log_timestamp(),
+	              tag, args);
+	va_end(args);
 }
+
+static void esp_log_warning_wrapper(const char *tag, const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	esp_log_write(ESP_LOG_WARN, tag, LOG_FORMAT(W, format), esp_log_timestamp(),
+	              tag, args);
+	va_end(args);
+}
+
+static void esp_log_error_wrapper(const char *tag, const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	esp_log_write(ESP_LOG_ERROR, tag, LOG_FORMAT(E, format),
+	              esp_log_timestamp(), tag, args);
+	va_end(args);
+}
+
+// ESP-IDF specific motor control operations
+static void esp_motor_a_forward_wrapper(uint8_t speed) { motorA_forward(speed); }
+
+static void esp_motor_a_backward_wrapper(uint8_t speed) {
+	motorA_backward(speed);
+}
+
+static void esp_motor_a_stop_wrapper(void) { motorA_stop(); }
+
+static void esp_motor_b_forward_wrapper(uint8_t speed) { motorB_forward(speed); }
+
+static void esp_motor_b_backward_wrapper(uint8_t speed) {
+	motorB_backward(speed);
+}
+
+static void esp_motor_b_stop_wrapper(void) { motorB_stop(); }
+
+// ESP-IDF specific servo operations
+static void esp_servo_set_angle_wrapper(uint8_t servo_id, uint32_t angle) {
+	servo_set_angle(servo_id, angle);
+}
+
+static uint32_t esp_servo_count_wrapper(void) { return PUPPY_SERVO_COUNT; }
+
+static uint32_t esp_servo_boot_angle_wrapper(uint8_t servo_id) {
+	return puppy_servo_boot_angle(servo_id);
+}
+
+// ESP-IDF specific websocket operations
+static int esp_websocket_send_pong_wrapper(void *client) {
+	if (!client)
+		return -1;
+	esp_websocket_client_handle_t ws_client =
+	    (esp_websocket_client_handle_t)client;
+	char buff[] = {1, 0, MSG_TO_SRV_PONG};
+	int ret = esp_websocket_client_send_bin(ws_client, buff, sizeof(buff),
+	                                         portMAX_DELAY);
+	return ret >= 0 ? 0 : -1;
+}
+
+// Command operations structure
+static const CommandOps esp_command_ops = {
+    .timer_create = esp_timer_create_wrapper,
+    .timer_start_once = esp_timer_start_once_wrapper,
+    .timer_stop = esp_timer_stop_wrapper,
+    .log_info = esp_log_info_wrapper,
+    .log_warning = esp_log_warning_wrapper,
+    .log_error = esp_log_error_wrapper,
+    .motor_a_forward = esp_motor_a_forward_wrapper,
+    .motor_a_backward = esp_motor_a_backward_wrapper,
+    .motor_a_stop = esp_motor_a_stop_wrapper,
+    .motor_b_forward = esp_motor_b_forward_wrapper,
+    .motor_b_backward = esp_motor_b_backward_wrapper,
+    .motor_b_stop = esp_motor_b_stop_wrapper,
+    .servo_set_angle = esp_servo_set_angle_wrapper,
+    .servo_count = esp_servo_count_wrapper,
+    .servo_boot_angle = esp_servo_boot_angle_wrapper,
+    .websocket_send_pong = esp_websocket_send_pong_wrapper,
+};
+
+void init_command_handler() { command_handler_init(&esp_command_ops); }
 
 void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
-	switch (cmd->cmd_type) {
-	case CMD_PING:
-		ESP_LOGI(TAG, "Ping command received");
-		if (client) {
-			char buff[] = {1, 0, MSG_TO_SRV_PONG};
-			esp_websocket_client_send_bin(client, buff, sizeof(buff),
-			                              portMAX_DELAY);
-		}
-		break;
-	case CMD_DRIVE_MOTOR:
-		ESP_LOGI(TAG, "drive motor %d with speed %d",
-		         cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
-		// Reset the safety timer
-		if (safety_timer) {
-			esp_timer_stop(safety_timer);
-			esp_timer_start_once(safety_timer, 1000000); // 1 second timeout
-		}
-		if (cmd->cmd.drive_motor.motor_type == SERVO_MOTOR) {
-			uint8_t servo_id = (uint8_t)cmd->cmd.drive_motor.motor_id;
-			if (servo_id >= PUPPY_SERVO_COUNT) {
-				ESP_LOGE(TAG, "Invalid servo ID %u", servo_id);
-				break;
-			}
-			cancel_servo_timeout(servo_id);
-			int angle = cmd->cmd.drive_motor.angle;
-			if (angle < 0) angle = 0;
-			if (angle > 180) angle = 180;
-			servo_set_angle(servo_id, (uint32_t)angle);
-			servo_current_angle[servo_id] = (uint16_t)angle;
-		} else if (cmd->cmd.drive_motor.motor_id == 1) {
-			if (cmd->cmd.drive_motor.speed == 0) {
-				motorA_stop();
-				break;
-			}
-			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-			if (cmd->cmd.drive_motor.speed > 0) {
-				motorA_forward(duty);
-			} else {
-				motorA_backward(duty);
-			}
-		} else if (cmd->cmd.drive_motor.motor_id == 2) {
-			if (cmd->cmd.drive_motor.speed == 0) {
-				motorB_stop();
-				break;
-			}
-			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-			if (cmd->cmd.drive_motor.speed > 0) {
-				motorB_forward(duty);
-			} else {
-				motorB_backward(duty);
-			}
-		} else {
-			ESP_LOGE(TAG, "Invalid motor ID");
-		}
-		break;
-	case CMD_STOP_MOTOR:
-		ESP_LOGI(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
-		if (cmd->cmd.stop_motor.motor_id == 1) {
-			motorA_stop();
-		} else if (cmd->cmd.stop_motor.motor_id == 2) {
-			motorB_stop();
-		} else {
-			ESP_LOGE(TAG, "Invalid motor ID");
-		}
-		break;
-	case CMD_STOP_ALL_MOTORS:
-		ESP_LOGI(TAG, "Stop all motors command received");
-		motorA_stop();
-		motorB_stop();
-		if (safety_timer) {
-			esp_timer_stop(safety_timer);
-		}
-		for (uint8_t servo = 0; servo < PUPPY_SERVO_COUNT; ++servo) {
-			cancel_servo_timeout(servo);
-			servo_set_angle(servo, puppy_servo_boot_angle(servo));
-			servo_current_angle[servo] = puppy_servo_boot_angle(servo);
-		}
-		break;
-	case CMD_TURN_SERVO: {
-		uint8_t servo_id = (uint8_t)cmd->cmd.turn_servo.servo_id;
-		int angle = cmd->cmd.turn_servo.angle;
-		int duration_ms = cmd->cmd.turn_servo.duration_ms;
-		if (servo_id >= PUPPY_SERVO_COUNT) {
-			ESP_LOGE(TAG, "Invalid servo ID %u", servo_id);
-			break;
-		}
-		if (angle < 0) angle = 0;
-		if (angle > 180) angle = 180;
-		if (duration_ms < 0) duration_ms = 0;
-
-		uint16_t previous_angle = servo_current_angle[servo_id];
-		cancel_servo_timeout(servo_id);
-
-		ESP_LOGI(TAG, "turn servo %u -> %d (timeout %d ms)", servo_id, angle,
-		         duration_ms);
-
-		servo_set_angle(servo_id, (uint32_t)angle);
-		servo_current_angle[servo_id] = (uint16_t)angle;
-
-		if (duration_ms > 0) {
-			servo_timeout_state_t *state = &servo_timeouts[servo_id];
-			if (state->timer == NULL) {
-				ESP_LOGW(TAG, "No timer available for servo %u timeout", servo_id);
-				break;
-			}
-			state->restore_angle = previous_angle;
-			state->active = true;
-			int64_t timeout_us = (int64_t)duration_ms * 1000;
-			esp_err_t timer_result =
-			    esp_timer_start_once(state->timer, timeout_us);
-			if (timer_result != ESP_OK) {
-				ESP_LOGW(TAG, "Failed to start servo timeout %u: %s", servo_id,
-				         esp_err_to_name(timer_result));
-				state->active = false;
-			}
-		}
-		break;
-	}
-	}
-}
-
-void init_command_handler() {
-	const esp_timer_create_args_t safety_timer_args = {
-	    .callback = safety_timer_callback, .name = "safety_timer"};
-	esp_err_t ret = esp_timer_create(&safety_timer_args, &safety_timer);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to create safety timer: %s",
-		         esp_err_to_name(ret));
-	} else {
-		ESP_LOGI(TAG, "Safety timer created successfully");
-	}
-	for (uint8_t servo = 0; servo < PUPPY_SERVO_COUNT; ++servo) {
-		servo_timeout_state_t *state = &servo_timeouts[servo];
-		servo_current_angle[servo] = puppy_servo_boot_angle(servo);
-		state->restore_angle = servo_current_angle[servo];
-		const esp_timer_create_args_t servo_timer_args = {
-		    .callback = servo_timeout_callback,
-		    .arg = (void *)(uintptr_t)servo,
-		    .name = NULL,
-		};
-		esp_err_t timer_ret =
-		    esp_timer_create(&servo_timer_args, &state->timer);
-		if (timer_ret != ESP_OK) {
-			ESP_LOGE(TAG,
-			         "Failed to create servo timeout timer %u: %s", servo,
-			         esp_err_to_name(timer_ret));
-			state->timer = NULL;
-		}
-		state->active = false;
-	}
+	command_handler_handle(cmd, (void *)client);
 }

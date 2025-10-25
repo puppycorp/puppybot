@@ -1,8 +1,12 @@
 #ifndef __MOTOR_H__
 #define __MOTOR_H__
 
+#ifdef ESP_PLATFORM
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#else
+#include "espidf_stubs.h"
+#endif
 #include <stdint.h>
 
 // ---------------- GPIO Definitions ----------------
@@ -53,16 +57,17 @@ static inline servo_output_t get_servo_output(int index) {
 
 // Safer angle clamp + configurable pulse range
 static inline uint32_t angle_to_duty(uint32_t angle_deg) {
-	if (angle_deg > 180) angle_deg = 180; // clamp
+	if (angle_deg > 180)
+		angle_deg = 180; // clamp
 
-	const uint32_t min_pulse = 1000;  // µs
-	const uint32_t max_pulse = 2000;  // µs  (consider making these per-servo)
+	const uint32_t min_pulse = 1000; // µs
+	const uint32_t max_pulse = 2000; // µs  (consider making these per-servo)
 	const uint32_t period_us = 1000000 / SERVO_FREQUENCY; // 20000 at 50 Hz
-	const uint32_t max_duty  = (1U << SERVO_DUTY_RES) - 1;
+	const uint32_t max_duty = (1U << SERVO_DUTY_RES) - 1;
 
 	uint32_t pulse = min_pulse + (angle_deg * (max_pulse - min_pulse)) / 180;
 	// round instead of truncate
-	uint64_t num = (uint64_t)pulse * max_duty + (period_us/2);
+	uint64_t num = (uint64_t)pulse * max_duty + (period_us / 2);
 	return (uint32_t)(num / period_us);
 }
 
@@ -171,8 +176,10 @@ DEFINE_MOTOR_FUNCTIONS(motorA, IN1_GPIO, IN2_GPIO, ENA_CHANNEL)
 DEFINE_MOTOR_FUNCTIONS(motorB, IN3_GPIO, IN4_GPIO, ENB_CHANNEL)
 
 static inline void servo_set_angle(uint8_t servo_id, uint32_t angle) {
-	if (servo_id >= SERVO_COUNT) return;
-	if (angle > 180) angle = 180;
+	if (servo_id >= SERVO_COUNT)
+		return;
+	if (angle > 180)
+		angle = 180;
 
 	servo_output_t output = get_servo_output(servo_id);
 	uint32_t duty = angle_to_duty(angle);

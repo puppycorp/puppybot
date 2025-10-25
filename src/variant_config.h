@@ -1,8 +1,12 @@
 #ifndef __VARIANT_CONFIG_H__
 #define __VARIANT_CONFIG_H__
 
+#ifdef ESP_PLATFORM
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#else
+#include "espidf_stubs.h"
+#endif
 #include <stdint.h>
 
 #define VARIANT_PUPPYBOT 1

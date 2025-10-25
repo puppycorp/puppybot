@@ -1,4 +1,3 @@
-#define UNIT_TEST
 #include "test.h"
 #include "protocol.h"
 #include <stdio.h>

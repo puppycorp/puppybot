@@ -2,7 +2,16 @@
 #define TEST_FRAMEWORK_H
 #include <stdio.h>
 #include <stdlib.h>
+
+#if defined(__has_include)
+#if __has_include(<fnmatch.h>)
+#include <fnmatch.h>
+#else
 int fnmatch(const char *pattern, const char *string, int flags);
+#endif
+#else
+int fnmatch(const char *pattern, const char *string, int flags);
+#endif
 typedef void (*TestFunc)();
 typedef struct Test {
 	char *name;
