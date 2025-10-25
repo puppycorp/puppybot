@@ -15,17 +15,20 @@ bun run start
 
 Requires ESP-idf sdk either install it your self.
 
-First create .env file in esp32 directory.
+First create a `.env` file in the `esp32` directory. The `esp32/build.sh` script will source this file, making the variables available to the build system.
 
-.env
-
+Example `.env` file:
 ```
-WIFI_SSID=STRING
-WIFI_PASS=STRING_PASSWORD
-SERVER_HOST=IP_ADDRESS
-DEVICE_ID=NUMBER
+# Optional: semicolon-separated list of "SSID:password" pairs.
+# Example: WIFI_CREDENTIALS="Home WiFi:supersecret;Phone Hotspot:backuppass"
+# For a single network, provide just one pair.
+WIFI_CREDENTIALS=
 VERSION=NUMBER
 PUPPY_VARIANT=STRING
+# Optional: server host for the bot to connect to.
+SERVER_HOST=your.server.host
+# Optional: device ID for the bot.
+DEVICE_ID=1
 ```
 
 ```
