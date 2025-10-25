@@ -10,16 +10,16 @@ on:
             artifact_name:
                 description: Android artifact name
                 value: ${{ jobs.build.outputs.artifact_name }}
-            artifact_path:
-                description: Android artifact path
-                value: ${{ jobs.build.outputs.artifact_path }}
+            artifact_file:
+                description: Android artifact filename
+                value: ${{ jobs.build.outputs.artifact_file }}
 
 jobs:
     build:
         runs-on: ubuntu-latest
         outputs:
             artifact_name: ${{ steps.prepare.outputs.artifact_name }}
-            artifact_path: ${{ steps.prepare.outputs.artifact_path }}
+            artifact_file: ${{ steps.prepare.outputs.artifact_file }}
 
         steps:
             - name: Checkout
@@ -53,12 +53,12 @@ jobs:
                   mkdir -p artifacts
                   cp "$RELEASE_APK" "artifacts/puppybot.apk"
                   echo "artifact_name=puppybot-android" >> "$GITHUB_OUTPUT"
-                  echo "artifact_path=artifacts/puppybot.apk" >> "$GITHUB_OUTPUT"
+                  echo "artifact_file=puppybot.apk" >> "$GITHUB_OUTPUT"
 
             - name: Upload APK artifact
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ steps.prepare.outputs.artifact_name }}
-                  path: ${{ steps.prepare.outputs.artifact_path }}
+                  path: artifacts/puppybot.apk
                   if-no-files-found: error
                   retention-days: 14

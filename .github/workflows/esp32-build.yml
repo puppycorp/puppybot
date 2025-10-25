@@ -10,16 +10,16 @@ on:
             artifact_name:
                 description: ESP32 firmware artifact name
                 value: ${{ jobs.build.outputs.artifact_name }}
-            artifact_path:
-                description: ESP32 firmware artifact path
-                value: ${{ jobs.build.outputs.artifact_path }}
+            artifact_file:
+                description: ESP32 firmware artifact filename
+                value: ${{ jobs.build.outputs.artifact_file }}
 
 jobs:
     build:
         runs-on: ubuntu-latest
         outputs:
             artifact_name: ${{ steps.package.outputs.artifact_name }}
-            artifact_path: ${{ steps.package.outputs.artifact_path }}
+            artifact_file: ${{ steps.package.outputs.artifact_file }}
 
         steps:
             - name: Checkout
@@ -51,12 +51,12 @@ jobs:
                   cp esp32/build/flasher_args.json artifacts/esp32/
                   (cd artifacts/esp32 && zip -r ../puppybot-firmware.zip .)
                   echo "artifact_name=puppybot-firmware" >> "$GITHUB_OUTPUT"
-                  echo "artifact_path=artifacts/puppybot-firmware.zip" >> "$GITHUB_OUTPUT"
+                  echo "artifact_file=puppybot-firmware.zip" >> "$GITHUB_OUTPUT"
 
             - name: Upload firmware artifact
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ steps.package.outputs.artifact_name }}
-                  path: ${{ steps.package.outputs.artifact_path }}
+                  path: artifacts/puppybot-firmware.zip
                   if-no-files-found: error
                   retention-days: 14

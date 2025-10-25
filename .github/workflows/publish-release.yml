@@ -36,8 +36,8 @@ jobs:
             - name: Prepare release files
               run: |
                   mkdir -p dist
-                  ANDROID_ARTIFACT="downloads/android/${{ needs.android.outputs.artifact_path }}"
-                  ESP32_ARTIFACT="downloads/esp32/${{ needs.esp32.outputs.artifact_path }}"
+                  ANDROID_ARTIFACT="downloads/android/${{ needs.android.outputs.artifact_file }}"
+                  ESP32_ARTIFACT="downloads/esp32/${{ needs.esp32.outputs.artifact_file }}"
                   cp "$ANDROID_ARTIFACT" dist/puppybot.apk
                   cp "$ESP32_ARTIFACT" dist/puppybot-firmware.zip
 
