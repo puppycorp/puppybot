@@ -44,14 +44,14 @@ jobs:
                   RELEASE_APK="android/app/build/outputs/apk/release/app-release.apk"
                   test -f "$RELEASE_APK"
                   mkdir -p dist
-                  cp "$RELEASE_APK" "dist/puppybot-universal.apk"
+                  cp "$RELEASE_APK" "dist/puppybot.apk"
 
             # Always upload the build output as a CI artifact (visible on the run page)
             - name: Upload CI artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: puppybot-universal.apk
-                  path: dist/puppybot-universal.apk
+                  name: puppybot.apk
+                  path: dist/puppybot.apk
                   if-no-files-found: error
                   retention-days: 14
 
@@ -63,4 +63,4 @@ jobs:
                   tag_name: ${{ github.ref_name }}
                   name: ${{ github.ref_name }}
                   generate_release_notes: true
-                  files: dist/puppybot-universal.apk
+                  files: dist/puppybot.apk
