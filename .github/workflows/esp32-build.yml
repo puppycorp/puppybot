@@ -1,35 +1,62 @@
-name: Build puppybot firmware
+name: ESP32 Build
 
 on:
-    push: {}
-    pull_request: {}
+    push:
+        branches:
+            - "**"
+    pull_request:
+    workflow_call:
+        outputs:
+            artifact_name:
+                description: ESP32 firmware artifact name
+                value: ${{ jobs.build.outputs.artifact_name }}
+            artifact_path:
+                description: ESP32 firmware artifact path
+                value: ${{ jobs.build.outputs.artifact_path }}
 
 jobs:
-    build-esp32:
+    build:
         runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+        outputs:
+            artifact_name: ${{ steps.package.outputs.artifact_name }}
+            artifact_path: ${{ steps.package.outputs.artifact_path }}
 
-            - name: Cache ESP‑IDF
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Cache ESP-IDF
               uses: actions/cache@v3
               with:
                   path: /tmp/esp/idf
                   key: ${{ runner.os }}-esp-idf-v5.2.5
 
-            - name: Install ESP‑IDF
+            - name: Install ESP-IDF
               uses: espressif/install-esp-idf-action@v1
               with:
                   version: v5.2.5
 
-            # - name: Build project
-            #   working-directory: esp32
-            #   run: idf.py build
-            #   - name: Upload firmware binaries
-            #     if: success()
-            #     uses: actions/upload-artifact@v3
-            #     with:
-            #       name: esp32-artifacts
-            #       path: |
-            #         esp32/build/puppybot.bin
-            #         esp32/build/puppybot.elf
-            #         esp32/build/puppybot.map
+            - name: Build ESP32 firmware
+              working-directory: esp32
+              run: idf.py build
+
+            - name: Package firmware artifact
+              id: package
+              run: |
+                  mkdir -p artifacts/esp32
+                  cp esp32/build/puppybot.bin artifacts/esp32/
+                  cp esp32/build/bootloader/bootloader.bin artifacts/esp32/
+                  cp esp32/build/partition_table/partition-table.bin artifacts/esp32/
+                  cp esp32/build/ota_data_initial.bin artifacts/esp32/
+                  cp esp32/build/flasher_args.json artifacts/esp32/
+                  (cd artifacts/esp32 && zip -r ../puppybot-firmware.zip .)
+                  echo "artifact_name=puppybot-firmware" >> "$GITHUB_OUTPUT"
+                  echo "artifact_path=artifacts/puppybot-firmware.zip" >> "$GITHUB_OUTPUT"
+
+            - name: Upload firmware artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ steps.package.outputs.artifact_name }}
+                  path: ${{ steps.package.outputs.artifact_path }}
+                  if-no-files-found: error
+                  retention-days: 14

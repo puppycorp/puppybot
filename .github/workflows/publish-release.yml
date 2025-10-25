@@ -1,0 +1,52 @@
+name: Mobile Firmware Release
+
+on:
+    push:
+        tags:
+            - "*"
+
+permissions:
+    contents: write
+
+jobs:
+    android:
+        uses: ./.github/workflows/android-build.yml
+
+    esp32:
+        uses: ./.github/workflows/esp32-build.yml
+
+    release:
+        runs-on: ubuntu-latest
+        needs:
+            - android
+            - esp32
+        steps:
+            - name: Download Android artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ needs.android.outputs.artifact_name }}
+                  path: downloads/android
+
+            - name: Download ESP32 artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ needs.esp32.outputs.artifact_name }}
+                  path: downloads/esp32
+
+            - name: Prepare release files
+              run: |
+                  mkdir -p dist
+                  ANDROID_ARTIFACT="downloads/android/${{ needs.android.outputs.artifact_path }}"
+                  ESP32_ARTIFACT="downloads/esp32/${{ needs.esp32.outputs.artifact_path }}"
+                  cp "$ANDROID_ARTIFACT" dist/puppybot.apk
+                  cp "$ESP32_ARTIFACT" dist/puppybot-firmware.zip
+
+            - name: Create/Update GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  name: ${{ github.ref_name }}
+                  generate_release_notes: true
+                  files: |
+                      dist/puppybot.apk
+                      dist/puppybot-firmware.zip
