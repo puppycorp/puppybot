@@ -53,14 +53,34 @@ describe("encodeBotMsg", () => {
 			type: "turnServo",
 			servoId: 2,
 			angle: 45,
+			durationMs: 500,
 		} as any
 
 		const buffer = encodeBotMsg(turnMsg)
 
-		const expectedHeader = Buffer.from([0xaa, 5, 3, 0])
-		const expectedPayload = Buffer.alloc(3)
+		const expectedHeader = Buffer.from([0xaa, 5, 5, 0])
+		const expectedPayload = Buffer.alloc(5)
 		expectedPayload.writeUInt8(2, 0)
 		expectedPayload.writeInt16LE(45, 1)
+		expectedPayload.writeUInt16LE(500, 3)
+		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
+		expect(buffer.equals(expectedBuffer)).toBe(true)
+	})
+
+	test("encodes a turn servo message without timeout", () => {
+		const turnMsg: MsgToBot = {
+			type: "turnServo",
+			servoId: 1,
+			angle: 30,
+		} as any
+
+		const buffer = encodeBotMsg(turnMsg)
+
+		const expectedHeader = Buffer.from([0xaa, 5, 5, 0])
+		const expectedPayload = Buffer.alloc(5)
+		expectedPayload.writeUInt8(1, 0)
+		expectedPayload.writeInt16LE(30, 1)
+		expectedPayload.writeUInt16LE(0, 3)
 		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])
 		expect(buffer.equals(expectedBuffer)).toBe(true)
 	})

@@ -31,6 +31,7 @@ type TurnServo = {
 	botId: string
 	servoId: number
 	angle: number
+	durationMs?: number
 }
 
 export type MsgToServer = DriveMotor | Stop | StopAllMotors | TurnServo

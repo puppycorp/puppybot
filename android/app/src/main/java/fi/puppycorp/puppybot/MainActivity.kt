@@ -137,13 +137,13 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(wsState) {
                     if (wsState is WebSocketState.Connected) {
-                        ws.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+                        ws.turnServo(STEERING_SERVO_ID, CENTER_ANGLE, null)
                     }
                 }
 
                 LaunchedEffect(bleState) {
                     if (bleState is BleState.Connected) {
-                        ble.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+                        ble.turnServo(STEERING_SERVO_ID, CENTER_ANGLE, null)
                     }
                 }
 
@@ -929,7 +929,7 @@ private fun PuppybotScreenPreview() {
             override fun driveMotor(motorId: Int, speed: Int) {}
             override fun stopMotor(motorId: Int) {}
             override fun stopAllMotors() {}
-            override fun turnServo(servoId: Int, angle: Int) {}
+            override fun turnServo(servoId: Int, angle: Int, durationMs: Int?) {}
             override fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int) {}
         }
         PuppybotScreen(

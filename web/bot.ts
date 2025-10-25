@@ -1,3 +1,4 @@
+import type { MsgToServer } from "../server/types"
 import { state } from "./state"
 import { Container, UiComponent } from "./ui"
 import { getQueryParam } from "./utility "
@@ -198,8 +199,21 @@ export const botPage = (container: Container, botId: string) => {
 	const servoInitialAngles = [centerAngle, 90, 90, 90]
 	const servoSliders: HTMLInputElement[] = []
 	const servoValueLabels: HTMLSpanElement[] = []
+	let sharedServoTimeout: number | undefined
 
-	const sendServoAngle = (servoId: number, angle: number) => {
+	const setSharedServoTimeout = (value: number | undefined) => {
+		if (value === undefined || Number.isNaN(value) || value <= 0) {
+			sharedServoTimeout = undefined
+			return
+		}
+		sharedServoTimeout = Math.min(0xffff, Math.max(1, Math.round(value)))
+	}
+
+	const sendServoAngle = (
+		servoId: number,
+		angle: number,
+		durationOverride?: number,
+	) => {
 		const clamped = Math.max(0, Math.min(180, Math.round(angle)))
 		const slider = servoSliders[servoId]
 		const valueLabel = servoValueLabels[servoId]
@@ -209,7 +223,21 @@ export const botPage = (container: Container, botId: string) => {
 		if (valueLabel) {
 			valueLabel.textContent = `${clamped}\u00B0`
 		}
-		ws.send({ type: "turnServo", botId, servoId, angle: clamped })
+		let duration =
+			durationOverride !== undefined
+				? Math.max(0, Math.min(0xffff, Math.round(durationOverride)))
+				: sharedServoTimeout
+		if (duration === 0) duration = undefined
+		const msg: MsgToServer = {
+			type: "turnServo",
+			botId,
+			servoId,
+			angle: clamped,
+		}
+		if (duration !== undefined) {
+			msg.durationMs = duration
+		}
+		ws.send(msg)
 	}
 
 	const steeringServoId = 0
@@ -235,7 +263,7 @@ export const botPage = (container: Container, botId: string) => {
 	const centerServo = (servoId: number) => {
 		const fallbackAngle = servoInitialAngles[servoId]
 		const targetAngle = fallbackAngle !== undefined ? fallbackAngle : 90
-		sendServoAngle(servoId, targetAngle)
+		sendServoAngle(servoId, targetAngle, 0)
 	}
 
 	const centerSteering = () => {
@@ -261,11 +289,48 @@ export const botPage = (container: Container, botId: string) => {
 	servoControls.style.gap = "8px"
 	servoSection.appendChild(servoControls)
 
+	const sharedTimeoutRow = document.createElement("div")
+	sharedTimeoutRow.style.display = "flex"
+	sharedTimeoutRow.style.alignItems = "center"
+	sharedTimeoutRow.style.gap = "8px"
+
+	const timeoutLabel = document.createElement("span")
+	timeoutLabel.textContent = "Servo timeout"
+	timeoutLabel.style.width = "100px"
+	sharedTimeoutRow.appendChild(timeoutLabel)
+
+	const timeoutInput = document.createElement("input")
+	timeoutInput.type = "number"
+	timeoutInput.min = "0"
+	timeoutInput.placeholder = "ms"
+	timeoutInput.style.width = "80px"
+	timeoutInput.addEventListener("input", () => {
+		const parsed = Number.parseInt(timeoutInput.value, 10)
+		if (!Number.isFinite(parsed) || parsed <= 0) {
+			setSharedServoTimeout(undefined)
+			timeoutInput.value = ""
+			return
+		}
+		const sanitized = Math.min(0xffff, Math.max(1, Math.round(parsed)))
+		timeoutInput.value = sanitized.toString()
+		setSharedServoTimeout(sanitized)
+	})
+	sharedTimeoutRow.appendChild(timeoutInput)
+
+	const timeoutHint = document.createElement("span")
+	timeoutHint.textContent = "0 = disabled"
+	timeoutHint.style.opacity = "0.7"
+	timeoutHint.style.fontSize = "12px"
+	sharedTimeoutRow.appendChild(timeoutHint)
+
+	servoControls.appendChild(sharedTimeoutRow)
+
 	servoInitialAngles.forEach((initialAngle, servoId) => {
 		const row = document.createElement("div")
 		row.style.display = "flex"
 		row.style.alignItems = "center"
 		row.style.gap = "8px"
+		row.style.flexWrap = "wrap"
 
 		const label = document.createElement("span")
 		label.textContent = `Servo ${servoId + 1}`
