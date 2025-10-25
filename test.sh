@@ -12,6 +12,7 @@ mkdir -p "$BUILD_DIR"
   "$ROOT_DIR/src/test_main.c" \
   "$ROOT_DIR/src/motor_tests.c" \
   "$ROOT_DIR/src/app_tests.c" \
+  "$ROOT_DIR/src/pbcl_tests.c" \
   "$ROOT_DIR/src/puppy_app.c" \
   "$ROOT_DIR/src/espidf_stubs.c" \
   -o "$BUILD_DIR/test_runner" -lm

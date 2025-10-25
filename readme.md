@@ -18,6 +18,7 @@ Requires ESP-idf sdk either install it your self.
 First create a `.env` file in the `esp32` directory. The `esp32/build.sh` script will source this file, making the variables available to the build system.
 
 Example `.env` file:
+
 ```
 # Optional: semicolon-separated list of "SSID:password" pairs.
 # Example: WIFI_CREDENTIALS="Home WiFi:supersecret;Phone Hotspot:backuppass"
@@ -94,6 +95,47 @@ initialises.
 - Binary protocol for minimal latency over WebSocket/TCP
 - Instruction interpreter on ESP32 for reactive real-time execution
 - AI brain can dynamically generate, replace, or stop instructions
+
+## PBCL Configuration Format
+
+PuppyBot devices load their hardware configuration from the **PuppyBot Config
+Language (PBCL)**, a compact binary TLV document embedded in firmware or stored
+in NVS/partitions. Each blob starts with a 24-byte header:
+
+| Field        | Size | Notes                                                 |
+| ------------ | ---- | ----------------------------------------------------- |
+| `magic`      | 4    | ASCII `PBCL` magic (`0x5042434C`)                     |
+| `version`    | 2    | Format version (currently `1`)                        |
+| `reserved`   | 2    | Must be zero                                          |
+| `sections`   | 2    | Number of sections following the header               |
+| `hdr_size`   | 2    | Header size in bytes (should be `sizeof(pbcl_hdr_t)`) |
+| `total_size` | 4    | Header + payload size in bytes                        |
+| `crc32`      | 4    | CRC-32 of the header (with `crc32` cleared) + body    |
+
+Sections immediately follow the header. Each section describes a runtime node
+such as a motor and is laid out as:
+
+| Field      | Size | Description                              |
+| ---------- | ---- | ---------------------------------------- |
+| `class_id` | 2    | Device class (e.g., `1` = motor)         |
+| `type_id`  | 2    | Class-specific type identifier           |
+| `node_id`  | 4    | Unique handle exposed to the application |
+| `tlv_len`  | 2    | Length in bytes of the TLV payload       |
+| `reserved` | 2    | Reserved, zero                           |
+
+The TLV payload packs configuration fields using 8-bit tags, optional flags,
+and 16-bit lengths (`struct pbcl_tlv_t`). Motor sections, for example, use the
+following tags:
+
+| Tag | Meaning                | Payload structure       |
+| --- | ---------------------- | ----------------------- |
+| 10  | PWM parameters         | `pbcl_t_motor_pwm`      |
+| 11  | H-bridge configuration | `pbcl_t_motor_hbridge`  |
+| 12  | Analog feedback limits | `pbcl_t_motor_analogfb` |
+| 13  | Motor safety limits    | `pbcl_t_motor_limits`   |
+
+PBCL blobs can be generated from JSON using `tools/pbclc.py` and are applied on
+boot by `pbcl_apply`, which validates the CRC and instantiates runtime drivers.
 
 ## Binary Protocol
 
