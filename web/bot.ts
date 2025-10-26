@@ -1,8 +1,7 @@
-import type { MotorConfig, MsgToServer } from "../server/types"
+import type { MotorConfig, MsgToServer } from "../fleet/types"
 import {
-	cloneTemplateMotors,
-	CUSTOM_TEMPLATE_KEY,
 	TEMPLATE_OPTIONS,
+	cloneTemplateMotors,
 	describeTemplate,
 	isConfigTemplateKey,
 	type ConfigTemplateKey,
@@ -228,9 +227,14 @@ export const botPage = (container: Container, botId: string) => {
 		opt.textContent = option.name
 		templateSelect.appendChild(opt)
 	})
-	configCard.appendChild(
-		createFieldWrapper("Configuration template", templateSelect),
-	)
+
+	const templateWrapper = document.createElement("label")
+	templateWrapper.className = "field"
+	const templateLabel = document.createElement("span")
+	templateLabel.textContent = "Configuration template"
+	templateWrapper.appendChild(templateLabel)
+	templateWrapper.appendChild(templateSelect)
+	configCard.appendChild(templateWrapper)
 
 	const templateDescription = document.createElement("p")
 	templateDescription.className = "section-note"
@@ -261,10 +265,10 @@ export const botPage = (container: Container, botId: string) => {
 	applyConfigButton.textContent = "Apply configuration"
 	configActionsRight.appendChild(applyConfigButton)
 
-	function createFieldWrapper<T extends HTMLInputElement | HTMLSelectElement>(
+	const createFieldWrapper = <T extends HTMLInputElement | HTMLSelectElement>(
 		label: string,
 		input: T,
-	): HTMLLabelElement {
+	): HTMLLabelElement => {
 		const wrapper = document.createElement("label")
 		wrapper.className = "field"
 		const labelText = document.createElement("span")
@@ -294,25 +298,6 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	let motors: MotorConfig[] = []
-	let currentTemplateKey: ConfigTemplateKey | null = null
-	let suppressCustomMarking = false
-
-	const updateTemplateUi = () => {
-		const selection: TemplateSelectionKey =
-			currentTemplateKey ?? CUSTOM_TEMPLATE_KEY
-		templateSelect.value = selection
-		templateDescription.textContent = describeTemplate(selection)
-	}
-
-	const markCustom = () => {
-		if (suppressCustomMarking) return
-		if (currentTemplateKey !== null) {
-			currentTemplateKey = null
-			updateTemplateUi()
-		}
-	}
-
-	updateTemplateUi()
 
 	const ensurePwmConfig = (config: MotorConfig): void => {
 		if (!config.pwm) {
@@ -446,8 +431,6 @@ export const botPage = (container: Container, botId: string) => {
 	): HTMLDivElement => {
 		const card = document.createElement("div")
 		card.className = "motor-card"
-		card.addEventListener("input", markCustom)
-		card.addEventListener("change", markCustom)
 
 		const header = document.createElement("div")
 		header.className = "motor-card-header"
@@ -462,7 +445,6 @@ export const botPage = (container: Container, botId: string) => {
 		removeButton.classList.add("secondary", "danger")
 		removeButton.textContent = "Remove"
 		removeButton.onclick = () => {
-			markCustom()
 			motors.splice(index, 1)
 			renderMotors()
 		}
@@ -554,10 +536,7 @@ export const botPage = (container: Container, botId: string) => {
 			const toggle = document.createElement("input")
 			toggle.type = "checkbox"
 			toggle.checked = isEnabled
-			toggle.addEventListener("change", () => {
-				markCustom()
-				onToggle(toggle.checked)
-			})
+			toggle.addEventListener("change", () => onToggle(toggle.checked))
 			wrapper.appendChild(toggle)
 			const text = document.createElement("span")
 			text.textContent = label
@@ -825,6 +804,186 @@ export const botPage = (container: Container, botId: string) => {
 			)
 		}
 
+		// Motor Control Interface Section
+		const controlSection = document.createElement("div")
+		controlSection.className = "motor-section-title"
+		controlSection.style.marginTop = "8px"
+		const controlTitle = document.createElement("span")
+		controlTitle.textContent = "Motor Control"
+		controlTitle.style.fontWeight = "600"
+		controlSection.appendChild(controlTitle)
+		card.appendChild(controlSection)
+
+		const controlContainer = document.createElement("div")
+		controlContainer.style.display = "flex"
+		controlContainer.style.flexDirection = "column"
+		controlContainer.style.gap = "8px"
+		controlContainer.style.marginTop = "8px"
+		card.appendChild(controlContainer)
+
+		if (motor.type === "angle") {
+			// Positional motor - angle slider (0-180 degrees)
+			const angleControlRow = document.createElement("div")
+			angleControlRow.style.display = "flex"
+			angleControlRow.style.alignItems = "center"
+			angleControlRow.style.gap = "8px"
+
+			const angleLabel = document.createElement("span")
+			angleLabel.textContent = "Angle"
+			angleLabel.style.width = "60px"
+			angleControlRow.appendChild(angleLabel)
+
+			const angleSlider = document.createElement("input")
+			angleSlider.type = "range"
+			angleSlider.min = "0"
+			angleSlider.max = "180"
+			angleSlider.value = "90"
+			angleSlider.style.flexGrow = "1"
+			angleControlRow.appendChild(angleSlider)
+
+			const angleValue = document.createElement("span")
+			angleValue.textContent = "90°"
+			angleValue.style.width = "50px"
+			angleValue.style.textAlign = "right"
+			angleControlRow.appendChild(angleValue)
+
+			angleSlider.addEventListener("input", () => {
+				const angle = Number(angleSlider.value)
+				angleValue.textContent = `${angle}°`
+				ws.send({
+					type: "turnServo",
+					botId,
+					servoId: motor.nodeId,
+					angle: angle,
+				} as MsgToServer)
+			})
+
+			controlContainer.appendChild(angleControlRow)
+
+			// Add center and stop buttons
+			const buttonRow = document.createElement("div")
+			buttonRow.style.display = "flex"
+			buttonRow.style.gap = "8px"
+
+			const centerButton = document.createElement("button")
+			centerButton.textContent = "Center (90°)"
+			centerButton.classList.add("secondary")
+			centerButton.onclick = () => {
+				angleSlider.value = "90"
+				angleValue.textContent = "90°"
+				ws.send({
+					type: "turnServo",
+					botId,
+					servoId: motor.nodeId,
+					angle: 90,
+				} as MsgToServer)
+			}
+			buttonRow.appendChild(centerButton)
+
+			const stopButton = document.createElement("button")
+			stopButton.textContent = "Stop"
+			stopButton.classList.add("secondary")
+			stopButton.onclick = () => {
+				ws.send({
+					type: "stop",
+					botId,
+				} as MsgToServer)
+			}
+			buttonRow.appendChild(stopButton)
+
+			controlContainer.appendChild(buttonRow)
+		} else if (motor.type === "continuous" || motor.type === "hbridge") {
+			// Continuous/H-bridge motor - speed and direction slider (-100 to 100)
+			const speedControlRow = document.createElement("div")
+			speedControlRow.style.display = "flex"
+			speedControlRow.style.alignItems = "center"
+			speedControlRow.style.gap = "8px"
+
+			const speedLabel = document.createElement("span")
+			speedLabel.textContent = "Speed"
+			speedLabel.style.width = "60px"
+			speedControlRow.appendChild(speedLabel)
+
+			const speedSlider = document.createElement("input")
+			speedSlider.type = "range"
+			speedSlider.min = "-100"
+			speedSlider.max = "100"
+			speedSlider.value = "0"
+			speedSlider.style.flexGrow = "1"
+			speedControlRow.appendChild(speedSlider)
+
+			const speedValue = document.createElement("span")
+			speedValue.textContent = "0"
+			speedValue.style.width = "50px"
+			speedValue.style.textAlign = "right"
+			speedControlRow.appendChild(speedValue)
+
+			speedSlider.addEventListener("input", () => {
+				const speed = Number(speedSlider.value)
+				speedValue.textContent = `${speed}`
+				ws.send({
+					type: "drive",
+					botId,
+					motorId: motor.nodeId,
+					speed: speed,
+				} as MsgToServer)
+			})
+
+			controlContainer.appendChild(speedControlRow)
+
+			// Add direction and stop buttons
+			const buttonRow = document.createElement("div")
+			buttonRow.style.display = "flex"
+			buttonRow.style.gap = "8px"
+
+			const reverseButton = document.createElement("button")
+			reverseButton.textContent = "Reverse"
+			reverseButton.classList.add("secondary")
+			reverseButton.onclick = () => {
+				speedSlider.value = "-50"
+				speedValue.textContent = "-50"
+				ws.send({
+					type: "drive",
+					botId,
+					motorId: motor.nodeId,
+					speed: -50,
+				} as MsgToServer)
+			}
+			buttonRow.appendChild(reverseButton)
+
+			const stopButton = document.createElement("button")
+			stopButton.textContent = "Stop"
+			stopButton.classList.add("secondary")
+			stopButton.onclick = () => {
+				speedSlider.value = "0"
+				speedValue.textContent = "0"
+				ws.send({
+					type: "drive",
+					botId,
+					motorId: motor.nodeId,
+					speed: 0,
+				} as MsgToServer)
+			}
+			buttonRow.appendChild(stopButton)
+
+			const forwardButton = document.createElement("button")
+			forwardButton.textContent = "Forward"
+			forwardButton.classList.add("secondary")
+			forwardButton.onclick = () => {
+				speedSlider.value = "50"
+				speedValue.textContent = "50"
+				ws.send({
+					type: "drive",
+					botId,
+					motorId: motor.nodeId,
+					speed: 50,
+				} as MsgToServer)
+			}
+			buttonRow.appendChild(forwardButton)
+
+			controlContainer.appendChild(buttonRow)
+		}
+
 		return card
 	}
 
@@ -843,54 +1002,51 @@ export const botPage = (container: Container, botId: string) => {
 		})
 	}
 
-	const applyTemplateKey = (key: ConfigTemplateKey) => {
-		suppressCustomMarking = true
-		motors = cloneTemplateMotors(key).map((config) =>
-			cloneMotorConfig(config),
-		)
-		currentTemplateKey = key
-		renderMotors()
-		suppressCustomMarking = false
-		updateTemplateUi()
+	const updateTemplateDescription = (key: TemplateSelectionKey) => {
+		if (key === "custom") {
+			templateDescription.textContent =
+				"Custom motors. Build your configuration by adding motors manually."
+		} else if (isConfigTemplateKey(key)) {
+			const desc = describeTemplate(key)
+			templateDescription.textContent = desc
+		} else {
+			templateDescription.textContent = ""
+		}
 	}
 
 	templateSelect.addEventListener("change", () => {
-		const previousSelection: TemplateSelectionKey =
-			currentTemplateKey ?? CUSTOM_TEMPLATE_KEY
-		const selected = templateSelect.value as TemplateSelectionKey
-		if (selected === CUSTOM_TEMPLATE_KEY) {
-			if (previousSelection === CUSTOM_TEMPLATE_KEY) {
-				updateTemplateUi()
-				return
-			}
-			const shouldReset =
-				motors.length === 0 ||
-				confirm(
-					"Switch to a fully custom configuration? This will clear the current template motors.",
-				)
-			if (!shouldReset) {
-				templateSelect.value = previousSelection
-				updateTemplateUi()
-				return
-			}
-			currentTemplateKey = null
-			suppressCustomMarking = true
-			motors = []
-			renderMotors()
-			suppressCustomMarking = false
-			updateTemplateUi()
+		const value = templateSelect.value as TemplateSelectionKey
+		updateTemplateDescription(value)
+
+		if (value === "custom") {
 			return
 		}
-		if (isConfigTemplateKey(selected)) {
-			applyTemplateKey(selected)
+
+		if (!isConfigTemplateKey(value)) {
 			return
 		}
-		templateSelect.value = previousSelection
-		updateTemplateUi()
+
+		motors = cloneTemplateMotors(value).map((config) =>
+			cloneMotorConfig(config),
+		)
+		renderMotors()
+		state.configs.set({
+			...state.configs.get(),
+			[botId]: {
+				motors: motors.map((motor) => cloneMotorConfig(motor)),
+				templateKey: value,
+			},
+		})
+
+		ws.send({
+			type: "updateConfig",
+			botId,
+			motors: motors.map((motor) => sanitizeMotor(motor)),
+			templateKey: value,
+		} as MsgToServer)
 	})
 
 	addMotorButton.onclick = () => {
-		markCustom()
 		motors.push({
 			nodeId: motors.length ? motors[motors.length - 1].nodeId + 1 : 1,
 			type: "angle",
@@ -965,26 +1121,18 @@ export const botPage = (container: Container, botId: string) => {
 			type: "updateConfig",
 			botId,
 			motors: sanitized,
-			templateKey: currentTemplateKey ?? "custom",
+			templateKey: null,
 		} as MsgToServer)
 	}
 
-	const syncMotorsFromState = (configState: BotConfigState | undefined) => {
-		suppressCustomMarking = true
-		if (configState) {
-			motors = configState.motors.map((config) =>
-				cloneMotorConfig(config),
-			)
-			currentTemplateKey = isConfigTemplateKey(configState.templateKey)
-				? (configState.templateKey as ConfigTemplateKey)
-				: null
-		} else {
-			motors = []
-			currentTemplateKey = null
-		}
+	const syncMotorsFromState = (botConfig: BotConfigState | undefined) => {
+		motors = botConfig?.motors
+			? botConfig.motors.map((config) => cloneMotorConfig(config))
+			: []
+		const templateKey = botConfig?.templateKey ?? "custom"
+		templateSelect.value = templateKey
+		updateTemplateDescription(templateKey)
 		renderMotors()
-		suppressCustomMarking = false
-		updateTemplateUi()
 	}
 
 	state.configs.onChange((configs) => {
