@@ -12,6 +12,6 @@ jobs:
             - uses: actions/checkout@v4
             - uses: oven-sh/setup-bun@v2
             - run: bun install
-              working-directory: server
+              working-directory: fleet
             - run: bunx tsc --noEmit
-              working-directory: server
+              working-directory: fleet
