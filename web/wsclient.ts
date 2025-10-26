@@ -52,10 +52,18 @@ const handleMsg = (msg: MsgToUi) => {
 			)
 			break
 		case "config":
-			console.log("Config update:", msg.botId, msg.motors)
+			console.log(
+				"Config update:",
+				msg.botId,
+				msg.motors,
+				msg.templateKey ?? null,
+			)
 			state.configs.set({
 				...state.configs.get(),
-				[msg.botId]: msg.motors,
+				[msg.botId]: {
+					motors: msg.motors,
+					templateKey: msg.templateKey ?? null,
+				},
 			})
 			break
 		default:

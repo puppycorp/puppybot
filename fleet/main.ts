@@ -8,6 +8,13 @@ import {
 	type MsgFromBot,
 } from "./bot-protocol"
 import { buildMotorBlob } from "./pbcl"
+import {
+	cloneTemplateMotors,
+	DEFAULT_TEMPLATE_KEY,
+	isConfigTemplateKey,
+	templateForVariant,
+	type ConfigTemplateKey,
+} from "../server/config-templates"
 
 class BotConnection {
 	private ws: ServerWebSocket<Context>
@@ -84,20 +91,10 @@ const handleUiMsg = async (ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 		}
 		case "updateConfig": {
 			const motors = msg.motors ?? []
-			botConfigs.set(msg.botId, motors)
-			const blob = buildMotorBlob(motors)
-			const conn = ws.data.botConnections.get(msg.botId)
-			if (conn) {
-				conn.send({ type: "applyConfig", blob: new Uint8Array(blob) })
-			}
-			const broadcast: MsgToUi = {
-				type: "config",
-				botId: msg.botId,
-				motors,
-			}
-			for (const client of uiClients.values()) {
-				client.send(broadcast)
-			}
+			const templateKey = parseTemplateKey(msg.templateKey)
+			setBotConfig(msg.botId, motors, templateKey, "user")
+			applyConfigToBot(msg.botId)
+			broadcastConfig(msg.botId)
 			break
 		}
 	}
@@ -115,6 +112,19 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 				variant: msg.variant || "",
 				connected: true,
 			})
+			ensureBotConfig(ws.data.botId)
+			const templateKey = templateForVariant(msg.variant)
+			if (templateKey) {
+				const state = botConfigStates.get(ws.data.botId)
+				if (!state || state.source === "auto") {
+					if (state?.templateKey !== templateKey) {
+						const motors = cloneTemplateMotors(templateKey)
+						setBotConfig(ws.data.botId, motors, templateKey, "auto")
+						broadcastConfig(ws.data.botId)
+						applyConfigToBot(ws.data.botId)
+					}
+				}
+			}
 			logConnectionsTable()
 			for (const client of uiClients.values()) {
 				client.send({
@@ -123,6 +133,9 @@ const handleBotMsg = async (ws: ServerWebSocket<Context>, msg: MsgFromBot) => {
 					version: msg.firmwareVersion || "",
 					variant: msg.variant || "",
 				})
+			}
+			if (!templateKey) {
+				broadcastConfig(ws.data.botId)
 			}
 			break
 		}
@@ -144,47 +157,13 @@ const uiClients = new Map<ServerWebSocket<Context>, UiConnection>()
 // Track currently connected bots and (optionally) latest known info
 const connectedBots = new Map<string, Bot>()
 const botConfigs = new Map<string, MotorConfig[]>()
-
-const defaultConfig: MotorConfig[] = [
+const botConfigStates = new Map<
+	string,
 	{
-		nodeId: 1,
-		type: "hbridge",
-		name: "drive_left",
-		pwm: { pin: 33, channel: 0, freqHz: 1000, minUs: 1000, maxUs: 2000 },
-		hbridge: { in1: 25, in2: 26, brakeMode: false },
-	},
-	{
-		nodeId: 2,
-		type: "hbridge",
-		name: "drive_right",
-		pwm: { pin: 32, channel: 1, freqHz: 1000, minUs: 1000, maxUs: 2000 },
-		hbridge: { in1: 27, in2: 14, brakeMode: false },
-	},
-	{
-		nodeId: 100,
-		type: "angle",
-		name: "servo_0",
-		pwm: { pin: 13, channel: 2, freqHz: 50, minUs: 1000, maxUs: 2000 },
-	},
-	{
-		nodeId: 101,
-		type: "angle",
-		name: "servo_1",
-		pwm: { pin: 21, channel: 3, freqHz: 50, minUs: 1000, maxUs: 2000 },
-	},
-	{
-		nodeId: 102,
-		type: "angle",
-		name: "servo_2",
-		pwm: { pin: 22, channel: 4, freqHz: 50, minUs: 1000, maxUs: 2000 },
-	},
-	{
-		nodeId: 103,
-		type: "angle",
-		name: "servo_3",
-		pwm: { pin: 23, channel: 5, freqHz: 50, minUs: 1000, maxUs: 2000 },
-	},
-]
+		templateKey: ConfigTemplateKey | null
+		source: "auto" | "user"
+	}
+>()
 
 const cloneConfig = (motors: MotorConfig[]): MotorConfig[] =>
 	motors.map((m) => ({
@@ -193,6 +172,61 @@ const cloneConfig = (motors: MotorConfig[]): MotorConfig[] =>
 		hbridge: m.hbridge ? { ...m.hbridge } : undefined,
 		analog: m.analog ? { ...m.analog } : undefined,
 	}))
+
+const setBotConfig = (
+	botId: string,
+	motors: MotorConfig[],
+	templateKey: ConfigTemplateKey | null,
+	source: "auto" | "user",
+) => {
+	botConfigs.set(botId, cloneConfig(motors))
+	botConfigStates.set(botId, { templateKey, source })
+}
+
+const buildConfigBroadcast = (botId: string): MsgToUi | null => {
+	const motors = botConfigs.get(botId)
+	if (!motors) return null
+	const state = botConfigStates.get(botId)
+	return {
+		type: "config",
+		botId,
+		motors: cloneConfig(motors),
+		templateKey: state?.templateKey ?? null,
+	}
+}
+
+const broadcastConfig = (botId: string) => {
+	const message = buildConfigBroadcast(botId)
+	if (!message) return
+	for (const client of uiClients.values()) {
+		client.send(message)
+	}
+}
+
+const applyConfigToBot = (botId: string) => {
+	const motors = botConfigs.get(botId)
+	if (!motors || motors.length === 0) return
+	const blob = buildMotorBlob(motors)
+	const conn = botConnections.get(botId)
+	if (!conn) return
+	conn.send({ type: "applyConfig", blob: new Uint8Array(blob) })
+}
+
+const ensureBotConfig = (botId: string) => {
+	if (botConfigs.has(botId)) {
+		return
+	}
+	const defaultMotors = cloneTemplateMotors(DEFAULT_TEMPLATE_KEY)
+	setBotConfig(botId, defaultMotors, DEFAULT_TEMPLATE_KEY, "auto")
+}
+
+const parseTemplateKey = (
+	value: string | null | undefined,
+): ConfigTemplateKey | null => {
+	if (!value) return null
+	if (value === "custom") return null
+	return isConfigTemplateKey(value) ? (value as ConfigTemplateKey) : null
+}
 
 const logConnectionsTable = () => {
 	const bots = Array.from(connectedBots.values()).map((b) => ({
@@ -270,9 +304,7 @@ Bun.serve<Context, {}>({
 					variant: "",
 					connected: true,
 				})
-				if (!botConfigs.has(ws.data.botId)) {
-					botConfigs.set(ws.data.botId, cloneConfig(defaultConfig))
-				}
+				ensureBotConfig(ws.data.botId)
 				logConnectionsTable()
 				for (const conn of uiClients.values()) {
 					conn.send({
@@ -280,22 +312,8 @@ Bun.serve<Context, {}>({
 						botId: ws.data.botId,
 					})
 				}
-				const motors = botConfigs.get(ws.data.botId) ?? []
-				const configMsg: MsgToUi = {
-					type: "config",
-					botId: ws.data.botId,
-					motors,
-				}
-				for (const ui of uiClients.values()) {
-					ui.send(configMsg)
-				}
-				if (motors.length > 0) {
-					const blob = buildMotorBlob(motors)
-					ws.data.botConnections.get(ws.data.botId)?.send({
-						type: "applyConfig",
-						blob: new Uint8Array(blob),
-					})
-				}
+				broadcastConfig(ws.data.botId)
+				applyConfigToBot(ws.data.botId)
 			}
 			if (ws.data.clientType === "ui") {
 				const conn = new UiConnection(ws)
@@ -314,7 +332,10 @@ Bun.serve<Context, {}>({
 					}
 				}
 				for (const [botId, motors] of botConfigs.entries()) {
-					conn.send({ type: "config", botId, motors })
+					const message = buildConfigBroadcast(botId)
+					if (message) {
+						conn.send(message)
+					}
 				}
 			}
 		},

@@ -1,5 +1,10 @@
 import type { Bot, MotorConfig } from "../server/types"
 
+export type BotConfigState = {
+	motors: MotorConfig[]
+	templateKey: string | null
+}
+
 export class NotifyValue<T> {
 	private value: T
 	private listeners: ((value: T) => void)[] = []
@@ -24,5 +29,5 @@ export class NotifyValue<T> {
 
 export const state = {
 	bots: new NotifyValue<Bot[]>([]),
-	configs: new NotifyValue<Record<string, MotorConfig[]>>({}),
+	configs: new NotifyValue<Record<string, BotConfigState>>({}),
 }

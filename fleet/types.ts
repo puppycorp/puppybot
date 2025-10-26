@@ -73,6 +73,7 @@ type UpdateConfig = {
 	type: "updateConfig"
 	botId: string
 	motors: MotorConfig[]
+	templateKey?: string | null
 }
 
 export type MsgToServer =
@@ -107,6 +108,7 @@ export type ConfigBroadcast = {
 	type: "config"
 	botId: string
 	motors: MotorConfig[]
+	templateKey?: string | null
 }
 
 export type MsgToUi = BotConnected | BotDisconnected | BotInfo | ConfigBroadcast

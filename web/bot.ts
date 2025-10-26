@@ -1,5 +1,15 @@
 import type { MotorConfig, MsgToServer } from "../server/types"
+import {
+	cloneTemplateMotors,
+	CUSTOM_TEMPLATE_KEY,
+	TEMPLATE_OPTIONS,
+	describeTemplate,
+	isConfigTemplateKey,
+	type ConfigTemplateKey,
+	type TemplateSelectionKey,
+} from "../server/config-templates"
 import { state } from "./state"
+import type { BotConfigState } from "./state"
 import { Container, UiComponent } from "./ui"
 import { ws } from "./wsclient"
 
@@ -211,6 +221,21 @@ export const botPage = (container: Container, botId: string) => {
 		"Configure each motor using the form below. Add motors, edit fields, and apply to sync the PBCL blob."
 	configCard.appendChild(configHelp)
 
+	const templateSelect = document.createElement("select")
+	TEMPLATE_OPTIONS.forEach((option) => {
+		const opt = document.createElement("option")
+		opt.value = option.key
+		opt.textContent = option.name
+		templateSelect.appendChild(opt)
+	})
+	configCard.appendChild(
+		createFieldWrapper("Configuration template", templateSelect),
+	)
+
+	const templateDescription = document.createElement("p")
+	templateDescription.className = "section-note"
+	configCard.appendChild(templateDescription)
+
 	const motorsContainer = document.createElement("div")
 	motorsContainer.className = "motors-container"
 	configCard.appendChild(motorsContainer)
@@ -236,10 +261,10 @@ export const botPage = (container: Container, botId: string) => {
 	applyConfigButton.textContent = "Apply configuration"
 	configActionsRight.appendChild(applyConfigButton)
 
-	const createFieldWrapper = <T extends HTMLInputElement | HTMLSelectElement>(
+	function createFieldWrapper<T extends HTMLInputElement | HTMLSelectElement>(
 		label: string,
 		input: T,
-	): HTMLLabelElement => {
+	): HTMLLabelElement {
 		const wrapper = document.createElement("label")
 		wrapper.className = "field"
 		const labelText = document.createElement("span")
@@ -269,6 +294,25 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	let motors: MotorConfig[] = []
+	let currentTemplateKey: ConfigTemplateKey | null = null
+	let suppressCustomMarking = false
+
+	const updateTemplateUi = () => {
+		const selection: TemplateSelectionKey =
+			currentTemplateKey ?? CUSTOM_TEMPLATE_KEY
+		templateSelect.value = selection
+		templateDescription.textContent = describeTemplate(selection)
+	}
+
+	const markCustom = () => {
+		if (suppressCustomMarking) return
+		if (currentTemplateKey !== null) {
+			currentTemplateKey = null
+			updateTemplateUi()
+		}
+	}
+
+	updateTemplateUi()
 
 	const ensurePwmConfig = (config: MotorConfig): void => {
 		if (!config.pwm) {
@@ -402,6 +446,8 @@ export const botPage = (container: Container, botId: string) => {
 	): HTMLDivElement => {
 		const card = document.createElement("div")
 		card.className = "motor-card"
+		card.addEventListener("input", markCustom)
+		card.addEventListener("change", markCustom)
 
 		const header = document.createElement("div")
 		header.className = "motor-card-header"
@@ -416,6 +462,7 @@ export const botPage = (container: Container, botId: string) => {
 		removeButton.classList.add("secondary", "danger")
 		removeButton.textContent = "Remove"
 		removeButton.onclick = () => {
+			markCustom()
 			motors.splice(index, 1)
 			renderMotors()
 		}
@@ -507,7 +554,10 @@ export const botPage = (container: Container, botId: string) => {
 			const toggle = document.createElement("input")
 			toggle.type = "checkbox"
 			toggle.checked = isEnabled
-			toggle.addEventListener("change", () => onToggle(toggle.checked))
+			toggle.addEventListener("change", () => {
+				markCustom()
+				onToggle(toggle.checked)
+			})
 			wrapper.appendChild(toggle)
 			const text = document.createElement("span")
 			text.textContent = label
@@ -793,7 +843,54 @@ export const botPage = (container: Container, botId: string) => {
 		})
 	}
 
+	const applyTemplateKey = (key: ConfigTemplateKey) => {
+		suppressCustomMarking = true
+		motors = cloneTemplateMotors(key).map((config) =>
+			cloneMotorConfig(config),
+		)
+		currentTemplateKey = key
+		renderMotors()
+		suppressCustomMarking = false
+		updateTemplateUi()
+	}
+
+	templateSelect.addEventListener("change", () => {
+		const previousSelection: TemplateSelectionKey =
+			currentTemplateKey ?? CUSTOM_TEMPLATE_KEY
+		const selected = templateSelect.value as TemplateSelectionKey
+		if (selected === CUSTOM_TEMPLATE_KEY) {
+			if (previousSelection === CUSTOM_TEMPLATE_KEY) {
+				updateTemplateUi()
+				return
+			}
+			const shouldReset =
+				motors.length === 0 ||
+				confirm(
+					"Switch to a fully custom configuration? This will clear the current template motors.",
+				)
+			if (!shouldReset) {
+				templateSelect.value = previousSelection
+				updateTemplateUi()
+				return
+			}
+			currentTemplateKey = null
+			suppressCustomMarking = true
+			motors = []
+			renderMotors()
+			suppressCustomMarking = false
+			updateTemplateUi()
+			return
+		}
+		if (isConfigTemplateKey(selected)) {
+			applyTemplateKey(selected)
+			return
+		}
+		templateSelect.value = previousSelection
+		updateTemplateUi()
+	})
+
 	addMotorButton.onclick = () => {
+		markCustom()
 		motors.push({
 			nodeId: motors.length ? motors[motors.length - 1].nodeId + 1 : 1,
 			type: "angle",
@@ -868,14 +965,26 @@ export const botPage = (container: Container, botId: string) => {
 			type: "updateConfig",
 			botId,
 			motors: sanitized,
+			templateKey: currentTemplateKey ?? "custom",
 		} as MsgToServer)
 	}
 
-	const syncMotorsFromState = (configs: MotorConfig[] | undefined) => {
-		motors = configs
-			? configs.map((config) => cloneMotorConfig(config))
-			: []
+	const syncMotorsFromState = (configState: BotConfigState | undefined) => {
+		suppressCustomMarking = true
+		if (configState) {
+			motors = configState.motors.map((config) =>
+				cloneMotorConfig(config),
+			)
+			currentTemplateKey = isConfigTemplateKey(configState.templateKey)
+				? (configState.templateKey as ConfigTemplateKey)
+				: null
+		} else {
+			motors = []
+			currentTemplateKey = null
+		}
 		renderMotors()
+		suppressCustomMarking = false
+		updateTemplateUi()
 	}
 
 	state.configs.onChange((configs) => {
