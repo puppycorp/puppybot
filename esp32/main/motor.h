@@ -8,13 +8,6 @@ int motor_system_init(void);
 void motor_system_reset(void);
 int motor_apply_pbcl_blob(const uint8_t *blob, size_t len);
 
-void motorA_forward(uint8_t speed);
-void motorA_backward(uint8_t speed);
-void motorA_stop(void);
-void motorB_forward(uint8_t speed);
-void motorB_backward(uint8_t speed);
-void motorB_stop(void);
-
 void servo_set_angle(uint8_t servo_id, uint32_t angle);
 uint32_t motor_servo_count(void);
 uint32_t motor_servo_boot_angle(uint8_t servo_id);

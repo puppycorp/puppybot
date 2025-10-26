@@ -25,14 +25,6 @@ typedef struct CommandOps {
 	void (*log_warning)(const char *tag, const char *format, ...);
 	void (*log_error)(const char *tag, const char *format, ...);
 
-	// Motor control operations
-	void (*motor_a_forward)(uint8_t speed);
-	void (*motor_a_backward)(uint8_t speed);
-	void (*motor_a_stop)(void);
-	void (*motor_b_forward)(uint8_t speed);
-	void (*motor_b_backward)(uint8_t speed);
-	void (*motor_b_stop)(void);
-
 	// Servo control operations
 	void (*servo_set_angle)(uint8_t servo_id, uint32_t angle);
 	uint32_t (*servo_count)(void);

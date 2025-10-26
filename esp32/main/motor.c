@@ -134,56 +134,6 @@ int motor_apply_pbcl_blob(const uint8_t *blob, size_t len) {
 	return 0;
 }
 
-static motor_rt_t *drive_motor(int idx) { return motor_slots_drive(idx); }
-
-static float speed_to_unit(uint8_t duty) { return (float)duty / 255.0f; }
-
-void motorA_forward(uint8_t speed) {
-	motor_rt_t *m = drive_motor(0);
-	if (!m)
-		return;
-	float s = speed_to_unit(speed);
-	motor_set_speed(m->node_id, s);
-}
-
-void motorA_backward(uint8_t speed) {
-	motor_rt_t *m = drive_motor(0);
-	if (!m)
-		return;
-	float s = -speed_to_unit(speed);
-	motor_set_speed(m->node_id, s);
-}
-
-void motorA_stop(void) {
-	motor_rt_t *m = drive_motor(0);
-	if (!m)
-		return;
-	motor_stop(m->node_id);
-}
-
-void motorB_forward(uint8_t speed) {
-	motor_rt_t *m = drive_motor(1);
-	if (!m)
-		return;
-	float s = speed_to_unit(speed);
-	motor_set_speed(m->node_id, s);
-}
-
-void motorB_backward(uint8_t speed) {
-	motor_rt_t *m = drive_motor(1);
-	if (!m)
-		return;
-	float s = -speed_to_unit(speed);
-	motor_set_speed(m->node_id, s);
-}
-
-void motorB_stop(void) {
-	motor_rt_t *m = drive_motor(1);
-	if (!m)
-		return;
-	motor_stop(m->node_id);
-}
-
 void servo_set_angle(uint8_t servo_id, uint32_t angle) {
 	motor_rt_t *m = motor_slots_servo((int)servo_id);
 	if (!m)

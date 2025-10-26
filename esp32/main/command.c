@@ -126,27 +126,6 @@ static void esp_log_info_wrapper(const char *tag, const char *format, ...) {
 	va_end(args);
 }
 
-// ESP-IDF specific motor control operations
-static void esp_motor_a_forward_wrapper(uint8_t speed) {
-	motorA_forward(speed);
-}
-
-static void esp_motor_a_backward_wrapper(uint8_t speed) {
-	motorA_backward(speed);
-}
-
-static void esp_motor_a_stop_wrapper(void) { motorA_stop(); }
-
-static void esp_motor_b_forward_wrapper(uint8_t speed) {
-	motorB_forward(speed);
-}
-
-static void esp_motor_b_backward_wrapper(uint8_t speed) {
-	motorB_backward(speed);
-}
-
-static void esp_motor_b_stop_wrapper(void) { motorB_stop(); }
-
 // ESP-IDF specific servo operations
 static void esp_servo_set_angle_wrapper(uint8_t servo_id, uint32_t angle) {
 	servo_set_angle(servo_id, angle);
@@ -178,12 +157,6 @@ static const CommandOps esp_command_ops = {
     .log_info = esp_log_info_wrapper,
     .log_warning = esp_log_warning_wrapper,
     .log_error = esp_log_error_wrapper,
-    .motor_a_forward = esp_motor_a_forward_wrapper,
-    .motor_a_backward = esp_motor_a_backward_wrapper,
-    .motor_a_stop = esp_motor_a_stop_wrapper,
-    .motor_b_forward = esp_motor_b_forward_wrapper,
-    .motor_b_backward = esp_motor_b_backward_wrapper,
-    .motor_b_stop = esp_motor_b_stop_wrapper,
     .servo_set_angle = esp_servo_set_angle_wrapper,
     .servo_count = esp_servo_count_wrapper,
     .servo_boot_angle = esp_servo_boot_angle_wrapper,

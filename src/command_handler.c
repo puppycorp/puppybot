@@ -56,6 +56,11 @@ static float normalize_speed(int speed) {
 	return (float)speed / 127.0f;
 }
 
+// Forward declarations
+static void servo_timeout_callback(void *arg);
+static void safety_timer_callback(void *arg);
+static void cancel_servo_timeout(uint8_t servo_id);
+
 static void ensure_servo_timer(uint8_t slot) {
 	if (!g_ops || slot >= MAX_SERVOS)
 		return;
@@ -77,11 +82,6 @@ static void stop_all_drive_motors(void) {
 			motor_stop(m->node_id);
 	}
 }
-
-// Forward declarations
-static void servo_timeout_callback(void *arg);
-static void safety_timer_callback(void *arg);
-static void cancel_servo_timeout(uint8_t servo_id);
 
 // Timer callbacks
 static void safety_timer_callback(void *arg) {
