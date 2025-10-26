@@ -4,7 +4,13 @@ export type Instance = { name: string; domain: string; type: string }
 export type Resolved = {
 	name: string
 	type: string
+	/**
+	 * Connectable host for the service. Prefers IPv4, otherwise falls back to IPv6
+	 * or the original mDNS hostname when no IPs are available.
+	 */
 	host: string
+	/** Original hostname advertised via SRV (e.g. puppyarm.local). */
+	hostname: string
 	port: number
 	txt: Record<string, string>
 	addrs: string[]
@@ -147,9 +153,56 @@ export async function discover(
 	for (const inst of instances) {
 		const { host, port, txt } = await resolveInstance(inst)
 		const addrs = host ? await getAddresses(host) : []
-		results.push({ name: inst.name, type, host, port, txt, addrs })
+		const preferredHost = selectBestHost({ host, addrs })
+		results.push({
+			name: inst.name,
+			type,
+			host: preferredHost,
+			hostname: host,
+			port,
+			txt,
+			addrs,
+		})
 	}
 	return results
+}
+
+const selectBestHost = ({
+	host,
+	addrs,
+}: {
+	host: string
+	addrs: string[]
+}): string => {
+	if (addrs.length === 0) return host
+
+	const byPreference = [
+		addrs.find((addr) => isIPv4(addr)),
+		addrs.find((addr) => isIPv6(addr)),
+		host || undefined,
+	]
+
+	for (const candidate of byPreference) {
+		if (candidate && candidate.trim().length > 0) {
+			return candidate
+		}
+	}
+
+	return host
+}
+
+const isIPv4 = (addr: string): boolean => /^\d+\.\d+\.\d+\.\d+$/.test(addr)
+
+const isIPv6 = (addr: string): boolean => {
+	if (!addr.includes(":")) return false
+	// Allow zone identifiers (e.g. fe80::1%wlan0)
+	const [base] = addr.split("%", 1)
+	return base
+		.split(":")
+		.every(
+			(segment) =>
+				segment.length === 0 || /^[0-9a-fA-F]{1,4}$/.test(segment),
+		)
 }
 
 type WatchEvent = "added" | "removed"
