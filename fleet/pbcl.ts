@@ -1,4 +1,4 @@
-import { MotorConfig } from "./types"
+import type { MotorConfig } from "./types"
 
 const PBCL_MAGIC = 0x5042434c
 const PBCL_VERSION = 1

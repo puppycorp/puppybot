@@ -5,7 +5,10 @@
 	"private": true,
 	"scripts": {
 		"format": "prettier --write --no-semi .",
-		"start": "bun run ./server/server.ts"
+		"start": "bun run ./fleet/main.ts",
+		"dev": "bun --watch run ./fleet/main.ts",
+		"check": "tsc --noEmit",
+		"test": "bun test"
 	},
 	"devDependencies": {
 		"@types/bun": "latest"
