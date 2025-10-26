@@ -39,7 +39,6 @@ private const val CMD_PING: Int = 0x01
 private const val CMD_DRIVE_MOTOR: Int = 0x02
 private const val CMD_STOP_MOTOR: Int = 0x03
 private const val CMD_STOP_ALL_MOTORS: Int = 0x04
-private const val CMD_TURN_SERVO: Int = 0x05
 
 private val SERVICE_UUID: UUID = UUID.fromString("000000FF-0000-1000-8000-00805F9B34FB")
 private val CHARACTERISTIC_UUID: UUID = UUID.fromString("0000FF01-0000-1000-8000-00805F9B34FB")
@@ -189,17 +188,9 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
     }
 
     override fun turnServo(servoId: Int, angle: Int, durationMs: Int?) {
-        val sanitizedServo = servoId.coerceIn(0, 255)
-        val sanitizedAngle = angle.coerceIn(0, 180)
-        val sanitizedDuration = (durationMs ?: 0).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf(
-            (sanitizedServo and 0xFF).toByte(),
-            (sanitizedAngle and 0xFF).toByte(),
-            ((sanitizedAngle shr 8) and 0xFF).toByte(),
-            (sanitizedDuration and 0xFF).toByte(),
-            ((sanitizedDuration shr 8) and 0xFF).toByte()
-        )
-        sendCommand(CMD_TURN_SERVO, payload)
+        // Use CMD_DRIVE_MOTOR with angle field for servos
+        val payload = buildDrivePayload(servoId, speed = 0, pulses = 0, stepMicros = 0, angle = angle)
+        sendCommand(CMD_DRIVE_MOTOR, payload)
     }
 
     override fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int) {

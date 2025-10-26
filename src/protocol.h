@@ -8,7 +8,6 @@
 #define CMD_DRIVE_MOTOR 2
 #define CMD_STOP_MOTOR 3
 #define CMD_STOP_ALL_MOTORS 4
-#define CMD_TURN_SERVO 5
 #define CMD_APPLY_CONFIG 6
 
 #define MSG_TO_SRV_PONG 0x01
@@ -34,16 +33,9 @@ typedef struct {
 	int motor_id;
 } StopMotorCommand;
 
-typedef struct {
-	int servo_id;
-	int angle;
-	int duration_ms;
-} TurnServoCommand;
-
 union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
-	TurnServoCommand turn_servo;
 	struct {
 		const uint8_t *data;
 		uint16_t length;
@@ -88,15 +80,6 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	case CMD_STOP_ALL_MOTORS:
 		cmd_packet->cmd_type = CMD_STOP_ALL_MOTORS;
 		break;
-	case CMD_TURN_SERVO:
-		cmd_packet->cmd_type = CMD_TURN_SERVO;
-		cmd_packet->cmd.turn_servo.servo_id =
-		    (payload_len >= 1) ? payload[0] : 0;
-		cmd_packet->cmd.turn_servo.angle =
-		    (payload_len >= 3) ? (int16_t)(payload[1] | (payload[2] << 8)) : 0;
-		cmd_packet->cmd.turn_servo.duration_ms =
-		    (payload_len >= 5) ? (int16_t)(payload[3] | (payload[4] << 8)) : 0;
-		break;
 	case CMD_APPLY_CONFIG:
 		cmd_packet->cmd_type = CMD_APPLY_CONFIG;
 		cmd_packet->cmd.apply_config.data = payload;
@@ -132,45 +115,6 @@ TEST(parse_cmd_test) {
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.steps, 3);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.step_time, 5);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.angle, 7);
-}
-
-TEST(parse_turn_servo_test) {
-	uint8_t data[] = {
-	    0x01,                       // version
-	    CMD_TURN_SERVO, 0x03, 0x00, // payload length = 3 (LE)
-
-	    // Payload (3 bytes):
-	    0x02,      // servo_id
-	    0x2D, 0x00 // angle = 45
-	};
-
-	CommandPacket cmd_packet;
-	parse_cmd(data, &cmd_packet);
-
-	ASSERT_EQ(cmd_packet.cmd_type, CMD_TURN_SERVO);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.servo_id, 2);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.duration_ms, 0);
-}
-
-TEST(parse_turn_servo_with_timeout_test) {
-	uint8_t data[] = {
-	    0x01,                       // version
-	    CMD_TURN_SERVO, 0x05, 0x00, // payload length = 5 (LE)
-
-	    // Payload (5 bytes):
-	    0x01,       // servo_id
-	    0x2D, 0x00, // angle = 45
-	    0xF4, 0x01, // duration_ms = 500
-	};
-
-	CommandPacket cmd_packet;
-	parse_cmd(data, &cmd_packet);
-
-	ASSERT_EQ(cmd_packet.cmd_type, CMD_TURN_SERVO);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.servo_id, 1);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.angle, 45);
-	ASSERT_EQ(cmd_packet.cmd.turn_servo.duration_ms, 500);
 }
 
 TEST(parse_apply_config_test) {

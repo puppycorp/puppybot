@@ -33,7 +33,6 @@ class PuppybotWebSocket : PuppybotCommandSender {
         private const val CMD_DRIVE_MOTOR: Byte = 0x02
         private const val CMD_STOP_MOTOR: Byte = 0x03
         private const val CMD_STOP_ALL_MOTORS: Byte = 0x04
-        private const val CMD_TURN_SERVO: Byte = 0x05
         private val PING_FRAME = byteArrayOf(
             PROTOCOL_VERSION,
             CMD_PING,
@@ -159,17 +158,9 @@ class PuppybotWebSocket : PuppybotCommandSender {
     }
 
     override fun turnServo(servoId: Int, angle: Int, durationMs: Int?) {
-        val sanitizedServo = servoId.coerceIn(0, 255)
-        val sanitizedAngle = angle.coerceIn(0, 180)
-        val sanitizedDuration = (durationMs ?: 0).coerceIn(0, 0xFFFF)
-        val payload = byteArrayOf(
-            (sanitizedServo and 0xFF).toByte(),
-            (sanitizedAngle and 0xFF).toByte(),
-            ((sanitizedAngle shr 8) and 0xFF).toByte(),
-            (sanitizedDuration and 0xFF).toByte(),
-            ((sanitizedDuration shr 8) and 0xFF).toByte()
-        )
-        sendCommand(CMD_TURN_SERVO, payload)
+        // Use CMD_DRIVE_MOTOR with angle field for servos
+        val payload = buildDrivePayload(servoId, speed = 0, pulses = 0, stepMicros = 0, angle = angle)
+        sendCommand(CMD_DRIVE_MOTOR, payload)
     }
 
     private fun buildDrivePayload(
