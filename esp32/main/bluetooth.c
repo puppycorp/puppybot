@@ -85,178 +85,177 @@ static const esp_gatts_attr_db_t gatt_db[GATTS_NUM_HANDLE] = {
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event,
                               esp_ble_gap_cb_param_t *param) {
-    ESP_LOGD(BLUETOOTH_TAG, "gap_event_handler called: event=0x%02x", event);
-    switch (event) {
-    case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ADV data ready, starting advertising");
-        esp_ble_gap_start_advertising(&adv_params);
-        break;
-    case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "Advertising started, status=%d",
-                 param->adv_start_cmpl.status);
-        break;
-    default:
-        break;
-    }
+	ESP_LOGD(BLUETOOTH_TAG, "gap_event_handler called: event=0x%02x", event);
+	switch (event) {
+	case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ADV data ready, starting advertising");
+		esp_ble_gap_start_advertising(&adv_params);
+		break;
+	case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "Advertising started, status=%d",
+		         param->adv_start_cmpl.status);
+		break;
+	default:
+		break;
+	}
 }
 
 static void handle_control_payload(const uint8_t *data, uint16_t len) {
-    if (len < 4) {
-        ESP_LOGW(BLUETOOTH_TAG, "Ignoring short payload len=%u", len);
-        return;
-    }
+	if (len < 4) {
+		ESP_LOGW(BLUETOOTH_TAG, "Ignoring short payload len=%u", len);
+		return;
+	}
 
-    uint16_t payload_len = (uint16_t)(data[2] | (data[3] << 8));
-    if ((uint16_t)(payload_len + 4) > len) {
-        ESP_LOGW(BLUETOOTH_TAG,
-                 "Payload length mismatch header=%u actual=%u", payload_len,
-                 len);
-        return;
-    }
+	uint16_t payload_len = (uint16_t)(data[2] | (data[3] << 8));
+	if ((uint16_t)(payload_len + 4) > len) {
+		ESP_LOGW(BLUETOOTH_TAG, "Payload length mismatch header=%u actual=%u",
+		         payload_len, len);
+		return;
+	}
 
-    CommandPacket pkt = {0};
-    parse_cmd((uint8_t *)data, &pkt);
-    handle_command(&pkt, NULL);
+	CommandPacket pkt = {0};
+	parse_cmd((uint8_t *)data, &pkt);
+	handle_command(&pkt, NULL);
 }
 
 static void gatts_event_handler(esp_gatts_cb_event_t event,
                                 esp_gatt_if_t gatts_if,
                                 esp_ble_gatts_cb_param_t *param) {
-    ESP_LOGD(BLUETOOTH_TAG, "gatts_event_handler called: event=%d, gatts_if=%d",
-             event, gatts_if);
-    switch (event) {
-    case ESP_GATTS_REG_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_REG_EVT");
-        esp_ble_gap_set_device_name(DEVICE_NAME);
-        esp_ble_gap_config_adv_data(&adv_data);
-        esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GATTS_NUM_HANDLE, 0);
-        break;
-    case ESP_GATTS_CREAT_ATTR_TAB_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_CREAT_ATTR_TAB_EVT: status=%d",
-                 param->add_attr_tab.status);
-        if (param->add_attr_tab.status == ESP_GATT_OK) {
-            gatts_service_handle = param->add_attr_tab.handles[0];
-            char_handle = param->add_attr_tab.handles[2];
-            ccc_handle = param->add_attr_tab.handles[3];
-            esp_ble_gatts_start_service(gatts_service_handle);
-        } else {
-            ESP_LOGE(BLUETOOTH_TAG,
-                     "Failed to create attribute table: status=0x%02x",
-                     param->add_attr_tab.status);
-        }
-        break;
-    case ESP_GATTS_WRITE_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_WRITE_EVT: handle=0x%04x, len=%d",
-                 param->write.handle, param->write.len);
-        if (param->write.is_prep) {
-            break;
-        }
-        if (param->write.handle == char_handle) {
-            handle_control_payload(param->write.value, param->write.len);
-        } else if (param->write.handle == ccc_handle &&
-                   param->write.len == sizeof(uint16_t)) {
-            ccc_val = param->write.value[0] | (param->write.value[1] << 8);
-            ESP_LOGD(BLUETOOTH_TAG, "Updated CCC value=0x%04x", ccc_val);
-        }
-        break;
-    case ESP_GATTS_CONNECT_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_CONNECT_EVT");
-        break;
-    case ESP_GATTS_DISCONNECT_EVT:
-        ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_DISCONNECT_EVT");
-        esp_ble_gap_start_advertising(&adv_params);
-        break;
-    default:
-        break;
-    }
+	ESP_LOGD(BLUETOOTH_TAG, "gatts_event_handler called: event=%d, gatts_if=%d",
+	         event, gatts_if);
+	switch (event) {
+	case ESP_GATTS_REG_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_REG_EVT");
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GATTS_NUM_HANDLE, 0);
+		break;
+	case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_CREAT_ATTR_TAB_EVT: status=%d",
+		         param->add_attr_tab.status);
+		if (param->add_attr_tab.status == ESP_GATT_OK) {
+			gatts_service_handle = param->add_attr_tab.handles[0];
+			char_handle = param->add_attr_tab.handles[2];
+			ccc_handle = param->add_attr_tab.handles[3];
+			esp_ble_gatts_start_service(gatts_service_handle);
+		} else {
+			ESP_LOGE(BLUETOOTH_TAG,
+			         "Failed to create attribute table: status=0x%02x",
+			         param->add_attr_tab.status);
+		}
+		break;
+	case ESP_GATTS_WRITE_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_WRITE_EVT: handle=0x%04x, len=%d",
+		         param->write.handle, param->write.len);
+		if (param->write.is_prep) {
+			break;
+		}
+		if (param->write.handle == char_handle) {
+			handle_control_payload(param->write.value, param->write.len);
+		} else if (param->write.handle == ccc_handle &&
+		           param->write.len == sizeof(uint16_t)) {
+			ccc_val = param->write.value[0] | (param->write.value[1] << 8);
+			ESP_LOGD(BLUETOOTH_TAG, "Updated CCC value=0x%04x", ccc_val);
+		}
+		break;
+	case ESP_GATTS_CONNECT_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_CONNECT_EVT");
+		break;
+	case ESP_GATTS_DISCONNECT_EVT:
+		ESP_LOGD(BLUETOOTH_TAG, "ESP_GATTS_DISCONNECT_EVT");
+		esp_ble_gap_start_advertising(&adv_params);
+		break;
+	default:
+		break;
+	}
 }
 
 esp_err_t bluetooth_app_start(void) {
-    if (bluetooth_started) {
-        ESP_LOGI(BLUETOOTH_TAG, "Bluetooth already started");
-        return ESP_OK;
-    }
+	if (bluetooth_started) {
+		ESP_LOGI(BLUETOOTH_TAG, "Bluetooth already started");
+		return ESP_OK;
+	}
 
-    esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(BLUETOOTH_TAG, "Failed to release classic BT memory: %s",
-                 esp_err_to_name(ret));
-        return ret;
-    }
+	esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+	if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+		ESP_LOGE(BLUETOOTH_TAG, "Failed to release classic BT memory: %s",
+		         esp_err_to_name(ret));
+		return ret;
+	}
 
-    esp_bt_controller_status_t status = esp_bt_controller_get_status();
-    if (status == ESP_BT_CONTROLLER_STATUS_IDLE) {
-        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-        ret = esp_bt_controller_init(&bt_cfg);
-        if (ret != ESP_OK) {
-            ESP_LOGE(BLUETOOTH_TAG, "controller init failed: %s",
-                     esp_err_to_name(ret));
-            return ret;
-        }
-        status = esp_bt_controller_get_status();
-    }
+	esp_bt_controller_status_t status = esp_bt_controller_get_status();
+	if (status == ESP_BT_CONTROLLER_STATUS_IDLE) {
+		esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+		ret = esp_bt_controller_init(&bt_cfg);
+		if (ret != ESP_OK) {
+			ESP_LOGE(BLUETOOTH_TAG, "controller init failed: %s",
+			         esp_err_to_name(ret));
+			return ret;
+		}
+		status = esp_bt_controller_get_status();
+	}
 
-    if (status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
-        ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-        if (ret != ESP_OK) {
-            ESP_LOGE(BLUETOOTH_TAG, "controller enable failed: %s",
-                     esp_err_to_name(ret));
-            return ret;
-        }
-        status = esp_bt_controller_get_status();
-    }
+	if (status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
+		ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+		if (ret != ESP_OK) {
+			ESP_LOGE(BLUETOOTH_TAG, "controller enable failed: %s",
+			         esp_err_to_name(ret));
+			return ret;
+		}
+		status = esp_bt_controller_get_status();
+	}
 
-    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
-    if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
-        ret = esp_bluedroid_init();
-        if (ret != ESP_OK) {
-            ESP_LOGE(BLUETOOTH_TAG, "bluedroid init failed: %s",
-                     esp_err_to_name(ret));
-            return ret;
-        }
-        bluedroid_status = esp_bluedroid_get_status();
-    }
+	esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
+	if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
+		ret = esp_bluedroid_init();
+		if (ret != ESP_OK) {
+			ESP_LOGE(BLUETOOTH_TAG, "bluedroid init failed: %s",
+			         esp_err_to_name(ret));
+			return ret;
+		}
+		bluedroid_status = esp_bluedroid_get_status();
+	}
 
-    if (bluedroid_status != ESP_BLUEDROID_STATUS_ENABLED) {
-        ret = esp_bluedroid_enable();
-        if (ret != ESP_OK) {
-            ESP_LOGE(BLUETOOTH_TAG, "bluedroid enable failed: %s",
-                     esp_err_to_name(ret));
-            return ret;
-        }
-    }
+	if (bluedroid_status != ESP_BLUEDROID_STATUS_ENABLED) {
+		ret = esp_bluedroid_enable();
+		if (ret != ESP_OK) {
+			ESP_LOGE(BLUETOOTH_TAG, "bluedroid enable failed: %s",
+			         esp_err_to_name(ret));
+			return ret;
+		}
+	}
 
-    ret = esp_ble_gap_register_callback(gap_event_handler);
-    if (ret != ESP_OK) {
-        ESP_LOGE(BLUETOOTH_TAG, "gap register callback failed: %s",
-                 esp_err_to_name(ret));
-        return ret;
-    }
+	ret = esp_ble_gap_register_callback(gap_event_handler);
+	if (ret != ESP_OK) {
+		ESP_LOGE(BLUETOOTH_TAG, "gap register callback failed: %s",
+		         esp_err_to_name(ret));
+		return ret;
+	}
 
-    ret = esp_ble_gatts_register_callback(gatts_event_handler);
-    if (ret != ESP_OK) {
-        ESP_LOGE(BLUETOOTH_TAG, "gatts register callback failed: %s",
-                 esp_err_to_name(ret));
-        return ret;
-    }
+	ret = esp_ble_gatts_register_callback(gatts_event_handler);
+	if (ret != ESP_OK) {
+		ESP_LOGE(BLUETOOTH_TAG, "gatts register callback failed: %s",
+		         esp_err_to_name(ret));
+		return ret;
+	}
 
-    ret = esp_ble_gatts_app_register(ESP_APP_ID);
-    if (ret != ESP_OK) {
-        ESP_LOGE(BLUETOOTH_TAG, "gatts app register failed: %s",
-                 esp_err_to_name(ret));
-        return ret;
-    }
+	ret = esp_ble_gatts_app_register(ESP_APP_ID);
+	if (ret != ESP_OK) {
+		ESP_LOGE(BLUETOOTH_TAG, "gatts app register failed: %s",
+		         esp_err_to_name(ret));
+		return ret;
+	}
 
-    bluetooth_started = true;
-    ESP_LOGI(BLUETOOTH_TAG, "Bluetooth controller started");
-    return ESP_OK;
+	bluetooth_started = true;
+	ESP_LOGI(BLUETOOTH_TAG, "Bluetooth controller started");
+	return ESP_OK;
 }
 
 #else
 
 esp_err_t bluetooth_app_start(void) {
-    ESP_LOGW(BLUETOOTH_TAG, "Bluetooth disabled in sdkconfig");
-    return ESP_ERR_NOT_SUPPORTED;
+	ESP_LOGW(BLUETOOTH_TAG, "Bluetooth disabled in sdkconfig");
+	return ESP_ERR_NOT_SUPPORTED;
 }
 
 #endif // CONFIG_BT_BLUEDROID_ENABLED

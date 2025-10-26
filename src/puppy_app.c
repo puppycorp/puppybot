@@ -1,77 +1,60 @@
 #include "puppy_app.h"
-
-#include <stddef.h>
+#include "command_handler.h"
+#include "log.h"
+#include "motor_slots.h"
+#include "platform.h"
 
 #define PUPPY_APP_BOOT_DELAY_MS 5000U
+#define TAG "PUPPY_APP"
 
-static PuppyAppStatus call_optional_int(int (*fn)(void),
-                                        PuppyAppStatus error_code) {
-	if (!fn) {
-		return PUPPY_APP_OK;
-	}
-	int rc = fn();
-	return rc == 0 ? PUPPY_APP_OK : error_code;
-}
-
-PuppyAppStatus puppy_app_main(const PuppyHardwareOps *ops) {
-	if (!ops) {
-		return PUPPY_APP_ERR_INVALID_ARGUMENT;
+PuppyAppStatus puppy_app_main(void) {
+	// Initialize storage
+	if (storage_init() != 0) {
+		return PUPPY_APP_ERR_STORAGE;
 	}
 
-	PuppyAppStatus status =
-	    call_optional_int(ops->storage_init, PUPPY_APP_ERR_STORAGE);
-	if (status != PUPPY_APP_OK) {
-		return status;
+	// Log boot message
+	const char *instance = instance_name();
+	log_info(TAG, "Booting %s", instance);
+
+	// Initialize WiFi
+	if (wifi_init() != 0) {
+		return PUPPY_APP_ERR_WIFI;
 	}
 
-	const char *instance = ops->instance_name ? ops->instance_name() : "Puppy";
-	if (ops->log_boot) {
-		ops->log_boot(instance);
+	// Initialize mDNS
+	if (mdns_service_init() != 0) {
+		return PUPPY_APP_ERR_MDNS;
 	}
 
-	status = call_optional_int(ops->wifi_init, PUPPY_APP_ERR_WIFI);
-	if (status != PUPPY_APP_OK) {
-		return status;
+	// Initialize motor system
+	motor_init();
+
+	// Set servos to boot angles
+	int servo_count = motor_slots_servo_count();
+	for (int servo = 0; servo < servo_count; ++servo) {
+		float boot_angle = motor_slots_servo_boot_angle(servo);
+		if (boot_angle < 0.0f)
+			boot_angle = 90.0f;
+		// This will be handled by the motor system through motor_slots
+		// No direct HAL call needed since servo angles are managed by
+		// motor_runtime
 	}
 
-	status = call_optional_int(ops->mdns_init, PUPPY_APP_ERR_MDNS);
-	if (status != PUPPY_APP_OK) {
-		return status;
+	// Boot delay
+	delay_ms(PUPPY_APP_BOOT_DELAY_MS);
+
+	// Initialize command handler
+	command_handler_init();
+
+	// Start Bluetooth
+	if (bluetooth_start() != 0) {
+		return PUPPY_APP_ERR_BLUETOOTH;
 	}
 
-	if (ops->motor_gpio_init) {
-		ops->motor_gpio_init();
-	}
-	if (ops->motor_pwm_init) {
-		ops->motor_pwm_init();
-	}
-
-	uint32_t servo_count = ops->servo_count ? ops->servo_count() : 0;
-	for (uint32_t servo = 0; servo < servo_count; ++servo) {
-		if (!ops->servo_set_angle) {
-			break;
-		}
-		uint32_t angle =
-		    ops->servo_boot_angle ? ops->servo_boot_angle(servo) : 90U;
-		ops->servo_set_angle(servo, angle);
-	}
-
-	if (ops->delay_ms) {
-		ops->delay_ms(PUPPY_APP_BOOT_DELAY_MS);
-	}
-
-	if (ops->command_handler_init) {
-		ops->command_handler_init();
-	}
-
-	status = call_optional_int(ops->bluetooth_start, PUPPY_APP_ERR_BLUETOOTH);
-	if (status != PUPPY_APP_OK) {
-		return status;
-	}
-
-	status = call_optional_int(ops->websocket_start, PUPPY_APP_ERR_WEBSOCKET);
-	if (status != PUPPY_APP_OK) {
-		return status;
+	// Start WebSocket
+	if (websocket_start() != 0) {
+		return PUPPY_APP_ERR_WEBSOCKET;
 	}
 
 	return PUPPY_APP_OK;

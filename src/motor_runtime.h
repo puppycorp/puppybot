@@ -49,11 +49,7 @@ void motor_registry_clear(void);
 int motor_count(void);
 motor_rt_t *motor_at(int idx);
 
-int motor_hw_init(void);
 void motor_tick_all(uint32_t now_ms);
-
-void motor_runtime_set_hw_ops(const motor_hw_ops_t *ops);
-const motor_hw_ops_t *motor_runtime_get_hw_ops(void);
 
 int motor_set_speed(uint32_t node_id, float speed_m1_p1);
 int motor_set_angle(uint32_t node_id, float deg);

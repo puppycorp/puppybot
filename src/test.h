@@ -44,8 +44,7 @@ void register_test(char *name, TestFunc func);
 // In non-unit-test builds, define TEST as a regular function definition without
 // test registration.
 #if defined(__GNUC__)
-#define TEST(testname)                                                        \
-	static void __attribute__((unused)) test_##testname(void)
+#define TEST(testname) static void __attribute__((unused)) test_##testname(void)
 #else
 #define TEST(testname) static void test_##testname(void)
 #endif

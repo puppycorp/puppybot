@@ -12,7 +12,7 @@
 
 #include <math.h>
 
-static int default_init(void) { return 0; }
+int motor_hw_init(void) { return 0; }
 
 static inline uint32_t clamp_u32(uint32_t value, uint32_t max) {
 	return value > max ? max : value;
@@ -41,7 +41,7 @@ static ledc_timer_t timer_for_channel(uint8_t ch) {
 	return (ledc_timer_t)(LEDC_TIMER_0 + (ch / 4));
 }
 
-static void default_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
+void motor_hw_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
 	ledc_timer_config_t tcfg = {
 	    .speed_mode = LEDC_LOW_SPEED_MODE,
 	    .duty_resolution = LEDC_TIMER_16_BIT,
@@ -62,7 +62,7 @@ static void default_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
 	ledc_channel_config(&ccfg);
 }
 
-static void default_bind_pwm_pin(uint8_t channel, int gpio) {
+void motor_hw_bind_pwm_pin(uint8_t channel, int gpio) {
 	ledc_channel_config_t ccfg = {
 	    .gpio_num = gpio,
 	    .speed_mode = LEDC_LOW_SPEED_MODE,
@@ -74,21 +74,20 @@ static void default_bind_pwm_pin(uint8_t channel, int gpio) {
 	ledc_channel_config(&ccfg);
 }
 
-static void default_set_pwm_pulse_us(uint8_t channel, uint16_t freq_hz,
-                                     uint16_t pulse_us) {
+void motor_hw_set_pwm_pulse_us(uint8_t channel, uint16_t freq_hz,
+                               uint16_t pulse_us) {
 	uint32_t duty = pwm_duty_from_us(freq_hz, pulse_us);
 	ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)channel, duty);
 	ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)channel);
 }
 
-static void default_set_pwm_duty(uint8_t channel, float duty_ratio) {
+void motor_hw_set_pwm_duty(uint8_t channel, float duty_ratio) {
 	uint32_t duty = pwm_duty_from_ratio(duty_ratio);
 	ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)channel, duty);
 	ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)channel);
 }
 
-static void default_configure_hbridge(int in1, int in2, bool forward,
-                                      bool brake) {
+void motor_hw_configure_hbridge(int in1, int in2, bool forward, bool brake) {
 	if (in1 < 0 || in2 < 0)
 		return;
 	gpio_config_t cfg = {
@@ -109,7 +108,7 @@ static void default_configure_hbridge(int in1, int in2, bool forward,
 	}
 }
 
-static uint32_t default_now_ms(void) {
+uint32_t motor_hw_now_ms(void) {
 #ifdef ESP_PLATFORM
 	return (uint32_t)(esp_timer_get_time() / 1000);
 #else
@@ -119,15 +118,3 @@ static uint32_t default_now_ms(void) {
 	return (uint32_t)ms;
 #endif
 }
-
-static const motor_hw_ops_t g_default_ops = {
-    .init = default_init,
-    .ensure_pwm = default_ensure_pwm,
-    .bind_pwm_pin = default_bind_pwm_pin,
-    .set_pwm_pulse_us = default_set_pwm_pulse_us,
-    .set_pwm_duty = default_set_pwm_duty,
-    .configure_hbridge = default_configure_hbridge,
-    .now_ms = default_now_ms,
-};
-
-const motor_hw_ops_t *motor_hw_default_ops(void) { return &g_default_ops; }
