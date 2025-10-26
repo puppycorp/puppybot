@@ -1,4 +1,7 @@
 #include "command_handler.h"
+#include "motor_runtime.h"
+#include "motor_slots.h"
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -19,10 +22,65 @@ static CommandTimerHandle g_safety_timer = NULL;
 static ServoTimeoutState g_servo_timeouts[MAX_SERVOS];
 static uint16_t g_servo_current_angle[MAX_SERVOS];
 
+static inline uint32_t servo_slot_count(void) {
+	int count = motor_slots_servo_count();
+	if (count < 0)
+		return 0;
+	if (count > MAX_SERVOS)
+		count = MAX_SERVOS;
+	return (uint32_t)count;
+}
+
+static int servo_slot_from_node(uint32_t node_id) {
+	int count = motor_slots_servo_count();
+	for (int slot = 0; slot < count && slot < MAX_SERVOS; ++slot) {
+		motor_rt_t *m = motor_slots_servo(slot);
+		if (m && m->node_id == node_id)
+			return slot;
+	}
+	return -1;
+}
+
+static motor_rt_t *find_motor(uint32_t node_id) {
+	motor_rt_t *m = NULL;
+	if (motor_registry_find(node_id, &m) == 0)
+		return m;
+	return NULL;
+}
+
+static float normalize_speed(int speed) {
+	if (speed > 127)
+		speed = 127;
+	if (speed < -127)
+		speed = -127;
+	return (float)speed / 127.0f;
+}
+
+static void ensure_servo_timer(uint8_t slot) {
+	if (!g_ops || slot >= MAX_SERVOS)
+		return;
+	ServoTimeoutState *state = &g_servo_timeouts[slot];
+	if (state->timer || !g_ops->timer_create)
+		return;
+	state->timer =
+	    g_ops->timer_create(servo_timeout_callback, (void *)(uintptr_t)slot, NULL);
+	if (!state->timer && g_ops->log_error) {
+		g_ops->log_error(TAG, "Failed to create servo timeout timer %u", slot);
+	}
+}
+
+static void stop_all_drive_motors(void) {
+	int drive_count = motor_slots_drive_count();
+	for (int idx = 0; idx < drive_count; ++idx) {
+		motor_rt_t *m = motor_slots_drive(idx);
+		if (m)
+			motor_stop(m->node_id);
+	}
+}
+
 // Forward declarations
-static void safety_timer_callback(void *arg);
 static void servo_timeout_callback(void *arg);
-static uint8_t speed_to_duty(int speed);
+static void safety_timer_callback(void *arg);
 static void cancel_servo_timeout(uint8_t servo_id);
 
 // Timer callbacks
@@ -31,12 +89,7 @@ static void safety_timer_callback(void *arg) {
 	if (g_ops && g_ops->log_warning) {
 		g_ops->log_warning(TAG, "Safety timeout: stopping all motors");
 	}
-	if (g_ops) {
-		if (g_ops->motor_a_stop)
-			g_ops->motor_a_stop();
-		if (g_ops->motor_b_stop)
-			g_ops->motor_b_stop();
-	}
+	stop_all_drive_motors();
 }
 
 static void servo_timeout_callback(void *arg) {
@@ -45,20 +98,23 @@ static void servo_timeout_callback(void *arg) {
 		return;
 	}
 
-	uint32_t servo_count = g_ops && g_ops->servo_count ? g_ops->servo_count() : 0;
-	if (servo_id >= servo_count) {
+	uint32_t count = servo_slot_count();
+	if (servo_id >= count) {
 		return;
 	}
 
 	ServoTimeoutState *state = &g_servo_timeouts[servo_id];
+	motor_rt_t *motor = motor_slots_servo((int)servo_id);
+	if (!motor) {
+		return;
+	}
+
 	if (g_ops && g_ops->log_info) {
 		g_ops->log_info(TAG, "Servo %lu timeout -> restoring to %d",
 		                (unsigned long)servo_id, state->restore_angle);
 	}
 
-	if (g_ops && g_ops->servo_set_angle) {
-		g_ops->servo_set_angle((uint8_t)servo_id, state->restore_angle);
-	}
+	motor_set_angle(motor->node_id, (float)state->restore_angle);
 	g_servo_current_angle[servo_id] = state->restore_angle;
 	state->active = false;
 }
@@ -68,8 +124,8 @@ static void cancel_servo_timeout(uint8_t servo_id) {
 		return;
 	}
 
-	uint32_t servo_count = g_ops && g_ops->servo_count ? g_ops->servo_count() : 0;
-	if (servo_id >= servo_count) {
+	uint32_t count = servo_slot_count();
+	if (servo_id >= count) {
 		return;
 	}
 
@@ -85,15 +141,6 @@ static void cancel_servo_timeout(uint8_t servo_id) {
 		g_ops->log_warning(TAG, "Failed to stop servo timeout %u", servo_id);
 	}
 	state->active = false;
-}
-
-static uint8_t speed_to_duty(int speed) {
-	int magnitude = abs(speed);
-	if (magnitude > 127) {
-		magnitude = 127;
-	}
-	// Map 0..127 -> 0..255 for LEDC 8-bit duty cycle
-	return (uint8_t)((magnitude * 255) / 127);
 }
 
 void command_handler_init(const CommandOps *ops) {
@@ -115,26 +162,33 @@ void command_handler_init(const CommandOps *ops) {
 	}
 
 	// Initialize servo timeout timers
-	uint32_t servo_count = g_ops->servo_count ? g_ops->servo_count() : 0;
-	for (uint8_t servo = 0; servo < servo_count && servo < MAX_SERVOS; ++servo) {
-		ServoTimeoutState *state = &g_servo_timeouts[servo];
+	command_handler_reload_motor_config();
+}
 
-		uint32_t boot_angle =
-		    g_ops->servo_boot_angle ? g_ops->servo_boot_angle(servo) : 90;
-		g_servo_current_angle[servo] = (uint16_t)boot_angle;
-		state->restore_angle = (uint16_t)boot_angle;
+void command_handler_reload_motor_config(void) {
+	uint32_t count = servo_slot_count();
+	for (uint8_t slot = 0; slot < count && slot < MAX_SERVOS; ++slot) {
+		ensure_servo_timer(slot);
+		cancel_servo_timeout(slot);
+		float boot = motor_slots_servo_boot_angle((int)slot);
+		if (boot < 0.0f)
+			boot = 0.0f;
+		if (boot > 180.0f)
+			boot = 180.0f;
+		uint16_t boot_u16 = (uint16_t)boot;
+		g_servo_current_angle[slot] = boot_u16;
+		ServoTimeoutState *state = &g_servo_timeouts[slot];
+		state->restore_angle = boot_u16;
 		state->active = false;
+	}
 
-		if (g_ops->timer_create) {
-			state->timer = g_ops->timer_create(servo_timeout_callback,
-			                                    (void *)(uintptr_t)servo, NULL);
-			if (state->timer == NULL && g_ops->log_error) {
-				g_ops->log_error(TAG, "Failed to create servo timeout timer %u",
-				                 servo);
-			}
-		} else {
-			state->timer = NULL;
+	for (uint8_t slot = (uint8_t)count; slot < MAX_SERVOS; ++slot) {
+		ServoTimeoutState *state = &g_servo_timeouts[slot];
+		if (state->timer && g_ops && g_ops->timer_stop) {
+			g_ops->timer_stop(state->timer);
 		}
+		state->active = false;
+		g_servo_current_angle[slot] = 90;
 	}
 }
 
@@ -153,7 +207,7 @@ void command_handler_handle(CommandPacket *cmd, void *client) {
 		}
 		break;
 
-	case CMD_DRIVE_MOTOR:
+	case CMD_DRIVE_MOTOR: {
 		if (g_ops->log_info) {
 			g_ops->log_info(TAG, "drive motor %d with speed %d",
 			                cmd->cmd.drive_motor.motor_id,
@@ -166,122 +220,107 @@ void command_handler_handle(CommandPacket *cmd, void *client) {
 			g_ops->timer_start_once(g_safety_timer, 1000000); // 1 second timeout
 		}
 
-		if (cmd->cmd.drive_motor.motor_type == SERVO_MOTOR) {
-			uint8_t servo_id = (uint8_t)cmd->cmd.drive_motor.motor_id;
-			uint32_t servo_count =
-			    g_ops->servo_count ? g_ops->servo_count() : 0;
+		uint32_t node_id = (uint32_t)cmd->cmd.drive_motor.motor_id;
+		motor_rt_t *motor = find_motor(node_id);
+		if (!motor) {
+			if (g_ops->log_error) {
+				g_ops->log_error(TAG, "Unknown motor node %" PRIu32, node_id);
+			}
+			break;
+		}
 
-			if (servo_id >= servo_count) {
+		if (motor->type_id == MOTOR_TYPE_ANGLE) {
+			int slot = servo_slot_from_node(node_id);
+			if (slot < 0) {
 				if (g_ops->log_error) {
-					g_ops->log_error(TAG, "Invalid servo ID %u", servo_id);
+					g_ops->log_error(TAG,
+					                 "Servo node %" PRIu32
+					                 " not mapped to a servo slot",
+					                 node_id);
 				}
 				break;
 			}
-
-			cancel_servo_timeout(servo_id);
-
+			cancel_servo_timeout((uint8_t)slot);
 			int angle = cmd->cmd.drive_motor.angle;
 			if (angle < 0)
 				angle = 0;
 			if (angle > 180)
 				angle = 180;
+			motor_set_angle(node_id, (float)angle);
+			g_servo_current_angle[slot] = (uint16_t)angle;
+			break;
+		}
 
-			if (g_ops->servo_set_angle) {
-				g_ops->servo_set_angle(servo_id, (uint32_t)angle);
-			}
-			g_servo_current_angle[servo_id] = (uint16_t)angle;
-
-		} else if (cmd->cmd.drive_motor.motor_id == 1) {
-			// Motor A
-			if (cmd->cmd.drive_motor.speed == 0) {
-				if (g_ops->motor_a_stop)
-					g_ops->motor_a_stop();
-				break;
-			}
-			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-			if (cmd->cmd.drive_motor.speed > 0) {
-				if (g_ops->motor_a_forward)
-					g_ops->motor_a_forward(duty);
-			} else {
-				if (g_ops->motor_a_backward)
-					g_ops->motor_a_backward(duty);
-			}
-
-		} else if (cmd->cmd.drive_motor.motor_id == 2) {
-			// Motor B
-			if (cmd->cmd.drive_motor.speed == 0) {
-				if (g_ops->motor_b_stop)
-					g_ops->motor_b_stop();
-				break;
-			}
-			uint8_t duty = speed_to_duty(cmd->cmd.drive_motor.speed);
-			if (cmd->cmd.drive_motor.speed > 0) {
-				if (g_ops->motor_b_forward)
-					g_ops->motor_b_forward(duty);
-			} else {
-				if (g_ops->motor_b_backward)
-					g_ops->motor_b_backward(duty);
-			}
-
-		} else {
-			if (g_ops->log_error) {
-				g_ops->log_error(TAG, "Invalid motor ID");
-			}
+		float speed = normalize_speed(cmd->cmd.drive_motor.speed);
+		if (cmd->cmd.drive_motor.speed == 0) {
+			motor_stop(node_id);
+			break;
+		}
+		if (motor_set_speed(node_id, speed) != 0 && g_ops->log_error) {
+			g_ops->log_error(TAG, "Failed to set speed for motor %" PRIu32,
+			                 node_id);
 		}
 		break;
+	}
 
-	case CMD_STOP_MOTOR:
+	case CMD_STOP_MOTOR: {
 		if (g_ops->log_info) {
 			g_ops->log_info(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
 		}
-		if (cmd->cmd.stop_motor.motor_id == 1) {
-			if (g_ops->motor_a_stop)
-				g_ops->motor_a_stop();
-		} else if (cmd->cmd.stop_motor.motor_id == 2) {
-			if (g_ops->motor_b_stop)
-				g_ops->motor_b_stop();
-		} else {
+		uint32_t node_id = (uint32_t)cmd->cmd.stop_motor.motor_id;
+		motor_rt_t *motor = find_motor(node_id);
+		if (!motor) {
 			if (g_ops->log_error) {
-				g_ops->log_error(TAG, "Invalid motor ID");
+				g_ops->log_error(TAG, "Unknown motor node %" PRIu32, node_id);
 			}
+			break;
+		}
+		if (motor->type_id == MOTOR_TYPE_ANGLE) {
+			int slot = servo_slot_from_node(node_id);
+			if (slot >= 0) {
+				cancel_servo_timeout((uint8_t)slot);
+				// Keep servo at its current angle; nothing further required.
+			}
+		} else {
+			motor_stop(node_id);
 		}
 		break;
+	}
 
 	case CMD_STOP_ALL_MOTORS:
 		if (g_ops->log_info) {
 			g_ops->log_info(TAG, "Stop all motors command received");
 		}
-		if (g_ops->motor_a_stop)
-			g_ops->motor_a_stop();
-		if (g_ops->motor_b_stop)
-			g_ops->motor_b_stop();
+		stop_all_drive_motors();
 
 		if (g_safety_timer && g_ops->timer_stop) {
 			g_ops->timer_stop(g_safety_timer);
 		}
 
-		uint32_t servo_count = g_ops->servo_count ? g_ops->servo_count() : 0;
-		for (uint8_t servo = 0; servo < servo_count && servo < MAX_SERVOS;
-		     ++servo) {
-			cancel_servo_timeout(servo);
-			uint32_t boot_angle =
-			    g_ops->servo_boot_angle ? g_ops->servo_boot_angle(servo) : 90;
-			if (g_ops->servo_set_angle) {
-				g_ops->servo_set_angle(servo, boot_angle);
-			}
-			g_servo_current_angle[servo] = (uint16_t)boot_angle;
+		uint32_t count = servo_slot_count();
+		for (uint8_t slot = 0; slot < count && slot < MAX_SERVOS; ++slot) {
+			cancel_servo_timeout(slot);
+			float boot = motor_slots_servo_boot_angle((int)slot);
+			if (boot < 0.0f)
+				boot = 0.0f;
+			if (boot > 180.0f)
+				boot = 180.0f;
+			motor_rt_t *motor = motor_slots_servo(slot);
+			if (motor)
+				motor_set_angle(motor->node_id, boot);
+			g_servo_current_angle[slot] = (uint16_t)boot;
 		}
 		break;
 
 	case CMD_TURN_SERVO: {
-		uint8_t servo_id = (uint8_t)cmd->cmd.turn_servo.servo_id;
+		uint32_t node_id = (uint32_t)cmd->cmd.turn_servo.servo_id;
 		int angle = cmd->cmd.turn_servo.angle;
 		int duration_ms = cmd->cmd.turn_servo.duration_ms;
 
-		uint32_t servo_count = g_ops->servo_count ? g_ops->servo_count() : 0;
-		if (servo_id >= servo_count) {
+		int slot = servo_slot_from_node(node_id);
+		if (slot < 0) {
 			if (g_ops->log_error) {
-				g_ops->log_error(TAG, "Invalid servo ID %u", servo_id);
+				g_ops->log_error(TAG, "Invalid servo node %" PRIu32, node_id);
 			}
 			break;
 		}
@@ -293,25 +332,27 @@ void command_handler_handle(CommandPacket *cmd, void *client) {
 		if (duration_ms < 0)
 			duration_ms = 0;
 
-		uint16_t previous_angle = g_servo_current_angle[servo_id];
-		cancel_servo_timeout(servo_id);
+		uint16_t previous_angle = g_servo_current_angle[slot];
+		cancel_servo_timeout((uint8_t)slot);
 
 		if (g_ops->log_info) {
-			g_ops->log_info(TAG, "turn servo %u -> %d (timeout %d ms)", servo_id,
-			                angle, duration_ms);
+			g_ops->log_info(TAG,
+			                "turn servo node %" PRIu32 " -> %d (timeout %d ms)",
+			                node_id, angle, duration_ms);
 		}
 
-		if (g_ops->servo_set_angle) {
-			g_ops->servo_set_angle(servo_id, (uint32_t)angle);
-		}
-		g_servo_current_angle[servo_id] = (uint16_t)angle;
+		motor_set_angle(node_id, (float)angle);
+		g_servo_current_angle[slot] = (uint16_t)angle;
 
 		if (duration_ms > 0) {
-			ServoTimeoutState *state = &g_servo_timeouts[servo_id];
+			ServoTimeoutState *state = &g_servo_timeouts[slot];
+			ensure_servo_timer((uint8_t)slot);
 			if (state->timer == NULL) {
 				if (g_ops->log_warning) {
-					g_ops->log_warning(TAG, "No timer available for servo %u timeout",
-					                   servo_id);
+					g_ops->log_warning(
+					    TAG,
+					    "No timer available for servo node %" PRIu32 " timeout",
+					    node_id);
 				}
 				break;
 			}
@@ -325,8 +366,10 @@ void command_handler_handle(CommandPacket *cmd, void *client) {
 				    g_ops->timer_start_once(state->timer, timeout_us);
 				if (timer_result != 0) {
 					if (g_ops->log_warning) {
-						g_ops->log_warning(TAG, "Failed to start servo timeout %u",
-						                   servo_id);
+						g_ops->log_warning(
+						    TAG,
+						    "Failed to start servo timeout for node %" PRIu32,
+						    node_id);
 					}
 					state->active = false;
 				}

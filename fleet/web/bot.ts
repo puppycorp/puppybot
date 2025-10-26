@@ -1,4 +1,4 @@
-import type { MotorConfig, MsgToServer } from "../fleet/types"
+import type { MotorConfig, MsgToServer } from "../types"
 import {
 	TEMPLATE_OPTIONS,
 	cloneTemplateMotors,
@@ -6,7 +6,7 @@ import {
 	isConfigTemplateKey,
 	type ConfigTemplateKey,
 	type TemplateSelectionKey,
-} from "../server/config-templates"
+} from "../config-templates"
 import { state } from "./state"
 import type { BotConfigState } from "./state"
 import { Container, UiComponent } from "./ui"

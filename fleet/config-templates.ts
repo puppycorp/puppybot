@@ -1,4 +1,4 @@
-import type { MotorConfig } from "../fleet/types"
+import type { MotorConfig } from "./types"
 
 export const CUSTOM_TEMPLATE_KEY = "custom" as const
 

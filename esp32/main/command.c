@@ -207,6 +207,7 @@ void handle_command(CommandPacket *cmd, esp_websocket_client_handle_t client) {
 		} else {
 			ESP_LOGI(TAG, "Motor configuration applied (%u bytes)",
 			         (unsigned)cmd->cmd.apply_config.length);
+			command_handler_reload_motor_config();
 		}
 		return;
 	}

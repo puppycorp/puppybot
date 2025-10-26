@@ -48,6 +48,9 @@ void command_handler_init(const CommandOps *ops);
 // Handle a command packet (can be called from websocket/bluetooth handlers)
 void command_handler_handle(CommandPacket *cmd, void *client);
 
+// Re-synchronise internal servo timeout state after a new motor config loads.
+void command_handler_reload_motor_config(void);
+
 #ifdef __cplusplus
 }
 #endif

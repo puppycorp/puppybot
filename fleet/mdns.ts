@@ -152,6 +152,108 @@ export async function discover(
 	return results
 }
 
+type WatchEvent = "added" | "removed"
+type InstanceHandler = (instance: Instance) => void
+
+export type InstanceWatcher = {
+	on(event: WatchEvent, handler: InstanceHandler): () => void
+	list(): Instance[]
+	stop(): void
+}
+
+const makeInstanceKey = (inst: Instance) => `${inst.name}@${inst.domain}`
+
+export function watchInstances(
+	type: string,
+	domain = "local.",
+): InstanceWatcher {
+	const process = spawnDnsSd(["-B", type, domain])
+	const handlers: Record<WatchEvent, Set<InstanceHandler>> = {
+		added: new Set(),
+		removed: new Set(),
+	}
+	const instances = new Map<string, Instance>()
+	let pending = ""
+
+	const emit = (event: WatchEvent, inst: Instance) => {
+		for (const handler of handlers[event]) {
+			try {
+				handler(inst)
+			} catch (error) {
+				console.error("mDNS handler error:", error)
+			}
+		}
+	}
+
+	const stop = () => {
+		pending = ""
+		if (!process.killed) {
+			process.kill("SIGINT")
+		}
+	}
+
+	const processLine = (line: string) => {
+		const match = line.match(
+			/\s(Add|Rmv)\b.*?\s(\S+)\s+(_[^\s]+?\._tcp\.?|_[^\s]+?\._udp\.?)\s+(.+?)\s*$/,
+		)
+		if (!match) return
+		const action = match[1] as "Add" | "Rmv"
+		const domainStr = match[2]
+		const typeStr = match[3]
+		const instanceName = match[4]
+		if (!instanceName) return
+		const instance: Instance = {
+			name: instanceName,
+			domain: domainStr,
+			type: typeStr,
+		}
+		const key = makeInstanceKey(instance)
+		if (action === "Add") {
+			const wasKnown = instances.has(key)
+			instances.set(key, instance)
+			if (!wasKnown) {
+				emit("added", instance)
+			}
+		} else if (action === "Rmv") {
+			const existing = instances.get(key)
+			instances.delete(key)
+			emit("removed", existing ?? instance)
+		}
+	}
+
+	process.stdout.on("data", (chunk) => {
+		pending += chunk.toString()
+		const parts = pending.split(/\r?\n/)
+		pending = parts.pop() ?? ""
+		for (const part of parts) {
+			processLine(part)
+		}
+	})
+
+	process.on("close", () => {
+		for (const inst of instances.values()) {
+			emit("removed", inst)
+		}
+		instances.clear()
+	})
+
+	process.on("error", (error) => {
+		console.error("mDNS browse error:", error)
+		stop()
+	})
+
+	return {
+		on(event: WatchEvent, handler: InstanceHandler) {
+			handlers[event].add(handler)
+			return () => handlers[event].delete(handler)
+		},
+		list() {
+			return [...instances.values()]
+		},
+		stop,
+	}
+}
+
 // If run directly: perform discovery and print JSON
 if (import.meta.main) {
 	const type = process.argv[2] || "_ws._tcp"
