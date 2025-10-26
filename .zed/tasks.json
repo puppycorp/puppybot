@@ -1,0 +1,7 @@
+[
+	{
+		"label": "Start Dev Server",
+		"command": "bun",
+		"args": ["run", "dev"]
+	}
+]
