@@ -64,8 +64,6 @@ int mdns_service_init(void) {
 
 void motor_init(void) { motor_system_init(); }
 
-void delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
-
 int bluetooth_start(void) { return bluetooth_app_start() == ESP_OK ? 0 : -1; }
 
 int websocket_start(void) {

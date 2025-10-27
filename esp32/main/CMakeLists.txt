@@ -13,6 +13,7 @@ list(APPEND COMPONENT_SRCS
         "../../src/motor_slots.c"
         "../../src/pbcl_motor_handler.c"
         "../../src/puppy_app.c"
+        "../../src/utility.c"
         "timer_esp32.c"
         "log_esp32.c"
         "comm_esp32.c"

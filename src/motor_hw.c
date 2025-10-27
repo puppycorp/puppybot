@@ -107,14 +107,3 @@ void motor_hw_configure_hbridge(int in1, int in2, bool forward, bool brake) {
 		gpio_set_level((gpio_num_t)in2, forward ? 0 : 1);
 	}
 }
-
-uint32_t motor_hw_now_ms(void) {
-#ifdef ESP_PLATFORM
-	return (uint32_t)(esp_timer_get_time() / 1000);
-#else
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	uint64_t ms = (uint64_t)tv.tv_sec * 1000ULL + tv.tv_usec / 1000ULL;
-	return (uint32_t)ms;
-#endif
-}

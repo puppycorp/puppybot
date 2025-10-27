@@ -134,20 +134,4 @@ int motor_apply_pbcl_blob(const uint8_t *blob, size_t len) {
 	return 0;
 }
 
-void servo_set_angle(uint8_t servo_id, uint32_t angle) {
-	motor_rt_t *m = motor_slots_servo((int)servo_id);
-	if (!m)
-		return;
-	motor_set_angle(m->node_id, (float)angle);
-}
-
 uint32_t motor_servo_count(void) { return (uint32_t)motor_slots_servo_count(); }
-
-uint32_t motor_servo_boot_angle(uint8_t servo_id) {
-	float boot = motor_slots_servo_boot_angle((int)servo_id);
-	if (boot < 0)
-		boot = 0;
-	if (boot > 180)
-		boot = 180;
-	return (uint32_t)lroundf(boot);
-}

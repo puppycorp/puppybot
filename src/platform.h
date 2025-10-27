@@ -20,9 +20,6 @@ int mdns_service_init(void);
 // Initialize motor system
 void motor_init(void);
 
-// Delay for specified milliseconds
-void delay_ms(uint32_t ms);
-
 // Start Bluetooth service
 // Returns 0 on success, non-zero on error
 int bluetooth_start(void);

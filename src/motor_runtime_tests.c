@@ -72,7 +72,7 @@ void motor_hw_configure_hbridge(int in1, int in2, bool forward, bool brake) {
 	g_active_mock->last_brake = brake;
 }
 
-uint32_t motor_hw_now_ms(void) {
+uint32_t now_ms(void) {
 	if (!g_active_mock)
 		return 0;
 	return g_active_mock->now_value;

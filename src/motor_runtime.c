@@ -5,13 +5,12 @@
 #include <string.h>
 
 #include "motor_hw.h"
+#include "utility.h"
 
 #define MAX_MOTORS 16
 
 static motor_rt_t g_motors[MAX_MOTORS];
 static int g_mcount = 0;
-
-static inline uint32_t current_time_ms(void) { return motor_hw_now_ms(); }
 
 int motor_registry_add(const motor_rt_t *m) {
 	if (!m)
@@ -19,7 +18,7 @@ int motor_registry_add(const motor_rt_t *m) {
 	if (g_mcount >= MAX_MOTORS)
 		return -2;
 	g_motors[g_mcount] = *m;
-	g_motors[g_mcount].last_cmd_ms = current_time_ms();
+	g_motors[g_mcount].last_cmd_ms = now_ms();
 	g_motors[g_mcount].last_cmd_val = 0.0f;
 	g_mcount++;
 	return 0;
@@ -126,7 +125,7 @@ int motor_set_speed(uint32_t node_id, float speed) {
 		return -2;
 	}
 	m->last_cmd_val = speed;
-	m->last_cmd_ms = current_time_ms();
+	m->last_cmd_ms = now_ms();
 	return 0;
 }
 
@@ -138,7 +137,7 @@ int motor_set_angle(uint32_t node_id, float deg) {
 		return -2;
 	apply_angle_servo(m, deg);
 	m->last_cmd_val = deg;
-	m->last_cmd_ms = current_time_ms();
+	m->last_cmd_ms = now_ms();
 	return 0;
 }
 
@@ -160,7 +159,7 @@ int motor_stop(uint32_t node_id) {
 	} else if (m->type_id == MOTOR_TYPE_ANGLE) {
 		apply_angle_servo(m, m->last_cmd_val);
 	}
-	m->last_cmd_ms = current_time_ms();
+	m->last_cmd_ms = now_ms();
 	return 0;
 }
 

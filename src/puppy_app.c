@@ -3,6 +3,7 @@
 #include "log.h"
 #include "motor_slots.h"
 #include "platform.h"
+#include "utility.h"
 
 #define PUPPY_APP_BOOT_DELAY_MS 5000U
 #define TAG "PUPPY_APP"
