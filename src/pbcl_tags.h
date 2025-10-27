@@ -3,10 +3,6 @@
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 enum {
 	PBCL_MOTOR_TYPE_ANGLE = 1,
 	PBCL_MOTOR_TYPE_CONT = 2,

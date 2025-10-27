@@ -7,10 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef enum {
 	GPIO_NUM_0 = 0,
 	GPIO_NUM_1,
@@ -216,10 +212,6 @@ esp_err_t ledc_set_duty(ledc_mode_t speed_mode, ledc_channel_t channel,
                         uint32_t duty);
 esp_err_t ledc_update_duty(ledc_mode_t speed_mode, ledc_channel_t channel);
 esp_err_t gpio_set_level(gpio_num_t gpio, int level);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // ESP_PLATFORM
 
