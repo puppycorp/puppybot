@@ -51,6 +51,36 @@ static void ws_client_process_binary_frame(const uint8_t *payload, size_t len) {
 
 	CommandPacket cmd_packet;
 	parse_cmd((uint8_t *)payload, &cmd_packet);
+
+#ifdef ESP_PLATFORM
+	const char *cmd_name = command_type_to_string(cmd_packet.cmd_type);
+	switch (cmd_packet.cmd_type) {
+	case CMD_DRIVE_MOTOR:
+		log_info(TAG,
+		         "Command %s motorId=%d type=%s speed=%d steps=%d stepTime=%d "
+		         "angle=%d",
+		         cmd_name, cmd_packet.cmd.drive_motor.motor_id,
+		         cmd_packet.cmd.drive_motor.motor_type == SERVO_MOTOR ? "SERVO"
+		                                                              : "DC",
+		         cmd_packet.cmd.drive_motor.speed,
+		         cmd_packet.cmd.drive_motor.steps,
+		         cmd_packet.cmd.drive_motor.step_time,
+		         cmd_packet.cmd.drive_motor.angle);
+		break;
+	case CMD_STOP_MOTOR:
+		log_info(TAG, "Command %s motorId=%d", cmd_name,
+		         cmd_packet.cmd.stop_motor.motor_id);
+		break;
+	case CMD_APPLY_CONFIG:
+		log_info(TAG, "Command %s payloadLen=%u", cmd_name,
+		         cmd_packet.cmd.apply_config.length);
+		break;
+	default:
+		log_info(TAG, "Command %s", cmd_name);
+		break;
+	}
+#endif
+
 	command_handler_handle(&cmd_packet);
 
 	// Send PONG response for PING commands

@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -31,34 +32,68 @@ typedef struct host_timer {
 } host_timer_t;
 
 static const char *TAG = "TIMER_HOST";
+#ifdef _WIN32
+static uint64_t get_time_us(void) {
+	static LARGE_INTEGER frequency = {0};
+	if (frequency.QuadPart == 0) {
+		QueryPerformanceFrequency(&frequency);
+	}
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	return (uint64_t)((counter.QuadPart * 1000000ULL) / frequency.QuadPart);
+}
+#else
+static uint64_t get_time_us(void) {
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
+}
+#endif
 
 #ifdef _WIN32
 static unsigned __stdcall timer_thread(void *arg) {
 	host_timer_t *timer = (host_timer_t *)arg;
-	uint64_t timeout_us;
+	uint64_t start = get_time_us();
+	int cancelled = 0;
+	void (*callback)(void *) = NULL;
+	void *cb_arg = NULL;
+	int expired = 0;
 
-	EnterCriticalSection(&timer->lock);
-	timeout_us = timer->timeout_us;
-	LeaveCriticalSection(&timer->lock);
+	while (1) {
+		EnterCriticalSection(&timer->lock);
+		cancelled = timer->cancel_requested;
+		uint64_t timeout_us = timer->timeout_us;
+		callback = timer->callback;
+		cb_arg = timer->arg;
+		LeaveCriticalSection(&timer->lock);
 
-	DWORD sleep_ms = (DWORD)(timeout_us / 1000ULL);
-	DWORD remainder_us = (DWORD)(timeout_us % 1000ULL);
+		if (cancelled) {
+			break;
+		}
 
-	if (sleep_ms > 0) {
+		uint64_t now = get_time_us();
+		uint64_t elapsed = now - start;
+		if (elapsed >= timeout_us) {
+			expired = 1;
+			break;
+		}
+
+		uint64_t remaining = timeout_us - elapsed;
+		DWORD sleep_ms = (DWORD)(remaining / 1000ULL);
+		if (sleep_ms == 0) {
+			sleep_ms = 1;
+		}
 		Sleep(sleep_ms);
 	}
-	if (remainder_us > 0) {
-		Sleep(1);
-	}
 
 	EnterCriticalSection(&timer->lock);
-	int cancelled = timer->cancel_requested;
-	void (*callback)(void *) = timer->callback;
-	void *cb_arg = timer->arg;
 	timer->active = 0;
+	cancelled = timer->cancel_requested;
+	callback = timer->callback;
+	cb_arg = timer->arg;
 	LeaveCriticalSection(&timer->lock);
 
-	if (!cancelled && callback) {
+	if (!cancelled && expired && callback) {
 		callback(cb_arg);
 	}
 	return 0;
@@ -66,22 +101,48 @@ static unsigned __stdcall timer_thread(void *arg) {
 #else
 static void *timer_thread(void *arg) {
 	host_timer_t *timer = (host_timer_t *)arg;
-	uint64_t timeout_us;
+	uint64_t start = get_time_us();
+	const uint64_t slice_us = 1000; // 1 ms slices
+	int cancelled = 0;
+	int expired = 0;
+	void (*callback)(void *) = NULL;
+	void *cb_arg = NULL;
+
+	while (1) {
+		pthread_mutex_lock(&timer->lock);
+		cancelled = timer->cancel_requested;
+		uint64_t timeout_us = timer->timeout_us;
+		callback = timer->callback;
+		cb_arg = timer->arg;
+		pthread_mutex_unlock(&timer->lock);
+
+		if (cancelled) {
+			break;
+		}
+
+		uint64_t now = get_time_us();
+		uint64_t elapsed = now - start;
+		if (elapsed >= timeout_us) {
+			expired = 1;
+			break;
+		}
+
+		uint64_t remaining = timeout_us - elapsed;
+		uint64_t sleep_us = remaining < slice_us ? remaining : slice_us;
+		struct timespec req = {.tv_sec = (time_t)(sleep_us / 1000000ULL),
+		                       .tv_nsec =
+		                           (long)((sleep_us % 1000000ULL) * 1000L)};
+		nanosleep(&req, NULL);
+	}
 
 	pthread_mutex_lock(&timer->lock);
-	timeout_us = timer->timeout_us;
-	pthread_mutex_unlock(&timer->lock);
-
-	usleep(timeout_us);
-
-	pthread_mutex_lock(&timer->lock);
-	int cancelled = timer->cancel_requested;
-	void (*callback)(void *) = timer->callback;
-	void *cb_arg = timer->arg;
 	timer->active = 0;
+	cancelled = timer->cancel_requested;
+	callback = timer->callback;
+	cb_arg = timer->arg;
 	pthread_mutex_unlock(&timer->lock);
 
-	if (!cancelled && callback) {
+	if (!cancelled && expired && callback) {
 		callback(cb_arg);
 	}
 	return NULL;

@@ -47,6 +47,23 @@ typedef struct {
 	union Command cmd;
 } CommandPacket;
 
+static inline const char *command_type_to_string(int cmd_type) {
+	switch (cmd_type) {
+	case CMD_PING:
+		return "PING";
+	case CMD_DRIVE_MOTOR:
+		return "DRIVE_MOTOR";
+	case CMD_STOP_MOTOR:
+		return "STOP_MOTOR";
+	case CMD_STOP_ALL_MOTORS:
+		return "STOP_ALL_MOTORS";
+	case CMD_APPLY_CONFIG:
+		return "APPLY_CONFIG";
+	default:
+		return "UNKNOWN";
+	}
+}
+
 static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	int version = data[0];
 	int cmd_type = data[1];

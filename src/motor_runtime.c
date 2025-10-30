@@ -88,9 +88,10 @@ static void apply_angle_servo(motor_rt_t *m, float deg) {
 	float t = (deg - dmin) / range;
 	uint16_t us = (uint16_t)(m->min_us + t * (m->max_us - m->min_us));
 
+	/*
 	motor_hw_ensure_pwm(m->pwm_ch, m->pwm_freq);
 	motor_hw_bind_pwm_pin(m->pwm_ch, m->pwm_pin);
-	motor_hw_set_pwm_pulse_us(m->pwm_ch, m->pwm_freq, us);
+	motor_hw_set_pwm_pulse_us(m->pwm_ch, m->pwm_freq, us);*/
 }
 
 static void apply_hbridge_dc(motor_rt_t *m, float speed) {

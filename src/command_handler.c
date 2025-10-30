@@ -209,14 +209,17 @@ void command_handler_handle(CommandPacket *cmd) {
 	}
 
 	case CMD_DRIVE_MOTOR: {
+		log_info(TAG, "CMD_DRIVE_MOTOR");
+#ifdef ESP_PLATFORM
 		log_info(TAG, "drive motor %d with speed %d",
 		         cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
+#endif
 
 		// Reset the safety timer
-		if (g_safety_timer) {
-			timer_stop(g_safety_timer);
-			timer_start_once(g_safety_timer, 1000000); // 1 second timeout
-		}
+		/*if (g_safety_timer) {
+		    timer_stop(g_safety_timer);
+		    timer_start_once(g_safety_timer, 1000000); // 1 second timeout
+		}*/
 
 		uint32_t node_id = (uint32_t)cmd->cmd.drive_motor.motor_id;
 		motor_rt_t *motor = find_motor(node_id);
@@ -249,6 +252,7 @@ void command_handler_handle(CommandPacket *cmd) {
 			motor_stop(node_id);
 			break;
 		}
+
 		if (motor_set_speed(node_id, speed) != 0) {
 			log_error(TAG, "Failed to set speed for motor %" PRIu32, node_id);
 		}
@@ -256,7 +260,9 @@ void command_handler_handle(CommandPacket *cmd) {
 	}
 
 	case CMD_STOP_MOTOR: {
+#ifdef ESP_PLATFORM
 		log_info(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
+#endif
 		uint32_t node_id = (uint32_t)cmd->cmd.stop_motor.motor_id;
 		motor_rt_t *motor = find_motor(node_id);
 		if (!motor) {
@@ -276,7 +282,9 @@ void command_handler_handle(CommandPacket *cmd) {
 	}
 
 	case CMD_STOP_ALL_MOTORS:
+#ifdef ESP_PLATFORM
 		log_info(TAG, "Stop all motors command received");
+#endif
 		stop_all_drive_motors();
 
 		if (g_safety_timer) {

@@ -1,6 +1,8 @@
 #include "http.h"
 
 #include "log.h"
+#include "platform.h"
+#include "protocol.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -38,6 +40,20 @@ typedef struct ws_client_impl {
 } ws_client_impl;
 
 static const char *TAG = "HTTP_HOST";
+
+#define SERVO_LOG_INTERVAL_MS 50
+#define SERVO_LOG_ANGLE_DELTA 2
+#define DRIVE_LOG_INTERVAL_MS 50
+#define DRIVE_LOG_SPEED_DELTA 3
+
+typedef struct {
+	bool valid;
+	int last_speed;
+	int last_angle;
+	uint32_t last_log_ms;
+} command_log_state;
+
+static command_log_state g_drive_log[256];
 
 // -----------------------------------------------------------------------------
 // Utility helpers
@@ -490,11 +506,89 @@ static int perform_handshake(ws_client_impl *client, const char *sec_key) {
 	return 0;
 }
 
+static bool should_log_drive_command(const CommandPacket *packet) {
+	int motor_id = packet->cmd.drive_motor.motor_id;
+	if (motor_id < 0 || motor_id >= 256) {
+		motor_id &= 0xFF;
+	}
+
+	command_log_state *state = &g_drive_log[motor_id];
+	uint32_t now_ms = platform_get_time_ms();
+	bool should_log = true;
+
+	if (packet->cmd.drive_motor.motor_type == SERVO_MOTOR) {
+		int angle = packet->cmd.drive_motor.angle;
+		if (state->valid) {
+			if ((uint32_t)(now_ms - state->last_log_ms) <
+			        SERVO_LOG_INTERVAL_MS &&
+			    abs(angle - state->last_angle) < SERVO_LOG_ANGLE_DELTA) {
+				should_log = false;
+			}
+		}
+		state->last_angle = angle;
+	} else {
+		int speed = packet->cmd.drive_motor.speed;
+		if (state->valid) {
+			if ((uint32_t)(now_ms - state->last_log_ms) <
+			        DRIVE_LOG_INTERVAL_MS &&
+			    abs(speed - state->last_speed) < DRIVE_LOG_SPEED_DELTA) {
+				should_log = false;
+			}
+		}
+		state->last_speed = packet->cmd.drive_motor.speed;
+	}
+
+	state->valid = true;
+	state->last_log_ms = now_ms;
+
+	return should_log;
+}
+
+static void log_binary_command(const uint8_t *payload, size_t len) {
+	if (!payload || len < 4) {
+		return;
+	}
+
+	CommandPacket packet;
+	parse_cmd((uint8_t *)payload, &packet);
+
+	const char *cmd_name = command_type_to_string(packet.cmd_type);
+	switch (packet.cmd_type) {
+	case CMD_DRIVE_MOTOR:
+		if (!should_log_drive_command(&packet)) {
+			break;
+		}
+		log_info(
+		    TAG,
+		    "RX command %s motorId=%d type=%s speed=%d steps=%d "
+		    "stepTime=%d angle=%d",
+		    cmd_name, packet.cmd.drive_motor.motor_id,
+		    packet.cmd.drive_motor.motor_type == SERVO_MOTOR ? "SERVO" : "DC",
+		    packet.cmd.drive_motor.speed, packet.cmd.drive_motor.steps,
+		    packet.cmd.drive_motor.step_time, packet.cmd.drive_motor.angle);
+		break;
+	case CMD_STOP_MOTOR:
+		log_info(TAG, "RX command %s motorId=%d", cmd_name,
+		         packet.cmd.stop_motor.motor_id);
+		break;
+	case CMD_APPLY_CONFIG:
+		log_info(TAG, "RX command %s payloadLen=%u", cmd_name,
+		         packet.cmd.apply_config.length);
+		break;
+	default:
+		log_info(TAG, "RX command %s", cmd_name);
+		break;
+	}
+}
+
 static void handle_incoming_frame(ws_client_impl *client, uint8_t opcode,
                                   const uint8_t *payload, size_t len) {
 	switch (opcode) {
 	case 0x1: // text
+		dispatch_event(WS_EVENT_DATA, payload, len);
+		break;
 	case 0x2: // binary
+		log_binary_command(payload, len);
 		dispatch_event(WS_EVENT_DATA, payload, len);
 		break;
 	case 0x8: // close
