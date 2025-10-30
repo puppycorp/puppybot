@@ -1,17 +1,19 @@
-#include "puppy_app.h"
+#include "main.h"
 #include "command_handler.h"
+#include "http.h"
 #include "log.h"
 #include "motor_slots.h"
 #include "platform.h"
 #include "utility.h"
 
-#define PUPPY_APP_BOOT_DELAY_MS 5000U
-#define TAG "PUPPY_APP"
+#define PUPPYBOT_BOOT_DELAY_MS 5000U
+#define HEARTBEAT_INTERVAL_MS 30000
+#define TAG "PUPPYBOT"
 
-PuppyAppStatus puppy_app_main(void) {
+PuppybotStatus puppybot_main(void) {
 	// Initialize storage
 	if (storage_init() != 0) {
-		return PUPPY_APP_ERR_STORAGE;
+		return PUPPYBOT_ERR_STORAGE;
 	}
 
 	// Log boot message
@@ -20,12 +22,12 @@ PuppyAppStatus puppy_app_main(void) {
 
 	// Initialize WiFi
 	if (wifi_init() != 0) {
-		return PUPPY_APP_ERR_WIFI;
+		return PUPPYBOT_ERR_WIFI;
 	}
 
 	// Initialize mDNS
 	if (mdns_service_init() != 0) {
-		return PUPPY_APP_ERR_MDNS;
+		return PUPPYBOT_ERR_MDNS;
 	}
 
 	// Initialize motor system
@@ -43,20 +45,20 @@ PuppyAppStatus puppy_app_main(void) {
 	}
 
 	// Boot delay
-	delay_ms(PUPPY_APP_BOOT_DELAY_MS);
+	delay_ms(PUPPYBOT_BOOT_DELAY_MS);
 
 	// Initialize command handler
 	command_handler_init();
 
 	// Start Bluetooth
 	if (bluetooth_start() != 0) {
-		return PUPPY_APP_ERR_BLUETOOTH;
+		return PUPPYBOT_ERR_BLUETOOTH;
 	}
 
-	// Start WebSocket
-	if (websocket_start() != 0) {
-		return PUPPY_APP_ERR_WEBSOCKET;
-	}
+	// Start HTTP server and WebSocket client
+	http_server_start();
+	const char *server_uri = platform_get_server_uri();
+	http_client_start(server_uri, HEARTBEAT_INTERVAL_MS);
 
-	return PUPPY_APP_OK;
+	return PUPPYBOT_OK;
 }

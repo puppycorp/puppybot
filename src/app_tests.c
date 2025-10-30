@@ -1,5 +1,5 @@
+#include "main.h"
 #include "motor_runtime.h"
-#include "puppy_app.h"
 #include "test.h"
 
 #include <string.h>
@@ -86,9 +86,15 @@ int bluetooth_start(void) {
 	return stub.bluetooth_result;
 }
 
-int websocket_start(void) {
-	log_call(CALL_WEBSOCKET);
-	return stub.websocket_result;
+const char *platform_get_server_uri(void) {
+	return "ws://test-server/api/bot/test/ws";
+}
+
+void http_server_start(void) { log_call(CALL_WEBSOCKET); }
+
+void http_client_start(const char *server_uri, uint32_t heartbeat_interval_ms) {
+	(void)server_uri;
+	(void)heartbeat_interval_ms;
 }
 
 // Stub for motor_slots functions
@@ -120,11 +126,11 @@ static void assert_call_order(size_t expected_count, const CallTag *expected) {
 	}
 }
 
-TEST(puppy_app_main_runs_full_boot_sequence) {
+TEST(puppybot_main_runs_full_boot_sequence) {
 	stub_reset();
 
-	PuppyAppStatus status = puppy_app_main();
-	ASSERT_EQ(status, PUPPY_APP_OK);
+	PuppybotStatus status = puppybot_main();
+	ASSERT_EQ(status, PUPPYBOT_OK);
 
 	const CallTag expected[] = {CALL_STORAGE,
 	                            CALL_LOG,
@@ -139,32 +145,32 @@ TEST(puppy_app_main_runs_full_boot_sequence) {
 	ASSERT_EQ(stub.delay_ms, 5000u);
 }
 
-TEST(puppy_app_main_propagates_storage_failure) {
+TEST(puppybot_main_propagates_storage_failure) {
 	stub_reset();
 	stub.storage_result = -1;
 
-	PuppyAppStatus status = puppy_app_main();
-	ASSERT_EQ(status, PUPPY_APP_ERR_STORAGE);
+	PuppybotStatus status = puppybot_main();
+	ASSERT_EQ(status, PUPPYBOT_ERR_STORAGE);
 	const CallTag expected[] = {CALL_STORAGE};
 	assert_call_order(sizeof(expected) / sizeof(expected[0]), expected);
 }
 
-TEST(puppy_app_main_propagates_wifi_failure) {
+TEST(puppybot_main_propagates_wifi_failure) {
 	stub_reset();
 	stub.wifi_result = -1;
 
-	PuppyAppStatus status = puppy_app_main();
-	ASSERT_EQ(status, PUPPY_APP_ERR_WIFI);
+	PuppybotStatus status = puppybot_main();
+	ASSERT_EQ(status, PUPPYBOT_ERR_WIFI);
 	const CallTag expected[] = {CALL_STORAGE, CALL_LOG, CALL_WIFI};
 	assert_call_order(sizeof(expected) / sizeof(expected[0]), expected);
 }
 
-TEST(puppy_app_main_propagates_bluetooth_failure) {
+TEST(puppybot_main_propagates_bluetooth_failure) {
 	stub_reset();
 	stub.bluetooth_result = -1;
 
-	PuppyAppStatus status = puppy_app_main();
-	ASSERT_EQ(status, PUPPY_APP_ERR_BLUETOOTH);
+	PuppybotStatus status = puppybot_main();
+	ASSERT_EQ(status, PUPPYBOT_ERR_BLUETOOTH);
 	const CallTag expected[] = {CALL_STORAGE,
 	                            CALL_LOG,
 	                            CALL_WIFI,

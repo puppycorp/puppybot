@@ -2,7 +2,11 @@
 
 if command -v clang-format >/dev/null 2>&1; then
   echo "Formatting C/C++ files in src/ and esp32/..."
-  find src esp32 -type f \( -name '*.c' -o -name '*.h' \) -exec clang-format -i {} +
+  format_dirs=(src esp32/main)
+  if [ -d esp32/components ]; then
+    format_dirs+=(esp32/components)
+  fi
+  find "${format_dirs[@]}" -type f \( -name '*.c' -o -name '*.h' \) -exec clang-format -i {} +
   echo "C/C++ formatting complete"
 else
   echo "clang-format not found; skipping C formatting"

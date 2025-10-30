@@ -15,8 +15,7 @@ mkdir -p "$BUILD_DIR"
   "$ROOT_DIR/src/pbcl_tests.c" \
   "$ROOT_DIR/src/motor_runtime.c" \
   "$ROOT_DIR/src/pbcl_motor_handler.c" \
-  "$ROOT_DIR/src/puppy_app.c" \
-  "$ROOT_DIR/src/espidf_stubs.c" \
+  "$ROOT_DIR/src/main.c" \
   -o "$BUILD_DIR/test_runner" -lm
 
 "$BUILD_DIR/test_runner" "$@"

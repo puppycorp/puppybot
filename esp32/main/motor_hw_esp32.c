@@ -1,15 +1,6 @@
-#include "motor_hw.h"
-
-#ifdef ESP_PLATFORM
+#include "../../src/motor_hw.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include "esp_timer.h"
-#else
-#include <sys/time.h>
-
-#include "espidf_stubs.h"
-#endif
-
 #include <math.h>
 
 int motor_hw_init(void) { return 0; }

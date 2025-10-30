@@ -1,16 +1,37 @@
+#include "../../src/http.h"
 #include "../../src/platform.h"
 #include "bluetooth.h"
-#include "command.h"
+
+#include "../../src/motor_config.h"
+#include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mdns.h"
-#include "motor.h"
 #include "nvs_flash.h"
 #include "variant_config.h"
 #include "wifi.h"
-#include "ws.h"
+
+uint32_t platform_get_time_ms(void) {
+	return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+const char *platform_get_firmware_version(void) {
+	const esp_app_desc_t *app_desc = esp_app_get_description();
+	return app_desc ? app_desc->version : "unknown";
+}
+
+const char *platform_get_server_uri(void) {
+#if defined(SERVER_HOST) && defined(DEVICE_ID)
+	return "ws://" SERVER_HOST "/api/bot/" DEVICE_ID "/ws";
+#elif defined(SERVER_HOST)
+	return "ws://" SERVER_HOST "/api/bot/1/ws";
+#else
+	return NULL;
+#endif
+}
 
 int storage_init(void) {
 	esp_err_t ret = nvs_flash_init();
@@ -65,8 +86,3 @@ int mdns_service_init(void) {
 void motor_init(void) { motor_system_init(); }
 
 int bluetooth_start(void) { return bluetooth_app_start() == ESP_OK ? 0 : -1; }
-
-int websocket_start(void) {
-	websocket_app_start();
-	return 0;
-}

@@ -1,6 +1,6 @@
 #include "bluetooth.h"
 
-#include "command.h"
+#include "../../src/command_handler.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 
@@ -115,7 +115,7 @@ static void handle_control_payload(const uint8_t *data, uint16_t len) {
 
 	CommandPacket pkt = {0};
 	parse_cmd((uint8_t *)data, &pkt);
-	handle_command(&pkt, NULL);
+	command_handler_handle(&pkt);
 }
 
 static void gatts_event_handler(esp_gatts_cb_event_t event,

@@ -1,20 +1,18 @@
-#include "motor.h"
-
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
+#include "motor_config.h"
+#include "log.h"
+#include "motor_hw.h"
 #include "motor_runtime.h"
 #include "motor_slots.h"
 #include "pbcl.h"
 #include "pbcl_motor_handler.h"
+#include "platform.h"
+#include <string.h>
 
-#define TAG "MOTOR"
+#define TAG "MOTOR_CONFIG"
+#define MOTOR_TICK_INTERVAL_MS 5
+
+// Global motor tick timer
+static platform_timer_handle_t motor_tick_timer = NULL;
 
 // Built-in PBCL configuration matching the default server profile.
 // Allows the firmware to control drive motors and four servos before
@@ -45,39 +43,54 @@ static const uint8_t k_default_motor_blob[] = {
     0x00, 0x17, 0x05, 0x32, 0x00, 0xe8, 0x03, 0xd0, 0x07, 0x00, 0x00, 0x00,
     0x00};
 
-static TaskHandle_t g_motor_tick_task = NULL;
-
-static void motor_tick_task(void *arg) {
+// Motor tick callback - called periodically by platform timer
+static void motor_tick_callback(void *arg) {
 	(void)arg;
-	while (1) {
-		uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-		motor_tick_all(now);
-		vTaskDelay(pdMS_TO_TICKS(5));
-	}
+	uint32_t now = platform_get_time_ms();
+	motor_tick_all(now);
 }
 
 int motor_system_init(void) {
+	// Initialize hardware
 	motor_hw_init();
-	if (g_motor_tick_task == NULL) {
-		BaseType_t rc = xTaskCreate(motor_tick_task, "motor_tick", 2048, NULL,
-		                            tskIDLE_PRIORITY + 1, &g_motor_tick_task);
-		if (rc != pdPASS) {
-			ESP_LOGE(TAG, "Failed to create motor tick task");
-			g_motor_tick_task = NULL;
-			return -1;
-		}
+
+	// Create motor tick timer (5ms interval)
+	motor_tick_timer = platform_timer_create(motor_tick_callback, NULL,
+	                                         MOTOR_TICK_INTERVAL_MS);
+	if (!motor_tick_timer) {
+		log_error(TAG, "Failed to create motor tick timer");
+		return -1;
 	}
+
+	// Start the tick timer
+	if (platform_timer_start(motor_tick_timer) != 0) {
+		log_error(TAG, "Failed to start motor tick timer");
+		platform_timer_delete(motor_tick_timer);
+		motor_tick_timer = NULL;
+		return -1;
+	}
+
+	// Load default motor configuration if none exists
 	if (motor_count() == 0) {
-		int rc = motor_apply_pbcl_blob(k_default_motor_blob,
-		                               sizeof(k_default_motor_blob));
+		int rc = motor_config_apply_default();
 		if (rc != 0) {
-			ESP_LOGW(TAG, "Failed to load built-in motor config (%d)", rc);
+			log_warn(TAG, "Failed to load built-in motor config (%d)", rc);
 		}
 	}
+
 	return 0;
 }
 
-void motor_system_reset(void) {
+void motor_system_shutdown(void) {
+	if (motor_tick_timer) {
+		platform_timer_stop(motor_tick_timer);
+		platform_timer_delete(motor_tick_timer);
+		motor_tick_timer = NULL;
+	}
+	motor_config_reset();
+}
+
+void motor_config_reset(void) {
 	motor_registry_clear();
 	motor_slots_reset();
 }
@@ -98,29 +111,31 @@ static int apply_sections(const pbcl_doc_t *doc) {
 	return 0;
 }
 
-int motor_apply_pbcl_blob(const uint8_t *blob, size_t len) {
+int motor_config_apply_blob(const uint8_t *blob, size_t len) {
 	if (!blob || len == 0)
 		return -1;
 
 	pbcl_doc_t doc;
 	pbcl_status_t st = pbcl_parse(blob, len, &doc);
 	if (st != PBCL_OK) {
-		ESP_LOGE(TAG, "pbcl_parse failed (%d)", (int)st);
+		log_error(TAG, "pbcl_parse failed (%d)", (int)st);
 		return -2;
 	}
 
-	motor_system_reset();
+	motor_config_reset();
 
 	int rc = apply_sections(&doc);
 	if (rc != 0)
 		return rc;
 
+	// Stop all drive motors
 	for (int i = 0; i < motor_slots_drive_count(); ++i) {
 		motor_rt_t *m = motor_slots_drive(i);
 		if (m)
 			motor_stop(m->node_id);
 	}
 
+	// Set all servos to boot angle
 	int servo_count = motor_slots_servo_count();
 	for (int i = 0; i < servo_count; ++i) {
 		float boot = motor_slots_servo_boot_angle(i);
@@ -129,9 +144,16 @@ int motor_apply_pbcl_blob(const uint8_t *blob, size_t len) {
 			motor_set_angle(m->node_id, boot);
 	}
 
-	ESP_LOGI(TAG, "Loaded %d motors (%d drive, %d servo)", motor_count(),
+	log_info(TAG, "Loaded %d motors (%d drive, %d servo)", motor_count(),
 	         motor_slots_drive_count(), motor_slots_servo_count());
 	return 0;
 }
 
-uint32_t motor_servo_count(void) { return (uint32_t)motor_slots_servo_count(); }
+int motor_config_apply_default(void) {
+	return motor_config_apply_blob(k_default_motor_blob,
+	                               sizeof(k_default_motor_blob));
+}
+
+uint32_t motor_config_servo_count(void) {
+	return (uint32_t)motor_slots_servo_count();
+}

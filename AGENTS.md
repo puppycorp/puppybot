@@ -7,7 +7,7 @@ make or modify tests in src folder run tests with test.sh. Also you should
 setup the espidf environment by running . deps/espidf/export.sh
 when making changes to esp32 code you should also consider making unit tests
 with the test framework provided in test.h and test_main.c
-dont use #ifdef __cplusplus
+dont use #ifdef \_\_cplusplus
 extern "C" {
 #endif we are pure c code.
 

@@ -9,7 +9,7 @@
 void command_handler_init(void);
 
 // Handle a command packet (can be called from websocket/bluetooth handlers)
-void command_handler_handle(CommandPacket *cmd, void *client);
+void command_handler_handle(CommandPacket *cmd);
 
 // Re-synchronise internal servo timeout state after a new motor config loads.
 void command_handler_reload_motor_config(void);

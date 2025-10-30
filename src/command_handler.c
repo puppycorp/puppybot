@@ -1,6 +1,6 @@
 #include "command_handler.h"
-#include "comm.h"
 #include "log.h"
+#include "motor_config.h"
 #include "motor_runtime.h"
 #include "motor_slots.h"
 #include "timer.h"
@@ -179,7 +179,7 @@ void command_handler_reload_motor_config(void) {
 	}
 }
 
-void command_handler_handle(CommandPacket *cmd, void *client) {
+void command_handler_handle(CommandPacket *cmd) {
 	if (!cmd) {
 		return;
 	}
@@ -187,10 +187,26 @@ void command_handler_handle(CommandPacket *cmd, void *client) {
 	switch (cmd->cmd_type) {
 	case CMD_PING:
 		log_info(TAG, "Ping command received");
-		if (client) {
-			send_pong(client);
+		// PONG response is handled by the transport layer (WebSocket/Bluetooth)
+		break;
+
+	case CMD_APPLY_CONFIG: {
+		if (!cmd->cmd.apply_config.data || cmd->cmd.apply_config.length == 0) {
+			log_warn(TAG, "Received empty PBCL config payload");
+			break;
+		}
+		int rc = motor_config_apply_blob(cmd->cmd.apply_config.data,
+		                                 cmd->cmd.apply_config.length);
+		if (rc != 0) {
+			log_error(TAG, "motor_config_apply_blob failed (%d)", rc);
+		} else {
+			log_info(TAG, "Motor configuration applied (%u bytes)",
+			         (unsigned)cmd->cmd.apply_config.length);
+			// Reload servo timeout state after config changes
+			command_handler_reload_motor_config();
 		}
 		break;
+	}
 
 	case CMD_DRIVE_MOTOR: {
 		log_info(TAG, "drive motor %d with speed %d",

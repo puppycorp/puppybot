@@ -1,23 +1,28 @@
 # File: esp32/main/CMakeLists.txt
 
 #
-# Collect every .c and .cpp file in this component (recursively)
+# Explicitly list ESP32-specific source files
 #
-file(GLOB_RECURSE COMPONENT_SRCS LIST_DIRECTORIES false "*.c")
+set(COMPONENT_SRCS
+        "bluetooth.c"
+        "main.c"
+        "platform_esp32.c"
+        "timer_esp32.c"
+        "log_esp32.c"
+        "motor_hw_esp32.c"
+        "http_espidf.c"
+)
 
 # Add platform-agnostic source files from src/
 list(APPEND COMPONENT_SRCS
         "../../src/command_handler.c"
+        "../../src/motor_config.c"
         "../../src/motor_runtime.c"
-        "../../src/motor_hw.c"
         "../../src/motor_slots.c"
         "../../src/pbcl_motor_handler.c"
-        "../../src/puppy_app.c"
+        "../../src/main.c"
         "../../src/utility.c"
-        "timer_esp32.c"
-        "log_esp32.c"
-        "comm_esp32.c"
-        "platform_esp32.c"
+        "../../src/http.c"
 )
 
 set(DRIVER_COMPONENTS driver)

@@ -1,3 +1,6 @@
 [submodule "deps/espidf"]
 	path = deps/espidf
 	url = https://github.com/espressif/esp-idf.git
+[submodule "deps/uWebSockets"]
+	path = deps/uWebSockets
+	url = https://github.com/uNetworking/uWebSockets.git
