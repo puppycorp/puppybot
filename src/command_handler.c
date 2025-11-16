@@ -180,17 +180,14 @@ void command_handler_reload_motor_config(void) {
 }
 
 void command_handler_handle(CommandPacket *cmd) {
-	if (!cmd) {
-		return;
-	}
+	if (!cmd) return;
 
 	switch (cmd->cmd_type) {
 	case CMD_PING:
 		log_info(TAG, "Ping command received");
-		// PONG response is handled by the transport layer (WebSocket/Bluetooth)
 		break;
-
 	case CMD_APPLY_CONFIG: {
+		log_info(TAG, "CMD_APPLY_CONFIG");
 		if (!cmd->cmd.apply_config.data || cmd->cmd.apply_config.length == 0) {
 			log_warn(TAG, "Received empty PBCL config payload");
 			break;
@@ -207,13 +204,8 @@ void command_handler_handle(CommandPacket *cmd) {
 		}
 		break;
 	}
-
 	case CMD_DRIVE_MOTOR: {
-		log_info(TAG, "CMD_DRIVE_MOTOR");
-#ifdef ESP_PLATFORM
-		log_info(TAG, "drive motor %d with speed %d",
-		         cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
-#endif
+		log_info(TAG, "CMD_DRIVE_MOTOR motor %d with speed %d", cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
 
 		// Reset the safety timer
 		/*if (g_safety_timer) {
@@ -258,11 +250,8 @@ void command_handler_handle(CommandPacket *cmd) {
 		}
 		break;
 	}
-
 	case CMD_STOP_MOTOR: {
-#ifdef ESP_PLATFORM
-		log_info(TAG, "stop motor %d", cmd->cmd.stop_motor.motor_id);
-#endif
+		log_info(TAG, "CMD_STOP_MOTOR motor %d", cmd->cmd.stop_motor.motor_id);
 		uint32_t node_id = (uint32_t)cmd->cmd.stop_motor.motor_id;
 		motor_rt_t *motor = find_motor(node_id);
 		if (!motor) {
@@ -280,11 +269,8 @@ void command_handler_handle(CommandPacket *cmd) {
 		}
 		break;
 	}
-
 	case CMD_STOP_ALL_MOTORS:
-#ifdef ESP_PLATFORM
-		log_info(TAG, "Stop all motors command received");
-#endif
+		log_info(TAG, "CMD_STOP_ALL_MOTORS");
 		stop_all_drive_motors();
 
 		if (g_safety_timer) {
@@ -304,6 +290,9 @@ void command_handler_handle(CommandPacket *cmd) {
 				motor_set_angle(motor->node_id, boot);
 			g_servo_current_angle[slot] = (uint16_t)boot;
 		}
+		break;
+	default:
+		log_warn(TAG, "Unknown command type: %d", cmd->cmd_type);
 		break;
 	}
 }
