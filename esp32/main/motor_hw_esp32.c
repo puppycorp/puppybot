@@ -2,6 +2,9 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include <math.h>
+#include "esp_log.h"
+
+static const char *TAG = "motor_hw";
 
 int motor_hw_init(void) { return 0; }
 
@@ -33,6 +36,7 @@ static ledc_timer_t timer_for_channel(uint8_t ch) {
 }
 
 void motor_hw_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
+	ESP_LOGI(TAG, "Ensuring PWM channel %d at %d Hz", channel, freq_hz);
 	ledc_timer_config_t tcfg = {
 	    .speed_mode = LEDC_LOW_SPEED_MODE,
 	    .duty_resolution = LEDC_TIMER_16_BIT,
@@ -41,19 +45,10 @@ void motor_hw_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
 	    .clk_cfg = LEDC_AUTO_CLK,
 	};
 	ledc_timer_config(&tcfg);
-
-	ledc_channel_config_t ccfg = {
-	    .gpio_num = -1,
-	    .speed_mode = LEDC_LOW_SPEED_MODE,
-	    .channel = (ledc_channel_t)channel,
-	    .timer_sel = tcfg.timer_num,
-	    .duty = 0,
-	    .hpoint = 0,
-	};
-	ledc_channel_config(&ccfg);
 }
 
 void motor_hw_bind_pwm_pin(uint8_t channel, int gpio) {
+	ESP_LOGI(TAG, "Binding PWM channel %d to GPIO %d", channel, gpio);
 	ledc_channel_config_t ccfg = {
 	    .gpio_num = gpio,
 	    .speed_mode = LEDC_LOW_SPEED_MODE,
