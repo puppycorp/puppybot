@@ -1,5 +1,6 @@
 #include "motor_slots.h"
 
+#include "motor_hw.h"
 #include <stddef.h>
 
 #define MAX_DRIVE_MOTORS 4
@@ -21,8 +22,13 @@ void motor_slots_reset(void) {
 }
 
 void motor_slots_register(motor_rt_t *motor) {
-	if (!motor)
-		return;
+	if (!motor) return;
+
+	if (motor->pwm_pin >= 0) {
+		motor_hw_ensure_pwm(motor->pwm_ch, motor->pwm_freq);
+		motor_hw_bind_pwm_pin(motor->pwm_ch, motor->pwm_pin);
+	}
+
 	switch (motor->type_id) {
 	case MOTOR_TYPE_HBR:
 	case MOTOR_TYPE_CONT:
