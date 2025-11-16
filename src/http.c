@@ -101,32 +101,30 @@ int ws_httpd_handler(http_req *req) {
 		return 0;
 	}
 
-	// Receive WebSocket frame - first call to get frame length
+	// Use static buffer to avoid ESP-IDF bug with two-step receive pattern
+	// that causes "WS frame is not properly masked" errors
+	// See: https://github.com/espressif/esp-idf/issues/10874
+	//      https://github.com/espressif/esp-idf/issues/15235
+#define MAX_WS_FRAME_SIZE 2048
+	static uint8_t ws_buffer[MAX_WS_FRAME_SIZE];
+
 	ws_frame frame;
 	memset(&frame, 0, sizeof(frame));
 	frame.type = WS_FRAME_BINARY;
+	frame.payload = ws_buffer;
 
-	int ret = http_ws_recv_frame(req, &frame, 0);
-	if (ret != 0) {
-		log_error(TAG, "Failed to get WS frame length");
-		return ret;
-	}
-
-	// Allocate buffer for payload if needed
-	if (frame.len > 0) {
-		frame.payload = (uint8_t *)malloc(frame.len + 1);
-		if (frame.payload == NULL) {
-			log_error(TAG, "Out of memory for WS payload len=%zu", frame.len);
-			return -1;
-		}
-	}
-
-	// Receive the actual frame data
-	ret = http_ws_recv_frame(req, &frame, frame.len);
+	// Single call to receive frame - avoids masking validation bugs
+	int ret = http_ws_recv_frame(req, &frame, MAX_WS_FRAME_SIZE);
 	if (ret != 0) {
 		log_error(TAG, "Failed to receive WS frame");
-		free(frame.payload);
 		return ret;
+	}
+
+	// Check for oversized frames
+	if (frame.len > MAX_WS_FRAME_SIZE) {
+		log_error(TAG, "WS frame too large: %zu > %d", frame.len,
+		          MAX_WS_FRAME_SIZE);
+		return -1;
 	}
 
 	// Null-terminate text frames for safety
@@ -205,7 +203,7 @@ int ws_httpd_handler(http_req *req) {
 		break;
 	}
 
-	free(frame.payload);
+	// No need to free - using static buffer
 	return ret;
 }
 
