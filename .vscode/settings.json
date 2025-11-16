@@ -3,6 +3,6 @@
 		"stdio.h": "c"
 	},
 	"search.exclude": {
-    	"deps/**": true,
-  	}
+		"deps/**": true
+	}
 }

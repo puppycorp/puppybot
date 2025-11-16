@@ -1,8 +1,8 @@
 #include "../../src/motor_hw.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include <math.h>
 #include "esp_log.h"
+#include <math.h>
 
 static const char *TAG = "motor_hw";
 

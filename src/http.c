@@ -101,11 +101,11 @@ int ws_httpd_handler(http_req *req) {
 		return 0;
 	}
 
-	// Use static buffer to avoid ESP-IDF bug with two-step receive pattern
-	// that causes "WS frame is not properly masked" errors
-	// See: https://github.com/espressif/esp-idf/issues/10874
-	//      https://github.com/espressif/esp-idf/issues/15235
-	#define MAX_WS_FRAME_SIZE 2048
+// Use static buffer to avoid ESP-IDF bug with two-step receive pattern
+// that causes "WS frame is not properly masked" errors
+// See: https://github.com/espressif/esp-idf/issues/10874
+//      https://github.com/espressif/esp-idf/issues/15235
+#define MAX_WS_FRAME_SIZE 2048
 	static uint8_t ws_buffer[MAX_WS_FRAME_SIZE];
 
 	ws_frame frame;

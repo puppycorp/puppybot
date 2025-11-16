@@ -5,7 +5,6 @@ enum MsgToBotType {
 	DriveMotor = 2,
 	StopMotor = 3,
 	StopAllMotors = 4,
-	TurnServo = 5,
 	ApplyConfig = 6,
 }
 
@@ -66,6 +65,9 @@ export type MyInfoMsg = {
 
 export type MsgFromBot = PongMsg | MyInfoMsg
 
+const DC_MOTOR = 0
+const SERVO_MOTOR = 1
+
 const createHeader = (
 	commandType: MsgToBotType,
 	payloadLength: number,
@@ -81,6 +83,34 @@ const createHeader = (
 	return headerBuffer
 }
 
+const DRIVE_PAYLOAD_LENGTH = 9
+
+type DrivePayloadInput = {
+	motorId?: number
+	motorType?: "dc" | "servo"
+	speed?: number
+	steps?: number
+	stepTimeMicros?: number
+	angle?: number
+}
+
+const clampInt = (value: number | undefined, min: number, max: number) => {
+	const safeValue = Number.isFinite(value ?? 0) ? (value ?? 0) : 0
+	return Math.max(min, Math.min(max, Math.round(safeValue)))
+}
+
+const createDrivePayload = (input: DrivePayloadInput): Buffer => {
+	const payload = Buffer.alloc(DRIVE_PAYLOAD_LENGTH)
+	payload.writeUInt8(clampInt(input.motorId, 0, 0xff), 0)
+	const typeBits = input.motorType === "servo" ? SERVO_MOTOR : DC_MOTOR
+	payload.writeUInt8(typeBits, 1)
+	payload.writeInt8(clampInt(input.speed, -128, 127), 2)
+	payload.writeUInt16LE(clampInt(input.steps, 0, 0xffff), 3)
+	payload.writeUInt16LE(clampInt(input.stepTimeMicros, 0, 0xffff), 5)
+	payload.writeUInt16LE(clampInt(input.angle, 0, 0xffff), 7)
+	return payload
+}
+
 const header = (cmd: Command) => {}
 
 type Instruction = {
@@ -93,37 +123,18 @@ const block = (instructions: Instruction[]) => {}
 export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 	switch (msg.type) {
 		case "drive": {
-			const commandType = MsgToBotType.DriveMotor
-			const payloadLength = 9
-			const payload = Buffer.alloc(payloadLength)
-
-			const motorId = msg.motorId ?? 0
-			const motorType = msg.motorType === "servo" ? 1 : 0
-			const speed = Math.max(
-				-128,
-				Math.min(127, Math.round(msg.speed ?? 0)),
+			const payload = createDrivePayload({
+				motorId: msg.motorId,
+				motorType: msg.motorType,
+				speed: msg.speed,
+				steps: msg.steps,
+				stepTimeMicros: msg.stepTimeMicros,
+				angle: msg.angle,
+			})
+			const header = createHeader(
+				MsgToBotType.DriveMotor,
+				DRIVE_PAYLOAD_LENGTH,
 			)
-			const steps = Math.max(
-				0,
-				Math.min(0xffff, Math.round(msg.steps ?? 0)),
-			)
-			const stepTime = Math.max(
-				0,
-				Math.min(0xffff, Math.round(msg.stepTimeMicros ?? 0)),
-			)
-			const angle = Math.max(
-				0,
-				Math.min(0xffff, Math.round(msg.angle ?? 0)),
-			)
-
-			payload.writeUInt8(motorId & 0xff, 0) // MotorID
-			payload.writeUInt8(motorType & 0xff, 1) // Motor type (0 = DC)
-			payload.writeInt8(speed, 2) // Speed (-128..127)
-			payload.writeUInt16LE(steps, 3) // Steps / pulse count
-			payload.writeUInt16LE(stepTime, 5) // Step time (microseconds)
-			payload.writeUInt16LE(angle, 7) // Angle for servo mode
-
-			const header = createHeader(commandType, payloadLength)
 			return Buffer.concat([header, payload])
 		}
 		case "stop": {
@@ -146,16 +157,18 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			return Buffer.concat([header, payload])
 		}
 		case "turnServo": {
-			const commandType = MsgToBotType.TurnServo
-			const payloadLength = 5
-			const payload = Buffer.alloc(payloadLength)
-
-			payload.writeUInt8(msg.servoId, 0)
-			payload.writeInt16LE(msg.angle, 1)
-			const duration = Math.max(0, Math.min(0xffff, msg.durationMs ?? 0))
-			payload.writeUInt16LE(duration, 3)
-
-			const header = createHeader(commandType, payloadLength)
+			const payload = createDrivePayload({
+				motorId: msg.servoId,
+				motorType: "servo",
+				speed: 0,
+				steps: 0,
+				stepTimeMicros: 0,
+				angle: msg.angle,
+			})
+			const header = createHeader(
+				MsgToBotType.DriveMotor,
+				DRIVE_PAYLOAD_LENGTH,
+			)
 			return Buffer.concat([header, payload])
 		}
 		case "applyConfig": {

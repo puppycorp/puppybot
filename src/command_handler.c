@@ -180,7 +180,8 @@ void command_handler_reload_motor_config(void) {
 }
 
 void command_handler_handle(CommandPacket *cmd) {
-	if (!cmd) return;
+	if (!cmd)
+		return;
 
 	switch (cmd->cmd_type) {
 	case CMD_PING:
@@ -205,7 +206,8 @@ void command_handler_handle(CommandPacket *cmd) {
 		break;
 	}
 	case CMD_DRIVE_MOTOR: {
-		log_info(TAG, "CMD_DRIVE_MOTOR motor %d with speed %d", cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
+		log_info(TAG, "CMD_DRIVE_MOTOR motor %d with speed %d",
+		         cmd->cmd.drive_motor.motor_id, cmd->cmd.drive_motor.speed);
 
 		// Reset the safety timer
 		/*if (g_safety_timer) {

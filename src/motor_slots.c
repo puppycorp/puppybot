@@ -22,7 +22,8 @@ void motor_slots_reset(void) {
 }
 
 void motor_slots_register(motor_rt_t *motor) {
-	if (!motor) return;
+	if (!motor)
+		return;
 
 	if (motor->pwm_pin >= 0) {
 		motor_hw_ensure_pwm(motor->pwm_ch, motor->pwm_freq);
