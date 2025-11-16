@@ -1,5 +1,8 @@
 {
 	"files.associations": {
 		"stdio.h": "c"
-	}
+	},
+	"search.exclude": {
+    	"deps/**": true,
+  	}
 }
