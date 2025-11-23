@@ -298,6 +298,46 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	let motors: MotorConfig[] = []
+	const defaultSteeringServoId = 0
+	const defaultDriveLeftMotorId = 1
+	const defaultDriveRightMotorId = 2
+
+	let steeringServoId = defaultSteeringServoId
+	let driveLeft = defaultDriveLeftMotorId
+	let driveRight = defaultDriveRightMotorId
+
+	const normalizeName = (value?: string | null) =>
+		(value ?? "").trim().toLowerCase()
+
+	const updateDriveMappings = () => {
+		const findMotorIdByName = (name: string) =>
+			motors.find(
+				(motor) => normalizeName(motor.name) === normalizeName(name),
+			)?.nodeId
+
+		const steeringCandidate =
+			findMotorIdByName("steering_servo") ??
+			motors.find((motor) => motor.type === "angle")?.nodeId
+		steeringServoId = Number.isFinite(steeringCandidate)
+			? (steeringCandidate as number)
+			: defaultSteeringServoId
+
+		const hbridgeMotors = motors.filter((motor) => motor.type === "hbridge")
+
+		const leftCandidate =
+			findMotorIdByName("drive_left") ?? hbridgeMotors[0]?.nodeId
+		driveLeft = Number.isFinite(leftCandidate)
+			? (leftCandidate as number)
+			: defaultDriveLeftMotorId
+
+		const rightCandidate =
+			findMotorIdByName("drive_right") ??
+			hbridgeMotors.find((motor) => motor.nodeId !== driveLeft)?.nodeId ??
+			hbridgeMotors[1]?.nodeId
+		driveRight = Number.isFinite(rightCandidate)
+			? (rightCandidate as number)
+			: defaultDriveRightMotorId
+	}
 
 	const ensurePwmConfig = (config: MotorConfig): void => {
 		if (!config.pwm) {
@@ -988,6 +1028,7 @@ export const botPage = (container: Container, botId: string) => {
 	}
 
 	const renderMotors = () => {
+		updateDriveMappings()
 		motorsContainer.innerHTML = ""
 		if (motors.length === 0) {
 			const empty = document.createElement("div")
@@ -1148,12 +1189,8 @@ export const botPage = (container: Container, botId: string) => {
 
 	const speed = -80
 
-	const driveLeft = 1
-	const driveRight = 2
-
 	const leftAngle = 50
 	const rightAngle = 150
-
 	const servoInitialAngles = [centerAngle, 90, 90, 90]
 	const servoSliders: HTMLInputElement[] = []
 	const servoValueLabels: HTMLSpanElement[] = []
@@ -1197,8 +1234,6 @@ export const botPage = (container: Container, botId: string) => {
 		}
 		ws.send(msg)
 	}
-
-	const steeringServoId = 0
 
 	const moveForward = () => {
 		ws.send({ type: "drive", botId, motorId: driveLeft, speed: -speed })
