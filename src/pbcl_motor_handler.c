@@ -38,6 +38,14 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 	m.pwm_freq = 50;
 	m.deg_min_x10 = 0;
 	m.deg_max_x10 = 1800;
+	m.smart_uart_port = 1;
+	m.smart_tx_pin = -1;
+	m.smart_rx_pin = -1;
+	m.smart_baud = 1000000;
+	m.pwm_pin = -1;
+	m.in1_pin = -1;
+	m.in2_pin = -1;
+	m.adc_pin = -1;
 
 	tlv_span_t span = {tlvs, len};
 	pbcl_tlv_t t;
@@ -92,6 +100,16 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 				m.max_speed_x100 = lm->max_speed_x100;
 			}
 			break;
+		case PBCL_T_M_SMART_BUS:
+			if (t.len == sizeof(pbcl_t_motor_smartbus)) {
+				const pbcl_t_motor_smartbus *bus =
+				    (const pbcl_t_motor_smartbus *)v;
+				m.smart_tx_pin = bus->tx_pin;
+				m.smart_rx_pin = bus->rx_pin;
+				m.smart_uart_port = bus->uart_port;
+				m.smart_baud = bus->baud_rate;
+			}
+			break;
 		default:
 			break;
 		}
@@ -112,6 +130,11 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 	} else if (m.type_id == MOTOR_TYPE_ANGLE) {
 		if (m.pwm_pin < 0 || !m.min_us || !m.max_us)
 			return -2;
+	} else if (m.type_id == MOTOR_TYPE_SMART) {
+		if (m.smart_tx_pin < 0 || m.smart_rx_pin < 0)
+			return -2;
+		if (m.smart_baud == 0)
+			m.smart_baud = 1000000;
 	}
 
 	int rc = motor_registry_add(&m);

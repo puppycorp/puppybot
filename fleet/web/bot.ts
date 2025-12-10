@@ -317,7 +317,9 @@ export const botPage = (container: Container, botId: string) => {
 
 		const steeringCandidate =
 			findMotorIdByName("steering_servo") ??
-			motors.find((motor) => motor.type === "angle")?.nodeId
+			motors.find(
+				(motor) => motor.type === "angle" || motor.type === "smart",
+			)?.nodeId
 		steeringServoId = Number.isFinite(steeringCandidate)
 			? (steeringCandidate as number)
 			: defaultSteeringServoId
@@ -365,6 +367,17 @@ export const botPage = (container: Container, botId: string) => {
 		}
 	}
 
+	const ensureSmartConfig = (config: MotorConfig): void => {
+		if (!config.smart) {
+			config.smart = {
+				uartPort: 1,
+				txPin: 17,
+				rxPin: 16,
+				baudRate: 1_000_000,
+			}
+		}
+	}
+
 	const ensureHBridgeConfig = (config: MotorConfig): void => {
 		if (!config.hbridge) {
 			config.hbridge = {
@@ -403,7 +416,7 @@ export const botPage = (container: Container, botId: string) => {
 			sanitized.maxSpeed = Math.max(0, maxSpeed)
 		}
 
-		if (motor.pwm) {
+		if (motor.type !== "smart" && motor.pwm) {
 			const { pin, channel, freqHz, minUs, maxUs, neutralUs, invert } =
 				motor.pwm
 			if (
@@ -428,7 +441,7 @@ export const botPage = (container: Container, botId: string) => {
 			}
 		}
 
-		if (motor.hbridge) {
+		if (motor.type === "hbridge" && motor.hbridge) {
 			const { in1, in2, brakeMode } = motor.hbridge
 			if (
 				[in1, in2].every(
@@ -462,6 +475,25 @@ export const botPage = (container: Container, botId: string) => {
 			}
 		}
 
+		if (motor.type === "smart" && motor.smart) {
+			const { uartPort, txPin, rxPin, baudRate } = motor.smart
+			if (
+				[uartPort, txPin, rxPin].every(
+					(value) => value !== undefined && Number.isFinite(value),
+				)
+			) {
+				sanitized.smart = {
+					uartPort: Math.max(0, Math.round(uartPort)),
+					txPin: Math.round(txPin),
+					rxPin: Math.round(rxPin),
+				}
+				const baud = toInt(baudRate)
+				if (baud !== undefined) {
+					sanitized.smart.baudRate = Math.max(1, baud)
+				}
+			}
+		}
+
 		return sanitized
 	}
 
@@ -471,6 +503,10 @@ export const botPage = (container: Container, botId: string) => {
 	): HTMLDivElement => {
 		const card = document.createElement("div")
 		card.className = "motor-card"
+
+		if (motor.type === "smart") {
+			ensureSmartConfig(motor)
+		}
 
 		const header = document.createElement("div")
 		header.className = "motor-card-header"
@@ -520,6 +556,7 @@ export const botPage = (container: Container, botId: string) => {
 		const typeSelect = document.createElement("select")
 		;[
 			{ value: "angle", label: "Angle (servo)" },
+			{ value: "smart", label: "Serial bus servo" },
 			{ value: "continuous", label: "Continuous" },
 			{ value: "hbridge", label: "H-Bridge" },
 		].forEach((option) => {
@@ -531,6 +568,12 @@ export const botPage = (container: Container, botId: string) => {
 		typeSelect.value = motor.type
 		typeSelect.addEventListener("change", () => {
 			motor.type = typeSelect.value as MotorConfig["type"]
+			if (motor.type === "smart") {
+				ensureSmartConfig(motor)
+			} else {
+				delete motor.smart
+			}
+			renderMotors()
 		})
 		grid.appendChild(createFieldWrapper("Motor type", typeSelect))
 
@@ -565,6 +608,65 @@ export const botPage = (container: Container, botId: string) => {
 			motor.maxSpeed = Math.max(0, parsed)
 		})
 		grid.appendChild(createFieldWrapper("Max speed", maxSpeedInput))
+
+		if (motor.type === "smart") {
+			ensureSmartConfig(motor)
+			const smartGrid = document.createElement("div")
+			smartGrid.className = "motor-grid"
+			card.appendChild(smartGrid)
+
+			const uartPortInput = document.createElement("input")
+			uartPortInput.type = "number"
+			uartPortInput.min = "0"
+			uartPortInput.value = motor.smart?.uartPort.toString() ?? "1"
+			uartPortInput.addEventListener("input", () => {
+				const parsed = parseInteger(uartPortInput.value)
+				if (parsed !== undefined) {
+					ensureSmartConfig(motor)
+					motor.smart!.uartPort = Math.max(0, parsed)
+				}
+			})
+			smartGrid.appendChild(
+				createFieldWrapper("UART port", uartPortInput),
+			)
+
+			const txPinInput = document.createElement("input")
+			txPinInput.type = "number"
+			txPinInput.value = motor.smart?.txPin.toString() ?? "17"
+			txPinInput.addEventListener("input", () => {
+				const parsed = parseInteger(txPinInput.value)
+				if (parsed !== undefined) {
+					ensureSmartConfig(motor)
+					motor.smart!.txPin = parsed
+				}
+			})
+			smartGrid.appendChild(createFieldWrapper("TX pin", txPinInput))
+
+			const rxPinInput = document.createElement("input")
+			rxPinInput.type = "number"
+			rxPinInput.value = motor.smart?.rxPin.toString() ?? "16"
+			rxPinInput.addEventListener("input", () => {
+				const parsed = parseInteger(rxPinInput.value)
+				if (parsed !== undefined) {
+					ensureSmartConfig(motor)
+					motor.smart!.rxPin = parsed
+				}
+			})
+			smartGrid.appendChild(createFieldWrapper("RX pin", rxPinInput))
+
+			const baudInput = document.createElement("input")
+			baudInput.type = "number"
+			baudInput.min = "1"
+			baudInput.value = motor.smart?.baudRate?.toString() ?? "1000000"
+			baudInput.addEventListener("input", () => {
+				const parsed = parseInteger(baudInput.value)
+				if (parsed !== undefined) {
+					ensureSmartConfig(motor)
+					motor.smart!.baudRate = Math.max(1, parsed)
+				}
+			})
+			smartGrid.appendChild(createFieldWrapper("Baud rate", baudInput))
+		}
 
 		const addToggleSection = (
 			label: string,
@@ -861,7 +963,7 @@ export const botPage = (container: Container, botId: string) => {
 		controlContainer.style.marginTop = "8px"
 		card.appendChild(controlContainer)
 
-		if (motor.type === "angle") {
+		if (motor.type === "angle" || motor.type === "smart") {
 			// Positional motor - angle slider (0-180 degrees)
 			const angleControlRow = document.createElement("div")
 			angleControlRow.style.display = "flex"
@@ -1150,6 +1252,21 @@ export const botPage = (container: Container, botId: string) => {
 				) {
 					alert(
 						`Complete all analog feedback fields before applying (motor ${idx + 1}).`,
+					)
+					return
+				}
+			}
+			if (motor.type === "smart") {
+				const bus = motor.smart
+				if (
+					!bus ||
+					![bus.txPin, bus.rxPin, bus.uartPort].every(
+						(value) =>
+							value !== undefined && Number.isFinite(value),
+					)
+				) {
+					alert(
+						`Complete smart servo bus fields before applying (motor ${idx + 1}).`,
 					)
 					return
 				}

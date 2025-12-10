@@ -89,6 +89,20 @@ static void apply_angle_servo(motor_rt_t *m, float deg) {
 	motor_hw_set_pwm_pulse_us(m->pwm_ch, m->pwm_freq, us);
 }
 
+static void apply_smart_servo(motor_rt_t *m, float deg, uint16_t duration_ms) {
+	if (!m)
+		return;
+	float dmin = m->deg_min_x10 / 10.0f;
+	float dmax = m->deg_max_x10 / 10.0f;
+	if (deg < dmin)
+		deg = dmin;
+	if (deg > dmax)
+		deg = dmax;
+	uint16_t angle_x10 = (uint16_t)lroundf(deg * 10.0f);
+	motor_hw_smartbus_move(m->smart_uart_port, (uint8_t)m->node_id, angle_x10,
+	                       duration_ms);
+}
+
 static void apply_hbridge_dc(motor_rt_t *m, float speed) {
 	if (!m)
 		return;
@@ -98,6 +112,10 @@ static void apply_hbridge_dc(motor_rt_t *m, float speed) {
 		speed = 1.f;
 	if (speed < -1.f)
 		speed = -1.f;
+
+	motor_hw_ensure_pwm(m->pwm_ch, m->pwm_freq);
+	if (m->pwm_pin >= 0)
+		motor_hw_bind_pwm_pin(m->pwm_ch, m->pwm_pin);
 
 	motor_hw_configure_hbridge(m->in1_pin, m->in2_pin, speed >= 0.f,
 	                           m->brake_mode != 0);
@@ -127,9 +145,25 @@ int motor_set_angle(uint32_t node_id, float deg) {
 	motor_rt_t *m = NULL;
 	if (motor_registry_find(node_id, &m) != 0 || !m)
 		return -1;
-	if (m->type_id != MOTOR_TYPE_ANGLE)
+	if (m->type_id == MOTOR_TYPE_SMART) {
+		apply_smart_servo(m, deg, 0);
+	} else if (m->type_id == MOTOR_TYPE_ANGLE) {
+		apply_angle_servo(m, deg);
+	} else {
 		return -2;
-	apply_angle_servo(m, deg);
+	}
+	m->last_cmd_val = deg;
+	m->last_cmd_ms = now_ms();
+	return 0;
+}
+
+int motor_set_smart_angle(uint32_t node_id, float deg, uint16_t duration_ms) {
+	motor_rt_t *m = NULL;
+	if (motor_registry_find(node_id, &m) != 0 || !m)
+		return -1;
+	if (m->type_id != MOTOR_TYPE_SMART)
+		return -2;
+	apply_smart_servo(m, deg, duration_ms);
 	m->last_cmd_val = deg;
 	m->last_cmd_ms = now_ms();
 	return 0;
@@ -148,6 +182,8 @@ int motor_stop(uint32_t node_id) {
 		m->last_cmd_val = 0.0f;
 	} else if (m->type_id == MOTOR_TYPE_ANGLE) {
 		apply_angle_servo(m, m->last_cmd_val);
+	} else if (m->type_id == MOTOR_TYPE_SMART) {
+		apply_smart_servo(m, m->last_cmd_val, 0);
 	}
 	m->last_cmd_ms = now_ms();
 	return 0;

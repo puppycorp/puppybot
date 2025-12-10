@@ -24,8 +24,9 @@ typedef struct {
 	int motor_id;
 	enum MotorType motor_type;
 	int speed;
-	int steps;
-	int step_time;
+	int steps;     // For DC pulse counts or servo duration (ms) when
+	               // motor_type=SERVO_MOTOR
+	int step_time; // Microseconds per step when motor_type=DC_MOTOR
 	int angle;
 } DriveMotorCommand;
 

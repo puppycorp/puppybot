@@ -15,6 +15,13 @@ export type MotorPwmConfig = {
 	invert?: boolean
 }
 
+export type SmartServoBusConfig = {
+	uartPort: number
+	txPin: number
+	rxPin: number
+	baudRate?: number
+}
+
 export type MotorHBridgeConfig = {
 	in1: number
 	in2: number
@@ -31,11 +38,12 @@ export type MotorAnalogFeedbackConfig = {
 
 export type MotorConfig = {
 	nodeId: number
-	type: "angle" | "continuous" | "hbridge"
+	type: "angle" | "continuous" | "hbridge" | "smart"
 	name?: string
 	timeoutMs?: number
 	maxSpeed?: number
 	pwm?: MotorPwmConfig
+	smart?: SmartServoBusConfig
 	hbridge?: MotorHBridgeConfig
 	analog?: MotorAnalogFeedbackConfig
 }

@@ -72,6 +72,23 @@ void motor_hw_configure_hbridge(int in1, int in2, bool forward, bool brake) {
 	g_active_mock->last_brake = brake;
 }
 
+int motor_hw_configure_smartbus(uint8_t uart_port, int tx_pin, int rx_pin,
+                                uint32_t baud_rate) {
+	(void)uart_port;
+	(void)tx_pin;
+	(void)rx_pin;
+	(void)baud_rate;
+	return 0;
+}
+
+void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
+                            uint16_t angle_x10, uint16_t duration_ms) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)angle_x10;
+	(void)duration_ms;
+}
+
 uint32_t now_ms(void) {
 	if (!g_active_mock)
 		return 0;

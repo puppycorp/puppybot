@@ -161,7 +161,7 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 				motorId: msg.servoId,
 				motorType: "servo",
 				speed: 0,
-				steps: 0,
+				steps: msg.durationMs,
 				stepTimeMicros: 0,
 				angle: msg.angle,
 			})

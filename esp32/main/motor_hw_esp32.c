@@ -1,8 +1,11 @@
 #include "../../src/motor_hw.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "driver/uart.h"
 #include "esp_log.h"
+#include <inttypes.h>
 #include <math.h>
+#include <string.h>
 
 static const char *TAG = "motor_hw";
 
@@ -34,6 +37,15 @@ static inline uint32_t pwm_duty_from_ratio(float duty) {
 static ledc_timer_t timer_for_channel(uint8_t ch) {
 	return (ledc_timer_t)(LEDC_TIMER_0 + (ch / 4));
 }
+
+typedef struct {
+	bool configured;
+	int tx_pin;
+	int rx_pin;
+	uint32_t baud;
+} smart_bus_state_t;
+
+static smart_bus_state_t g_smart_buses[UART_NUM_MAX] = {0};
 
 void motor_hw_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
 	ESP_LOGI(TAG, "Ensuring PWM channel %d at %d Hz", channel, freq_hz);
@@ -92,4 +104,87 @@ void motor_hw_configure_hbridge(int in1, int in2, bool forward, bool brake) {
 		gpio_set_level((gpio_num_t)in1, forward ? 1 : 0);
 		gpio_set_level((gpio_num_t)in2, forward ? 0 : 1);
 	}
+}
+
+int motor_hw_configure_smartbus(uint8_t uart_port, int tx_pin, int rx_pin,
+                                uint32_t baud_rate) {
+	if (uart_port >= UART_NUM_MAX)
+		return -1;
+	if (baud_rate == 0)
+		baud_rate = 1000000;
+
+	smart_bus_state_t *bus = &g_smart_buses[uart_port];
+	if (bus->configured && bus->tx_pin == tx_pin && bus->rx_pin == rx_pin &&
+	    bus->baud == baud_rate) {
+		return 0;
+	}
+
+	uart_config_t cfg = {.baud_rate = (int)baud_rate,
+	                     .data_bits = UART_DATA_8_BITS,
+	                     .parity = UART_PARITY_DISABLE,
+	                     .stop_bits = UART_STOP_BITS_1,
+	                     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+	                     .source_clk = UART_SCLK_DEFAULT};
+
+	uart_driver_install((uart_port_t)uart_port, 256, 0, 0, NULL, 0);
+	uart_param_config((uart_port_t)uart_port, &cfg);
+	uart_set_pin((uart_port_t)uart_port, tx_pin, rx_pin, UART_PIN_NO_CHANGE,
+	             UART_PIN_NO_CHANGE);
+	uart_set_mode((uart_port_t)uart_port, UART_MODE_UART);
+
+	bus->configured = true;
+	bus->tx_pin = tx_pin;
+	bus->rx_pin = rx_pin;
+	bus->baud = baud_rate;
+
+	ESP_LOGI(TAG,
+	         "Configured smart servo bus uart=%u tx=%d rx=%d baud=%" PRIu32,
+	         (unsigned)uart_port, tx_pin, rx_pin, baud_rate);
+	return 0;
+}
+
+static uint8_t smart_checksum(const uint8_t *packet, size_t len) {
+	uint32_t sum = 0;
+	for (size_t i = 2; i < len; ++i)
+		sum += packet[i];
+	return (uint8_t)(~(sum & 0xFFu));
+}
+
+static uint16_t angle_to_position(uint16_t angle_x10) {
+	float degrees = angle_x10 / 10.0f;
+	float scaled = (degrees / 240.0f) * 1000.0f;
+	if (scaled < 0.0f)
+		scaled = 0.0f;
+	if (scaled > 1000.0f)
+		scaled = 1000.0f;
+	return (uint16_t)lroundf(scaled);
+}
+
+void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
+                            uint16_t angle_x10, uint16_t duration_ms) {
+	if (uart_port >= UART_NUM_MAX)
+		return;
+	if (!g_smart_buses[uart_port].configured)
+		return;
+
+	uint16_t pos = angle_to_position(angle_x10);
+	uint16_t time_clamped = duration_ms;
+	if (time_clamped > 30000)
+		time_clamped = 30000;
+
+	uint8_t packet[10];
+	memset(packet, 0, sizeof(packet));
+	packet[0] = 0x55;
+	packet[1] = 0x55;
+	packet[2] = servo_id;
+	packet[3] = 7; // length (params + 3)
+	packet[4] = 1; // move command
+	packet[5] = (uint8_t)(pos & 0xFFu);
+	packet[6] = (uint8_t)((pos >> 8) & 0xFFu);
+	packet[7] = (uint8_t)(time_clamped & 0xFFu);
+	packet[8] = (uint8_t)((time_clamped >> 8) & 0xFFu);
+	packet[9] = smart_checksum(packet, sizeof(packet));
+
+	uart_write_bytes((uart_port_t)uart_port, (const char *)packet,
+	                 sizeof(packet));
 }
