@@ -251,6 +251,8 @@ esp_err_t bluetooth_app_start(void) {
 	return ESP_OK;
 }
 
+int bluetooth_start(void) { return bluetooth_app_start() == ESP_OK ? 0 : -1; }
+
 #else
 
 esp_err_t bluetooth_app_start(void) {

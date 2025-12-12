@@ -1,8 +1,7 @@
-#ifdef ESP_PLATFORM
-
 #include "http.h"
 #include "log.h"
 #include "platform.h"
+#include "timer.h"
 
 #include <esp_http_server.h>
 #include <esp_websocket_client.h>
@@ -400,5 +399,3 @@ void platform_timer_delete(platform_timer_handle_t timer) {
 }
 
 void platform_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
-
-#endif // ESP_PLATFORM

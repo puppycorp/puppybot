@@ -38,12 +38,6 @@ static void log_call(CallTag tag) {
 	}
 }
 
-// Platform stub implementations
-int storage_init(void) {
-	log_call(CALL_STORAGE);
-	return stub.storage_result;
-}
-
 const char *instance_name(void) { return "StubInstance"; }
 
 void log_info(const char *tag, const char *format, ...) {
@@ -62,17 +56,22 @@ void log_error(const char *tag, const char *format, ...) {
 	(void)format;
 }
 
-int wifi_init(void) {
+PuppybotStatus platform_init(void) {
+	log_call(CALL_STORAGE);
+	if (stub.storage_result != 0) {
+		return PUPPYBOT_ERR_STORAGE;
+	}
 	log_call(CALL_WIFI);
-	return stub.wifi_result;
-}
-
-int mdns_service_init(void) {
+	if (stub.wifi_result != 0) {
+		return PUPPYBOT_ERR_WIFI;
+	}
 	log_call(CALL_MDNS);
-	return stub.mdns_result;
+	if (stub.mdns_result != 0) {
+		return PUPPYBOT_ERR_MDNS;
+	}
+	log_call(CALL_MOTOR_INIT);
+	return PUPPYBOT_OK;
 }
-
-void motor_init(void) { log_call(CALL_MOTOR_INIT); }
 
 void delay_ms(uint32_t ms) {
 	log_call(CALL_DELAY);
@@ -132,15 +131,10 @@ TEST(puppybot_main_runs_full_boot_sequence) {
 	PuppybotStatus status = puppybot_main();
 	ASSERT_EQ(status, PUPPYBOT_OK);
 
-	const CallTag expected[] = {CALL_STORAGE,
-	                            CALL_LOG,
-	                            CALL_WIFI,
-	                            CALL_MDNS,
-	                            CALL_MOTOR_INIT,
-	                            CALL_DELAY,
-	                            CALL_COMMAND_HANDLER,
-	                            CALL_BLUETOOTH,
-	                            CALL_WEBSOCKET};
+	const CallTag expected[] = {
+	    CALL_STORAGE,         CALL_WIFI,      CALL_MDNS,
+	    CALL_MOTOR_INIT,      CALL_LOG,       CALL_DELAY,
+	    CALL_COMMAND_HANDLER, CALL_BLUETOOTH, CALL_WEBSOCKET};
 	assert_call_order(sizeof(expected) / sizeof(expected[0]), expected);
 	ASSERT_EQ(stub.delay_ms, 5000u);
 }
@@ -161,7 +155,7 @@ TEST(puppybot_main_propagates_wifi_failure) {
 
 	PuppybotStatus status = puppybot_main();
 	ASSERT_EQ(status, PUPPYBOT_ERR_WIFI);
-	const CallTag expected[] = {CALL_STORAGE, CALL_LOG, CALL_WIFI};
+	const CallTag expected[] = {CALL_STORAGE, CALL_WIFI};
 	assert_call_order(sizeof(expected) / sizeof(expected[0]), expected);
 }
 
@@ -171,13 +165,8 @@ TEST(puppybot_main_propagates_bluetooth_failure) {
 
 	PuppybotStatus status = puppybot_main();
 	ASSERT_EQ(status, PUPPYBOT_ERR_BLUETOOTH);
-	const CallTag expected[] = {CALL_STORAGE,
-	                            CALL_LOG,
-	                            CALL_WIFI,
-	                            CALL_MDNS,
-	                            CALL_MOTOR_INIT,
-	                            CALL_DELAY,
-	                            CALL_COMMAND_HANDLER,
-	                            CALL_BLUETOOTH};
+	const CallTag expected[] = {CALL_STORAGE,         CALL_WIFI,     CALL_MDNS,
+	                            CALL_MOTOR_INIT,      CALL_LOG,      CALL_DELAY,
+	                            CALL_COMMAND_HANDLER, CALL_BLUETOOTH};
 	assert_call_order(sizeof(expected) / sizeof(expected[0]), expected);
 }

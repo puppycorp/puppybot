@@ -2,6 +2,7 @@
 #include "driver/ledc.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "motor_config.h"
 #include "motor_hw.h"
 #include <inttypes.h>
 #include <math.h>
@@ -188,3 +189,5 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	uart_write_bytes((uart_port_t)uart_port, (const char *)packet,
 	                 sizeof(packet));
 }
+
+void motor_init(void) { motor_system_init(); }

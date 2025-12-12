@@ -6,6 +6,7 @@
 #include "pbcl.h"
 #include "pbcl_motor_handler.h"
 #include "platform.h"
+#include "timer.h"
 #include <string.h>
 
 #define TAG "MOTOR_CONFIG"

@@ -49,3 +49,4 @@ design
 node_modules
 .gradle
 esp32/.cache/
+puppybot.xml

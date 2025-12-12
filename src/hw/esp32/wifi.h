@@ -283,4 +283,9 @@ void wifi_init_ap(void) {
 	         WIFI_AP_PASS);
 }
 
+int wifi_init(void) {
+	wifi_init_sta();
+	return 0;
+}
+
 #endif // WIFI_H

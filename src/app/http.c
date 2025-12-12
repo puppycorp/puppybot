@@ -4,6 +4,7 @@
 #include "log.h"
 #include "platform.h"
 #include "protocol.h"
+#include "timer.h"
 
 #include <stdlib.h>
 #include <string.h>

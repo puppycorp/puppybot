@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "timer.h"
 
 #include "log.h"
 
@@ -63,11 +64,6 @@ const char *platform_get_server_uri(void) {
 	return NULL;
 }
 
-int storage_init(void) {
-	log_info(TAG, "Using host storage (no-op)");
-	return 0;
-}
-
 const char *instance_name(void) {
 	static char name[64];
 	static int initialized = 0;
@@ -85,21 +81,14 @@ const char *instance_name(void) {
 	return name;
 }
 
-int wifi_init(void) {
-	log_info(TAG, "Skipping WiFi initialization (host environment)");
-	return 0;
-}
-
-int mdns_service_init(void) {
-	log_info(TAG, "Skipping mDNS setup (host environment)");
-	return 0;
-}
-
-void motor_init(void) { log_info(TAG, "Initializing motor subsystem (stub)"); }
-
 int bluetooth_start(void) {
 	log_info(TAG, "Skipping Bluetooth startup (host environment)");
 	return 0;
+}
+
+PuppybotStatus platform_init(void) {
+	log_info(TAG, "Initializing platform subsystems (host stubs)");
+	return PUPPYBOT_OK;
 }
 
 #ifdef _WIN32
