@@ -36,6 +36,11 @@ typedef struct {
 	int16_t deg_min_x10;
 	int16_t deg_max_x10;
 
+	int8_t smart_tx_pin;
+	int8_t smart_rx_pin;
+	uint8_t smart_uart_port;
+	uint32_t smart_baud;
+
 	uint16_t timeout_ms;
 	uint16_t max_speed_x100;
 
@@ -53,4 +58,5 @@ void motor_tick_all(uint32_t now_ms);
 
 int motor_set_speed(uint32_t node_id, float speed_m1_p1);
 int motor_set_angle(uint32_t node_id, float deg);
+int motor_set_smart_angle(uint32_t node_id, float deg, uint16_t duration_ms);
 int motor_stop(uint32_t node_id);

@@ -63,7 +63,7 @@ describe("encodeBotMsg", () => {
 		expectedPayload.writeUInt8(2, 0)
 		expectedPayload.writeUInt8(1, 1)
 		expectedPayload.writeInt8(0, 2)
-		expectedPayload.writeUInt16LE(0, 3)
+		expectedPayload.writeUInt16LE(500, 3)
 		expectedPayload.writeUInt16LE(0, 5)
 		expectedPayload.writeUInt16LE(45, 7)
 		const expectedBuffer = Buffer.concat([expectedHeader, expectedPayload])

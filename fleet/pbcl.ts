@@ -8,6 +8,7 @@ const MOTOR_TYPE: Record<MotorConfig["type"], number> = {
 	angle: 1,
 	continuous: 2,
 	hbridge: 3,
+	smart: 4,
 }
 
 const PBCL_T_NAME = 1
@@ -16,6 +17,7 @@ const PBCL_T_M_PWM = 10
 const PBCL_T_M_HBRIDGE = 11
 const PBCL_T_M_ANALOG_FB = 12
 const PBCL_T_M_LIMITS = 13
+const PBCL_T_M_SMART_BUS = 14
 
 const crc32 = (data: Buffer, seed = 0xffffffff): number => {
 	let crc = seed >>> 0
@@ -94,6 +96,20 @@ const buildMotorSection = (config: MotorConfig): Buffer => {
 		const ext = Buffer.alloc(2)
 		ext.writeInt16LE(Math.round(config.analog.degMax * 10), 0)
 		tlvs.push(tlv(PBCL_T_M_ANALOG_FB, Buffer.concat([analog, ext])))
+	}
+
+	if (config.smart) {
+		const smart = Buffer.alloc(8)
+		const baud = Math.max(
+			1,
+			Math.min(5_000_000, config.smart.baudRate ?? 1_000_000),
+		)
+		smart.writeInt8(config.smart.txPin, 0)
+		smart.writeInt8(config.smart.rxPin, 1)
+		smart.writeUInt8(config.smart.uartPort, 2)
+		smart.writeUInt8(0, 3)
+		smart.writeUInt32LE(baud, 4)
+		tlvs.push(tlv(PBCL_T_M_SMART_BUS, smart))
 	}
 
 	const tlvPayload = Buffer.concat(tlvs)

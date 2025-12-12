@@ -40,6 +40,12 @@ void motor_slots_register(motor_rt_t *motor) {
 		if (g_servo_count < MAX_SERVO_MOTORS)
 			g_servo_motors[g_servo_count++] = motor;
 		break;
+	case MOTOR_TYPE_SMART:
+		motor_hw_configure_smartbus(motor->smart_uart_port, motor->smart_tx_pin,
+		                            motor->smart_rx_pin, motor->smart_baud);
+		if (g_servo_count < MAX_SERVO_MOTORS)
+			g_servo_motors[g_servo_count++] = motor;
+		break;
 	default:
 		break;
 	}

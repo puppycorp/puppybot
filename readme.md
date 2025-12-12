@@ -11,6 +11,27 @@ bun install
 bun run start
 ```
 
+**desktop (host) firmware simulation**
+
+The C runtime can be built and exercised on your desktop using the stub
+`motor_hw` layer. To drive serial-bus servos (e.g. ST3215/LX-16A style) from a
+USB adapter, provide a device path and optional baud:
+
+```
+export SERIAL_PORT=/dev/tty.usbserial-1234
+export SERIAL_BAUD=1000000   # optional; defaults to PBCL baud or 1_000_000
+./run.sh --server ws://localhost:3000  # builds + connects to /api/bot/<instance>/ws
+./test.sh                               # run unit tests against host build
+```
+
+Without `SERIAL_PORT`, smart-servo packets are just logged for inspection.
+
+Notes:
+
+- `PUPPYBOT_INSTANCE_NAME` controls the bot ID advertised to the server (default
+  `puppybot-host`). The host runner appends `/api/bot/<instance>/ws` to the
+  `--server` URL unless you pass a full URI containing `/api/bot/` already.
+
 **esp32**
 
 Requires ESP-idf sdk either install it your self.

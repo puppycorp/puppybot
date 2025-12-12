@@ -14,7 +14,8 @@ enum {
 	PBCL_T_M_PWM = 10,
 	PBCL_T_M_HBRIDGE = 11,
 	PBCL_T_M_ANALOG_FB = 12,
-	PBCL_T_M_LIMITS = 13
+	PBCL_T_M_LIMITS = 13,
+	PBCL_T_M_SMART_BUS = 14
 };
 
 typedef struct __attribute__((packed)) {
@@ -49,8 +50,12 @@ typedef struct __attribute__((packed)) {
 	uint16_t current_limit_ma;
 } pbcl_t_motor_limits;
 
-#ifdef __cplusplus
-}
-#endif
+typedef struct __attribute__((packed)) {
+	int8_t tx_pin;
+	int8_t rx_pin;
+	uint8_t uart_port;
+	uint8_t reserved;
+	uint32_t baud_rate;
+} pbcl_t_motor_smartbus;
 
 #endif // PBCL_TAGS_H

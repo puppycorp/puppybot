@@ -1,4 +1,4 @@
-#include "../../src/main.h"
+#include "main.h"
 #include "esp_log.h"
 
 void app_main(void) {

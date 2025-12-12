@@ -10,6 +10,8 @@ cmake --build "$BUILD_DIR"
 SERVER_URI=""
 POSITIONAL_ARGS=()
 
+DEFAULT_INSTANCE="puppybot-host"
+
 while (($#)); do
 	case "$1" in
 	--server)
@@ -38,8 +40,24 @@ else
 	set --
 fi
 
+resolve_uri() {
+	local input="$1"
+	local instance="${PUPPYBOT_INSTANCE_NAME:-$DEFAULT_INSTANCE}"
+	# If the input already contains the bot path, keep it as-is.
+	if [[ "$input" == *"/api/bot/"*"/ws" ]]; then
+		echo "$input"
+		return
+	fi
+	# Trim trailing slash and append the expected bot endpoint.
+	input="${input%/}"
+	echo "${input}/api/bot/${instance}/ws"
+}
+
 if [[ -n "$SERVER_URI" ]]; then
-	PUPPYBOT_SERVER_URI="$SERVER_URI" "$BUILD_DIR/puppybot" "$@"
+	SERVER_URI="$(resolve_uri "$SERVER_URI")"
+	export PUPPYBOT_SERVER_URI="$SERVER_URI"
 else
-	"$BUILD_DIR/puppybot" "$@"
+	SERVER_URI="${PUPPYBOT_SERVER_URI:-}"
 fi
+
+"$BUILD_DIR/puppybot" "$@"

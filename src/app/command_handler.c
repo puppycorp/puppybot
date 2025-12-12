@@ -222,7 +222,8 @@ void command_handler_handle(CommandPacket *cmd) {
 			break;
 		}
 
-		if (motor->type_id == MOTOR_TYPE_ANGLE) {
+		if (motor->type_id == MOTOR_TYPE_ANGLE ||
+		    motor->type_id == MOTOR_TYPE_SMART) {
 			int slot = servo_slot_from_node(node_id);
 			if (slot < 0) {
 				log_error(TAG,
@@ -236,7 +237,14 @@ void command_handler_handle(CommandPacket *cmd) {
 				angle = 0;
 			if (angle > 180)
 				angle = 180;
-			motor_set_angle(node_id, (float)angle);
+			uint16_t duration_ms = 0;
+			if (cmd->cmd.drive_motor.steps > 0)
+				duration_ms = (uint16_t)cmd->cmd.drive_motor.steps;
+			if (motor->type_id == MOTOR_TYPE_SMART) {
+				motor_set_smart_angle(node_id, (float)angle, duration_ms);
+			} else {
+				motor_set_angle(node_id, (float)angle);
+			}
 			g_servo_current_angle[slot] = (uint16_t)angle;
 			break;
 		}
@@ -260,7 +268,8 @@ void command_handler_handle(CommandPacket *cmd) {
 			log_error(TAG, "Unknown motor node %" PRIu32, node_id);
 			break;
 		}
-		if (motor->type_id == MOTOR_TYPE_ANGLE) {
+		if (motor->type_id == MOTOR_TYPE_ANGLE ||
+		    motor->type_id == MOTOR_TYPE_SMART) {
 			int slot = servo_slot_from_node(node_id);
 			if (slot >= 0) {
 				cancel_servo_timeout((uint8_t)slot);

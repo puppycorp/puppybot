@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if command -v clang-format >/dev/null 2>&1; then
-  echo "Formatting C/C++ files in src/ and esp32/..."
+  echo "Formatting C/C++ files in src/ (including hw/) and esp32/..."
   format_dirs=(src esp32/main)
   if [ -d esp32/components ]; then
     format_dirs+=(esp32/components)

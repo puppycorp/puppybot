@@ -1,8 +1,8 @@
 #ifdef ESP_PLATFORM
 
-#include "../../src/http.h"
-#include "../../src/log.h"
-#include "../../src/platform.h"
+#include "http.h"
+#include "log.h"
+#include "platform.h"
 
 #include <esp_http_server.h>
 #include <esp_websocket_client.h>
