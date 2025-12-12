@@ -1,6 +1,6 @@
 #include "bluetooth.h"
 
-#include "../../src/command_handler.h"
+#include "command_handler.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 

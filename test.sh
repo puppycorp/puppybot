@@ -8,14 +8,17 @@ mkdir -p "$BUILD_DIR"
 : "${CC:=gcc}"
 : "${CFLAGS:=}"
 
+TEST_SOURCES=()
+while IFS= read -r file; do
+  TEST_SOURCES+=("$file")
+done < <(find "$ROOT_DIR/src/tests" -maxdepth 1 -type f -name '*.c' ! -name 'test_main.c' | sort)
+
 "$CC" -std=c11 -Wall -Wextra -Werror -DUNIT_TEST -Isrc -Iesp32/main $CFLAGS \
-  "$ROOT_DIR/src/test_main.c" \
-  "$ROOT_DIR/src/motor_runtime_tests.c" \
-  "$ROOT_DIR/src/app_tests.c" \
-  "$ROOT_DIR/src/pbcl_tests.c" \
-  "$ROOT_DIR/src/motor_runtime.c" \
-  "$ROOT_DIR/src/pbcl_motor_handler.c" \
-  "$ROOT_DIR/src/main.c" \
+  "$ROOT_DIR/src/tests/test_main.c" \
+  "${TEST_SOURCES[@]}" \
+  "$ROOT_DIR/src/app/motor_runtime.c" \
+  "$ROOT_DIR/src/app/pbcl_motor_handler.c" \
+  "$ROOT_DIR/src/app/main.c" \
   -o "$BUILD_DIR/test_runner" -lm
 
 "$BUILD_DIR/test_runner" "$@"

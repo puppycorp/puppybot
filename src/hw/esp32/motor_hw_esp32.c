@@ -1,8 +1,8 @@
-#include "../../src/motor_hw.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "motor_hw.h"
 #include <inttypes.h>
 #include <math.h>
 #include <string.h>

@@ -1,8 +1,7 @@
-#include "../../src/http.h"
-#include "../../src/platform.h"
 #include "bluetooth.h"
+#include "http.h"
+#include "platform.h"
 
-#include "../../src/motor_config.h"
 #include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -10,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mdns.h"
+#include "motor_config.h"
 #include "nvs_flash.h"
 #include "variant_config.h"
 #include "wifi.h"

@@ -1,29 +1,14 @@
 # File: esp32/main/CMakeLists.txt
 
 #
-# Explicitly list ESP32-specific source files
+# Include all ESP32-specific sources from the hw tree
 #
-set(COMPONENT_SRCS
-        "bluetooth.c"
-        "main.c"
-        "platform_esp32.c"
-        "timer_esp32.c"
-        "log_esp32.c"
-        "motor_hw_esp32.c"
-        "http_espidf.c"
-)
+file(GLOB ESP32_HW_SRCS "../../src/hw/esp32/*.c")
+set(COMPONENT_SRCS ${ESP32_HW_SRCS})
 
-# Add platform-agnostic source files from src/
-list(APPEND COMPONENT_SRCS
-        "../../src/command_handler.c"
-        "../../src/motor_config.c"
-        "../../src/motor_runtime.c"
-        "../../src/motor_slots.c"
-        "../../src/pbcl_motor_handler.c"
-        "../../src/main.c"
-        "../../src/utility.c"
-        "../../src/http.c"
-)
+# Bring in the shared app sources
+file(GLOB_RECURSE APP_COMMON_SRCS "../../src/app/*.c")
+list(APPEND COMPONENT_SRCS ${APP_COMMON_SRCS})
 
 set(DRIVER_COMPONENTS driver)
 idf_build_get_property(idf_path IDF_PATH)
@@ -34,11 +19,14 @@ if(idf_path)
         if(EXISTS "${idf_path}/components/esp_driver_ledc")
                 list(APPEND DRIVER_COMPONENTS esp_driver_ledc)
         endif()
+        if(EXISTS "${idf_path}/components/esp_driver_uart")
+                list(APPEND DRIVER_COMPONENTS esp_driver_uart)
+        endif()
 endif()
 
 idf_component_register(
     SRCS ${COMPONENT_SRCS}
-    INCLUDE_DIRS "." "../../src"
+    INCLUDE_DIRS "." "../../src" "../../src/hw/esp32"
     REQUIRES
         bt
         nvs_flash

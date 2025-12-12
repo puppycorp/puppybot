@@ -1,6 +1,6 @@
-#include "../../src/timer.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "timer.h"
 
 #define TAG "TIMER"
 

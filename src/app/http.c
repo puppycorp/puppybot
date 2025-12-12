@@ -21,6 +21,7 @@ static bool client_connected = false;
 
 // Heartbeat timer callback
 static void heartbeat_timer_callback(void *arg) {
+	(void)arg;
 	if (client_connected && ws_client) {
 		log_info(TAG, "Sending heartbeat ping");
 		int ret = ws_client_send_text(ws_client, "ping", 4);
