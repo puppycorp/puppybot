@@ -149,4 +149,44 @@ describe("encodeBotMsg", () => {
 			},
 		])
 	})
+
+	test("decodes a smartbus scan result message", () => {
+		const buffer = Buffer.from([
+			0x01,
+			0x00,
+			MsgFromBotType.SmartbusScanResult,
+			0x01,
+			0x01,
+			0x05,
+			0x02,
+			0x01,
+			0x04,
+		])
+		const msg = decodeBotMsg(buffer)
+		expect(msg.type).toBe(MsgFromBotType.SmartbusScanResult)
+		if (msg.type !== MsgFromBotType.SmartbusScanResult) return
+		expect(msg.uartPort).toBe(1)
+		expect(msg.startId).toBe(1)
+		expect(msg.endId).toBe(5)
+		expect(msg.foundIds).toEqual([1, 4])
+	})
+
+	test("decodes a smartbus set-id result message", () => {
+		const buffer = Buffer.from([
+			0x01,
+			0x00,
+			MsgFromBotType.SmartbusSetIdResult,
+			0x01,
+			0x01,
+			0x02,
+			0x00,
+		])
+		const msg = decodeBotMsg(buffer)
+		expect(msg.type).toBe(MsgFromBotType.SmartbusSetIdResult)
+		if (msg.type !== MsgFromBotType.SmartbusSetIdResult) return
+		expect(msg.uartPort).toBe(1)
+		expect(msg.oldId).toBe(1)
+		expect(msg.newId).toBe(2)
+		expect(msg.status).toBe(0)
+	})
 })

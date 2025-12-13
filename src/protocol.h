@@ -9,10 +9,14 @@
 #define CMD_STOP_MOTOR 3
 #define CMD_STOP_ALL_MOTORS 4
 #define CMD_APPLY_CONFIG 6
+#define CMD_SMARTBUS_SCAN 7
+#define CMD_SMARTBUS_SET_ID 8
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
 #define MSG_TO_SRV_MOTOR_STATE 0x03
+#define MSG_TO_SRV_SMARTBUS_SCAN_RESULT 0x04
+#define MSG_TO_SRV_SMARTBUS_SET_ID_RESULT 0x05
 
 #define PUPPY_PROTOCOL_VERSION 1
 
@@ -32,12 +36,26 @@ typedef struct {
 } DriveMotorCommand;
 
 typedef struct {
+	int uart_port;
+	int start_id;
+	int end_id;
+} SmartbusScanCommand;
+
+typedef struct {
+	int uart_port;
+	int old_id;
+	int new_id;
+} SmartbusSetIdCommand;
+
+typedef struct {
 	int motor_id;
 } StopMotorCommand;
 
 union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
+	SmartbusScanCommand smartbus_scan;
+	SmartbusSetIdCommand smartbus_set_id;
 	struct {
 		const uint8_t *data;
 		uint16_t length;
@@ -103,6 +121,24 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd_type = CMD_APPLY_CONFIG;
 		cmd_packet->cmd.apply_config.data = payload;
 		cmd_packet->cmd.apply_config.length = (uint16_t)payload_len;
+		break;
+	case CMD_SMARTBUS_SCAN:
+		cmd_packet->cmd_type = CMD_SMARTBUS_SCAN;
+		cmd_packet->cmd.smartbus_scan.uart_port =
+		    (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.smartbus_scan.start_id =
+		    (payload_len >= 2) ? payload[1] : 1;
+		cmd_packet->cmd.smartbus_scan.end_id =
+		    (payload_len >= 3) ? payload[2] : 253;
+		break;
+	case CMD_SMARTBUS_SET_ID:
+		cmd_packet->cmd_type = CMD_SMARTBUS_SET_ID;
+		cmd_packet->cmd.smartbus_set_id.uart_port =
+		    (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.smartbus_set_id.old_id =
+		    (payload_len >= 2) ? payload[1] : 0;
+		cmd_packet->cmd.smartbus_set_id.new_id =
+		    (payload_len >= 3) ? payload[2] : 0;
 		break;
 	default:
 		break;

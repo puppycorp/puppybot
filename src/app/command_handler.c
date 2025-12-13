@@ -1,6 +1,8 @@
 #include "command_handler.h"
+#include "http.h"
 #include "log.h"
 #include "motor_config.h"
+#include "motor_hw.h"
 #include "motor_runtime.h"
 #include "motor_slots.h"
 #include "timer.h"
@@ -113,6 +115,39 @@ static void safety_timer_callback(void *arg) {
 	(void)arg;
 	log_warn(TAG, "Safety timeout: stopping all motors");
 	stop_all_drive_motors();
+}
+
+static void send_smartbus_scan_result(uint8_t uart_port, uint8_t start_id,
+                                      uint8_t end_id, const uint8_t *ids,
+                                      uint8_t count) {
+	uint8_t buf[2 + 1 + 1 + 1 + 1 + 1 + 64];
+	if (count > 64)
+		count = 64;
+	size_t off = 0;
+	buf[off++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+	buf[off++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+	buf[off++] = MSG_TO_SRV_SMARTBUS_SCAN_RESULT;
+	buf[off++] = uart_port;
+	buf[off++] = start_id;
+	buf[off++] = end_id;
+	buf[off++] = count;
+	for (uint8_t i = 0; i < count; ++i)
+		buf[off++] = ids[i];
+	(void)ws_client_send(buf, off);
+}
+
+static void send_smartbus_set_id_result(uint8_t uart_port, uint8_t old_id,
+                                        uint8_t new_id, uint8_t status) {
+	uint8_t buf[2 + 1 + 1 + 1 + 1 + 1];
+	size_t off = 0;
+	buf[off++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+	buf[off++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+	buf[off++] = MSG_TO_SRV_SMARTBUS_SET_ID_RESULT;
+	buf[off++] = uart_port;
+	buf[off++] = old_id;
+	buf[off++] = new_id;
+	buf[off++] = status;
+	(void)ws_client_send(buf, off);
 }
 
 static void servo_timeout_callback(void *arg) {
@@ -335,6 +370,52 @@ void command_handler_handle(CommandPacket *cmd) {
 			g_servo_current_angle[slot] = (uint16_t)boot;
 		}
 		break;
+	case CMD_SMARTBUS_SCAN: {
+		uint8_t uart_port = (uint8_t)cmd->cmd.smartbus_scan.uart_port;
+		uint8_t start_id = (uint8_t)cmd->cmd.smartbus_scan.start_id;
+		uint8_t end_id = (uint8_t)cmd->cmd.smartbus_scan.end_id;
+		if (start_id == 0)
+			start_id = 1;
+		if (end_id == 0 || end_id > 253)
+			end_id = 253;
+		if (start_id > end_id) {
+			uint8_t tmp = start_id;
+			start_id = end_id;
+			end_id = tmp;
+		}
+
+		uint8_t found[64];
+		uint8_t found_count = 0;
+		for (uint16_t id = start_id; id <= end_id && found_count < 64; ++id) {
+			if (motor_hw_smartbus_ping(uart_port, (uint8_t)id, 20) == 0) {
+				found[found_count++] = (uint8_t)id;
+			}
+		}
+		send_smartbus_scan_result(uart_port, start_id, end_id, found,
+		                          found_count);
+		break;
+	}
+	case CMD_SMARTBUS_SET_ID: {
+		uint8_t uart_port = (uint8_t)cmd->cmd.smartbus_set_id.uart_port;
+		uint8_t old_id = (uint8_t)cmd->cmd.smartbus_set_id.old_id;
+		uint8_t new_id = (uint8_t)cmd->cmd.smartbus_set_id.new_id;
+		uint8_t status = 1;
+		if (old_id > 0 && old_id <= 253 && new_id > 0 && new_id <= 253) {
+			motor_hw_smartbus_write_u8(uart_port, old_id,
+			                           (uint8_t)SMARTBUS_ADDR_LOCK, 0);
+			platform_delay_ms(10);
+			motor_hw_smartbus_write_u8(uart_port, old_id, 5, new_id);
+			platform_delay_ms(50);
+			motor_hw_smartbus_write_u8(uart_port, new_id,
+			                           (uint8_t)SMARTBUS_ADDR_LOCK, 1);
+			platform_delay_ms(20);
+			status = motor_hw_smartbus_ping(uart_port, new_id, 80) == 0 ? 0 : 2;
+		} else {
+			status = 3;
+		}
+		send_smartbus_set_id_result(uart_port, old_id, new_id, status);
+		break;
+	}
 	default:
 		log_warn(TAG, "Unknown command type: %d", cmd->cmd_type);
 		break;

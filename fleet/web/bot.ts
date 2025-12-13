@@ -206,6 +206,178 @@ export const botPage = (container: Container, botId: string) => {
 
 	container.root.appendChild(statusCard)
 
+	const smartbusCard = document.createElement("div")
+	smartbusCard.className = "card"
+
+	const smartbusTitle = document.createElement("h3")
+	smartbusTitle.textContent = "Smartbus tools"
+	smartbusTitle.style.margin = "0"
+	smartbusCard.appendChild(smartbusTitle)
+
+	const smartbusNote = document.createElement("p")
+	smartbusNote.className = "section-note"
+	smartbusNote.textContent =
+		"Scan for connected smart servos and change a servo ID. For safety, only connect one servo when changing IDs."
+	smartbusCard.appendChild(smartbusNote)
+
+	let scanUartPort = 1
+	let scanStartId = 1
+	let scanEndId = 20
+
+	const scanRow = document.createElement("div")
+	scanRow.style.display = "flex"
+	scanRow.style.gap = "8px"
+	scanRow.style.flexWrap = "wrap"
+	smartbusCard.appendChild(scanRow)
+
+	const uartInput = document.createElement("input")
+	uartInput.type = "number"
+	uartInput.min = "0"
+	uartInput.max = "3"
+	uartInput.value = scanUartPort.toString()
+	uartInput.style.width = "90px"
+	uartInput.oninput = () => {
+		const parsed = Number(uartInput.value)
+		if (Number.isFinite(parsed))
+			scanUartPort = Math.max(0, Math.min(255, parsed))
+	}
+	scanRow.appendChild(createFieldWrapper("UART", uartInput))
+
+	const startInput = document.createElement("input")
+	startInput.type = "number"
+	startInput.min = "1"
+	startInput.max = "253"
+	startInput.value = scanStartId.toString()
+	startInput.style.width = "90px"
+	startInput.oninput = () => {
+		const parsed = Number(startInput.value)
+		if (Number.isFinite(parsed))
+			scanStartId = Math.max(1, Math.min(253, parsed))
+	}
+	scanRow.appendChild(createFieldWrapper("Start ID", startInput))
+
+	const endInput = document.createElement("input")
+	endInput.type = "number"
+	endInput.min = "1"
+	endInput.max = "253"
+	endInput.value = scanEndId.toString()
+	endInput.style.width = "90px"
+	endInput.oninput = () => {
+		const parsed = Number(endInput.value)
+		if (Number.isFinite(parsed))
+			scanEndId = Math.max(1, Math.min(253, parsed))
+	}
+	scanRow.appendChild(createFieldWrapper("End ID", endInput))
+
+	const scanButton = document.createElement("button")
+	scanButton.textContent = "Scan IDs"
+	scanButton.classList.add("secondary")
+	scanButton.onclick = () => {
+		ws.send({
+			type: "smartbusScan",
+			botId,
+			uartPort: scanUartPort,
+			startId: scanStartId,
+			endId: scanEndId,
+		} as MsgToServer)
+	}
+	scanRow.appendChild(scanButton)
+
+	const scanResult = document.createElement("div")
+	scanResult.className = "section-note"
+	scanResult.textContent = "Found IDs: -"
+	smartbusCard.appendChild(scanResult)
+
+	const updateScanResult = () => {
+		const entry = state.smartbusScan.get()[botId]
+		if (!entry) return
+		const ids = entry.foundIds ?? []
+		scanResult.textContent = `Found IDs (uart ${entry.uartPort}, ${entry.startId}..${entry.endId}): ${
+			ids.length ? ids.join(", ") : "<none>"
+		}`
+	}
+	state.smartbusScan.onChange(updateScanResult)
+	updateScanResult()
+
+	let setUartPort = 1
+	let setOldId = 1
+	let setNewId = 2
+
+	const setRow = document.createElement("div")
+	setRow.style.display = "flex"
+	setRow.style.gap = "8px"
+	setRow.style.flexWrap = "wrap"
+	setRow.style.marginTop = "8px"
+	smartbusCard.appendChild(setRow)
+
+	const setUartInput = document.createElement("input")
+	setUartInput.type = "number"
+	setUartInput.min = "0"
+	setUartInput.max = "3"
+	setUartInput.value = setUartPort.toString()
+	setUartInput.style.width = "90px"
+	setUartInput.oninput = () => {
+		const parsed = Number(setUartInput.value)
+		if (Number.isFinite(parsed))
+			setUartPort = Math.max(0, Math.min(255, parsed))
+	}
+	setRow.appendChild(createFieldWrapper("UART", setUartInput))
+
+	const oldIdInput = document.createElement("input")
+	oldIdInput.type = "number"
+	oldIdInput.min = "1"
+	oldIdInput.max = "253"
+	oldIdInput.value = setOldId.toString()
+	oldIdInput.style.width = "90px"
+	oldIdInput.oninput = () => {
+		const parsed = Number(oldIdInput.value)
+		if (Number.isFinite(parsed))
+			setOldId = Math.max(1, Math.min(253, parsed))
+	}
+	setRow.appendChild(createFieldWrapper("Old ID", oldIdInput))
+
+	const newIdInput = document.createElement("input")
+	newIdInput.type = "number"
+	newIdInput.min = "1"
+	newIdInput.max = "253"
+	newIdInput.value = setNewId.toString()
+	newIdInput.style.width = "90px"
+	newIdInput.oninput = () => {
+		const parsed = Number(newIdInput.value)
+		if (Number.isFinite(parsed))
+			setNewId = Math.max(1, Math.min(253, parsed))
+	}
+	setRow.appendChild(createFieldWrapper("New ID", newIdInput))
+
+	const setButton = document.createElement("button")
+	setButton.textContent = "Set ID"
+	setButton.classList.add("secondary")
+	setButton.onclick = () => {
+		ws.send({
+			type: "smartbusSetId",
+			botId,
+			uartPort: setUartPort,
+			oldId: setOldId,
+			newId: setNewId,
+		} as MsgToServer)
+	}
+	setRow.appendChild(setButton)
+
+	const setResult = document.createElement("div")
+	setResult.className = "section-note"
+	setResult.textContent = "Set ID result: -"
+	smartbusCard.appendChild(setResult)
+
+	const updateSetResult = () => {
+		const entry = state.smartbusSetId.get()[botId]
+		if (!entry) return
+		setResult.textContent = `Set ID uart ${entry.uartPort}: ${entry.oldId} -> ${entry.newId} (status=${entry.status})`
+	}
+	state.smartbusSetId.onChange(updateSetResult)
+	updateSetResult()
+
+	container.root.appendChild(smartbusCard)
+
 	const configCard = document.createElement("div")
 	configCard.className = "card"
 
@@ -265,10 +437,10 @@ export const botPage = (container: Container, botId: string) => {
 	applyConfigButton.textContent = "Apply configuration"
 	configActionsRight.appendChild(applyConfigButton)
 
-	const createFieldWrapper = <T extends HTMLInputElement | HTMLSelectElement>(
+	function createFieldWrapper<T extends HTMLInputElement | HTMLSelectElement>(
 		label: string,
 		input: T,
-	): HTMLLabelElement => {
+	): HTMLLabelElement {
 		const wrapper = document.createElement("label")
 		wrapper.className = "field"
 		const labelText = document.createElement("span")

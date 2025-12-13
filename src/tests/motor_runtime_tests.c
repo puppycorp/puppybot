@@ -104,6 +104,14 @@ void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
 	(void)acc;
 }
 
+void motor_hw_smartbus_write_u8(uint8_t uart_port, uint8_t servo_id,
+                                uint8_t addr, uint8_t value) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)addr;
+	(void)value;
+}
+
 int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,
                                     uint16_t *pos_raw_out) {
 	(void)uart_port;

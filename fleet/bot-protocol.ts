@@ -6,12 +6,16 @@ enum MsgToBotType {
 	StopMotor = 3,
 	StopAllMotors = 4,
 	ApplyConfig = 6,
+	SmartbusScan = 7,
+	SmartbusSetId = 8,
 }
 
 export enum MsgFromBotType {
 	Pong = 1,
 	MyInfo = 2,
 	MotorState = 3,
+	SmartbusScanResult = 4,
+	SmartbusSetIdResult = 5,
 }
 
 enum InstructionType {
@@ -78,7 +82,30 @@ export type MotorStateMsg = {
 	motors: MotorStateEntry[]
 }
 
-export type MsgFromBot = PongMsg | MyInfoMsg | MotorStateMsg
+export type SmartbusScanResultMsg = {
+	type: MsgFromBotType.SmartbusScanResult
+	protocolVersion: number
+	uartPort: number
+	startId: number
+	endId: number
+	foundIds: number[]
+}
+
+export type SmartbusSetIdResultMsg = {
+	type: MsgFromBotType.SmartbusSetIdResult
+	protocolVersion: number
+	uartPort: number
+	oldId: number
+	newId: number
+	status: number
+}
+
+export type MsgFromBot =
+	| PongMsg
+	| MyInfoMsg
+	| MotorStateMsg
+	| SmartbusScanResultMsg
+	| SmartbusSetIdResultMsg
 
 const DC_MOTOR = 0
 const SERVO_MOTOR = 1
@@ -194,6 +221,28 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			)
 			return Buffer.concat([header, payload])
 		}
+		case "smartbusScan": {
+			const payload = Buffer.alloc(3)
+			payload.writeUInt8(clampInt(msg.uartPort, 0, 0xff), 0)
+			payload.writeUInt8(clampInt(msg.startId, 0, 0xff), 1)
+			payload.writeUInt8(clampInt(msg.endId, 0, 0xff), 2)
+			const header = createHeader(
+				MsgToBotType.SmartbusScan,
+				payload.length,
+			)
+			return Buffer.concat([header, payload])
+		}
+		case "smartbusSetId": {
+			const payload = Buffer.alloc(3)
+			payload.writeUInt8(clampInt(msg.uartPort, 0, 0xff), 0)
+			payload.writeUInt8(clampInt(msg.oldId, 0, 0xff), 1)
+			payload.writeUInt8(clampInt(msg.newId, 0, 0xff), 2)
+			const header = createHeader(
+				MsgToBotType.SmartbusSetId,
+				payload.length,
+			)
+			return Buffer.concat([header, payload])
+		}
 		case "ping":
 			return createHeader(MsgToBotType.Ping, 0)
 		default:
@@ -260,6 +309,46 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 				})
 			}
 			return { type: MsgFromBotType.MotorState, protocolVersion, motors }
+		}
+		case MsgFromBotType.SmartbusScanResult: {
+			if (buffer.length < 7) {
+				throw new Error("Invalid smartbus scan result: too short")
+			}
+			const uartPort = buffer.readUInt8(3)
+			const startId = buffer.readUInt8(4)
+			const endId = buffer.readUInt8(5)
+			const count = buffer.readUInt8(6)
+			const foundIds: number[] = []
+			let offset = 7
+			for (let i = 0; i < count && offset < buffer.length; i++) {
+				foundIds.push(buffer.readUInt8(offset))
+				offset += 1
+			}
+			return {
+				type: MsgFromBotType.SmartbusScanResult,
+				protocolVersion,
+				uartPort,
+				startId,
+				endId,
+				foundIds,
+			}
+		}
+		case MsgFromBotType.SmartbusSetIdResult: {
+			if (buffer.length < 7) {
+				throw new Error("Invalid smartbus set-id result: too short")
+			}
+			const uartPort = buffer.readUInt8(3)
+			const oldId = buffer.readUInt8(4)
+			const newId = buffer.readUInt8(5)
+			const status = buffer.readUInt8(6)
+			return {
+				type: MsgFromBotType.SmartbusSetIdResult,
+				protocolVersion,
+				uartPort,
+				oldId,
+				newId,
+				status,
+			}
 		}
 		default:
 			throw new Error("Unknown command type")

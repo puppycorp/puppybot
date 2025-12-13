@@ -84,11 +84,29 @@ type UpdateConfig = {
 	templateKey?: string | null
 }
 
+type SmartbusScan = {
+	type: "smartbusScan"
+	botId: string
+	uartPort: number
+	startId: number
+	endId: number
+}
+
+type SmartbusSetId = {
+	type: "smartbusSetId"
+	botId: string
+	uartPort: number
+	oldId: number
+	newId: number
+}
+
 export type MsgToServer =
 	| DriveMotor
 	| Stop
 	| StopAllMotors
 	| TurnServo
+	| SmartbusScan
+	| SmartbusSetId
 	| UpdateConfig
 
 export type BotConnected = {
@@ -133,12 +151,32 @@ export type MotorStateBroadcast = {
 	motors: MotorStateEntry[]
 }
 
+export type SmartbusScanBroadcast = {
+	type: "smartbusScan"
+	botId: string
+	uartPort: number
+	startId: number
+	endId: number
+	foundIds: number[]
+}
+
+export type SmartbusSetIdBroadcast = {
+	type: "smartbusSetId"
+	botId: string
+	uartPort: number
+	oldId: number
+	newId: number
+	status: number
+}
+
 export type MsgToUi =
 	| BotConnected
 	| BotDisconnected
 	| BotInfo
 	| ConfigBroadcast
 	| MotorStateBroadcast
+	| SmartbusScanBroadcast
+	| SmartbusSetIdBroadcast
 type ApplyConfig = {
 	type: "applyConfig"
 	blob: Uint8Array
@@ -150,6 +188,8 @@ export type MsgToBot =
 	| Ping
 	| StopAllMotors
 	| Omit<TurnServo, "botId">
+	| Omit<SmartbusScan, "botId">
+	| Omit<SmartbusSetId, "botId">
 	| ApplyConfig
 
 // export type MyInfo = {

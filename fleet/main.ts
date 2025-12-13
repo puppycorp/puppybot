@@ -96,6 +96,18 @@ const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "smartbusScan": {
+			const conn = botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
+		case "smartbusSetId": {
+			const conn = botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 		case "updateConfig": {
 			const motors = msg.motors ?? []
 			const templateKey = parseTemplateKey(msg.templateKey)
@@ -138,6 +150,32 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 			const motors = msg.motors ?? []
 			for (const client of uiClients.values()) {
 				client.send({ type: "motorState", botId, motors })
+			}
+			break
+		}
+		case MsgFromBotType.SmartbusScanResult: {
+			for (const client of uiClients.values()) {
+				client.send({
+					type: "smartbusScan",
+					botId,
+					uartPort: msg.uartPort,
+					startId: msg.startId,
+					endId: msg.endId,
+					foundIds: msg.foundIds,
+				})
+			}
+			break
+		}
+		case MsgFromBotType.SmartbusSetIdResult: {
+			for (const client of uiClients.values()) {
+				client.send({
+					type: "smartbusSetId",
+					botId,
+					uartPort: msg.uartPort,
+					oldId: msg.oldId,
+					newId: msg.newId,
+					status: msg.status,
+				})
 			}
 			break
 		}

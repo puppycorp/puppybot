@@ -594,6 +594,14 @@ void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
 	         (unsigned)servo_id, (int)speed_raw, (unsigned)acc);
 }
 
+void motor_hw_smartbus_write_u8(uint8_t uart_port, uint8_t servo_id,
+                                uint8_t addr, uint8_t value) {
+	(void)uart_port;
+	smartbus_write_bytes(servo_id, addr, &value, 1);
+	log_info(TAG, "Smart servo write8: id=%u addr=%u value=%u",
+	         (unsigned)servo_id, (unsigned)addr, (unsigned)value);
+}
+
 int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,
                                     uint16_t *pos_raw_out) {
 	(void)uart_port;

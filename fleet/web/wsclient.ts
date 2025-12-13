@@ -77,6 +77,31 @@ const handleMsg = (msg: MsgToUi) => {
 			state.motorStates.set({ ...existing, [msg.botId]: botStates })
 			break
 		}
+		case "smartbusScan": {
+			state.smartbusScan.set({
+				...state.smartbusScan.get(),
+				[msg.botId]: {
+					uartPort: msg.uartPort,
+					startId: msg.startId,
+					endId: msg.endId,
+					foundIds: msg.foundIds ?? [],
+				},
+			})
+			break
+		}
+		case "smartbusSetId": {
+			state.smartbusSetId.set({
+				...state.smartbusSetId.get(),
+				[msg.botId]: {
+					uartPort: msg.uartPort,
+					oldId: msg.oldId,
+					newId: msg.newId,
+					status: msg.status,
+					atMs: Date.now(),
+				},
+			})
+			break
+		}
 		default:
 			console.log("Unknown message type:", msg)
 	}

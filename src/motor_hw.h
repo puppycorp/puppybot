@@ -28,6 +28,9 @@
 #ifndef SMARTBUS_ADDR_PRESENT_POSITION_L
 #define SMARTBUS_ADDR_PRESENT_POSITION_L 56
 #endif
+#ifndef SMARTBUS_ADDR_LOCK
+#define SMARTBUS_ADDR_LOCK 55
+#endif
 
 // Backwards-compatible aliases for older placeholder names.
 #ifndef SMARTBUS_CMD_PING
@@ -58,6 +61,10 @@ void motor_hw_smartbus_set_mode(uint8_t uart_port, uint8_t servo_id,
 // STServo "sign bit" convention (bit 15 indicates negative direction).
 void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
                                        int16_t speed_raw, uint8_t acc);
+
+// Writes one byte to a smart servo register (e.g. ID register = 5).
+void motor_hw_smartbus_write_u8(uint8_t uart_port, uint8_t servo_id,
+                                uint8_t addr, uint8_t value);
 // Reads raw position units from smart servo over smartbus.
 // Returns 0 on success, negative on error.
 int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,

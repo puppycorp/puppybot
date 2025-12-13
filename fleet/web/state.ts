@@ -33,4 +33,27 @@ export const state = {
 	motorStates: new NotifyValue<
 		Record<string, Record<number, MotorStateEntry>>
 	>({}),
+	smartbusScan: new NotifyValue<
+		Record<
+			string,
+			{
+				uartPort: number
+				startId: number
+				endId: number
+				foundIds: number[]
+			}
+		>
+	>({}),
+	smartbusSetId: new NotifyValue<
+		Record<
+			string,
+			{
+				uartPort: number
+				oldId: number
+				newId: number
+				status: number
+				atMs: number
+			}
+		>
+	>({}),
 }
