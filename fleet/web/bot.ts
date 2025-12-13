@@ -964,7 +964,16 @@ export const botPage = (container: Container, botId: string) => {
 		card.appendChild(controlContainer)
 
 		if (motor.type === "angle" || motor.type === "smart") {
-			// Positional motor - angle slider (0-180 degrees)
+			const degMin =
+				motor.analog?.degMin ?? (motor.type === "smart" ? 0 : 0)
+			const degMax =
+				motor.analog?.degMax ?? (motor.type === "smart" ? 240 : 180)
+			const sliderMin = Math.floor(Math.min(degMin, degMax))
+			const sliderMax = Math.ceil(Math.max(degMin, degMax))
+			const centerDeg = Math.round((sliderMin + sliderMax) / 2)
+
+			let durationMs = 0
+
 			const angleControlRow = document.createElement("div")
 			angleControlRow.style.display = "flex"
 			angleControlRow.style.alignItems = "center"
@@ -977,48 +986,116 @@ export const botPage = (container: Container, botId: string) => {
 
 			const angleSlider = document.createElement("input")
 			angleSlider.type = "range"
-			angleSlider.min = "0"
-			angleSlider.max = "180"
-			angleSlider.value = "90"
+			angleSlider.min = sliderMin.toString()
+			angleSlider.max = sliderMax.toString()
+			angleSlider.step = "1"
+			angleSlider.value = centerDeg.toString()
 			angleSlider.style.flexGrow = "1"
 			angleControlRow.appendChild(angleSlider)
 
 			const angleValue = document.createElement("span")
-			angleValue.textContent = "90°"
-			angleValue.style.width = "50px"
+			angleValue.textContent = `${centerDeg}°`
+			angleValue.style.width = "60px"
 			angleValue.style.textAlign = "right"
 			angleControlRow.appendChild(angleValue)
 
-			angleSlider.addEventListener("input", () => {
-				const angle = Number(angleSlider.value)
-				angleValue.textContent = `${angle}°`
+			const sendAngle = (angle: number) => {
 				ws.send({
 					type: "turnServo",
 					botId,
 					servoId: motor.nodeId,
-					angle: angle,
+					angle,
+					durationMs: motor.type === "smart" ? durationMs : undefined,
 				} as MsgToServer)
+			}
+
+			angleSlider.addEventListener("input", () => {
+				const angle = Number(angleSlider.value)
+				angleValue.textContent = `${angle}°`
+				sendAngle(angle)
 			})
 
 			controlContainer.appendChild(angleControlRow)
 
-			// Add center and stop buttons
+			if (motor.type === "smart") {
+				const busRow = document.createElement("div")
+				busRow.style.display = "flex"
+				busRow.style.alignItems = "center"
+				busRow.style.gap = "8px"
+
+				const busLabel = document.createElement("span")
+				busLabel.textContent = "Bus"
+				busLabel.style.width = "60px"
+				busRow.appendChild(busLabel)
+
+				const busValue = document.createElement("span")
+				busValue.textContent = "-"
+				busRow.appendChild(busValue)
+
+				const updateBusValue = () => {
+					const entry =
+						state.motorStates.get()[botId]?.[motor.nodeId] ?? null
+					if (!entry || !entry.valid || entry.positionDeg == null) {
+						busValue.textContent = "No data"
+						return
+					}
+					const mode = entry.wheelMode ? "wheel" : "pos"
+					const deg = entry.positionDeg.toFixed(1)
+					const raw =
+						entry.positionRaw == null
+							? "-"
+							: entry.positionRaw.toString()
+					busValue.textContent = `${deg}° (${mode}, raw=${raw})`
+				}
+
+				updateBusValue()
+				state.motorStates.onChange(updateBusValue)
+				controlContainer.appendChild(busRow)
+
+				const durationRow = document.createElement("div")
+				durationRow.style.display = "flex"
+				durationRow.style.alignItems = "center"
+				durationRow.style.gap = "8px"
+
+				const durationLabel = document.createElement("span")
+				durationLabel.textContent = "Move ms"
+				durationLabel.style.width = "60px"
+				durationRow.appendChild(durationLabel)
+
+				const durationInput = document.createElement("input")
+				durationInput.type = "number"
+				durationInput.min = "0"
+				durationInput.max = "65535"
+				durationInput.value = "0"
+				durationInput.style.width = "120px"
+				durationInput.addEventListener("input", () => {
+					const parsed = parseInteger(durationInput.value)
+					durationMs =
+						parsed === undefined
+							? 0
+							: Math.max(0, Math.min(65535, parsed))
+				})
+				durationRow.appendChild(durationInput)
+
+				const durationHint = document.createElement("span")
+				durationHint.textContent = "0 = max speed"
+				durationHint.style.opacity = "0.8"
+				durationRow.appendChild(durationHint)
+
+				controlContainer.appendChild(durationRow)
+			}
+
 			const buttonRow = document.createElement("div")
 			buttonRow.style.display = "flex"
 			buttonRow.style.gap = "8px"
 
 			const centerButton = document.createElement("button")
-			centerButton.textContent = "Center (90°)"
+			centerButton.textContent = `Center (${centerDeg}°)`
 			centerButton.classList.add("secondary")
 			centerButton.onclick = () => {
-				angleSlider.value = "90"
-				angleValue.textContent = "90°"
-				ws.send({
-					type: "turnServo",
-					botId,
-					servoId: motor.nodeId,
-					angle: 90,
-				} as MsgToServer)
+				angleSlider.value = centerDeg.toString()
+				angleValue.textContent = `${centerDeg}°`
+				sendAngle(centerDeg)
 			}
 			buttonRow.appendChild(centerButton)
 
@@ -1034,6 +1111,100 @@ export const botPage = (container: Container, botId: string) => {
 			buttonRow.appendChild(stopButton)
 
 			controlContainer.appendChild(buttonRow)
+
+			if (motor.type === "smart") {
+				const speedControlRow = document.createElement("div")
+				speedControlRow.style.display = "flex"
+				speedControlRow.style.alignItems = "center"
+				speedControlRow.style.gap = "8px"
+
+				const speedLabel = document.createElement("span")
+				speedLabel.textContent = "Wheel"
+				speedLabel.style.width = "60px"
+				speedControlRow.appendChild(speedLabel)
+
+				const speedSlider = document.createElement("input")
+				speedSlider.type = "range"
+				speedSlider.min = "-100"
+				speedSlider.max = "100"
+				speedSlider.value = "0"
+				speedSlider.style.flexGrow = "1"
+				speedControlRow.appendChild(speedSlider)
+
+				const speedValue = document.createElement("span")
+				speedValue.textContent = "0"
+				speedValue.style.width = "60px"
+				speedValue.style.textAlign = "right"
+				speedControlRow.appendChild(speedValue)
+
+				speedSlider.addEventListener("input", () => {
+					const speed = Number(speedSlider.value)
+					speedValue.textContent = `${speed}`
+					ws.send({
+						type: "drive",
+						botId,
+						motorId: motor.nodeId,
+						motorType: "dc",
+						speed,
+					} as MsgToServer)
+				})
+
+				controlContainer.appendChild(speedControlRow)
+
+				const wheelButtons = document.createElement("div")
+				wheelButtons.style.display = "flex"
+				wheelButtons.style.gap = "8px"
+
+				const ccwButton = document.createElement("button")
+				ccwButton.textContent = "CCW"
+				ccwButton.classList.add("secondary")
+				ccwButton.onclick = () => {
+					speedSlider.value = "-50"
+					speedValue.textContent = "-50"
+					ws.send({
+						type: "drive",
+						botId,
+						motorId: motor.nodeId,
+						motorType: "dc",
+						speed: -50,
+					} as MsgToServer)
+				}
+				wheelButtons.appendChild(ccwButton)
+
+				const wheelStop = document.createElement("button")
+				wheelStop.textContent = "Stop wheel"
+				wheelStop.classList.add("secondary")
+				wheelStop.onclick = () => {
+					speedSlider.value = "0"
+					speedValue.textContent = "0"
+					ws.send({
+						type: "drive",
+						botId,
+						motorId: motor.nodeId,
+						motorType: "dc",
+						speed: 0,
+					} as MsgToServer)
+				}
+				wheelButtons.appendChild(wheelStop)
+
+				const cwButton = document.createElement("button")
+				cwButton.textContent = "CW"
+				cwButton.classList.add("secondary")
+				cwButton.onclick = () => {
+					speedSlider.value = "50"
+					speedValue.textContent = "50"
+					ws.send({
+						type: "drive",
+						botId,
+						motorId: motor.nodeId,
+						motorType: "dc",
+						speed: 50,
+					} as MsgToServer)
+				}
+				wheelButtons.appendChild(cwButton)
+
+				controlContainer.appendChild(wheelButtons)
+			}
 		} else if (motor.type === "continuous" || motor.type === "hbridge") {
 			// Continuous/H-bridge motor - speed and direction slider (-100 to 100)
 			const speedControlRow = document.createElement("div")

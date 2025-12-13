@@ -11,6 +11,7 @@ enum MsgToBotType {
 export enum MsgFromBotType {
 	Pong = 1,
 	MyInfo = 2,
+	MotorState = 3,
 }
 
 enum InstructionType {
@@ -63,7 +64,21 @@ export type MyInfoMsg = {
 	variant: string
 }
 
-export type MsgFromBot = PongMsg | MyInfoMsg
+export type MotorStateEntry = {
+	motorId: number
+	valid: boolean
+	wheelMode: boolean
+	positionDeg: number | null
+	positionRaw: number | null
+}
+
+export type MotorStateMsg = {
+	type: MsgFromBotType.MotorState
+	protocolVersion: number
+	motors: MotorStateEntry[]
+}
+
+export type MsgFromBot = PongMsg | MyInfoMsg | MotorStateMsg
 
 const DC_MOTOR = 0
 const SERVO_MOTOR = 1
@@ -219,6 +234,32 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 				firmwareVersion,
 				variant,
 			}
+		}
+		case MsgFromBotType.MotorState: {
+			if (buffer.length < 4) {
+				throw new Error("Invalid motor state message: too short")
+			}
+			const count = buffer.readUInt8(3)
+			let offset = 4
+			const motors: MotorStateEntry[] = []
+			for (let i = 0; i < count; i++) {
+				if (offset + 6 > buffer.length) break
+				const motorId = buffer.readUInt8(offset)
+				const flags = buffer.readUInt8(offset + 1)
+				const degX10 = buffer.readInt16LE(offset + 2)
+				const raw = buffer.readUInt16LE(offset + 4)
+				offset += 6
+				const valid = (flags & 0x01) !== 0
+				const wheelMode = (flags & 0x02) !== 0
+				motors.push({
+					motorId,
+					valid,
+					wheelMode,
+					positionDeg: valid ? degX10 / 10 : null,
+					positionRaw: valid ? raw : null,
+				})
+			}
+			return { type: MsgFromBotType.MotorState, protocolVersion, motors }
 		}
 		default:
 			throw new Error("Unknown command type")

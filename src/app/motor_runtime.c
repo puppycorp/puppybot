@@ -8,6 +8,7 @@
 #include "utility.h"
 
 #define MAX_MOTORS 16
+#define SMARTBUS_SPEED_SIGN_BIT 15
 
 static motor_rt_t g_motors[MAX_MOTORS];
 static int g_mcount = 0;
@@ -92,6 +93,10 @@ static void apply_angle_servo(motor_rt_t *m, float deg) {
 static void apply_smart_servo(motor_rt_t *m, float deg, uint16_t duration_ms) {
 	if (!m)
 		return;
+	if (m->smart_wheel_mode) {
+		motor_hw_smartbus_set_mode(m->smart_uart_port, (uint8_t)m->node_id, 0);
+		m->smart_wheel_mode = false;
+	}
 	float dmin = m->deg_min_x10 / 10.0f;
 	float dmax = m->deg_max_x10 / 10.0f;
 	if (deg < dmin)
@@ -101,6 +106,38 @@ static void apply_smart_servo(motor_rt_t *m, float deg, uint16_t duration_ms) {
 	uint16_t angle_x10 = (uint16_t)lroundf(deg * 10.0f);
 	motor_hw_smartbus_move(m->smart_uart_port, (uint8_t)m->node_id, angle_x10,
 	                       duration_ms);
+}
+
+static void apply_smart_wheel(motor_rt_t *m, float speed) {
+	if (!m)
+		return;
+	if (m->invert)
+		speed = -speed;
+	if (m->max_speed_x100) {
+		float cap = m->max_speed_x100 / 100.0f;
+		if (speed > cap)
+			speed = cap;
+		if (speed < -cap)
+			speed = -cap;
+	}
+
+	if (!m->smart_wheel_mode) {
+		motor_hw_smartbus_set_mode(m->smart_uart_port, (uint8_t)m->node_id, 1);
+		m->smart_wheel_mode = true;
+	}
+
+	float abs_speed = fabsf(speed);
+	if (abs_speed > 1.0f)
+		abs_speed = 1.0f;
+	int32_t mag = (int32_t)lroundf(abs_speed * 1000.0f);
+	if (mag > 1000)
+		mag = 1000;
+	int32_t raw = mag;
+	if (speed < 0.0f)
+		raw |= (1 << SMARTBUS_SPEED_SIGN_BIT);
+
+	motor_hw_smartbus_set_wheel_speed(m->smart_uart_port, (uint8_t)m->node_id,
+	                                  (int16_t)raw, 0);
 }
 
 static void apply_hbridge_dc(motor_rt_t *m, float speed) {
@@ -169,6 +206,18 @@ int motor_set_smart_angle(uint32_t node_id, float deg, uint16_t duration_ms) {
 	return 0;
 }
 
+int motor_set_smart_speed(uint32_t node_id, float speed) {
+	motor_rt_t *m = NULL;
+	if (motor_registry_find(node_id, &m) != 0 || !m)
+		return -1;
+	if (m->type_id != MOTOR_TYPE_SMART)
+		return -2;
+	apply_smart_wheel(m, speed);
+	m->last_cmd_val = speed;
+	m->last_cmd_ms = now_ms();
+	return 0;
+}
+
 int motor_stop(uint32_t node_id) {
 	motor_rt_t *m = NULL;
 	if (motor_registry_find(node_id, &m) != 0 || !m)
@@ -183,9 +232,32 @@ int motor_stop(uint32_t node_id) {
 	} else if (m->type_id == MOTOR_TYPE_ANGLE) {
 		apply_angle_servo(m, m->last_cmd_val);
 	} else if (m->type_id == MOTOR_TYPE_SMART) {
-		apply_smart_servo(m, m->last_cmd_val, 0);
+		if (m->smart_wheel_mode) {
+			apply_smart_wheel(m, 0.0f);
+		} else {
+			apply_smart_servo(m, m->last_cmd_val, 0);
+		}
 	}
 	m->last_cmd_ms = now_ms();
+	return 0;
+}
+
+int motor_get_smart_position(uint32_t node_id, float *deg_out) {
+	if (!deg_out)
+		return -1;
+	motor_rt_t *m = NULL;
+	if (motor_registry_find(node_id, &m) != 0 || !m)
+		return -2;
+	if (m->type_id != MOTOR_TYPE_SMART)
+		return -3;
+
+	uint16_t pos_raw = 0;
+	int r = motor_hw_smartbus_read_position(m->smart_uart_port,
+	                                        (uint8_t)m->node_id, &pos_raw);
+	if (r != 0)
+		return r;
+
+	*deg_out = ((float)pos_raw / 1000.0f) * 240.0f;
 	return 0;
 }
 

@@ -1,5 +1,5 @@
 import { state } from "./state"
-import type { MsgToUi, MsgToServer } from "../server/types"
+import type { MsgToUi, MsgToServer } from "../types"
 
 let wsclient: WebSocket | null = null
 
@@ -66,6 +66,17 @@ const handleMsg = (msg: MsgToUi) => {
 				},
 			})
 			break
+		case "motorState": {
+			const existing = state.motorStates.get()
+			const botStates: Record<number, any> = {
+				...(existing[msg.botId] ?? {}),
+			}
+			for (const entry of msg.motors ?? []) {
+				botStates[entry.motorId] = entry
+			}
+			state.motorStates.set({ ...existing, [msg.botId]: botStates })
+			break
+		}
 		default:
 			console.log("Unknown message type:", msg)
 	}

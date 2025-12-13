@@ -2,14 +2,17 @@
 #include "http.h"
 #include "command_handler.h"
 #include "log.h"
+#include "motor_runtime.h"
 #include "platform.h"
 #include "protocol.h"
 #include "timer.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "http";
+#define MOTOR_STATE_INTERVAL_MS 250
 
 // External variant configuration
 extern const char *instance_name(void);
@@ -18,6 +21,7 @@ extern const char *instance_name(void);
 static ws_client_handle_t ws_client = NULL;
 static ws_client_config ws_config = {0};
 static platform_timer_handle_t heartbeat_timer = NULL;
+static platform_timer_handle_t motor_state_timer = NULL;
 static bool client_connected = false;
 
 // Heartbeat timer callback
@@ -30,6 +34,73 @@ static void heartbeat_timer_callback(void *arg) {
 			log_error(TAG, "Failed to send heartbeat ping");
 		}
 	}
+}
+
+static void ws_client_send_motor_state(void) {
+	if (!client_connected || !ws_client)
+		return;
+
+	uint8_t buf[3 + 1 + (6 * 16)];
+	size_t off = 0;
+	buf[off++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+	buf[off++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+	buf[off++] = MSG_TO_SRV_MOTOR_STATE;
+	size_t count_off = off++;
+	uint8_t count = 0;
+
+	for (int i = 0; i < motor_count(); ++i) {
+		motor_rt_t *m = motor_at(i);
+		if (!m)
+			continue;
+		if (m->type_id != MOTOR_TYPE_SMART)
+			continue;
+		if (m->node_id > 0xFFu)
+			continue;
+		if (count >= 16)
+			break;
+
+		uint16_t raw = 0;
+		int r = motor_hw_smartbus_read_position(m->smart_uart_port,
+		                                        (uint8_t)m->node_id, &raw);
+
+		uint8_t flags = 0;
+		if (r == 0)
+			flags |= 0x01; // valid
+		if (m->smart_wheel_mode)
+			flags |= 0x02; // wheel-mode active
+
+		int16_t deg_x10 = 0;
+		if (r == 0) {
+			float deg = ((float)raw / 1000.0f) * 240.0f;
+			if (deg < -3276.8f)
+				deg = -3276.8f;
+			if (deg > 3276.7f)
+				deg = 3276.7f;
+			deg_x10 = (int16_t)lroundf(deg * 10.0f);
+		}
+
+		buf[off++] = (uint8_t)m->node_id;
+		buf[off++] = flags;
+		buf[off++] = (uint8_t)(deg_x10 & 0xFF);
+		buf[off++] = (uint8_t)((deg_x10 >> 8) & 0xFF);
+		buf[off++] = (uint8_t)(raw & 0xFF);
+		buf[off++] = (uint8_t)((raw >> 8) & 0xFF);
+		count++;
+	}
+
+	buf[count_off] = count;
+	if (count == 0)
+		return;
+
+	int ret = ws_client_send_binary(ws_client, buf, off);
+	if (ret != 0) {
+		log_warn(TAG, "Failed to send motor state (%d)", ret);
+	}
+}
+
+static void motor_state_timer_callback(void *arg) {
+	(void)arg;
+	ws_client_send_motor_state();
 }
 
 // Reconnection function
@@ -232,6 +303,9 @@ void ws_client_event_handler(ws_event_type_t event_type,
 		if (ws_config.enable_heartbeat && heartbeat_timer) {
 			platform_timer_start(heartbeat_timer);
 		}
+		if (motor_state_timer) {
+			platform_timer_start(motor_state_timer);
+		}
 		break;
 
 	case WS_EVENT_DISCONNECTED:
@@ -241,6 +315,9 @@ void ws_client_event_handler(ws_event_type_t event_type,
 		// Stop heartbeat timer
 		if (heartbeat_timer) {
 			platform_timer_stop(heartbeat_timer);
+		}
+		if (motor_state_timer) {
+			platform_timer_stop(motor_state_timer);
 		}
 
 		// Attempt reconnection if enabled
@@ -283,6 +360,9 @@ void ws_client_event_handler(ws_event_type_t event_type,
 		if (heartbeat_timer) {
 			platform_timer_stop(heartbeat_timer);
 		}
+		if (motor_state_timer) {
+			platform_timer_stop(motor_state_timer);
+		}
 
 		// Attempt reconnection if enabled
 		if (ws_config.enable_auto_reconnect) {
@@ -319,6 +399,12 @@ int ws_client_init_and_start(const ws_client_config *config) {
 		}
 	}
 
+	motor_state_timer = platform_timer_create(motor_state_timer_callback, NULL,
+	                                          MOTOR_STATE_INTERVAL_MS);
+	if (!motor_state_timer) {
+		log_warn(TAG, "Failed to create motor state timer");
+	}
+
 	// Initialize WebSocket client
 	ws_client = ws_client_init(config->uri);
 	if (ws_client == NULL) {
@@ -326,6 +412,10 @@ int ws_client_init_and_start(const ws_client_config *config) {
 		if (heartbeat_timer) {
 			platform_timer_delete(heartbeat_timer);
 			heartbeat_timer = NULL;
+		}
+		if (motor_state_timer) {
+			platform_timer_delete(motor_state_timer);
+			motor_state_timer = NULL;
 		}
 		return -1;
 	}
@@ -338,6 +428,10 @@ int ws_client_init_and_start(const ws_client_config *config) {
 		if (heartbeat_timer) {
 			platform_timer_delete(heartbeat_timer);
 			heartbeat_timer = NULL;
+		}
+		if (motor_state_timer) {
+			platform_timer_delete(motor_state_timer);
+			motor_state_timer = NULL;
 		}
 		return ret;
 	}
@@ -356,6 +450,11 @@ void ws_client_shutdown(void) {
 		platform_timer_stop(heartbeat_timer);
 		platform_timer_delete(heartbeat_timer);
 		heartbeat_timer = NULL;
+	}
+	if (motor_state_timer) {
+		platform_timer_stop(motor_state_timer);
+		platform_timer_delete(motor_state_timer);
+		motor_state_timer = NULL;
 	}
 
 	client_connected = false;

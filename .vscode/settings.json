@@ -4,5 +4,7 @@
 	},
 	"search.exclude": {
 		"deps/**": true
-	}
+	},
+	"git.repositoryScanIgnoredFolders": ["deps"],
+	"git.ignoredRepositories": ["deps/espidf", "deps/uWebSockets"]
 }

@@ -119,7 +119,26 @@ export type ConfigBroadcast = {
 	templateKey?: string | null
 }
 
-export type MsgToUi = BotConnected | BotDisconnected | BotInfo | ConfigBroadcast
+export type MotorStateEntry = {
+	motorId: number
+	valid: boolean
+	wheelMode: boolean
+	positionDeg: number | null
+	positionRaw: number | null
+}
+
+export type MotorStateBroadcast = {
+	type: "motorState"
+	botId: string
+	motors: MotorStateEntry[]
+}
+
+export type MsgToUi =
+	| BotConnected
+	| BotDisconnected
+	| BotInfo
+	| ConfigBroadcast
+	| MotorStateBroadcast
 type ApplyConfig = {
 	type: "applyConfig"
 	blob: Uint8Array

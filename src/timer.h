@@ -22,22 +22,24 @@ void platform_delay_ms(uint32_t ms);
 // App-level timers (one-shot timers in microseconds)
 // ---------------------------------------------------------------------------
 
-// Opaque timer handle - platform-specific implementation
-typedef void *timer_t;
+// Opaque one-shot timer handle - platform-specific implementation.
+// Named to avoid conflicts with libc's `timer_t` / `timer_create`.
+typedef void *puppy_timer_t;
 
 // Create a one-shot timer with callback
 // Returns NULL on failure
-timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name);
+puppy_timer_t puppy_timer_create(void (*callback)(void *arg), void *arg,
+                                 const char *name);
 
 // Start timer with timeout in microseconds
 // Returns 0 on success, non-zero on error
-int timer_start_once(timer_t timer, uint64_t timeout_us);
+int puppy_timer_start_once(puppy_timer_t timer, uint64_t timeout_us);
 
 // Stop a running timer
 // Returns 0 on success, non-zero on error
-int timer_stop(timer_t timer);
+int puppy_timer_stop(puppy_timer_t timer);
 
 // Delete a timer and free resources
-void timer_delete(timer_t timer);
+void puppy_timer_delete(puppy_timer_t timer);
 
 #endif // PUPPYBOT_TIMER_H

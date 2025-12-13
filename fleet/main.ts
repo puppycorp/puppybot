@@ -15,13 +15,7 @@ import {
 	type InstanceWatcher,
 } from "./mdns"
 import { buildMotorBlob } from "./pbcl"
-import {
-	cloneTemplateMotors,
-	DEFAULT_TEMPLATE_KEY,
-	isConfigTemplateKey,
-	templateForVariant,
-	type ConfigTemplateKey,
-} from "./config-templates"
+import { isConfigTemplateKey, type ConfigTemplateKey } from "./config-templates"
 
 type BotSocket = {
 	send(data: string | Uint8Array | ArrayBufferLike): void
@@ -126,18 +120,9 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 				connected: true,
 			})
 			ensureBotConfig(botId)
-			const templateKey = templateForVariant(msg.variant)
-			if (templateKey) {
-				const state = botConfigStates.get(botId)
-				if (!state || state.source === "auto") {
-					if (state?.templateKey !== templateKey) {
-						const motors = cloneTemplateMotors(templateKey)
-						setBotConfig(botId, motors, templateKey, "auto")
-						broadcastConfig(botId)
-						applyConfigToBot(botId)
-					}
-				}
-			}
+			// Default to a fully custom, empty config on connect.
+			// Users can apply templates manually from the UI.
+			broadcastConfig(botId)
 			logConnectionsTable()
 			for (const client of uiClients.values()) {
 				client.send({
@@ -147,8 +132,12 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 					variant: msg.variant || "",
 				})
 			}
-			if (!templateKey) {
-				broadcastConfig(botId)
+			break
+		}
+		case MsgFromBotType.MotorState: {
+			const motors = msg.motors ?? []
+			for (const client of uiClients.values()) {
+				client.send({ type: "motorState", botId, motors })
 			}
 			break
 		}
@@ -312,8 +301,7 @@ const ensureBotConfig = (botId: string) => {
 	if (botConfigs.has(botId)) {
 		return
 	}
-	const defaultMotors = cloneTemplateMotors(DEFAULT_TEMPLATE_KEY)
-	setBotConfig(botId, defaultMotors, DEFAULT_TEMPLATE_KEY, "auto")
+	setBotConfig(botId, [], null, "auto")
 }
 
 const parseTemplateKey = (

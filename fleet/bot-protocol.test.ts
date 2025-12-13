@@ -125,4 +125,28 @@ describe("encodeBotMsg", () => {
 			variant,
 		})
 	})
+
+	test("decodes a motor state message", () => {
+		const buffer = Buffer.alloc(4 + 6)
+		buffer.writeUInt16LE(1, 0)
+		buffer.writeUInt8(MsgFromBotType.MotorState, 2)
+		buffer.writeUInt8(1, 3) // count
+		buffer.writeUInt8(7, 4) // motorId
+		buffer.writeUInt8(0x03, 5) // valid + wheelMode
+		buffer.writeInt16LE(123, 6) // 12.3 deg
+		buffer.writeUInt16LE(456, 8) // raw
+
+		const msg = decodeBotMsg(buffer)
+		expect(msg.type).toBe(MsgFromBotType.MotorState)
+		if (msg.type !== MsgFromBotType.MotorState) return
+		expect(msg.motors).toEqual([
+			{
+				motorId: 7,
+				valid: true,
+				wheelMode: true,
+				positionDeg: 12.3,
+				positionRaw: 456,
+			},
+		])
+	})
 })

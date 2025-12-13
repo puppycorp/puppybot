@@ -37,7 +37,7 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 	m.type_id = sec->type_id;
 	m.pwm_freq = 50;
 	m.deg_min_x10 = 0;
-	m.deg_max_x10 = 1800;
+	m.deg_max_x10 = m.type_id == MOTOR_TYPE_SMART ? 2400 : 1800;
 	m.smart_uart_port = 1;
 	m.smart_tx_pin = -1;
 	m.smart_rx_pin = -1;

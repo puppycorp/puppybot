@@ -13,5 +13,24 @@ fi
 
 cd "${SCRIPT_DIR}"
 
-idf.py -DPROJECT_VER="${VERSION:-1}" build
-idf.py flash monitor
+ACTION="${1:-all}"
+
+case "${ACTION}" in
+build)
+  idf.py -DPROJECT_VER="${VERSION:-1}" build
+  ;;
+flash)
+  idf.py flash
+  ;;
+monitor)
+  idf.py monitor
+  ;;
+all)
+  idf.py -DPROJECT_VER="${VERSION:-1}" build
+  idf.py flash monitor
+  ;;
+*)
+  echo "Usage: $0 [build|flash|monitor|all]"
+  exit 2
+  ;;
+esac

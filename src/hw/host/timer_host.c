@@ -149,7 +149,8 @@ static void *timer_thread(void *arg) {
 }
 #endif
 
-timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
+puppy_timer_t puppy_timer_create(void (*callback)(void *arg), void *arg,
+                                 const char *name) {
 	(void)name;
 	if (!callback) {
 		log_error(TAG, "timer_create called with NULL callback");
@@ -169,10 +170,10 @@ timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
 #else
 	pthread_mutex_init(&timer->lock, NULL);
 #endif
-	return (timer_t)timer;
+	return (puppy_timer_t)timer;
 }
 
-int timer_start_once(timer_t handle, uint64_t timeout_us) {
+int puppy_timer_start_once(puppy_timer_t handle, uint64_t timeout_us) {
 	if (!handle || timeout_us == 0) {
 		return -1;
 	}
@@ -220,7 +221,7 @@ int timer_start_once(timer_t handle, uint64_t timeout_us) {
 	return 0;
 }
 
-int timer_stop(timer_t handle) {
+int puppy_timer_stop(puppy_timer_t handle) {
 	if (!handle) {
 		return -1;
 	}
@@ -259,13 +260,13 @@ int timer_stop(timer_t handle) {
 	return 0;
 }
 
-void timer_delete(timer_t handle) {
+void puppy_timer_delete(puppy_timer_t handle) {
 	if (!handle) {
 		return;
 	}
 
 	host_timer_t *timer = (host_timer_t *)handle;
-	timer_stop(handle);
+	puppy_timer_stop(handle);
 #ifdef _WIN32
 	DeleteCriticalSection(&timer->lock);
 #else

@@ -1,6 +1,9 @@
 #include "mdns.h"
 #include "variant_config.h"
 
+#include "esp_err.h"
+#include "esp_log.h"
+
 int mdns_service_init(void) {
 	esp_err_t ret = mdns_init();
 	if (ret != ESP_OK) {

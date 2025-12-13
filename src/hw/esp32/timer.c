@@ -4,7 +4,8 @@
 
 #define TAG "TIMER"
 
-timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
+puppy_timer_t puppy_timer_create(void (*callback)(void *arg), void *arg,
+                                 const char *name) {
 	if (!callback) {
 		return NULL;
 	}
@@ -23,10 +24,10 @@ timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
 		return NULL;
 	}
 
-	return (timer_t)timer;
+	return (puppy_timer_t)timer;
 }
 
-int timer_start_once(timer_t timer, uint64_t timeout_us) {
+int puppy_timer_start_once(puppy_timer_t timer, uint64_t timeout_us) {
 	if (!timer) {
 		return -1;
 	}
@@ -35,7 +36,7 @@ int timer_start_once(timer_t timer, uint64_t timeout_us) {
 	return ret == ESP_OK ? 0 : -1;
 }
 
-int timer_stop(timer_t timer) {
+int puppy_timer_stop(puppy_timer_t timer) {
 	if (!timer) {
 		return -1;
 	}
@@ -45,7 +46,7 @@ int timer_stop(timer_t timer) {
 	return (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) ? 0 : -1;
 }
 
-void timer_delete(timer_t timer) {
+void puppy_timer_delete(puppy_timer_t timer) {
 	if (timer) {
 		esp_timer_delete((esp_timer_handle_t)timer);
 	}

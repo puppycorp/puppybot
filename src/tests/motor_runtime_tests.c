@@ -89,6 +89,37 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	(void)duration_ms;
 }
 
+void motor_hw_smartbus_set_mode(uint8_t uart_port, uint8_t servo_id,
+                                uint8_t mode) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)mode;
+}
+
+void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
+                                       int16_t speed_raw, uint8_t acc) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)speed_raw;
+	(void)acc;
+}
+
+int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,
+                                    uint16_t *pos_raw_out) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)pos_raw_out;
+	return -2;
+}
+
+int motor_hw_smartbus_ping(uint8_t uart_port, uint8_t servo_id,
+                           int timeout_ms) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)timeout_ms;
+	return -2;
+}
+
 uint32_t now_ms(void) {
 	if (!g_active_mock)
 		return 0;

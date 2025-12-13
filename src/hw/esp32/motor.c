@@ -2,6 +2,10 @@
 #include "driver/ledc.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "motor_config.h"
 #include "motor_hw.h"
 #include <inttypes.h>
@@ -47,6 +51,7 @@ typedef struct {
 } smart_bus_state_t;
 
 static smart_bus_state_t g_smart_buses[UART_NUM_MAX] = {0};
+static SemaphoreHandle_t g_smartbus_mu[UART_NUM_MAX] = {0};
 
 void motor_hw_ensure_pwm(uint8_t channel, uint16_t freq_hz) {
 	ESP_LOGI(TAG, "Ensuring PWM channel %d at %d Hz", channel, freq_hz);
@@ -151,6 +156,127 @@ static uint8_t smart_checksum(const uint8_t *packet, size_t len) {
 	return (uint8_t)(~(sum & 0xFFu));
 }
 
+// Build a SCServo/STS protocol 1.0 frame:
+// 0xFF 0xFF ID LEN INST PARAMS... CHKSUM
+// LEN = params_len + 2 (INST + CHKSUM).
+static int smartbus_build(uint8_t *out, size_t out_cap, uint8_t id,
+                          uint8_t inst, const uint8_t *params,
+                          uint8_t params_len) {
+	uint8_t len = (uint8_t)(params_len + 2);
+	size_t frame_len = (size_t)len + 4; // total = LEN + HEADER0 HEADER1 ID LEN
+	if (out_cap < frame_len)
+		return -1;
+
+	out[0] = 0xFF;
+	out[1] = 0xFF;
+	out[2] = id;
+	out[3] = len;
+	out[4] = inst;
+	for (uint8_t i = 0; i < params_len; ++i)
+		out[5 + i] = params[i];
+
+	out[frame_len - 1] = smart_checksum(out, frame_len - 1);
+	return (int)frame_len;
+}
+
+typedef struct {
+	uint8_t id;
+	uint8_t len;
+	uint8_t cmd;
+	uint8_t params[64];
+	uint8_t params_len;
+} smartbus_frame_t;
+
+static int smartbus_read_frame(uart_port_t uart, smartbus_frame_t *f,
+                               int timeout_ms) {
+	if (!f)
+		return -1;
+	int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000LL;
+
+	enum { S0, S1, SID, SLEN, SCMD, SPARAMS, SCKS } st = S0;
+	uint8_t sum = 0;
+	uint8_t params_needed = 0;
+	uint8_t param_i = 0;
+	uint8_t b = 0;
+
+	while (esp_timer_get_time() < deadline) {
+		int64_t now = esp_timer_get_time();
+		int to_ms = (int)((deadline - now) / 1000LL);
+		if (to_ms < 1)
+			to_ms = 1;
+
+		int n = uart_read_bytes(uart, &b, 1, pdMS_TO_TICKS(to_ms));
+		if (n <= 0)
+			continue;
+
+		switch (st) {
+		case S0:
+			st = (b == 0xFF) ? S1 : S0;
+			break;
+		case S1:
+			st = (b == 0xFF) ? SID : S0;
+			break;
+		case SID:
+			f->id = b;
+			sum = b;
+			st = SLEN;
+			break;
+		case SLEN:
+			f->len = b;
+			sum = (uint8_t)(sum + b);
+			// Status packet LEN includes ERROR + PARAMS + CHKSUM.
+			// PARAMS bytes = LEN - 2.
+			params_needed = (uint8_t)(b - 2);
+			if (params_needed > sizeof(f->params))
+				return -2;
+			f->params_len = params_needed;
+			st = SCMD;
+			break;
+		case SCMD:
+			f->cmd = b;
+			sum = (uint8_t)(sum + b);
+			param_i = 0;
+			st = (params_needed == 0) ? SCKS : SPARAMS;
+			break;
+		case SPARAMS:
+			f->params[param_i++] = b;
+			sum = (uint8_t)(sum + b);
+			if (param_i >= params_needed)
+				st = SCKS;
+			break;
+		case SCKS: {
+			uint8_t expected = (uint8_t)(~sum);
+			if (b != expected)
+				return -3;
+			return 0;
+		}
+		}
+	}
+	return -4;
+}
+
+static int smartbus_txrx(uart_port_t uart, const uint8_t *tx, int txlen,
+                         smartbus_frame_t *rx, int timeout_ms) {
+	if (uart >= UART_NUM_MAX)
+		return -1;
+	if (!g_smartbus_mu[uart])
+		g_smartbus_mu[uart] = xSemaphoreCreateMutex();
+	if (!g_smartbus_mu[uart])
+		return -2;
+
+	xSemaphoreTake(g_smartbus_mu[uart], portMAX_DELAY);
+
+	uart_flush_input(uart);
+	uart_write_bytes(uart, (const char *)tx, (size_t)txlen);
+	uart_wait_tx_done(uart, pdMS_TO_TICKS(20));
+	vTaskDelay(pdMS_TO_TICKS(1));
+
+	int r = smartbus_read_frame(uart, rx, timeout_ms);
+
+	xSemaphoreGive(g_smartbus_mu[uart]);
+	return r;
+}
+
 static uint16_t angle_to_position(uint16_t angle_x10) {
 	float degrees = angle_x10 / 10.0f;
 	float scaled = (degrees / 240.0f) * 1000.0f;
@@ -173,21 +299,128 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	if (time_clamped > 30000)
 		time_clamped = 30000;
 
-	uint8_t packet[10];
-	memset(packet, 0, sizeof(packet));
-	packet[0] = 0x55;
-	packet[1] = 0x55;
-	packet[2] = servo_id;
-	packet[3] = 7; // length (params + 3)
-	packet[4] = 1; // move command
-	packet[5] = (uint8_t)(pos & 0xFFu);
-	packet[6] = (uint8_t)((pos >> 8) & 0xFFu);
-	packet[7] = (uint8_t)(time_clamped & 0xFFu);
-	packet[8] = (uint8_t)((time_clamped >> 8) & 0xFFu);
-	packet[9] = smart_checksum(packet, sizeof(packet));
+	// Write goal position/time/speed starting at GOAL_POSITION_L.
+	// Payload: addr, posL,posH, timeL,timeH, speedL,speedH
+	uint8_t params[7];
+	params[0] = (uint8_t)SMARTBUS_ADDR_GOAL_POSITION_L;
+	params[1] = (uint8_t)(pos & 0xFFu);
+	params[2] = (uint8_t)((pos >> 8) & 0xFFu);
+	params[3] = (uint8_t)(time_clamped & 0xFFu);
+	params[4] = (uint8_t)((time_clamped >> 8) & 0xFFu);
+	params[5] = 0;
+	params[6] = 0;
 
+	uint8_t packet[16];
+	int plen =
+	    smartbus_build(packet, sizeof(packet), servo_id,
+	                   (uint8_t)SMARTBUS_INST_WRITE, params, sizeof(params));
+	if (plen <= 0)
+		return;
 	uart_write_bytes((uart_port_t)uart_port, (const char *)packet,
-	                 sizeof(packet));
+	                 (size_t)plen);
+}
+
+static void smartbus_write_bytes(uint8_t uart_port, uint8_t servo_id,
+                                 uint8_t addr, const uint8_t *data,
+                                 uint8_t data_len) {
+	if (uart_port >= UART_NUM_MAX)
+		return;
+	if (!g_smart_buses[uart_port].configured)
+		return;
+
+	uint8_t params[1 + 16];
+	if (data_len > 16)
+		return;
+	params[0] = addr;
+	for (uint8_t i = 0; i < data_len; ++i)
+		params[1 + i] = data[i];
+
+	uint8_t packet[32];
+	int plen = smartbus_build(packet, sizeof(packet), servo_id,
+	                          (uint8_t)SMARTBUS_INST_WRITE, params,
+	                          (uint8_t)(1 + data_len));
+	if (plen <= 0)
+		return;
+	uart_write_bytes((uart_port_t)uart_port, (const char *)packet,
+	                 (size_t)plen);
+}
+
+void motor_hw_smartbus_set_mode(uint8_t uart_port, uint8_t servo_id,
+                                uint8_t mode) {
+	smartbus_write_bytes(uart_port, servo_id, (uint8_t)SMARTBUS_ADDR_MODE,
+	                     &mode, 1);
+}
+
+void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
+                                       int16_t speed_raw, uint8_t acc) {
+	uint8_t data[7];
+	data[0] = acc;
+	data[1] = 0;
+	data[2] = 0;
+	data[3] = 0;
+	data[4] = 0;
+	data[5] = (uint8_t)(speed_raw & 0xFF);
+	data[6] = (uint8_t)((speed_raw >> 8) & 0xFF);
+	smartbus_write_bytes(uart_port, servo_id, (uint8_t)SMARTBUS_ADDR_ACC, data,
+	                     sizeof(data));
+}
+
+int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,
+                                    uint16_t *pos_raw_out) {
+	if (!pos_raw_out)
+		return -1;
+	if (uart_port >= UART_NUM_MAX)
+		return -2;
+	if (!g_smart_buses[uart_port].configured)
+		return -3;
+
+	// Read 2 bytes from PRESENT_POSITION_L.
+	uint8_t params[2];
+	params[0] = (uint8_t)SMARTBUS_ADDR_PRESENT_POSITION_L;
+	params[1] = 2;
+	uint8_t tx[16];
+	int txlen =
+	    smartbus_build(tx, sizeof(tx), servo_id, (uint8_t)SMARTBUS_INST_READ,
+	                   params, sizeof(params));
+	if (txlen < 0)
+		return -4;
+
+	smartbus_frame_t rx;
+	int r = smartbus_txrx((uart_port_t)uart_port, tx, txlen, &rx, 50);
+	if (r != 0)
+		return r;
+
+	if (rx.id != servo_id)
+		return -5;
+	if (rx.params_len < 2)
+		return -6;
+
+	*pos_raw_out = (uint16_t)(rx.params[0] | (rx.params[1] << 8));
+	return 0;
+}
+
+int motor_hw_smartbus_ping(uint8_t uart_port, uint8_t servo_id,
+                           int timeout_ms) {
+	if (uart_port >= UART_NUM_MAX)
+		return -1;
+	if (!g_smart_buses[uart_port].configured)
+		return -2;
+	if (timeout_ms <= 0)
+		timeout_ms = 50;
+
+	uint8_t tx[16];
+	int txlen = smartbus_build(tx, sizeof(tx), servo_id,
+	                           (uint8_t)SMARTBUS_CMD_PING, NULL, 0);
+	if (txlen < 0)
+		return -3;
+
+	smartbus_frame_t rx;
+	int r = smartbus_txrx((uart_port_t)uart_port, tx, txlen, &rx, timeout_ms);
+	if (r != 0)
+		return r;
+	if (rx.id != servo_id)
+		return -4;
+	return 0;
 }
 
 void motor_init(void) { motor_system_init(); }

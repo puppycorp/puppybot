@@ -2,6 +2,7 @@
 #include "log.h"
 #include "main.h"
 #include "platform.h"
+#include "timer.h"
 
 #include <signal.h>
 #include <stdbool.h>

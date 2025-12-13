@@ -40,6 +40,7 @@ typedef struct {
 	int8_t smart_rx_pin;
 	uint8_t smart_uart_port;
 	uint32_t smart_baud;
+	bool smart_wheel_mode;
 
 	uint16_t timeout_ms;
 	uint16_t max_speed_x100;
@@ -59,4 +60,9 @@ void motor_tick_all(uint32_t now_ms);
 int motor_set_speed(uint32_t node_id, float speed_m1_p1);
 int motor_set_angle(uint32_t node_id, float deg);
 int motor_set_smart_angle(uint32_t node_id, float deg, uint16_t duration_ms);
+int motor_set_smart_speed(uint32_t node_id, float speed_m1_p1);
 int motor_stop(uint32_t node_id);
+
+// Reads smart servo position in degrees for the given node.
+// Returns 0 on success, negative on error.
+int motor_get_smart_position(uint32_t node_id, float *deg_out);

@@ -14,15 +14,38 @@
 
 // Internal state structures
 typedef struct {
-	timer_t timer;
+	puppy_timer_t timer;
 	uint16_t restore_angle;
 	bool active;
 } ServoTimeoutState;
 
 // Module-level state
-static timer_t g_safety_timer = NULL;
+static puppy_timer_t g_safety_timer = NULL;
 static ServoTimeoutState g_servo_timeouts[MAX_SERVOS];
 static uint16_t g_servo_current_angle[MAX_SERVOS];
+
+static int clamp_motor_angle_deg(const motor_rt_t *motor, int angle_deg) {
+	if (!motor)
+		return angle_deg;
+
+	int32_t min_x10 = motor->deg_min_x10;
+	int32_t max_x10 = motor->deg_max_x10;
+	if (min_x10 > max_x10) {
+		int32_t tmp = min_x10;
+		min_x10 = max_x10;
+		max_x10 = tmp;
+	}
+
+	int32_t angle_x10 = (int32_t)angle_deg * 10;
+	if (angle_x10 < min_x10)
+		angle_x10 = min_x10;
+	if (angle_x10 > max_x10)
+		angle_x10 = max_x10;
+
+	if (angle_x10 >= 0)
+		return (int)((angle_x10 + 5) / 10);
+	return (int)((angle_x10 - 5) / 10);
+}
 
 static inline uint32_t servo_slot_count(void) {
 	int count = motor_slots_servo_count();
@@ -69,8 +92,8 @@ static void ensure_servo_timer(uint8_t slot) {
 	ServoTimeoutState *state = &g_servo_timeouts[slot];
 	if (state->timer)
 		return;
-	state->timer =
-	    timer_create(servo_timeout_callback, (void *)(uintptr_t)slot, NULL);
+	state->timer = puppy_timer_create(servo_timeout_callback,
+	                                  (void *)(uintptr_t)slot, NULL);
 	if (!state->timer) {
 		log_error(TAG, "Failed to create servo timeout timer %u", slot);
 	}
@@ -132,7 +155,7 @@ static void cancel_servo_timeout(uint8_t servo_id) {
 		return;
 	}
 
-	int stop_result = timer_stop(state->timer);
+	int stop_result = puppy_timer_stop(state->timer);
 	if (stop_result != 0) {
 		log_warn(TAG, "Failed to stop servo timeout %u", servo_id);
 	}
@@ -141,7 +164,8 @@ static void cancel_servo_timeout(uint8_t servo_id) {
 
 void command_handler_init(void) {
 	// Create safety timer
-	g_safety_timer = timer_create(safety_timer_callback, NULL, "safety_timer");
+	g_safety_timer =
+	    puppy_timer_create(safety_timer_callback, NULL, "safety_timer");
 	if (g_safety_timer == NULL) {
 		log_error(TAG, "Failed to create safety timer");
 	} else {
@@ -172,7 +196,7 @@ void command_handler_reload_motor_config(void) {
 	for (uint8_t slot = (uint8_t)count; slot < MAX_SERVOS; ++slot) {
 		ServoTimeoutState *state = &g_servo_timeouts[slot];
 		if (state->timer) {
-			timer_stop(state->timer);
+			puppy_timer_stop(state->timer);
 		}
 		state->active = false;
 		g_servo_current_angle[slot] = 90;
@@ -211,14 +235,26 @@ void command_handler_handle(CommandPacket *cmd) {
 
 		// Reset the safety timer
 		/*if (g_safety_timer) {
-		    timer_stop(g_safety_timer);
-		    timer_start_once(g_safety_timer, 1000000); // 1 second timeout
+		    puppy_timer_stop(g_safety_timer);
+		    puppy_timer_start_once(g_safety_timer, 1000000); // 1 second timeout
 		}*/
 
 		uint32_t node_id = (uint32_t)cmd->cmd.drive_motor.motor_id;
 		motor_rt_t *motor = find_motor(node_id);
 		if (!motor) {
 			log_error(TAG, "Unknown motor node %" PRIu32, node_id);
+			break;
+		}
+
+		if (motor->type_id == MOTOR_TYPE_SMART &&
+		    cmd->cmd.drive_motor.motor_type == DC_MOTOR) {
+			float speed = normalize_speed(cmd->cmd.drive_motor.speed);
+			if (cmd->cmd.drive_motor.speed == 0) {
+				motor_stop(node_id);
+			} else if (motor_set_smart_speed(node_id, speed) != 0) {
+				log_error(TAG, "Failed to set smart speed for motor %" PRIu32,
+				          node_id);
+			}
 			break;
 		}
 
@@ -233,10 +269,7 @@ void command_handler_handle(CommandPacket *cmd) {
 			}
 			cancel_servo_timeout((uint8_t)slot);
 			int angle = cmd->cmd.drive_motor.angle;
-			if (angle < 0)
-				angle = 0;
-			if (angle > 180)
-				angle = 180;
+			angle = clamp_motor_angle_deg(motor, angle);
 			uint16_t duration_ms = 0;
 			if (cmd->cmd.drive_motor.steps > 0)
 				duration_ms = (uint16_t)cmd->cmd.drive_motor.steps;
@@ -285,7 +318,7 @@ void command_handler_handle(CommandPacket *cmd) {
 		stop_all_drive_motors();
 
 		if (g_safety_timer) {
-			timer_stop(g_safety_timer);
+			puppy_timer_stop(g_safety_timer);
 		}
 
 		uint32_t count = servo_slot_count();

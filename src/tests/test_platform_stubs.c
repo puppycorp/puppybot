@@ -11,7 +11,9 @@ typedef struct {
 	void *arg;
 } test_timer_t;
 
-static test_timer_t *to_timer(timer_t handle) { return (test_timer_t *)handle; }
+static test_timer_t *to_timer(puppy_timer_t handle) {
+	return (test_timer_t *)handle;
+}
 
 platform_timer_handle_t platform_timer_create(void (*callback)(void *arg),
                                               void *arg, uint32_t interval_ms) {
@@ -46,7 +48,8 @@ uint32_t platform_get_time_ms(void) { return 0; }
 
 const char *platform_get_firmware_version(void) { return "tester"; }
 
-timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
+puppy_timer_t puppy_timer_create(void (*callback)(void *arg), void *arg,
+                                 const char *name) {
 	(void)name;
 	if (!callback) {
 		return NULL;
@@ -56,21 +59,21 @@ timer_t timer_create(void (*callback)(void *arg), void *arg, const char *name) {
 		timer->callback = callback;
 		timer->arg = arg;
 	}
-	return (timer_t)timer;
+	return (puppy_timer_t)timer;
 }
 
-int timer_start_once(timer_t handle, uint64_t timeout_us) {
+int puppy_timer_start_once(puppy_timer_t handle, uint64_t timeout_us) {
 	(void)timeout_us;
 	test_timer_t *timer = to_timer(handle);
 	return timer ? 0 : -1;
 }
 
-int timer_stop(timer_t handle) {
+int puppy_timer_stop(puppy_timer_t handle) {
 	test_timer_t *timer = to_timer(handle);
 	return timer ? 0 : -1;
 }
 
-void timer_delete(timer_t handle) { free(to_timer(handle)); }
+void puppy_timer_delete(puppy_timer_t handle) { free(to_timer(handle)); }
 
 ws_client_handle_t ws_client_init(const char *uri) {
 	return (ws_client_handle_t)uri;
