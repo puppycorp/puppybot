@@ -123,29 +123,39 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 	botConnections.get(botId)?.handlePong()
 	console.log("handleBotMsg", msg)
 	switch (msg.type) {
-		case MsgFromBotType.MyInfo: {
-			// Update known info for this bot
-			connectedBots.set(botId, {
-				id: botId,
+	case MsgFromBotType.MyInfo: {
+		// Update known info for this bot
+		const previous = connectedBots.get(botId)
+		const ip = previous?.ip ?? ""
+		const clientId = previous?.clientId ?? ""
+		const name = msg.deviceName || previous?.name || ""
+		connectedBots.set(botId, {
+			id: botId,
+			version: msg.firmwareVersion || "",
+			variant: msg.variant || "",
+			connected: true,
+			ip,
+			name,
+			clientId,
+		})
+		ensureBotConfig(botId)
+		// Default to a fully custom, empty config on connect.
+		// Users can apply templates manually from the UI.
+		broadcastConfig(botId)
+		logConnectionsTable()
+		for (const client of uiClients.values()) {
+			client.send({
+				type: "botInfo",
+				botId,
 				version: msg.firmwareVersion || "",
 				variant: msg.variant || "",
-				connected: true,
+				name,
+				ip,
+				clientId,
 			})
-			ensureBotConfig(botId)
-			// Default to a fully custom, empty config on connect.
-			// Users can apply templates manually from the UI.
-			broadcastConfig(botId)
-			logConnectionsTable()
-			for (const client of uiClients.values()) {
-				client.send({
-					type: "botInfo",
-					botId,
-					version: msg.firmwareVersion || "",
-					variant: msg.variant || "",
-				})
-			}
-			break
 		}
+		break
+	}
 		case MsgFromBotType.MotorState: {
 			const motors = msg.motors ?? []
 			for (const client of uiClients.values()) {
@@ -189,6 +199,8 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 type Context = {
 	clientType: "bot" | "ui"
 	botId?: string
+	clientId?: string
+	assignBotId?: boolean
 	botConnections: Map<string, BotConnection>
 	connection?: BotConnection
 }
@@ -205,6 +217,41 @@ const botConfigStates = new Map<
 		source: "auto" | "user"
 	}
 >()
+
+const clientIdToServerId = new Map<string, string>()
+
+const randomSuffix = () =>
+	Math.random().toString(36).slice(2, 10) +
+	Math.random().toString(36).slice(2, 10)
+
+const generateServerBotId = () =>
+	typeof crypto !== "undefined" && "randomUUID" in crypto
+		? (crypto as Crypto).randomUUID()
+		: `bot-${Date.now().toString(36)}-${randomSuffix()}`
+
+const normalizeClientId = (value: string) => {
+	const trimmed = value.trim()
+	if (trimmed) return trimmed
+	return `anon-${randomSuffix()}`
+}
+
+type ResolveServerBotIdResult = {
+	serverId: string
+	normalizedClientId: string
+}
+
+const resolveServerBotId = (clientId: string): ResolveServerBotIdResult => {
+	const normalized = normalizeClientId(clientId)
+	let serverId = clientIdToServerId.get(normalized)
+	if (!serverId) {
+		serverId = generateServerBotId()
+		clientIdToServerId.set(normalized, serverId)
+	}
+	if (!clientIdToServerId.has(serverId)) {
+		clientIdToServerId.set(serverId, serverId)
+	}
+	return { serverId, normalizedClientId: normalized }
+}
 
 const createServerSocketAdapter = (
 	ws: ServerWebSocket<Context>,
@@ -234,11 +281,12 @@ const createClientSocketAdapter = (ws: WebSocket): BotSocket => ({
 	},
 })
 
-const broadcastBotConnected = (botId: string) => {
+const broadcastBotConnected = (botId: string, clientId?: string) => {
 	for (const client of uiClients.values()) {
 		client.send({
 			type: "botConnected",
 			botId,
+			clientId,
 		})
 	}
 }
@@ -252,7 +300,11 @@ const broadcastBotDisconnected = (botId: string) => {
 	}
 }
 
-const attachBotConnection = (botId: string, socket: BotSocket) => {
+const attachBotConnection = (
+	botId: string,
+	socket: BotSocket,
+	metadata?: { ip?: string; clientId?: string },
+) => {
 	const previous = connectedBots.get(botId)
 	const existing = botConnections.get(botId)
 	if (existing) {
@@ -264,15 +316,20 @@ const attachBotConnection = (botId: string, socket: BotSocket) => {
 	}
 	const connection = new BotConnection(socket)
 	botConnections.set(botId, connection)
+	const ip = metadata?.ip ?? previous?.ip ?? ""
+	const clientId = metadata?.clientId ?? previous?.clientId ?? ""
 	connectedBots.set(botId, {
 		id: botId,
 		version: previous?.version ?? "",
 		variant: previous?.variant ?? "",
 		connected: true,
+		ip,
+		name: previous?.name,
+		clientId,
 	})
 	ensureBotConfig(botId)
 	logConnectionsTable()
-	broadcastBotConnected(botId)
+	broadcastBotConnected(botId, clientId || undefined)
 	broadcastConfig(botId)
 	applyConfigToBot(botId)
 	return connection
@@ -728,11 +785,15 @@ Bun.serve<Context, {}>({
 			if (!id) {
 				return new Response("Bot ID is required", { status: 400 })
 			}
+			const { serverId, normalizedClientId } = resolveServerBotId(id)
+			const assignBotId = normalizedClientId !== serverId
 			if (
 				server.upgrade(req, {
 					data: {
 						clientType: "bot",
-						botId: id,
+						botId: serverId,
+						clientId: serverId,
+						assignBotId,
 						botConnections,
 					},
 				})
@@ -768,25 +829,43 @@ Bun.serve<Context, {}>({
 				const connection = attachBotConnection(
 					ws.data.botId,
 					createServerSocketAdapter(ws),
+					{ ip: ws.remoteAddress ?? "", clientId: ws.data.clientId },
 				)
 				ws.data.connection = connection
+				if (ws.data.assignBotId) {
+					try {
+						connection.send({
+							type: "setBotId",
+							id: ws.data.botId,
+						})
+					} catch (error) {
+						console.log("Failed to send botId assignment:", error)
+					}
+				}
 			}
 			if (ws.data.clientType === "ui") {
 				const conn = new UiConnection(ws)
 				uiClients.set(ws, conn)
 				logConnectionsTable()
 				// Send current snapshot of connected bots to this UI client
-				for (const bot of connectedBots.values()) {
-					conn.send({ type: "botConnected", botId: bot.id })
-					if (bot.version || bot.variant) {
-						conn.send({
-							type: "botInfo",
-							botId: bot.id,
-							version: bot.version,
-							variant: bot.variant,
-						})
-					}
-				}
+		for (const bot of connectedBots.values()) {
+			conn.send({
+				type: "botConnected",
+				botId: bot.id,
+				clientId: bot.clientId ?? undefined,
+			})
+			if (bot.version || bot.variant) {
+				conn.send({
+					type: "botInfo",
+					botId: bot.id,
+					version: bot.version,
+					variant: bot.variant,
+					name: bot.name ?? "",
+					ip: bot.ip ?? "",
+					clientId: bot.clientId ?? "",
+				})
+			}
+		}
 				for (const [botId, motors] of botConfigs.entries()) {
 					const message = buildConfigBroadcast(botId)
 					if (message) {

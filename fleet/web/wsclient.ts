@@ -16,16 +16,19 @@ const handleMsg = (msg: MsgToUi) => {
 					state.bots.set(updated)
 					break
 				}
-				state.bots.set([
-					...bots,
-					{
-						id: msg.botId,
-						version: "",
-						variant: "",
-						connected: true,
-					},
-				])
-			}
+					state.bots.set([
+						...bots,
+						{
+							id: msg.botId,
+							version: "",
+							variant: "",
+							connected: true,
+							name: "",
+							ip: "",
+							clientId: msg.clientId ?? "",
+						},
+					])
+				}
 			break
 		case "botInfo":
 			console.log("Bot info:", msg.botId, msg.version, msg.variant)
@@ -33,10 +36,13 @@ const handleMsg = (msg: MsgToUi) => {
 				state.bots.get().map((b) =>
 					b.id === msg.botId
 						? {
-								...b,
-								version: msg.version,
-								variant: msg.variant,
-							}
+							...b,
+							version: msg.version,
+							variant: msg.variant,
+							name: msg.name,
+							ip: msg.ip,
+							clientId: msg.clientId,
+						}
 						: b,
 				),
 			)

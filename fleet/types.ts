@@ -3,6 +3,9 @@ export type Bot = {
 	version: string
 	variant: string
 	connected: boolean
+	name?: string
+	ip?: string
+	clientId?: string
 }
 
 export type MotorPwmConfig = {
@@ -113,6 +116,7 @@ export type MsgToServer =
 export type BotConnected = {
 	type: "botConnected"
 	botId: string
+	clientId?: string
 }
 
 export type BotDisconnected = {
@@ -125,6 +129,9 @@ export type BotInfo = {
 	botId: string
 	version: string
 	variant: string
+	name: string
+	ip: string
+	clientId: string
 }
 
 export type Ping = {
@@ -188,6 +195,11 @@ type SetMotorPoll = {
 	ids: number[]
 }
 
+type SetBotId = {
+	type: "setBotId"
+	id: string
+}
+
 export type MsgToBot =
 	| Omit<DriveMotor, "botId">
 	| Omit<Stop, "botId">
@@ -197,6 +209,7 @@ export type MsgToBot =
 	| Omit<SmartbusScan, "botId">
 	| Omit<SmartbusSetId, "botId">
 	| SetMotorPoll
+	| SetBotId
 	| ApplyConfig
 
 // export type MyInfo = {

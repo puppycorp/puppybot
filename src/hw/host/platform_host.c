@@ -3,6 +3,9 @@
 
 #include "log.h"
 
+#include <errno.h>
+#include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -34,6 +37,115 @@ typedef struct platform_timer {
 
 static const char *TAG = "PLATFORM";
 
+#ifndef PUPPYBOT_BUILD_VERSION
+#define PUPPYBOT_BUILD_VERSION "host-unknown"
+#endif
+
+static char g_host_bot_id[PLATFORM_BOT_ID_MAX_LEN];
+static int g_host_bot_id_cached;
+
+static char g_host_bot_id_file_path[PATH_MAX];
+static int g_host_bot_id_file_initialized;
+
+static const char *host_data_file(void) {
+	if (g_host_bot_id_file_initialized) {
+		return g_host_bot_id_file_path;
+	}
+	const char *env_path = getenv("PUPPYBOT_DATA_FILE");
+	if (env_path && env_path[0]) {
+		strncpy(g_host_bot_id_file_path, env_path,
+		        sizeof(g_host_bot_id_file_path) - 1);
+		g_host_bot_id_file_path[sizeof(g_host_bot_id_file_path) - 1] = '\0';
+	} else {
+		strncpy(g_host_bot_id_file_path, "puppybot.dat",
+		        sizeof(g_host_bot_id_file_path) - 1);
+		g_host_bot_id_file_path[sizeof(g_host_bot_id_file_path) - 1] = '\0';
+	}
+	g_host_bot_id_file_initialized = 1;
+	return g_host_bot_id_file_path;
+}
+
+static void host_load_bot_id(void) {
+	if (g_host_bot_id_cached) {
+		return;
+	}
+	g_host_bot_id[0] = '\0';
+
+	const char *file_path = host_data_file();
+	if (file_path && file_path[0]) {
+		FILE *file = fopen(file_path, "r");
+		if (file) {
+			char line[256];
+			while (fgets(line, sizeof(line), file)) {
+				char *newline = line;
+				line[strcspn(line, "\r\n")] = '\0';
+				while (newline[0] && newline[0] == ' ')
+					newline++;
+				if (newline[0] == '\0' || newline[0] == '#')
+					continue;
+				char *eq = strchr(newline, '=');
+				if (!eq)
+					continue;
+				*eq = '\0';
+				char *key = newline;
+				char *value = eq + 1;
+				while (*value == ' ')
+					value++;
+				if (strcmp(key, "bot_id") == 0) {
+					size_t len = strnlen(value, PLATFORM_BOT_ID_MAX_LEN - 1);
+					if (len > 0) {
+						strncpy(g_host_bot_id, value,
+						        sizeof(g_host_bot_id) - 1);
+						g_host_bot_id[sizeof(g_host_bot_id) - 1] = '\0';
+						break;
+					}
+				}
+			}
+			fclose(file);
+		}
+	}
+
+	if (g_host_bot_id[0]) {
+		g_host_bot_id_cached = 1;
+		return;
+	}
+
+	const char *env_id = getenv("PUPPYBOT_BOT_ID");
+	if (!env_id || env_id[0] == '\0') {
+		env_id = getenv("PUPPYBOT_CLIENT_ID");
+	}
+	if (!env_id || env_id[0] == '\0') {
+		env_id = "host";
+	}
+	size_t len = strnlen(env_id, PLATFORM_BOT_ID_MAX_LEN - 1);
+	strncpy(g_host_bot_id, env_id, len);
+	g_host_bot_id[len] = '\0';
+	g_host_bot_id_cached = 1;
+}
+
+static int host_store_bot_id_to_file(const char *bot_id) {
+	const char *file_path = host_data_file();
+	if (!file_path || file_path[0] == '\0') {
+		return -1;
+	}
+	FILE *file = fopen(file_path, "w");
+	if (!file) {
+		log_error(TAG,
+		          "Failed to open bot ID file %s: %s",
+		          file_path,
+		          strerror(errno));
+		return -1;
+	}
+	size_t len = strnlen(bot_id, PLATFORM_BOT_ID_MAX_LEN - 1);
+	if (fprintf(file, "%.*s\n", (int)len, bot_id) < 0) {
+		log_error(TAG, "Failed to write bot ID to %s", file_path);
+		fclose(file);
+		return -1;
+	}
+	fclose(file);
+	return 0;
+}
+
 uint32_t platform_get_time_ms(void) {
 #ifdef _WIN32
 	static LARGE_INTEGER frequency = {0};
@@ -53,7 +165,10 @@ uint32_t platform_get_time_ms(void) {
 
 const char *platform_get_firmware_version(void) {
 	const char *env_version = getenv("PUPPYBOT_FW_VERSION");
-	return env_version && env_version[0] ? env_version : "host-0.1.0";
+	if (env_version && env_version[0]) {
+		return env_version;
+	}
+	return PUPPYBOT_BUILD_VERSION;
 }
 
 const char *platform_get_server_uri(void) {
@@ -62,6 +177,31 @@ const char *platform_get_server_uri(void) {
 		return uri;
 	}
 	return NULL;
+}
+
+const char *platform_get_bot_id(void) {
+	host_load_bot_id();
+	return g_host_bot_id;
+}
+
+int platform_store_bot_id(const char *bot_id) {
+	if (!bot_id || bot_id[0] == '\0') {
+		return -1;
+	}
+	size_t len = strnlen(bot_id, PLATFORM_BOT_ID_MAX_LEN - 1);
+	if (len == 0) {
+		return -1;
+	}
+	char sanitized[PLATFORM_BOT_ID_MAX_LEN];
+	memcpy(sanitized, bot_id, len);
+	sanitized[len] = '\0';
+	if (host_store_bot_id_to_file(sanitized) != 0) {
+		return -1;
+	}
+	strncpy(g_host_bot_id, sanitized, sizeof(g_host_bot_id) - 1);
+	g_host_bot_id[sizeof(g_host_bot_id) - 1] = '\0';
+	g_host_bot_id_cached = 1;
+	return 0;
 }
 
 const char *instance_name(void) {

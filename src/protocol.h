@@ -12,6 +12,7 @@
 #define CMD_SMARTBUS_SCAN 7
 #define CMD_SMARTBUS_SET_ID 8
 #define CMD_SET_MOTOR_POLL 9
+#define CMD_SET_BOT_ID 10
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -57,6 +58,11 @@ typedef struct {
 	int motor_id;
 } StopMotorCommand;
 
+typedef struct {
+	const uint8_t *data;
+	uint16_t length;
+} SetBotIdCommand;
+
 union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
@@ -67,6 +73,7 @@ union Command {
 		const uint8_t *data;
 		uint16_t length;
 	} apply_config;
+	SetBotIdCommand set_bot_id;
 };
 
 typedef struct {
@@ -92,6 +99,8 @@ static inline const char *command_type_to_string(int cmd_type) {
 		return "SMARTBUS_SET_ID";
 	case CMD_SET_MOTOR_POLL:
 		return "SET_MOTOR_POLL";
+	case CMD_SET_BOT_ID:
+		return "SET_BOT_ID";
 	default:
 		return "UNKNOWN";
 	}
@@ -164,6 +173,11 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 			    (payload_len >= (int)(2 + i)) ? payload[1 + i] : 0;
 		}
 	} break;
+	case CMD_SET_BOT_ID:
+		cmd_packet->cmd_type = CMD_SET_BOT_ID;
+		cmd_packet->cmd.set_bot_id.data = payload;
+		cmd_packet->cmd.set_bot_id.length = (uint16_t)payload_len;
+		break;
 	default:
 		break;
 	}

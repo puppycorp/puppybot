@@ -43,6 +43,16 @@ export const botPage = (container: Container, botId: string) => {
 	variantText.textContent = "Variant: -"
 	statusCard.appendChild(variantText)
 
+	const nameText = document.createElement("div")
+	nameText.className = "info-text"
+	nameText.textContent = "Name: -"
+	statusCard.appendChild(nameText)
+
+	const ipText = document.createElement("div")
+	ipText.className = "info-text"
+	ipText.textContent = "IP: -"
+	statusCard.appendChild(ipText)
+
 	state.bots.onChange((bots) => {
 		const bot = bots.find((candidate) => candidate.id === botId)
 		if (bot) {
@@ -52,11 +62,15 @@ export const botPage = (container: Container, botId: string) => {
 			statusBadge.classList.toggle("connected", bot.connected)
 			firmwareText.textContent = `Firmware: ${bot.version || "-"}`
 			variantText.textContent = `Variant: ${bot.variant || "-"}`
+			nameText.textContent = `Name: ${bot.name || "-"}`
+			ipText.textContent = `IP: ${bot.ip || "-"}`
 		} else {
 			statusBadge.textContent = "Disconnected"
 			statusBadge.classList.remove("connected")
 			firmwareText.textContent = "Firmware: -"
 			variantText.textContent = "Variant: -"
+			nameText.textContent = "Name: -"
+			ipText.textContent = "IP: -"
 		}
 	})
 

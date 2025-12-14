@@ -6,3 +6,7 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(puppybot)
+
+if(DEFINED PUPPYBOT_BUILD_NAME)
+	add_compile_definitions(PUPPYBOT_BUILD_NAME="${PUPPYBOT_BUILD_NAME}")
+endif()

@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#define PLATFORM_BOT_ID_MAX_LEN 64
+
 // Platform initialization and utilities
 
 // Get current time in milliseconds
@@ -23,6 +25,10 @@ PuppybotStatus platform_init(void);
 
 // Get device instance name
 const char *instance_name(void);
+
+// Read/write the runtime bot identifier that the server assigned
+const char *platform_get_bot_id(void);
+int platform_store_bot_id(const char *bot_id);
 
 // Platform-specific services (storage/WiFi/mDNS/motor) are initialized
 // internally by platform_init().

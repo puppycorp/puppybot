@@ -26,6 +26,8 @@ export SERIAL_BAUD=1000000   # optional; defaults to PBCL baud or 1_000_000
 
 Without `SERIAL_PORT`, smart-servo packets are just logged for inspection.
 
+Set `VERSION` (50 characters max) before invoking the host build (`cmake`/`./run.sh`) to embed a custom firmware label; if you skip it the build records the repository's short Git SHA instead. Use `NAME` (also ≤50 chars) to attach a friendly identifier to the build (defaults to `puppybot` when omitted).
+
 Notes:
 
 - `PUPPYBOT_INSTANCE_NAME` controls the bot ID advertised to the server (default
@@ -45,7 +47,8 @@ Example `.env` file:
 # Example: WIFI_CREDENTIALS="Home WiFi:supersecret;Phone Hotspot:backuppass"
 # For a single network, provide just one pair.
 WIFI_CREDENTIALS=
-VERSION=NUMBER
+VERSION=NUMBER        # optional (<=50 chars); omitted value means short git SHA
+NAME=my-friendly-bot  # optional (<=50 chars)
 PUPPY_VARIANT=STRING
 # Optional: server host for the bot to connect to.
 SERVER_HOST=your.server.host

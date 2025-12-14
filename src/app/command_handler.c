@@ -1,5 +1,6 @@
 #include "command_handler.h"
 #include "http.h"
+#include "platform.h"
 #include "log.h"
 #include "motor_config.h"
 #include "motor_hw.h"
@@ -10,6 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define TAG "COMMAND"
 #define MAX_SERVOS 8
@@ -434,6 +436,42 @@ void command_handler_handle(CommandPacket *cmd) {
 			if (m && m->type_id == MOTOR_TYPE_SMART) {
 				m->poll_status = true;
 			}
+		}
+		break;
+	}
+	case CMD_SET_BOT_ID: {
+		log_info(TAG, "CMD_SET_BOT_ID");
+		if (!cmd->cmd.set_bot_id.data || cmd->cmd.set_bot_id.length == 0) {
+			log_warn(TAG, "Received empty bot ID payload");
+			break;
+		}
+		const uint8_t *payload = cmd->cmd.set_bot_id.data;
+		size_t payload_len = (size_t)cmd->cmd.set_bot_id.length;
+		uint8_t id_len = payload[0];
+		if (payload_len <= 1 || id_len == 0) {
+			log_warn(TAG, "Invalid bot ID payload");
+			break;
+		}
+		size_t available = payload_len - 1;
+		size_t copy_len = (size_t)id_len;
+		if (copy_len > available) {
+			copy_len = available;
+		}
+		const size_t max_copy = PLATFORM_BOT_ID_MAX_LEN - 1;
+		if (copy_len > max_copy) {
+			copy_len = max_copy;
+		}
+		char bot_id[PLATFORM_BOT_ID_MAX_LEN];
+		memcpy(bot_id, payload + 1, copy_len);
+		bot_id[copy_len] = '\0';
+		if (copy_len == 0) {
+			log_warn(TAG, "Bot ID payload was empty after trimming");
+			break;
+		}
+		if (platform_store_bot_id(bot_id) != 0) {
+			log_error(TAG, "Failed to store bot ID");
+		} else {
+			log_info(TAG, "Stored new bot ID %s", bot_id);
 		}
 		break;
 	}

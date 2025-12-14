@@ -110,6 +110,7 @@ body {
 	display: flex;
 	flex-direction: row;
 	gap: 24px;
+	margin: 10px;
 }
 
 h1,

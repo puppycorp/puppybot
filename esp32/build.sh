@@ -13,11 +13,21 @@ fi
 
 cd "${SCRIPT_DIR}"
 
+VERSION_SCRIPT="${ROOT_DIR}/scripts/build_version.sh"
+if [ -f "${VERSION_SCRIPT}" ]; then
+  BUILD_VERSION="$("${VERSION_SCRIPT}" version)"
+  BUILD_NAME="$("${VERSION_SCRIPT}" name)"
+else
+  BUILD_VERSION="unknown"
+  BUILD_NAME="puppybot"
+fi
+
 ACTION="${1:-all}"
 
 case "${ACTION}" in
 build)
-  idf.py -DPROJECT_VER="${VERSION:-1}" build
+  echo "Building ESP32 firmware with version: ${BUILD_VERSION}"
+  idf.py -DPROJECT_VER="${BUILD_VERSION}" -DPUPPYBOT_BUILD_NAME="${BUILD_NAME}" build
   ;;
 flash)
   idf.py flash
@@ -26,7 +36,8 @@ monitor)
   idf.py monitor
   ;;
 all)
-  idf.py -DPROJECT_VER="${VERSION:-1}" build
+  echo "Building ESP32 firmware with version: ${BUILD_VERSION}"
+  idf.py -DPROJECT_VER="${BUILD_VERSION}" -DPUPPYBOT_BUILD_NAME="${BUILD_NAME}" build
   idf.py flash monitor
   ;;
 *)

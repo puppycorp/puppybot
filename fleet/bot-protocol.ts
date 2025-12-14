@@ -9,6 +9,7 @@ enum MsgToBotType {
 	SmartbusScan = 7,
 	SmartbusSetId = 8,
 	SetMotorPoll = 9,
+	SetBotId = 10,
 }
 
 export enum MsgFromBotType {
@@ -67,6 +68,7 @@ export type MyInfoMsg = {
 	protocolVersion: number
 	firmwareVersion: string
 	variant: string
+	deviceName: string
 }
 
 export type MotorStateEntry = {
@@ -140,6 +142,15 @@ type DrivePayloadInput = {
 const clampInt = (value: number | undefined, min: number, max: number) => {
 	const safeValue = Number.isFinite(value ?? 0) ? (value ?? 0) : 0
 	return Math.max(min, Math.min(max, Math.round(safeValue)))
+}
+
+const createSetBotIdPayload = (id: string): Buffer => {
+	const idBuffer = Buffer.from(id ?? "", "utf8")
+	const idLength = Math.min(255, idBuffer.length)
+	const payload = Buffer.alloc(1 + idLength)
+	payload.writeUInt8(idLength, 0)
+	idBuffer.copy(payload, 1, 0, idLength)
+	return payload
 }
 
 const createDrivePayload = (input: DrivePayloadInput): Buffer => {
@@ -260,6 +271,11 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			)
 			return Buffer.concat([header, payload])
 		}
+		case "setBotId": {
+			const payload = createSetBotIdPayload(msg.id)
+			const header = createHeader(MsgToBotType.SetBotId, payload.length)
+			return Buffer.concat([header, payload])
+		}
 		case "ping":
 			return createHeader(MsgToBotType.Ping, 0)
 		default:
@@ -293,12 +309,14 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 
 			const firmwareVersion = readString()
 			const variant = readString()
+			const deviceName = readString()
 
 			return {
 				type: MsgFromBotType.MyInfo,
 				protocolVersion,
 				firmwareVersion,
 				variant,
+				deviceName,
 			}
 		}
 		case MsgFromBotType.MotorState: {

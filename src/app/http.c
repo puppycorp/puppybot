@@ -11,6 +11,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef PUPPYBOT_BUILD_NAME
+#define PUPPYBOT_BUILD_NAME "puppybot"
+#endif
+
 static const char *TAG = "http";
 #define MOTOR_STATE_INTERVAL_MS 250
 
@@ -474,7 +478,7 @@ int ws_client_send(const uint8_t *data, size_t len) {
 	return ws_client_send_binary(ws_client, data, len);
 }
 
-// Send device information (firmware version, variant) to server
+// Send device information (firmware version, variant, name) to server
 void ws_client_send_device_info(void) {
 	if (!client_connected) {
 		log_warn(TAG, "Cannot send device info: not connected");
@@ -483,6 +487,7 @@ void ws_client_send_device_info(void) {
 
 	const char *fw_version = platform_get_firmware_version();
 	const char *variant = instance_name();
+	const char *build_name = PUPPYBOT_BUILD_NAME;
 
 	size_t version_len = strlen(fw_version);
 	if (version_len > 255) {
@@ -493,7 +498,13 @@ void ws_client_send_device_info(void) {
 		variant_len = 255;
 	}
 
-	const size_t total_len = 3 + 1 + version_len + 1 + variant_len;
+	size_t name_len = strlen(build_name);
+	if (name_len > 255) {
+		name_len = 255;
+	}
+
+	const size_t total_len =
+		3 + 1 + version_len + 1 + variant_len + 1 + name_len;
 	uint8_t *payload = (uint8_t *)malloc(total_len);
 	if (!payload) {
 		log_error(TAG, "Failed to allocate buffer for MyInfo message");
@@ -510,14 +521,25 @@ void ws_client_send_device_info(void) {
 	payload[offset++] = (uint8_t)variant_len;
 	memcpy(&payload[offset], variant, variant_len);
 	offset += variant_len;
+	payload[offset++] = (uint8_t)name_len;
+	memcpy(&payload[offset], build_name, name_len);
+	offset += name_len;
 
 	int ret = ws_client_send(payload, offset);
 	if (ret != 0) {
 		log_error(TAG, "Failed to send MyInfo message");
 	} else {
-		log_info(TAG, "Sent MyInfo (fw=%.*s, variant=%.*s)", (int)version_len,
-		         fw_version, (int)variant_len, variant);
-	}
+		log_info(
+			TAG,
+			"Sent MyInfo (fw=%.*s, variant=%.*s, name=%.*s)",
+			(int)version_len,
+			fw_version,
+				(int)variant_len,
+				variant,
+				(int)name_len,
+				build_name
+			);
+		}
 
 	free(payload);
 }

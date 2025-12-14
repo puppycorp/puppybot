@@ -1,6 +1,7 @@
 #include "platform.h"
 #include "bluetooth.h"
 #include "http.h"
+#include "nvs.h"
 
 #include "esp_app_desc.h"
 #include "esp_err.h"
@@ -11,6 +12,48 @@
 #include "nvs_flash.h"
 #include "variant_config.h"
 #include "wifi.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+
+static const char *PLATFORM_TAG = "PLATFORM";
+
+#define BOT_ID_NAMESPACE "puppybot"
+#define BOT_ID_KEY "bot_id"
+
+static char g_bot_id[PLATFORM_BOT_ID_MAX_LEN];
+static bool g_bot_id_loaded = false;
+
+static void load_stored_bot_id(void) {
+	if (g_bot_id_loaded) {
+		return;
+	}
+	g_bot_id_loaded = true;
+	g_bot_id[0] = '\0';
+
+	nvs_handle_t handle;
+	esp_err_t err = nvs_open(BOT_ID_NAMESPACE, NVS_READWRITE, &handle);
+	if (err != ESP_OK) {
+		return;
+	}
+
+	size_t required = sizeof(g_bot_id);
+	err = nvs_get_str(handle, BOT_ID_KEY, g_bot_id, &required);
+	if (err != ESP_OK) {
+		if (err != ESP_ERR_NVS_NOT_FOUND) {
+			ESP_LOGW(PLATFORM_TAG, "Failed to read stored bot ID (%s)",
+			         esp_err_to_name(err));
+		}
+		g_bot_id[0] = '\0';
+	}
+
+	nvs_close(handle);
+}
+
+#ifndef PUPPYBOT_BUILD_NAME
+#define PUPPYBOT_BUILD_NAME "esp32"
+#endif
 
 int storage_init(void);
 int wifi_init(void);
@@ -40,11 +83,70 @@ const char *platform_get_firmware_version(void) {
 	return app_desc ? app_desc->version : "unknown";
 }
 
+const char *platform_get_bot_id(void) {
+	load_stored_bot_id();
+	if (g_bot_id[0]) {
+		return g_bot_id;
+	}
+#if defined(DEVICE_ID)
+	return DEVICE_ID;
+#else
+	return "1";
+#endif
+}
+
+int platform_store_bot_id(const char *bot_id) {
+	if (!bot_id || !bot_id[0]) {
+		return -1;
+	}
+	size_t raw_len = strnlen(bot_id, PLATFORM_BOT_ID_MAX_LEN);
+	if (raw_len == 0) {
+		return -1;
+	}
+	if (raw_len >= PLATFORM_BOT_ID_MAX_LEN) {
+		raw_len = PLATFORM_BOT_ID_MAX_LEN - 1;
+	}
+	char sanitized[PLATFORM_BOT_ID_MAX_LEN];
+	memcpy(sanitized, bot_id, raw_len);
+	sanitized[raw_len] = '\0';
+
+	nvs_handle_t handle;
+	esp_err_t err = nvs_open(BOT_ID_NAMESPACE, NVS_READWRITE, &handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(PLATFORM_TAG, "Failed to open NVS for bot ID (%s)",
+		         esp_err_to_name(err));
+		return -1;
+	}
+	err = nvs_set_str(handle, BOT_ID_KEY, sanitized);
+	if (err == ESP_OK) {
+		err = nvs_commit(handle);
+	}
+	nvs_close(handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(PLATFORM_TAG, "Failed to save bot ID (%s)",
+		         esp_err_to_name(err));
+		return -1;
+	}
+	strncpy(g_bot_id, sanitized, sizeof(g_bot_id));
+	g_bot_id[sizeof(g_bot_id) - 1] = '\0';
+	g_bot_id_loaded = true;
+	return 0;
+}
+
 const char *platform_get_server_uri(void) {
-#if defined(SERVER_HOST) && defined(DEVICE_ID)
-	return "ws://" SERVER_HOST "/api/bot/" DEVICE_ID "/ws";
-#elif defined(SERVER_HOST)
-	return "ws://" SERVER_HOST "/api/bot/1/ws";
+#if defined(SERVER_HOST)
+	static char uri[256];
+	const char *bot_id = platform_get_bot_id();
+	if (!bot_id || bot_id[0] == '\0') {
+		return NULL;
+	}
+	int needed = snprintf(uri, sizeof(uri),
+	                      "ws://" SERVER_HOST "/api/bot/%s/ws", bot_id);
+	if (needed < 0 || needed >= (int)sizeof(uri)) {
+		ESP_LOGE(PLATFORM_TAG, "Server URI was truncated");
+		return NULL;
+	}
+	return uri;
 #else
 	return NULL;
 #endif

@@ -96,6 +96,13 @@ void http_client_start(const char *server_uri, uint32_t heartbeat_interval_ms) {
 	(void)heartbeat_interval_ms;
 }
 
+const char *platform_get_bot_id(void) { return "test-bot"; }
+
+int platform_store_bot_id(const char *bot_id) {
+	(void)bot_id;
+	return 0;
+}
+
 // Stub for motor_slots functions
 int motor_slots_servo_count(void) { return 0; }
 
