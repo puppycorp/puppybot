@@ -16,6 +16,8 @@ import {
 } from "./mdns"
 import { buildMotorBlob } from "./pbcl"
 import { isConfigTemplateKey, type ConfigTemplateKey } from "./config-templates"
+import { DATABASE_FILE } from "./config"
+import { DataAccess } from "./db"
 
 type BotSocket = {
 	send(data: string | Uint8Array | ArrayBufferLike): void
@@ -68,6 +70,10 @@ class UiConnection {
 		this.ws.send(jsonMsg)
 	}
 }
+
+const db = new DataAccess(DATABASE_FILE)
+db.ensureBotsTable()
+const persistBot = (bot: Bot) => db.syncBot(bot)
 
 const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 	console.log("handleUiMsg", msg)
@@ -138,6 +144,10 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 			name,
 			clientId,
 		})
+		const stored = connectedBots.get(botId)
+		if (stored) {
+			persistBot(stored)
+		}
 		ensureBotConfig(botId)
 		// Default to a fully custom, empty config on connect.
 		// Users can apply templates manually from the UI.
@@ -327,6 +337,10 @@ const attachBotConnection = (
 		name: previous?.name,
 		clientId,
 	})
+	const stored = connectedBots.get(botId)
+	if (stored) {
+		persistBot(stored)
+	}
 	ensureBotConfig(botId)
 	logConnectionsTable()
 	broadcastBotConnected(botId, clientId || undefined)
@@ -339,6 +353,10 @@ const detachBotConnection = (botId: string, expected?: BotConnection) => {
 	const existing = botConnections.get(botId)
 	if (!existing) return
 	if (expected && existing !== expected) return
+	const stored = connectedBots.get(botId)
+	if (stored) {
+		persistBot({ ...stored, connected: false })
+	}
 	botConnections.delete(botId)
 	connectedBots.delete(botId)
 	logConnectionsTable()
@@ -767,14 +785,15 @@ startMdnsDiscovery()
 if (typeof process !== "undefined") {
 	process.on("exit", () => {
 		mdnsWatcher?.stop()
+		db.close(false)
 	})
 }
 
 Bun.serve<Context, {}>({
 	port: 7775,
 	routes: {
-		"/api/bots": () => {
-			const bots = Array.from(connectedBots.values())
+			"/api/bots": () => {
+				const bots = db.getStoredBots()
 			return new Response(JSON.stringify({ bots }), {
 				headers: { "Content-Type": "application/json" },
 			})
