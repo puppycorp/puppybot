@@ -401,13 +401,11 @@ void command_handler_handle(CommandPacket *cmd) {
 		uint8_t new_id = (uint8_t)cmd->cmd.smartbus_set_id.new_id;
 		uint8_t status = 1;
 		if (old_id > 0 && old_id <= 253 && new_id > 0 && new_id <= 253) {
-			motor_hw_smartbus_write_u8(uart_port, old_id,
-			                           (uint8_t)SMARTBUS_ADDR_LOCK, 0);
+			motor_hw_smartbus_write_u8(uart_port, old_id, (uint8_t)SMARTBUS_ADDR_LOCK, 0);
 			platform_delay_ms(10);
 			motor_hw_smartbus_write_u8(uart_port, old_id, 5, new_id);
 			platform_delay_ms(50);
-			motor_hw_smartbus_write_u8(uart_port, new_id,
-			                           (uint8_t)SMARTBUS_ADDR_LOCK, 1);
+			motor_hw_smartbus_write_u8(uart_port, new_id, (uint8_t)SMARTBUS_ADDR_LOCK, 1);
 			platform_delay_ms(20);
 			status = motor_hw_smartbus_ping(uart_port, new_id, 80) == 0 ? 0 : 2;
 		} else {

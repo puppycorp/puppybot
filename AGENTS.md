@@ -1,4 +1,4 @@
-after changes run ./format.sh
+when making changes always try to match coding style of surrounding code.
 
 if you make changes fleet folder run tests and build
 
