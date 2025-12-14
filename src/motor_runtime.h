@@ -41,6 +41,7 @@ typedef struct {
 	uint8_t smart_uart_port;
 	uint32_t smart_baud;
 	bool smart_wheel_mode;
+	bool poll_status;
 
 	uint16_t timeout_ms;
 	uint16_t max_speed_x100;

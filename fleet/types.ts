@@ -42,6 +42,7 @@ export type MotorConfig = {
 	name?: string
 	timeoutMs?: number
 	maxSpeed?: number
+	pollStatus?: boolean
 	pwm?: MotorPwmConfig
 	smart?: SmartServoBusConfig
 	hbridge?: MotorHBridgeConfig
@@ -182,6 +183,11 @@ type ApplyConfig = {
 	blob: Uint8Array
 }
 
+type SetMotorPoll = {
+	type: "setMotorPoll"
+	ids: number[]
+}
+
 export type MsgToBot =
 	| Omit<DriveMotor, "botId">
 	| Omit<Stop, "botId">
@@ -190,6 +196,7 @@ export type MsgToBot =
 	| Omit<TurnServo, "botId">
 	| Omit<SmartbusScan, "botId">
 	| Omit<SmartbusSetId, "botId">
+	| SetMotorPoll
 	| ApplyConfig
 
 // export type MyInfo = {

@@ -11,6 +11,7 @@
 #define CMD_APPLY_CONFIG 6
 #define CMD_SMARTBUS_SCAN 7
 #define CMD_SMARTBUS_SET_ID 8
+#define CMD_SET_MOTOR_POLL 9
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -48,6 +49,11 @@ typedef struct {
 } SmartbusSetIdCommand;
 
 typedef struct {
+	int count;
+	uint8_t ids[32];
+} MotorPollCommand;
+
+typedef struct {
 	int motor_id;
 } StopMotorCommand;
 
@@ -56,6 +62,7 @@ union Command {
 	StopMotorCommand stop_motor;
 	SmartbusScanCommand smartbus_scan;
 	SmartbusSetIdCommand smartbus_set_id;
+	MotorPollCommand motor_poll;
 	struct {
 		const uint8_t *data;
 		uint16_t length;
@@ -79,6 +86,12 @@ static inline const char *command_type_to_string(int cmd_type) {
 		return "STOP_ALL_MOTORS";
 	case CMD_APPLY_CONFIG:
 		return "APPLY_CONFIG";
+	case CMD_SMARTBUS_SCAN:
+		return "SMARTBUS_SCAN";
+	case CMD_SMARTBUS_SET_ID:
+		return "SMARTBUS_SET_ID";
+	case CMD_SET_MOTOR_POLL:
+		return "SET_MOTOR_POLL";
 	default:
 		return "UNKNOWN";
 	}
@@ -140,6 +153,17 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd.smartbus_set_id.new_id =
 		    (payload_len >= 3) ? payload[2] : 0;
 		break;
+	case CMD_SET_MOTOR_POLL: {
+		cmd_packet->cmd_type = CMD_SET_MOTOR_POLL;
+		uint8_t count = (payload_len >= 1) ? payload[0] : 0;
+		if (count > 32)
+			count = 32;
+		cmd_packet->cmd.motor_poll.count = (int)count;
+		for (uint8_t i = 0; i < count; ++i) {
+			cmd_packet->cmd.motor_poll.ids[i] =
+			    (payload_len >= (int)(2 + i)) ? payload[1 + i] : 0;
+		}
+	} break;
 	default:
 		break;
 	}

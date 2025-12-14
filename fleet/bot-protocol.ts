@@ -8,6 +8,7 @@ enum MsgToBotType {
 	ApplyConfig = 6,
 	SmartbusScan = 7,
 	SmartbusSetId = 8,
+	SetMotorPoll = 9,
 }
 
 export enum MsgFromBotType {
@@ -239,6 +240,22 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			payload.writeUInt8(clampInt(msg.newId, 0, 0xff), 2)
 			const header = createHeader(
 				MsgToBotType.SmartbusSetId,
+				payload.length,
+			)
+			return Buffer.concat([header, payload])
+		}
+		case "setMotorPoll": {
+			const ids = (msg.ids ?? []).filter(
+				(id) => Number.isFinite(id) && id >= 0 && id <= 255,
+			)
+			const count = Math.min(32, ids.length)
+			const payload = Buffer.alloc(1 + count)
+			payload.writeUInt8(count, 0)
+			for (let i = 0; i < count; i++) {
+				payload.writeUInt8(clampInt(ids[i], 0, 0xff), 1 + i)
+			}
+			const header = createHeader(
+				MsgToBotType.SetMotorPoll,
 				payload.length,
 			)
 			return Buffer.concat([header, payload])

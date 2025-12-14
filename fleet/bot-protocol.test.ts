@@ -189,4 +189,14 @@ describe("encodeBotMsg", () => {
 		expect(msg.newId).toBe(2)
 		expect(msg.status).toBe(0)
 	})
+
+	test("encodes a set motor poll message", () => {
+		const msg: MsgToBot = { type: "setMotorPoll", ids: [1, 2, 300] } as any
+		const buffer = encodeBotMsg(msg)
+		const expectedHeader = Buffer.from([0xaa, 9, 3, 0])
+		const expectedPayload = Buffer.from([2, 1, 2])
+		expect(
+			buffer.equals(Buffer.concat([expectedHeader, expectedPayload])),
+		).toBe(true)
+	})
 })

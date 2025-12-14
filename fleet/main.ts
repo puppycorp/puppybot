@@ -333,6 +333,11 @@ const applyConfigToBot = (botId: string) => {
 	const conn = botConnections.get(botId)
 	if (!conn) return
 	conn.send({ type: "applyConfig", blob: new Uint8Array(blob) })
+
+	const pollIds = motors
+		.filter((m) => m.type === "smart" && m.pollStatus)
+		.map((m) => m.nodeId)
+	conn.send({ type: "setMotorPoll", ids: pollIds })
 }
 
 const ensureBotConfig = (botId: string) => {

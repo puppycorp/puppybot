@@ -54,6 +54,8 @@ static void ws_client_send_motor_state(void) {
 			continue;
 		if (m->type_id != MOTOR_TYPE_SMART)
 			continue;
+		if (!m->poll_status)
+			continue;
 		if (m->node_id > 0xFFu)
 			continue;
 		if (count >= 16)

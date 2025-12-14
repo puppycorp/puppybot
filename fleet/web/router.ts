@@ -23,6 +23,7 @@ type InferHandlerReturn<H> = H extends RouteHandler<any, infer R> ? R : never
 
 type MatchResult<T extends PatternMatcherHandlers> = {
 	pattern: keyof T
+	params: Record<string, string>
 	result: InferHandlerReturn<T[keyof T]>
 } | null
 
@@ -54,12 +55,12 @@ function patternMatcher<T extends Record<string, (params: any) => any>>(
 	return {
 		match(
 			path: string,
-		): { pattern: keyof T; result: ReturnType<T[keyof T]> } | null {
+		): { pattern: keyof T; params: Record<string, string>; result: ReturnType<T[keyof T]> } | null {
 			for (const route of routes) {
 				const params = matchRoute(route, path)
 				if (params !== null) {
 					const result = typedHandlers[route](params)
-					return { pattern: route, result }
+					return { pattern: route, params, result }
 				}
 			}
 			return null
@@ -114,11 +115,32 @@ function matchRoute(
 }
 
 let matcher: any
+
+type RouteChangeInfo = {
+	path: string
+	match: { pattern: string; params: Record<string, string> } | null
+}
+
+const routeChangeListeners: ((info: RouteChangeInfo) => void)[] = []
+
+export const onRouteChange = (listener: (info: RouteChangeInfo) => void) => {
+	routeChangeListeners.push(listener)
+	return () => {
+		const idx = routeChangeListeners.indexOf(listener)
+		if (idx >= 0) routeChangeListeners.splice(idx, 1)
+	}
+}
+
 const handleRoute = (path: string) => {
 	if (!matcher) return
 	const m = matcher.match(path)
 	if (!m) console.error("No route found for", path)
 	console.log("match result", m)
+	const info: RouteChangeInfo = {
+		path,
+		match: m ? { pattern: String(m.pattern), params: m.params ?? {} } : null,
+	}
+	for (const listener of routeChangeListeners) listener(info)
 }
 window.addEventListener("popstate", () => {
 	handleRoute(window.location.pathname)

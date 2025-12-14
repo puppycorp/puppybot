@@ -414,6 +414,29 @@ void command_handler_handle(CommandPacket *cmd) {
 		send_smartbus_set_id_result(uart_port, old_id, new_id, status);
 		break;
 	}
+	case CMD_SET_MOTOR_POLL: {
+		for (int i = 0; i < motor_count(); ++i) {
+			motor_rt_t *m = motor_at(i);
+			if (m && m->type_id == MOTOR_TYPE_SMART) {
+				m->poll_status = false;
+			}
+		}
+		int n = cmd->cmd.motor_poll.count;
+		if (n < 0)
+			n = 0;
+		if (n > 32)
+			n = 32;
+		for (int i = 0; i < n; ++i) {
+			uint8_t id = cmd->cmd.motor_poll.ids[i];
+			if (id == 0)
+				continue;
+			motor_rt_t *m = find_motor((uint32_t)id);
+			if (m && m->type_id == MOTOR_TYPE_SMART) {
+				m->poll_status = true;
+			}
+		}
+		break;
+	}
 	default:
 		log_warn(TAG, "Unknown command type: %d", cmd->cmd_type);
 		break;
