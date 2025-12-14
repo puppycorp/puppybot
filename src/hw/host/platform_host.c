@@ -123,7 +123,7 @@ static void host_load_bot_id(void) {
 	g_host_bot_id_cached = 1;
 }
 
-static int host_store_bot_id_to_file(const char *bot_id) {
+static int host_write_data_file(const char *bot_id) {
 	const char *file_path = host_data_file();
 	if (!file_path || file_path[0] == '\0') {
 		return -1;
@@ -131,13 +131,13 @@ static int host_store_bot_id_to_file(const char *bot_id) {
 	FILE *file = fopen(file_path, "w");
 	if (!file) {
 		log_error(TAG,
-		          "Failed to open bot ID file %s: %s",
+		          "Failed to open data file %s: %s",
 		          file_path,
 		          strerror(errno));
 		return -1;
 	}
 	size_t len = strnlen(bot_id, PLATFORM_BOT_ID_MAX_LEN - 1);
-	if (fprintf(file, "%.*s\n", (int)len, bot_id) < 0) {
+	if (fprintf(file, "bot_id=%.*s\n", (int)len, bot_id) < 0) {
 		log_error(TAG, "Failed to write bot ID to %s", file_path);
 		fclose(file);
 		return -1;
@@ -195,7 +195,7 @@ int platform_store_bot_id(const char *bot_id) {
 	char sanitized[PLATFORM_BOT_ID_MAX_LEN];
 	memcpy(sanitized, bot_id, len);
 	sanitized[len] = '\0';
-	if (host_store_bot_id_to_file(sanitized) != 0) {
+	if (host_write_data_file(sanitized) != 0) {
 		return -1;
 	}
 	strncpy(g_host_bot_id, sanitized, sizeof(g_host_bot_id) - 1);
