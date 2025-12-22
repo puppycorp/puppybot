@@ -290,7 +290,8 @@ void command_handler_handle(CommandPacket *cmd) {
 		    cmd->cmd.drive_motor.motor_type == DC_MOTOR) {
 			float speed = normalize_speed(cmd->cmd.drive_motor.speed);
 			if (cmd->cmd.drive_motor.speed == 0) {
-				motor_stop(node_id);
+				// Keep smart servos in wheel mode for an explicit stop.
+				motor_set_smart_speed(node_id, 0.0f);
 			} else if (motor_set_smart_speed(node_id, speed) != 0) {
 				log_error(TAG, "Failed to set smart speed for motor %" PRIu32,
 				          node_id);
