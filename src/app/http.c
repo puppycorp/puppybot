@@ -2,6 +2,7 @@
 #include "http.h"
 #include "command_handler.h"
 #include "log.h"
+#include "motor_config.h"
 #include "motor_runtime.h"
 #include "platform.h"
 #include "protocol.h"
@@ -544,6 +545,51 @@ void ws_client_send_device_info(void) {
 	free(payload);
 }
 
+static void ws_client_send_motor_config(void) {
+	if (!client_connected) {
+		log_warn(TAG, "Cannot send config: not connected");
+		return;
+	}
+	const uint8_t *blob = NULL;
+	size_t blob_len = 0;
+	if (motor_config_get_active_blob(&blob, &blob_len) != 0 || !blob_len) {
+		log_info(TAG, "No motor config blob available to send");
+		return;
+	}
+	if (blob_len > 0xFFFFu) {
+		log_warn(TAG, "Motor config blob too large to send (%zu bytes)",
+		         blob_len);
+		return;
+	}
+	const size_t total_len = 3 + 2 + blob_len;
+	uint8_t *payload = (uint8_t *)malloc(total_len);
+	if (!payload) {
+		log_error(TAG, "Failed to allocate buffer for config blob");
+		return;
+	}
+	size_t offset = 0;
+	payload[offset++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+	payload[offset++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+	payload[offset++] = MSG_TO_SRV_CONFIG_BLOB;
+	payload[offset++] = (uint8_t)(blob_len & 0xff);
+	payload[offset++] = (uint8_t)((blob_len >> 8) & 0xff);
+	memcpy(&payload[offset], blob, blob_len);
+	offset += blob_len;
+
+	int ret = ws_client_send(payload, offset);
+	if (ret != 0) {
+		log_error(TAG, "Failed to send config blob");
+	} else {
+		log_info(TAG, "Sent config blob (%zu bytes)", blob_len);
+	}
+	free(payload);
+}
+
+static void ws_client_handle_connected(void) {
+	ws_client_send_device_info();
+	ws_client_send_motor_config();
+}
+
 void http_server_start(void) {
 	http_server *server = http_server_init();
 	if (!server) {
@@ -565,7 +611,8 @@ void http_client_start(const char *server_uri, uint32_t heartbeat_interval_ms) {
 	                           .heartbeat_interval_ms = heartbeat_interval_ms,
 	                           .enable_auto_reconnect = true,
 	                           .reconnect_delay_ms = 1000,
-	                           .on_connected_cb = ws_client_send_device_info};
+	                           .on_connected_cb =
+	                               ws_client_handle_connected};
 
 	// Initialize and start WebSocket client
 	ws_client_init_and_start(&config);

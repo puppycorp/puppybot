@@ -51,3 +51,4 @@ node_modules
 esp32/.cache/
 puppybot.xml
 puppybot.dat
+puppybot.pbcl

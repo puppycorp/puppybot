@@ -15,12 +15,14 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *PLATFORM_TAG = "PLATFORM";
 
 #define BOT_ID_NAMESPACE "puppybot"
 #define BOT_ID_KEY "bot_id"
+#define CONFIG_BLOB_KEY "motor_config"
 
 static char g_bot_id[PLATFORM_BOT_ID_MAX_LEN];
 static bool g_bot_id_loaded = false;
@@ -131,6 +133,73 @@ int platform_store_bot_id(const char *bot_id) {
 	g_bot_id[sizeof(g_bot_id) - 1] = '\0';
 	g_bot_id_loaded = true;
 	return 0;
+}
+
+int platform_store_config_blob(const uint8_t *data, size_t len) {
+	if (!data || len == 0) {
+		return -1;
+	}
+	nvs_handle_t handle;
+	esp_err_t err = nvs_open(BOT_ID_NAMESPACE, NVS_READWRITE, &handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(PLATFORM_TAG, "Failed to open NVS for config (%s)",
+		         esp_err_to_name(err));
+		return -1;
+	}
+	err = nvs_set_blob(handle, CONFIG_BLOB_KEY, data, len);
+	if (err == ESP_OK) {
+		err = nvs_commit(handle);
+	}
+	nvs_close(handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(PLATFORM_TAG, "Failed to save config blob (%s)",
+		         esp_err_to_name(err));
+		return -1;
+	}
+	return 0;
+}
+
+int platform_load_config_blob(uint8_t **out_data, size_t *out_len) {
+	if (!out_data || !out_len) {
+		return -1;
+	}
+	*out_data = NULL;
+	*out_len = 0;
+	nvs_handle_t handle;
+	esp_err_t err = nvs_open(BOT_ID_NAMESPACE, NVS_READWRITE, &handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(PLATFORM_TAG, "Failed to open NVS for config (%s)",
+		         esp_err_to_name(err));
+		return -1;
+	}
+	size_t required = 0;
+	err = nvs_get_blob(handle, CONFIG_BLOB_KEY, NULL, &required);
+	if (err == ESP_ERR_NVS_NOT_FOUND) {
+		nvs_close(handle);
+		return 1;
+	}
+	if (err != ESP_OK || required == 0) {
+		nvs_close(handle);
+		return -1;
+	}
+	uint8_t *buffer = (uint8_t *)malloc(required);
+	if (!buffer) {
+		nvs_close(handle);
+		return -1;
+	}
+	err = nvs_get_blob(handle, CONFIG_BLOB_KEY, buffer, &required);
+	nvs_close(handle);
+	if (err != ESP_OK) {
+		free(buffer);
+		return -1;
+	}
+	*out_data = buffer;
+	*out_len = required;
+	return 0;
+}
+
+void platform_free_config_blob(uint8_t *data) {
+	free(data);
 }
 
 const char *platform_get_server_uri(void) {

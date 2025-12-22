@@ -14,7 +14,7 @@ import {
 	type Instance,
 	type InstanceWatcher,
 } from "./mdns"
-import { buildMotorBlob } from "./pbcl"
+import { buildMotorBlob, parseMotorBlob } from "./pbcl"
 import { isConfigTemplateKey, type ConfigTemplateKey } from "./config-templates"
 
 type BotSocket = {
@@ -186,6 +186,16 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 					newId: msg.newId,
 					status: msg.status,
 				})
+			}
+			break
+		}
+		case MsgFromBotType.ConfigBlob: {
+			try {
+				const motors = parseMotorBlob(msg.blob)
+				setBotConfig(botId, motors, null, "auto")
+				broadcastConfig(botId)
+			} catch (err) {
+				console.warn("Failed to parse motor config blob", err)
 			}
 			break
 		}

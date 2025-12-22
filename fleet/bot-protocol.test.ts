@@ -198,6 +198,19 @@ describe("encodeBotMsg", () => {
 		expect(msg.status).toBe(0)
 	})
 
+	test("decodes a config blob message", () => {
+		const blob = Buffer.from([0x10, 0x20, 0x30])
+		const buffer = Buffer.alloc(5 + blob.length)
+		buffer.writeUInt16LE(1, 0)
+		buffer.writeUInt8(MsgFromBotType.ConfigBlob, 2)
+		buffer.writeUInt16LE(blob.length, 3)
+		blob.copy(buffer, 5)
+		const msg = decodeBotMsg(buffer)
+		expect(msg.type).toBe(MsgFromBotType.ConfigBlob)
+		if (msg.type !== MsgFromBotType.ConfigBlob) return
+		expect(Buffer.from(msg.blob).equals(blob)).toBe(true)
+	})
+
 	test("encodes a set motor poll message", () => {
 		const msg: MsgToBot = { type: "setMotorPoll", ids: [1, 2, 300] } as any
 		const buffer = encodeBotMsg(msg)

@@ -1,5 +1,6 @@
 #include "main.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define PLATFORM_BOT_ID_MAX_LEN 64
@@ -29,6 +30,12 @@ const char *instance_name(void);
 // Read/write the runtime bot identifier that the server assigned
 const char *platform_get_bot_id(void);
 int platform_store_bot_id(const char *bot_id);
+
+// Persist/retrieve the latest motor config blob (PBCL) for this device.
+// Returns 0 on success, 1 if not found, negative on error.
+int platform_store_config_blob(const uint8_t *data, size_t len);
+int platform_load_config_blob(uint8_t **out_data, size_t *out_len);
+void platform_free_config_blob(uint8_t *data);
 
 // Platform-specific services (storage/WiFi/mDNS/motor) are initialized
 // internally by platform_init().

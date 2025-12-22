@@ -19,6 +19,13 @@ const PBCL_T_M_ANALOG_FB = 12
 const PBCL_T_M_LIMITS = 13
 const PBCL_T_M_SMART_BUS = 14
 
+const MOTOR_TYPE_REVERSE: Record<number, MotorConfig["type"]> = {
+	1: "angle",
+	2: "continuous",
+	3: "hbridge",
+	4: "smart",
+}
+
 const crc32 = (data: Buffer, seed = 0xffffffff): number => {
 	let crc = seed >>> 0
 	for (let i = 0; i < data.length; i++) {
@@ -143,4 +150,124 @@ export const buildMotorBlob = (motors: MotorConfig[]): Buffer => {
 	header.writeUInt32LE(crc >>> 0, 16)
 
 	return Buffer.concat([header, body])
+}
+
+export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
+	const buffer = Buffer.from(blob)
+	if (buffer.length < 20) {
+		throw new Error("PBCL blob too short")
+	}
+	const magic = buffer.readUInt32LE(0)
+	const version = buffer.readUInt16LE(4)
+	const sections = buffer.readUInt16LE(8)
+	const headerSize = buffer.readUInt16LE(10)
+	const totalSize = buffer.readUInt32LE(12)
+	if (magic !== PBCL_MAGIC) {
+		throw new Error("PBCL blob has invalid magic")
+	}
+	if (version !== PBCL_VERSION) {
+		throw new Error("PBCL blob has unsupported version")
+	}
+	if (headerSize < 20 || headerSize > buffer.length) {
+		throw new Error("PBCL blob has invalid header size")
+	}
+	if (totalSize !== 0 && totalSize > buffer.length) {
+		throw new Error("PBCL blob has invalid total size")
+	}
+	const motors: MotorConfig[] = []
+	let offset = headerSize
+	for (let i = 0; i < sections; i++) {
+		if (offset + 12 > buffer.length) {
+			break
+		}
+		const classId = buffer.readUInt16LE(offset)
+		const typeId = buffer.readUInt16LE(offset + 2)
+		const nodeId = buffer.readUInt32LE(offset + 4)
+		const tlvLen = buffer.readUInt16LE(offset + 8)
+		const sectionEnd = offset + 12 + tlvLen
+		if (sectionEnd > buffer.length) {
+			break
+		}
+		if (classId === PBCL_CLASS_MOTOR) {
+			const type = MOTOR_TYPE_REVERSE[typeId]
+			if (type) {
+				const config: MotorConfig = { nodeId, type }
+				let tlvOffset = offset + 12
+				while (tlvOffset + 4 <= sectionEnd) {
+					const tag = buffer.readUInt8(tlvOffset)
+					const len = buffer.readUInt16LE(tlvOffset + 2)
+					const valueOffset = tlvOffset + 4
+					const valueEnd = valueOffset + len
+					if (valueEnd > sectionEnd) {
+						break
+					}
+					switch (tag) {
+						case PBCL_T_NAME:
+							config.name = buffer
+								.subarray(valueOffset, valueEnd)
+								.toString("utf8")
+							break
+						case PBCL_T_TIMEOUT:
+							if (len >= 2) {
+								config.timeoutMs = buffer.readUInt16LE(valueOffset)
+							}
+							break
+						case PBCL_T_M_LIMITS:
+							if (len >= 2) {
+								config.maxSpeed =
+									buffer.readUInt16LE(valueOffset) / 100
+							}
+							break
+						case PBCL_T_M_PWM:
+							if (len >= 12) {
+								config.pwm = {
+									pin: buffer.readInt8(valueOffset),
+									channel: buffer.readUInt8(valueOffset + 1),
+									freqHz: buffer.readUInt16LE(valueOffset + 2),
+									minUs: buffer.readUInt16LE(valueOffset + 4),
+									maxUs: buffer.readUInt16LE(valueOffset + 6),
+									neutralUs: buffer.readUInt16LE(valueOffset + 8),
+									invert: buffer.readUInt8(valueOffset + 10) === 1,
+								}
+							}
+							break
+						case PBCL_T_M_HBRIDGE:
+							if (len >= 4) {
+								config.hbridge = {
+									in1: buffer.readInt8(valueOffset),
+									in2: buffer.readInt8(valueOffset + 1),
+									brakeMode: buffer.readUInt8(valueOffset + 2) === 1,
+								}
+							}
+							break
+						case PBCL_T_M_ANALOG_FB:
+							if (len >= 10) {
+								config.analog = {
+									adcPin: buffer.readInt8(valueOffset),
+									adcMin: buffer.readUInt16LE(valueOffset + 2),
+									adcMax: buffer.readUInt16LE(valueOffset + 4),
+									degMin: buffer.readInt16LE(valueOffset + 6) / 10,
+									degMax: buffer.readInt16LE(valueOffset + 8) / 10,
+								}
+							}
+							break
+						case PBCL_T_M_SMART_BUS:
+							if (len >= 8) {
+								config.smart = {
+									txPin: buffer.readInt8(valueOffset),
+									rxPin: buffer.readInt8(valueOffset + 1),
+									uartPort: buffer.readUInt8(valueOffset + 2),
+									baudRate: buffer.readUInt32LE(valueOffset + 4),
+								}
+							}
+							break
+					}
+					tlvOffset = valueEnd
+				}
+				motors.push(config)
+			}
+		}
+		offset = sectionEnd
+	}
+	return motors
 }

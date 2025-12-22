@@ -104,16 +104,29 @@ int platform_store_bot_id(const char *bot_id) {
 }
 
 // Stub for motor_slots functions
-int motor_slots_servo_count(void) { return 0; }
+void motor_slots_reset(void) {}
 
-int motor_slots_register(const motor_rt_t *m) {
-	(void)m;
-	return 0;
+int motor_slots_drive_count(void) { return 0; }
+
+motor_rt_t *motor_slots_drive(int idx) {
+	(void)idx;
+	return NULL;
 }
 
-int motor_slots_servo_boot_angle(int idx) {
+int motor_slots_servo_count(void) { return 0; }
+
+motor_rt_t *motor_slots_servo(int idx) {
 	(void)idx;
-	return 90;
+	return NULL;
+}
+
+void motor_slots_register(motor_rt_t *m) {
+	(void)m;
+}
+
+float motor_slots_servo_boot_angle(int idx) {
+	(void)idx;
+	return 90.0f;
 }
 
 static void stub_reset(void) {

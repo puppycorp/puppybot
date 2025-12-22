@@ -46,6 +46,8 @@ static int g_host_bot_id_cached;
 
 static char g_host_bot_id_file_path[PATH_MAX];
 static int g_host_bot_id_file_initialized;
+static char g_host_config_file_path[PATH_MAX];
+static int g_host_config_file_initialized;
 
 static const char *host_data_file(void) {
 	if (g_host_bot_id_file_initialized) {
@@ -63,6 +65,24 @@ static const char *host_data_file(void) {
 	}
 	g_host_bot_id_file_initialized = 1;
 	return g_host_bot_id_file_path;
+}
+
+static const char *host_config_file(void) {
+	if (g_host_config_file_initialized) {
+		return g_host_config_file_path;
+	}
+	const char *env_path = getenv("PUPPYBOT_CONFIG_FILE");
+	if (env_path && env_path[0]) {
+		strncpy(g_host_config_file_path, env_path,
+		        sizeof(g_host_config_file_path) - 1);
+		g_host_config_file_path[sizeof(g_host_config_file_path) - 1] = '\0';
+	} else {
+		strncpy(g_host_config_file_path, "puppybot.pbcl",
+		        sizeof(g_host_config_file_path) - 1);
+		g_host_config_file_path[sizeof(g_host_config_file_path) - 1] = '\0';
+	}
+	g_host_config_file_initialized = 1;
+	return g_host_config_file_path;
 }
 
 static void host_load_bot_id(void) {
@@ -203,6 +223,76 @@ int platform_store_bot_id(const char *bot_id) {
 	g_host_bot_id_cached = 1;
 	return 0;
 }
+
+int platform_store_config_blob(const uint8_t *data, size_t len) {
+	if (!data || len == 0) {
+		return -1;
+	}
+	const char *file_path = host_config_file();
+	if (!file_path || file_path[0] == '\0') {
+		return -1;
+	}
+	FILE *file = fopen(file_path, "wb");
+	if (!file) {
+		log_error(TAG,
+		          "Failed to open config file %s: %s",
+		          file_path,
+		          strerror(errno));
+		return -1;
+	}
+	if (fwrite(data, 1, len, file) != len) {
+		log_error(TAG, "Failed to write config blob to %s", file_path);
+		fclose(file);
+		return -1;
+	}
+	fclose(file);
+	return 0;
+}
+
+int platform_load_config_blob(uint8_t **out_data, size_t *out_len) {
+	if (!out_data || !out_len) {
+		return -1;
+	}
+	*out_data = NULL;
+	*out_len = 0;
+	const char *file_path = host_config_file();
+	if (!file_path || file_path[0] == '\0') {
+		return -1;
+	}
+	FILE *file = fopen(file_path, "rb");
+	if (!file) {
+		return 1;
+	}
+	if (fseek(file, 0, SEEK_END) != 0) {
+		fclose(file);
+		return -1;
+	}
+	long size = ftell(file);
+	if (size <= 0) {
+		fclose(file);
+		return 1;
+	}
+	if (fseek(file, 0, SEEK_SET) != 0) {
+		fclose(file);
+		return -1;
+	}
+	uint8_t *buffer = (uint8_t *)malloc((size_t)size);
+	if (!buffer) {
+		fclose(file);
+		return -1;
+	}
+	if (fread(buffer, 1, (size_t)size, file) != (size_t)size) {
+		free(buffer);
+		fclose(file);
+		return -1;
+	}
+	fclose(file);
+	*out_data = buffer;
+	*out_len = (size_t)size;
+	return 0;
+}
+
+void platform_free_config_blob(uint8_t *data) { free(data); }
 
 const char *instance_name(void) {
 	static char name[64];

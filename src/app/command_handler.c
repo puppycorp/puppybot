@@ -261,6 +261,9 @@ void command_handler_handle(CommandPacket *cmd) {
 		} else {
 			log_info(TAG, "Motor configuration applied (%u bytes)",
 			         (unsigned)cmd->cmd.apply_config.length);
+			if (motor_config_persist_active() != 0) {
+				log_warn(TAG, "Failed to persist motor config");
+			}
 			// Reload servo timeout state after config changes
 			command_handler_reload_motor_config();
 		}

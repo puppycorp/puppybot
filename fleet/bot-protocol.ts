@@ -18,6 +18,7 @@ export enum MsgFromBotType {
 	MotorState = 3,
 	SmartbusScanResult = 4,
 	SmartbusSetIdResult = 5,
+	ConfigBlob = 6,
 }
 
 enum InstructionType {
@@ -103,12 +104,19 @@ export type SmartbusSetIdResultMsg = {
 	status: number
 }
 
+export type ConfigBlobMsg = {
+	type: MsgFromBotType.ConfigBlob
+	protocolVersion: number
+	blob: Uint8Array
+}
+
 export type MsgFromBot =
 	| PongMsg
 	| MyInfoMsg
 	| MotorStateMsg
 	| SmartbusScanResultMsg
 	| SmartbusSetIdResultMsg
+	| ConfigBlobMsg
 
 const DC_MOTOR = 0
 const SERVO_MOTOR = 1
@@ -383,6 +391,21 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 				oldId,
 				newId,
 				status,
+			}
+		}
+		case MsgFromBotType.ConfigBlob: {
+			if (buffer.length < 5) {
+				throw new Error("Invalid config blob message: too short")
+			}
+			const length = buffer.readUInt16LE(3)
+			if (buffer.length < 5 + length) {
+				throw new Error("Invalid config blob message: truncated")
+			}
+			const blob = buffer.subarray(5, 5 + length)
+			return {
+				type: MsgFromBotType.ConfigBlob,
+				protocolVersion,
+				blob,
 			}
 		}
 		default:

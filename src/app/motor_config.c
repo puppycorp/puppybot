@@ -7,6 +7,7 @@
 #include "pbcl_motor_handler.h"
 #include "platform.h"
 #include "timer.h"
+#include <stdlib.h>
 #include <string.h>
 
 #define TAG "MOTOR_CONFIG"
@@ -14,6 +15,8 @@
 
 // Global motor tick timer
 static platform_timer_handle_t motor_tick_timer = NULL;
+static uint8_t *g_active_blob = NULL;
+static size_t g_active_blob_len = 0;
 
 // Built-in PBCL configuration matching the default server profile.
 // Allows the firmware to control drive motors and four servos before
@@ -51,6 +54,29 @@ static void motor_tick_callback(void *arg) {
 	motor_tick_all(now);
 }
 
+static void motor_config_clear_active_blob(void) {
+	if (g_active_blob) {
+		free(g_active_blob);
+		g_active_blob = NULL;
+	}
+	g_active_blob_len = 0;
+}
+
+static int motor_config_set_active_blob(const uint8_t *blob, size_t len) {
+	if (!blob || len == 0) {
+		return -1;
+	}
+	uint8_t *copy = (uint8_t *)malloc(len);
+	if (!copy) {
+		return -1;
+	}
+	memcpy(copy, blob, len);
+	motor_config_clear_active_blob();
+	g_active_blob = copy;
+	g_active_blob_len = len;
+	return 0;
+}
+
 int motor_system_init(void) {
 	// Initialize hardware
 	motor_hw_init();
@@ -69,6 +95,27 @@ int motor_system_init(void) {
 		platform_timer_delete(motor_tick_timer);
 		motor_tick_timer = NULL;
 		return -1;
+	}
+
+	// Load stored motor configuration if none exists
+	if (motor_count() == 0) {
+		uint8_t *stored_blob = NULL;
+		size_t stored_len = 0;
+		int load_rc = platform_load_config_blob(&stored_blob, &stored_len);
+		if (load_rc == 0) {
+			int rc = motor_config_apply_blob(stored_blob, stored_len);
+			if (rc != 0) {
+				log_warn(TAG, "Failed to load stored motor config (%d)", rc);
+			} else {
+				log_info(TAG, "Loaded stored motor config (%zu bytes)",
+				         stored_len);
+			}
+		} else if (load_rc < 0) {
+			log_warn(TAG, "Failed to read stored motor config (%d)", load_rc);
+		}
+		if (stored_blob) {
+			platform_free_config_blob(stored_blob);
+		}
 	}
 
 	// Load default motor configuration if none exists
@@ -94,6 +141,7 @@ void motor_system_shutdown(void) {
 void motor_config_reset(void) {
 	motor_registry_clear();
 	motor_slots_reset();
+	motor_config_clear_active_blob();
 }
 
 static int apply_sections(const pbcl_doc_t *doc) {
@@ -129,6 +177,10 @@ int motor_config_apply_blob(const uint8_t *blob, size_t len) {
 	if (rc != 0)
 		return rc;
 
+	if (motor_config_set_active_blob(blob, len) != 0) {
+		log_warn(TAG, "Failed to store active motor config blob");
+	}
+
 	// Stop all drive motors
 	for (int i = 0; i < motor_slots_drive_count(); ++i) {
 		motor_rt_t *m = motor_slots_drive(i);
@@ -150,4 +202,23 @@ int motor_config_apply_default(void) {
 
 uint32_t motor_config_servo_count(void) {
 	return (uint32_t)motor_slots_servo_count();
+}
+
+int motor_config_get_active_blob(const uint8_t **blob_out, size_t *len_out) {
+	if (!blob_out || !len_out) {
+		return -1;
+	}
+	if (!g_active_blob || g_active_blob_len == 0) {
+		return -1;
+	}
+	*blob_out = g_active_blob;
+	*len_out = g_active_blob_len;
+	return 0;
+}
+
+int motor_config_persist_active(void) {
+	if (!g_active_blob || g_active_blob_len == 0) {
+		return -1;
+	}
+	return platform_store_config_blob(g_active_blob, g_active_blob_len);
 }
