@@ -1,6 +1,8 @@
 #include "platform.h"
 #include "timer.h"
 
+#include "motor_config.h"
+
 #include "log.h"
 
 #include <errno.h>
@@ -193,10 +195,46 @@ const char *platform_get_firmware_version(void) {
 
 const char *platform_get_server_uri(void) {
 	const char *uri = getenv("PUPPYBOT_SERVER_URI");
-	if (uri && uri[0] != '\0') {
+	if (!uri || uri[0] == '\0') {
+		return NULL;
+	}
+	const char *path_start = strstr(uri, "/api/bot/");
+	if (path_start) {
+		const char *id_start = path_start + strlen("/api/bot/");
+		const char *ws_start = strstr(id_start, "/ws");
+		const char *stored_id = platform_get_bot_id();
+		if (ws_start && stored_id && stored_id[0] != '\0') {
+			size_t id_len = (size_t)(ws_start - id_start);
+			if (id_len > 0 && strncmp(id_start, stored_id, id_len) == 0 &&
+			    stored_id[id_len] == '\0') {
+				return uri;
+			}
+		} else if (ws_start) {
+			return uri;
+		}
+	}
+
+	static char full_uri[256];
+	char trimmed[256];
+	size_t base_len = strnlen(uri, sizeof(trimmed) - 1);
+	if (path_start) {
+		base_len = (size_t)(path_start - uri);
+		if (base_len >= sizeof(trimmed)) {
+			base_len = sizeof(trimmed) - 1;
+		}
+	}
+	memcpy(trimmed, uri, base_len);
+	trimmed[base_len] = '\0';
+	size_t trim_len = base_len;
+	while (trim_len > 0 && trimmed[trim_len - 1] == '/') {
+		trimmed[trim_len - 1] = '\0';
+		trim_len--;
+	}
+	int needed = snprintf(full_uri, sizeof(full_uri), "%s/api/bot/ws", trimmed);
+	if (needed < 0 || needed >= (int)sizeof(full_uri)) {
 		return uri;
 	}
-	return NULL;
+	return full_uri;
 }
 
 const char *platform_get_bot_id(void) {
@@ -318,6 +356,10 @@ int bluetooth_start(void) {
 
 PuppybotStatus platform_init(void) {
 	log_info(TAG, "Initializing platform subsystems (host stubs)");
+	if (motor_system_init() != 0) {
+		log_error(TAG, "Failed to initialize motor system");
+		return PUPPYBOT_ERR_STORAGE;
+	}
 	return PUPPYBOT_OK;
 }
 

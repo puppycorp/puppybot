@@ -70,6 +70,7 @@ export type MyInfoMsg = {
 	firmwareVersion: string
 	variant: string
 	deviceName: string
+	botId: string
 }
 
 export type MotorStateEntry = {
@@ -318,6 +319,7 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 			const firmwareVersion = readString()
 			const variant = readString()
 			const deviceName = readString()
+			const botId = offset < buffer.length ? readString() : ""
 
 			return {
 				type: MsgFromBotType.MyInfo,
@@ -325,6 +327,7 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 				firmwareVersion,
 				variant,
 				deviceName,
+				botId,
 			}
 		}
 		case MsgFromBotType.MotorState: {

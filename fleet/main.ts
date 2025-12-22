@@ -192,6 +192,7 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 		case MsgFromBotType.ConfigBlob: {
 			try {
 				const motors = parseMotorBlob(msg.blob)
+				console.log("Parsed motor config blob", motors)
 				setBotConfig(botId, motors, null, "auto")
 				broadcastConfig(botId)
 			} catch (err) {
@@ -245,6 +246,15 @@ const normalizeClientId = (value: string) => {
 	return `anon-${randomSuffix()}`
 }
 
+const looksLikeServerBotId = (value: string) => {
+	if (value.startsWith("bot-")) {
+		return true
+	}
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+		value,
+	)
+}
+
 type ResolveServerBotIdResult = {
 	serverId: string
 	normalizedClientId: string
@@ -252,6 +262,12 @@ type ResolveServerBotIdResult = {
 
 const resolveServerBotId = (clientId: string): ResolveServerBotIdResult => {
 	const normalized = normalizeClientId(clientId)
+	if (looksLikeServerBotId(normalized)) {
+		if (!clientIdToServerId.has(normalized)) {
+			clientIdToServerId.set(normalized, normalized)
+		}
+		return { serverId: normalized, normalizedClientId: normalized }
+	}
 	let serverId = clientIdToServerId.get(normalized)
 	if (!serverId) {
 		serverId = generateServerBotId()
@@ -261,6 +277,14 @@ const resolveServerBotId = (clientId: string): ResolveServerBotIdResult => {
 		clientIdToServerId.set(serverId, serverId)
 	}
 	return { serverId, normalizedClientId: normalized }
+}
+
+const resolveBotIdFromHello = (value: string | undefined): string => {
+	const trimmed = value?.trim() ?? ""
+	if (trimmed) {
+		return trimmed
+	}
+	return generateServerBotId()
 }
 
 const createServerSocketAdapter = (
@@ -812,6 +836,20 @@ Bun.serve<Context, {}>({
 			}
 			return new Response("Upgrade failed", { status: 500 })
 		},
+		"/api/bot/ws": (req, server) => {
+			console.log("new bot connection (handshake)")
+			if (
+				server.upgrade(req, {
+					data: {
+						clientType: "bot",
+						botConnections,
+					},
+				})
+			) {
+				return
+			}
+			return new Response("Upgrade failed", { status: 500 })
+		},
 		"/api/ws": (req, server) => {
 			if (
 				server.upgrade(req, {
@@ -832,8 +870,7 @@ Bun.serve<Context, {}>({
 			console.log(`${ws.data.clientType} connection opened`)
 			if (ws.data.clientType === "bot") {
 				if (!ws.data.botId) {
-					console.log("Bot connection missing botId; closing")
-					ws.close()
+					console.log("Bot connection awaiting handshake")
 					return
 				}
 				const connection = attachBotConnection(
@@ -920,6 +957,23 @@ Bun.serve<Context, {}>({
 						? (message as Buffer)
 						: Buffer.from(message as Uint8Array)
 					const msg = decodeBotMsg(binary)
+					if (!ws.data.botId && msg.type === MsgFromBotType.MyInfo) {
+						const serverId = resolveBotIdFromHello(msg.botId)
+						const connection = attachBotConnection(
+							serverId,
+							createServerSocketAdapter(ws),
+							{ ip: ws.remoteAddress ?? "", clientId: msg.botId },
+						)
+						ws.data.botId = serverId
+						ws.data.connection = connection
+						if (!msg.botId || msg.botId !== serverId) {
+							try {
+								connection.send({ type: "setBotId", id: serverId })
+							} catch (error) {
+								console.log("Failed to send botId assignment:", error)
+							}
+						}
+					}
 					if (ws.data.botId) {
 						await handleBotMsg(ws.data.botId, msg)
 					}

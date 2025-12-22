@@ -106,8 +106,17 @@ describe("encodeBotMsg", () => {
 		const version = "3.2.1"
 		const variant = "PuppyBot"
 		const deviceName = "rover"
+		const botId = "bot-123"
 		const buffer = Buffer.alloc(
-			3 + 1 + version.length + 1 + variant.length + 1 + deviceName.length,
+			3 +
+				1 +
+				version.length +
+				1 +
+				variant.length +
+				1 +
+				deviceName.length +
+				1 +
+				botId.length,
 		)
 		buffer.writeUInt16LE(1, 0)
 		buffer.writeUInt8(MsgFromBotType.MyInfo, 2)
@@ -123,6 +132,10 @@ describe("encodeBotMsg", () => {
 		buffer.writeUInt8(deviceName.length, offset)
 		offset += 1
 		buffer.write(deviceName, offset)
+		offset += deviceName.length
+		buffer.writeUInt8(botId.length, offset)
+		offset += 1
+		buffer.write(botId, offset)
 
 		const msg = decodeBotMsg(buffer)
 		expect(msg).toEqual({
@@ -131,6 +144,7 @@ describe("encodeBotMsg", () => {
 			firmwareVersion: version,
 			variant,
 			deviceName,
+			botId,
 		})
 	})
 

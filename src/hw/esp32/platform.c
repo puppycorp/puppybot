@@ -205,12 +205,8 @@ void platform_free_config_blob(uint8_t *data) {
 const char *platform_get_server_uri(void) {
 #if defined(SERVER_HOST)
 	static char uri[256];
-	const char *bot_id = platform_get_bot_id();
-	if (!bot_id || bot_id[0] == '\0') {
-		return NULL;
-	}
 	int needed = snprintf(uri, sizeof(uri),
-	                      "ws://" SERVER_HOST "/api/bot/%s/ws", bot_id);
+	                      "ws://" SERVER_HOST "/api/bot/ws");
 	if (needed < 0 || needed >= (int)sizeof(uri)) {
 		ESP_LOGE(PLATFORM_TAG, "Server URI was truncated");
 		return NULL;

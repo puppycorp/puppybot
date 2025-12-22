@@ -489,6 +489,7 @@ void ws_client_send_device_info(void) {
 	const char *fw_version = platform_get_firmware_version();
 	const char *variant = instance_name();
 	const char *build_name = PUPPYBOT_BUILD_NAME;
+	const char *bot_id = platform_get_bot_id();
 
 	size_t version_len = strlen(fw_version);
 	if (version_len > 255) {
@@ -503,9 +504,13 @@ void ws_client_send_device_info(void) {
 	if (name_len > 255) {
 		name_len = 255;
 	}
+	size_t bot_id_len = strlen(bot_id);
+	if (bot_id_len > 255) {
+		bot_id_len = 255;
+	}
 
 	const size_t total_len =
-		3 + 1 + version_len + 1 + variant_len + 1 + name_len;
+		3 + 1 + version_len + 1 + variant_len + 1 + name_len + 1 + bot_id_len;
 	uint8_t *payload = (uint8_t *)malloc(total_len);
 	if (!payload) {
 		log_error(TAG, "Failed to allocate buffer for MyInfo message");
@@ -525,6 +530,9 @@ void ws_client_send_device_info(void) {
 	payload[offset++] = (uint8_t)name_len;
 	memcpy(&payload[offset], build_name, name_len);
 	offset += name_len;
+	payload[offset++] = (uint8_t)bot_id_len;
+	memcpy(&payload[offset], bot_id, bot_id_len);
+	offset += bot_id_len;
 
 	int ret = ws_client_send(payload, offset);
 	if (ret != 0) {
@@ -532,13 +540,15 @@ void ws_client_send_device_info(void) {
 	} else {
 		log_info(
 			TAG,
-			"Sent MyInfo (fw=%.*s, variant=%.*s, name=%.*s)",
+			"Sent MyInfo (fw=%.*s, variant=%.*s, name=%.*s, bot_id=%.*s)",
 			(int)version_len,
 			fw_version,
 				(int)variant_len,
 				variant,
 				(int)name_len,
-				build_name
+				build_name,
+				(int)bot_id_len,
+				bot_id
 			);
 		}
 
