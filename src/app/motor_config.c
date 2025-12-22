@@ -136,14 +136,7 @@ int motor_config_apply_blob(const uint8_t *blob, size_t len) {
 			motor_stop(m->node_id);
 	}
 
-	// Set all servos to boot angle
-	int servo_count = motor_slots_servo_count();
-	for (int i = 0; i < servo_count; ++i) {
-		float boot = motor_slots_servo_boot_angle(i);
-		motor_rt_t *m = motor_slots_servo(i);
-		if (m)
-			motor_set_angle(m->node_id, boot);
-	}
+	// Leave servos where they are on apply to avoid unexpected movement.
 
 	log_info(TAG, "Loaded %d motors (%d drive, %d servo)", motor_count(),
 	         motor_slots_drive_count(), motor_slots_servo_count());
