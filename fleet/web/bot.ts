@@ -1046,6 +1046,7 @@ export const botPage = (container: Container, botId: string) => {
 			angleSlider.max = sliderMax.toString()
 			angleSlider.step = "1"
 			angleSlider.value = centerDeg.toString()
+			angleSlider.disabled = true
 			angleSlider.style.flexGrow = "1"
 			angleControlRow.appendChild(angleSlider)
 
@@ -1148,6 +1149,7 @@ export const botPage = (container: Container, botId: string) => {
 			const centerButton = document.createElement("button")
 			centerButton.textContent = `Center (${centerDeg}°)`
 			centerButton.classList.add("secondary")
+			centerButton.disabled = true
 			centerButton.onclick = () => {
 				angleSlider.value = centerDeg.toString()
 				angleValue.textContent = `${centerDeg}°`
@@ -1166,6 +1168,26 @@ export const botPage = (container: Container, botId: string) => {
 			}
 			buttonRow.appendChild(stopButton)
 
+			const angleToggleRow = document.createElement("div")
+			angleToggleRow.style.display = "flex"
+			angleToggleRow.style.alignItems = "center"
+			angleToggleRow.style.gap = "8px"
+
+			const angleToggleInput = document.createElement("input")
+			angleToggleInput.type = "checkbox"
+			angleToggleInput.checked = false
+			angleToggleInput.addEventListener("change", () => {
+				const enabled = angleToggleInput.checked
+				angleSlider.disabled = !enabled
+				centerButton.disabled = !enabled
+			})
+			angleToggleRow.appendChild(angleToggleInput)
+
+			const angleToggleLabel = document.createElement("span")
+			angleToggleLabel.textContent = "Enable angle control"
+			angleToggleRow.appendChild(angleToggleLabel)
+
+			controlContainer.appendChild(angleToggleRow)
 			controlContainer.appendChild(buttonRow)
 
 			if (motor.type === "smart") {
