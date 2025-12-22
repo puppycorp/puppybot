@@ -64,6 +64,9 @@ int motor_set_smart_angle(uint32_t node_id, float deg, uint16_t duration_ms);
 int motor_set_smart_speed(uint32_t node_id, float speed_m1_p1);
 int motor_stop(uint32_t node_id);
 
+// Converts raw smartbus position units to degrees using motor profile settings.
+float motor_smart_raw_to_deg(const motor_rt_t *m, uint16_t raw);
+
 // Reads smart servo position in degrees for the given node.
 // Returns 0 on success, negative on error.
 int motor_get_smart_position(uint32_t node_id, float *deg_out);

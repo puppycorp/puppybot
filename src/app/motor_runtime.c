@@ -1,5 +1,6 @@
 #include "motor_runtime.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
@@ -12,6 +13,57 @@
 
 static motor_rt_t g_motors[MAX_MOTORS];
 static int g_mcount = 0;
+
+typedef struct {
+	const char *name_prefix;
+	uint16_t raw_max;
+	float deg_max;
+} smart_servo_profile_t;
+
+static const smart_servo_profile_t g_smart_servo_profiles[] = {
+	{"st3215", 4096, 360.0f},
+	{"lx16a", 1000, 240.0f},
+	{"", 1000, 240.0f},
+};
+
+static bool name_has_prefix(const char *name, const char *prefix) {
+	if (!name || !prefix)
+		return false;
+	while (*prefix && *name) {
+		if (tolower((unsigned char)*name) != tolower((unsigned char)*prefix))
+			return false;
+		++name;
+		++prefix;
+	}
+	return *prefix == '\0';
+}
+
+static const smart_servo_profile_t *smart_servo_profile_for(
+    const motor_rt_t *m) {
+	const char *name = m ? m->name : "";
+	const smart_servo_profile_t *fallback = &g_smart_servo_profiles[0];
+	for (size_t i = 0; i < (sizeof(g_smart_servo_profiles) /
+	                       sizeof(g_smart_servo_profiles[0]));
+	     ++i) {
+		const smart_servo_profile_t *profile = &g_smart_servo_profiles[i];
+		if (profile->name_prefix[0] == '\0') {
+			fallback = profile;
+			continue;
+		}
+		if (name_has_prefix(name, profile->name_prefix))
+			return profile;
+	}
+	return fallback;
+}
+
+float motor_smart_raw_to_deg(const motor_rt_t *m, uint16_t raw) {
+	const smart_servo_profile_t *profile = smart_servo_profile_for(m);
+	uint16_t raw_max = profile->raw_max ? profile->raw_max : 1;
+	float deg_max = profile->deg_max > 0.0f ? profile->deg_max : 0.0f;
+	if (deg_max <= 0.0f)
+		return 0.0f;
+	return ((float)raw / (float)raw_max) * deg_max;
+}
 
 int motor_registry_add(const motor_rt_t *m) {
 	if (!m)
@@ -257,7 +309,7 @@ int motor_get_smart_position(uint32_t node_id, float *deg_out) {
 	if (r != 0)
 		return r;
 
-	*deg_out = ((float)pos_raw / 1000.0f) * 240.0f;
+	*deg_out = motor_smart_raw_to_deg(m, pos_raw);
 	return 0;
 }
 

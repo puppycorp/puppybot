@@ -219,3 +219,29 @@ TEST(motor_tick_all_stops_continuous_servo_on_timeout) {
 
 	mock_hw_teardown();
 }
+
+TEST(motor_smart_raw_to_deg_matches_lx16a_profile) {
+	motor_rt_t m = make_sample_motor(4, MOTOR_TYPE_SMART);
+	strncpy(m.name, "lx16a_gripper", sizeof(m.name) - 1);
+
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 0), 0.0f, 0.01f);
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 500), 120.0f, 0.1f);
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 1000), 240.0f, 0.1f);
+}
+
+TEST(motor_smart_raw_to_deg_matches_st3215_profile_case_insensitive) {
+	motor_rt_t m = make_sample_motor(5, MOTOR_TYPE_SMART);
+	strncpy(m.name, "ST3215_shoulder", sizeof(m.name) - 1);
+
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 0), 0.0f, 0.01f);
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 2048), 180.0f, 0.2f);
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 4096), 360.0f, 0.2f);
+}
+
+TEST(motor_smart_raw_to_deg_uses_default_profile_for_unknown) {
+	motor_rt_t m = make_sample_motor(6, MOTOR_TYPE_SMART);
+	strncpy(m.name, "unknown_servo", sizeof(m.name) - 1);
+
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 250), 60.0f, 0.1f);
+	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 1000), 240.0f, 0.1f);
+}

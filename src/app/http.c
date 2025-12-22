@@ -77,7 +77,7 @@ static void ws_client_send_motor_state(void) {
 
 		int16_t deg_x10 = 0;
 		if (r == 0) {
-			float deg = ((float)raw / 1000.0f) * 240.0f;
+			float deg = motor_smart_raw_to_deg(m, raw);
 			if (deg < -3276.8f)
 				deg = -3276.8f;
 			if (deg > 3276.7f)
