@@ -197,6 +197,13 @@ static void apply_hbridge_dc(motor_rt_t *m, float speed) {
 		return;
 	if (m->invert)
 		speed = -speed;
+	if (m->max_speed_x100) {
+		float cap = m->max_speed_x100 / 100.0f;
+		if (speed > cap)
+			speed = cap;
+		if (speed < -cap)
+			speed = -cap;
+	}
 	if (speed > 1.f)
 		speed = 1.f;
 	if (speed < -1.f)

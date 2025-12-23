@@ -19,8 +19,8 @@ USB adapter, provide a device path and optional baud:
 
 ```
 export SERIAL_PORT=/dev/tty.usbserial-1234
-export SERIAL_BAUD=1000000   # optional; defaults to PBCL baud or 1_000_000
-./run.sh --server ws://localhost:3000  # builds + connects to /api/bot/<instance>/ws
+export BAUD=1000000   # optional; defaults to PBCL baud or 1_000_000
+./run.sh --server ws://localhost:3000  # builds + connects to /api/bot/ws
 ./test.sh                               # run unit tests against host build
 ```
 

@@ -50,6 +50,9 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 	tlv_span_t span = {tlvs, len};
 	pbcl_tlv_t t;
 	const uint8_t *v = NULL;
+	int have_angle_limits = 0;
+	int16_t limit_min_x10 = 0;
+	int16_t limit_max_x10 = 0;
 
 	while (tlv_next(&span, &t, &v)) {
 		switch (t.tag) {
@@ -100,6 +103,15 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 				m.max_speed_x100 = lm->max_speed_x100;
 			}
 			break;
+		case PBCL_T_M_ANGLE_LIMITS:
+			if (t.len == sizeof(pbcl_t_motor_angle_limits)) {
+				const pbcl_t_motor_angle_limits *lm =
+				    (const pbcl_t_motor_angle_limits *)v;
+				limit_min_x10 = lm->deg_min_x10;
+				limit_max_x10 = lm->deg_max_x10;
+				have_angle_limits = 1;
+			}
+			break;
 		case PBCL_T_M_SMART_BUS:
 			if (t.len == sizeof(pbcl_t_motor_smartbus)) {
 				const pbcl_t_motor_smartbus *bus =
@@ -113,6 +125,16 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 		default:
 			break;
 		}
+	}
+
+	if (have_angle_limits) {
+		if (limit_max_x10 < limit_min_x10) {
+			int16_t tmp = limit_min_x10;
+			limit_min_x10 = limit_max_x10;
+			limit_max_x10 = tmp;
+		}
+		m.deg_min_x10 = limit_min_x10;
+		m.deg_max_x10 = limit_max_x10;
 	}
 
 	if (m.type_id == MOTOR_TYPE_HBR) {

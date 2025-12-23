@@ -20,6 +20,16 @@ export const botPage = (container: Container, botId: string) => {
 
 	container.clear()
 
+	const page = document.createElement("div")
+	page.className = "bot-page"
+	container.root.appendChild(page)
+
+	const firstRow = document.createElement("div")
+	firstRow.style.display = "flex"
+	firstRow.style.flexDirection = "row"
+	firstRow.style.gap = "16px"
+	page.appendChild(firstRow)
+
 	const statusCard = document.createElement("div")
 	statusCard.className = "card status-card"
 
@@ -74,7 +84,7 @@ export const botPage = (container: Container, botId: string) => {
 		}
 	})
 
-	container.root.appendChild(statusCard)
+	firstRow.appendChild(statusCard)
 
 	const smartbusCard = document.createElement("div")
 	smartbusCard.className = "card"
@@ -246,7 +256,7 @@ export const botPage = (container: Container, botId: string) => {
 	state.smartbusSetId.onChange(updateSetResult)
 	updateSetResult()
 
-	container.root.appendChild(smartbusCard)
+	firstRow.appendChild(smartbusCard)
 
 	const configCard = document.createElement("div")
 	configCard.className = "card"
@@ -457,6 +467,14 @@ export const botPage = (container: Container, botId: string) => {
 		if (maxSpeed !== undefined) {
 			sanitized.maxSpeed = Math.max(0, maxSpeed)
 		}
+		if (motor.type === "angle" || motor.type === "smart") {
+			const limitDegMin = toFloat(motor.limitDegMin)
+			const limitDegMax = toFloat(motor.limitDegMax)
+			if (limitDegMin !== undefined && limitDegMax !== undefined) {
+				sanitized.limitDegMin = limitDegMin
+				sanitized.limitDegMax = limitDegMax
+			}
+		}
 
 		if (motor.pollStatus) {
 			sanitized.pollStatus = true
@@ -629,6 +647,10 @@ export const botPage = (container: Container, botId: string) => {
 			} else {
 				delete motor.smart
 			}
+			if (motor.type !== "angle" && motor.type !== "smart") {
+				delete motor.limitDegMin
+				delete motor.limitDegMax
+			}
 			renderMotors()
 		})
 		grid.appendChild(createFieldWrapper("Motor type", typeSelect))
@@ -664,6 +686,40 @@ export const botPage = (container: Container, botId: string) => {
 			motor.maxSpeed = Math.max(0, parsed)
 		})
 		grid.appendChild(createFieldWrapper("Max speed", maxSpeedInput))
+
+		if (motor.type === "angle" || motor.type === "smart") {
+			const limitMinInput = document.createElement("input")
+			limitMinInput.type = "number"
+			limitMinInput.step = "0.1"
+			limitMinInput.placeholder = "Optional"
+			limitMinInput.value =
+				motor.limitDegMin !== undefined ? motor.limitDegMin.toString() : ""
+			limitMinInput.addEventListener("input", () => {
+				const parsed = parseNumber(limitMinInput.value)
+				if (parsed === undefined) {
+					delete motor.limitDegMin
+					return
+				}
+				motor.limitDegMin = parsed
+			})
+			grid.appendChild(createFieldWrapper("Angle min", limitMinInput))
+
+			const limitMaxInput = document.createElement("input")
+			limitMaxInput.type = "number"
+			limitMaxInput.step = "0.1"
+			limitMaxInput.placeholder = "Optional"
+			limitMaxInput.value =
+				motor.limitDegMax !== undefined ? motor.limitDegMax.toString() : ""
+			limitMaxInput.addEventListener("input", () => {
+				const parsed = parseNumber(limitMaxInput.value)
+				if (parsed === undefined) {
+					delete motor.limitDegMax
+					return
+				}
+				motor.limitDegMax = parsed
+			})
+			grid.appendChild(createFieldWrapper("Angle max", limitMaxInput))
+		}
 
 		if (motor.type === "smart") {
 			ensureSmartConfig(motor)
@@ -1548,8 +1604,6 @@ export const botPage = (container: Container, botId: string) => {
 
 	syncMotorsFromState(state.configs.get()[botId])
 
-	container.root.appendChild(configCard)
-
 	const roverCard = document.createElement("div")
 	roverCard.className = "card"
 
@@ -1569,5 +1623,6 @@ export const botPage = (container: Container, botId: string) => {
 	roverLink.textContent = "Open rover controls"
 	roverCard.appendChild(roverLink)
 
-	container.root.appendChild(roverCard)
+	firstRow.appendChild(roverCard)
+	page.appendChild(configCard)
 }

@@ -45,6 +45,8 @@ export type MotorConfig = {
 	name?: string
 	timeoutMs?: number
 	maxSpeed?: number
+	limitDegMin?: number
+	limitDegMax?: number
 	pollStatus?: boolean
 	pwm?: MotorPwmConfig
 	smart?: SmartServoBusConfig

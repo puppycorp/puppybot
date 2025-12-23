@@ -113,6 +113,13 @@ body {
 	margin: 10px;
 }
 
+.bot-page {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	width: 100%;
+}
+
 h1,
 h2,
 h3,
@@ -242,7 +249,8 @@ label.field textarea:focus {
 
 .motors-container {
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
+	flex-wrap: wrap;
 	gap: 16px;
 }
 
@@ -346,4 +354,3 @@ a {
 a:hover {
 	color: #1d4ed8;
 }
-

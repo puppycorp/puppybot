@@ -18,6 +18,7 @@ const PBCL_T_M_HBRIDGE = 11
 const PBCL_T_M_ANALOG_FB = 12
 const PBCL_T_M_LIMITS = 13
 const PBCL_T_M_SMART_BUS = 14
+const PBCL_T_M_ANGLE_LIMITS = 15
 
 const MOTOR_TYPE_REVERSE: Record<number, MotorConfig["type"]> = {
 	1: "angle",
@@ -69,6 +70,18 @@ const buildMotorSection = (config: MotorConfig): Buffer => {
 		)
 		limits.writeUInt16LE(0, 2)
 		tlvs.push(tlv(PBCL_T_M_LIMITS, limits))
+	}
+	if (
+		(config.type === "angle" || config.type === "smart") &&
+		config.limitDegMin !== undefined &&
+		config.limitDegMax !== undefined
+	) {
+		const toInt16 = (value: number) =>
+			Math.max(-32768, Math.min(32767, Math.round(value * 10)))
+		const limits = Buffer.alloc(4)
+		limits.writeInt16LE(toInt16(config.limitDegMin), 0)
+		limits.writeInt16LE(toInt16(config.limitDegMax), 2)
+		tlvs.push(tlv(PBCL_T_M_ANGLE_LIMITS, limits))
 	}
 
 	if (config.pwm) {
@@ -216,6 +229,14 @@ export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
 							if (len >= 2) {
 								config.maxSpeed =
 									buffer.readUInt16LE(valueOffset) / 100
+							}
+							break
+						case PBCL_T_M_ANGLE_LIMITS:
+							if (len >= 4) {
+								config.limitDegMin =
+									buffer.readInt16LE(valueOffset) / 10
+								config.limitDegMax =
+									buffer.readInt16LE(valueOffset + 2) / 10
 							}
 							break
 						case PBCL_T_M_PWM:

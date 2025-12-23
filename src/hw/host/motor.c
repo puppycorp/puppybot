@@ -113,7 +113,7 @@ static speed_t choose_baud(uint32_t baud) {
 static uint32_t env_serial_baud(void) {
 	if (g_serial_baud_env)
 		return g_serial_baud_env;
-	const char *env = getenv("SERIAL_BAUD");
+	const char *env = getenv("BAUD");
 	if (!env || !*env)
 		return 0;
 	char *end = NULL;
