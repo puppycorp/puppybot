@@ -20,6 +20,9 @@ done < <(find "$ROOT_DIR/src/tests" -maxdepth 1 -type f -name '*.c' ! -name 'tes
   "$ROOT_DIR/src/app/motor_runtime.c" \
   "$ROOT_DIR/src/app/arm_ik.c" \
   "$ROOT_DIR/src/app/pbcl_motor_handler.c" \
+  "$ROOT_DIR/src/puppyarm/puppyarm.c" \
+  "$ROOT_DIR/src/puppyarm/puppyarm_controller.c" \
+  "$ROOT_DIR/src/puppyarm/puppyarm_kinematics.c" \
   "$ROOT_DIR/src/app/main.c" \
   -o "$BUILD_DIR/test_runner" -lm
 

@@ -10,6 +10,9 @@ set(COMPONENT_SRCS ${ESP32_HW_SRCS})
 file(GLOB_RECURSE APP_COMMON_SRCS "../../src/app/*.c")
 list(APPEND COMPONENT_SRCS ${APP_COMMON_SRCS})
 
+file(GLOB_RECURSE PUPPYARM_SRCS "../../src/puppyarm/*.c")
+list(APPEND COMPONENT_SRCS ${PUPPYARM_SRCS})
+
 set(DRIVER_COMPONENTS driver)
 idf_build_get_property(idf_path IDF_PATH)
 if(idf_path)
