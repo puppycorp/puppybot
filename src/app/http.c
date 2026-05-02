@@ -6,6 +6,7 @@
 #include "motor_runtime.h"
 #include "platform.h"
 #include "protocol.h"
+#include "puppyarm/puppyarm.h"
 #include "timer.h"
 
 #include <math.h>
@@ -105,9 +106,116 @@ static void ws_client_send_motor_state(void) {
 	}
 }
 
+static void write_u16_le(uint8_t *buf, size_t *off, uint16_t value) {
+	buf[(*off)++] = (uint8_t)(value & 0xff);
+	buf[(*off)++] = (uint8_t)((value >> 8) & 0xff);
+}
+
+static void write_i16_le(uint8_t *buf, size_t *off, int16_t value) {
+	write_u16_le(buf, off, (uint16_t)value);
+}
+
+static void write_i32_le(uint8_t *buf, size_t *off, int32_t value) {
+	uint32_t raw = (uint32_t)value;
+	buf[(*off)++] = (uint8_t)(raw & 0xff);
+	buf[(*off)++] = (uint8_t)((raw >> 8) & 0xff);
+	buf[(*off)++] = (uint8_t)((raw >> 16) & 0xff);
+	buf[(*off)++] = (uint8_t)((raw >> 24) & 0xff);
+}
+
+static void write_float_le(uint8_t *buf, size_t *off, float value) {
+	memcpy(&buf[*off], &value, sizeof(value));
+	*off += sizeof(value);
+}
+
+static void ws_client_send_arm_state(void) {
+	if (!client_connected || !ws_client)
+		return;
+
+	const puppyarm_controller_t *ctrl = puppyarm_controller();
+	if (!ctrl)
+		return;
+
+	puppyarm_joint_state_t joints[PUPPYARM_JOINT_COUNT];
+	puppyarm_controller_get_joint_states(ctrl, joints);
+
+	uint8_t buf[320];
+	size_t off = 0;
+	buf[off++] = (uint8_t)(PUPPY_PROTOCOL_VERSION & 0xff);
+	buf[off++] = (uint8_t)((PUPPY_PROTOCOL_VERSION >> 8) & 0xff);
+	buf[off++] = MSG_TO_SRV_ARM_STATE;
+	buf[off++] = PUPPYARM_JOINT_COUNT;
+
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i) {
+		const puppyarm_joint_state_t *joint = &joints[i];
+		const puppyarm_joint_calibration_t *cal = &ctrl->profile.joints[i];
+		uint8_t flags = 0;
+		if (joint->online)
+			flags |= 0x01;
+		if (joint->has_feedback)
+			flags |= 0x02;
+		if (joint->limit_reached)
+			flags |= 0x04;
+		if (joint->has_target)
+			flags |= 0x08;
+		if (joint->fault[0] != '\0')
+			flags |= 0x10;
+
+		float angle_deg = 0.0f;
+		if (joint->has_feedback) {
+			angle_deg = puppyarm_tick_to_angle(cal, joint->tick) *
+			            (180.0f / PUPPYARM_PI);
+		}
+
+		buf[off++] = joint->servo_id;
+		buf[off++] = flags;
+		write_i32_le(buf, &off, joint->tick);
+		write_i32_le(buf, &off, joint->target_tick);
+		write_i16_le(buf, &off, joint->speed);
+		write_i32_le(buf, &off, cal->tick_min);
+		write_i32_le(buf, &off, cal->tick_max);
+		write_float_le(buf, &off, angle_deg);
+
+		size_t fault_len = 0;
+		while (fault_len < PUPPYARM_FAULT_LEN &&
+		       joint->fault[fault_len] != '\0') {
+			fault_len++;
+		}
+		if (fault_len > 31)
+			fault_len = 31;
+		buf[off++] = (uint8_t)fault_len;
+		if (fault_len > 0) {
+			memcpy(&buf[off], joint->fault, fault_len);
+			off += fault_len;
+		}
+	}
+
+	float angles[PUPPYARM_JOINT_COUNT] = {0};
+	float x = 0.0f;
+	float y = 0.0f;
+	float z = 0.0f;
+	uint8_t pose_flags = 0;
+	if (puppyarm_controller_current_angles(ctrl, angles) == 0) {
+		puppyarm_fk(&ctrl->profile, angles[0], angles[1], angles[2], angles[3],
+		            &x, &y, &z);
+		z += ctrl->profile.z_origin_mm;
+		pose_flags = 0x01;
+	}
+	buf[off++] = pose_flags;
+	write_float_le(buf, &off, x);
+	write_float_le(buf, &off, y);
+	write_float_le(buf, &off, z);
+
+	int ret = ws_client_send_binary(ws_client, buf, off);
+	if (ret != 0) {
+		log_warn(TAG, "Failed to send arm state (%d)", ret);
+	}
+}
+
 static void motor_state_timer_callback(void *arg) {
 	(void)arg;
 	ws_client_send_motor_state();
+	ws_client_send_arm_state();
 }
 
 // Reconnection function

@@ -1,4 +1,4 @@
-import type { MsgToBot } from "./types"
+import type { ArmJointState, ArmState, MsgToBot } from "./types"
 
 enum MsgToBotType {
 	Ping = 1,
@@ -11,6 +11,19 @@ enum MsgToBotType {
 	SetMotorPoll = 9,
 	SetBotId = 10,
 	ArmMove = 11,
+	ArmSetSpeed = 12,
+	ArmJog = 13,
+	ArmStopJoint = 14,
+	ArmStopAll = 15,
+	ArmGotoTicks = 16,
+	ArmGotoAngles = 17,
+	ArmGotoCoords = 18,
+	ArmHold = 19,
+	ArmSetJointTick = 20,
+	ArmSetTickLimits = 21,
+	ArmSetTickLimitsEnabled = 22,
+	ArmMoveRelative = 23,
+	ArmClearFaults = 24,
 }
 
 export enum MsgFromBotType {
@@ -20,6 +33,7 @@ export enum MsgFromBotType {
 	SmartbusScanResult = 4,
 	SmartbusSetIdResult = 5,
 	ConfigBlob = 6,
+	ArmState = 7,
 }
 
 enum InstructionType {
@@ -112,6 +126,12 @@ export type ConfigBlobMsg = {
 	blob: Uint8Array
 }
 
+export type ArmStateMsg = {
+	type: MsgFromBotType.ArmState
+	protocolVersion: number
+	state: ArmState
+}
+
 export type MsgFromBot =
 	| PongMsg
 	| MyInfoMsg
@@ -119,6 +139,7 @@ export type MsgFromBot =
 	| SmartbusScanResultMsg
 	| SmartbusSetIdResultMsg
 	| ConfigBlobMsg
+	| ArmStateMsg
 
 const DC_MOTOR = 0
 const SERVO_MOTOR = 1
@@ -140,6 +161,10 @@ const createHeader = (
 
 const DRIVE_PAYLOAD_LENGTH = 9
 const ARM_MOVE_PAYLOAD_LENGTH = 15
+const ARM_GOTO_TICKS_PAYLOAD_LENGTH = 18
+const ARM_GOTO_ANGLES_PAYLOAD_LENGTH = 18
+const ARM_GOTO_COORDS_PAYLOAD_LENGTH = 14
+const ARM_MOVE_RELATIVE_PAYLOAD_LENGTH = 10
 
 type DrivePayloadInput = {
 	motorId?: number
@@ -191,6 +216,117 @@ const createArmMovePayload = (input: {
 	payload.writeUInt16LE(clampInt(input.durationMs, 0, 0xffff), 13)
 	return payload
 }
+
+const createArmSpeedPayload = (speed: number): Buffer => {
+	const payload = Buffer.alloc(2)
+	payload.writeUInt16LE(clampInt(speed, 0, 1000), 0)
+	return payload
+}
+
+const createArmJogPayload = (input: {
+	joint: number
+	direction: number
+	speed: number
+}): Buffer => {
+	const payload = Buffer.alloc(4)
+	payload.writeUInt8(clampInt(input.joint, 0, 0xff), 0)
+	payload.writeInt8(clampInt(input.direction, -1, 1), 1)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 2)
+	return payload
+}
+
+const createArmGotoTicksPayload = (input: {
+	speed: number
+	ticks: readonly number[]
+}): Buffer => {
+	const payload = Buffer.alloc(ARM_GOTO_TICKS_PAYLOAD_LENGTH)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 0)
+	for (let i = 0; i < 4; i++) {
+		payload.writeInt32LE(
+			clampInt(input.ticks[i], -0x80000000, 0x7fffffff),
+			2 + i * 4,
+		)
+	}
+	return payload
+}
+
+const createArmGotoAnglesPayload = (input: {
+	speed: number
+	anglesDeg: readonly number[]
+}): Buffer => {
+	const payload = Buffer.alloc(ARM_GOTO_ANGLES_PAYLOAD_LENGTH)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 0)
+	for (let i = 0; i < 4; i++) {
+		const angle = Number.isFinite(input.anglesDeg[i])
+			? input.anglesDeg[i]
+			: 0
+		payload.writeFloatLE(angle, 2 + i * 4)
+	}
+	return payload
+}
+
+const createArmGotoCoordsPayload = (input: {
+	speed: number
+	x: number
+	y: number
+	z: number
+}): Buffer => {
+	const payload = Buffer.alloc(ARM_GOTO_COORDS_PAYLOAD_LENGTH)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 0)
+	payload.writeFloatLE(Number.isFinite(input.x) ? input.x : 0, 2)
+	payload.writeFloatLE(Number.isFinite(input.y) ? input.y : 0, 6)
+	payload.writeFloatLE(Number.isFinite(input.z) ? input.z : 0, 10)
+	return payload
+}
+
+const createArmSetJointTickPayload = (input: {
+	joint: number
+	speed: number
+	tick: number
+}): Buffer => {
+	const payload = Buffer.alloc(7)
+	payload.writeUInt8(clampInt(input.joint, 0, 0xff), 0)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 1)
+	payload.writeInt32LE(clampInt(input.tick, -0x80000000, 0x7fffffff), 3)
+	return payload
+}
+
+const createArmSetTickLimitsPayload = (input: {
+	joint: number
+	min: number
+	max: number
+}): Buffer => {
+	const payload = Buffer.alloc(9)
+	payload.writeUInt8(clampInt(input.joint, 0, 0xff), 0)
+	payload.writeInt32LE(clampInt(input.min, -0x80000000, 0x7fffffff), 1)
+	payload.writeInt32LE(clampInt(input.max, -0x80000000, 0x7fffffff), 5)
+	return payload
+}
+
+const createArmSetTickLimitsEnabledPayload = (input: {
+	joint: number
+	enabled: boolean
+}): Buffer => {
+	const payload = Buffer.alloc(2)
+	payload.writeUInt8(clampInt(input.joint, 0, 0xff), 0)
+	payload.writeUInt8(input.enabled ? 1 : 0, 1)
+	return payload
+}
+
+const createArmMoveRelativePayload = (input: {
+	speed: number
+	dx: number
+	dy: number
+}): Buffer => {
+	const payload = Buffer.alloc(ARM_MOVE_RELATIVE_PAYLOAD_LENGTH)
+	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 0)
+	payload.writeFloatLE(Number.isFinite(input.dx) ? input.dx : 0, 2)
+	payload.writeFloatLE(Number.isFinite(input.dy) ? input.dy : 0, 6)
+	return payload
+}
+
+const packet = (commandType: MsgToBotType, payload: Buffer = Buffer.alloc(0)) =>
+	Buffer.concat([createHeader(commandType, payload.length), payload])
 
 const header = (cmd: Command) => {}
 
@@ -265,6 +401,61 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 				ARM_MOVE_PAYLOAD_LENGTH,
 			)
 			return Buffer.concat([header, payload])
+		}
+		case "armSetSpeed":
+			return packet(
+				MsgToBotType.ArmSetSpeed,
+				createArmSpeedPayload(msg.speed),
+			)
+		case "armJog":
+			return packet(MsgToBotType.ArmJog, createArmJogPayload(msg))
+		case "armStopJoint": {
+			const payload = Buffer.from([clampInt(msg.joint, 0, 0xff)])
+			return packet(MsgToBotType.ArmStopJoint, payload)
+		}
+		case "armStopAll":
+			return packet(MsgToBotType.ArmStopAll)
+		case "armGotoTicks":
+			return packet(
+				MsgToBotType.ArmGotoTicks,
+				createArmGotoTicksPayload(msg),
+			)
+		case "armGotoAngles":
+			return packet(
+				MsgToBotType.ArmGotoAngles,
+				createArmGotoAnglesPayload(msg),
+			)
+		case "armGotoCoords":
+			return packet(
+				MsgToBotType.ArmGotoCoords,
+				createArmGotoCoordsPayload(msg),
+			)
+		case "armHold":
+			return packet(MsgToBotType.ArmHold, createArmSpeedPayload(msg.speed))
+		case "armSetJointTick":
+			return packet(
+				MsgToBotType.ArmSetJointTick,
+				createArmSetJointTickPayload(msg),
+			)
+		case "armSetTickLimits":
+			return packet(
+				MsgToBotType.ArmSetTickLimits,
+				createArmSetTickLimitsPayload(msg),
+			)
+		case "armSetTickLimitsEnabled":
+			return packet(
+				MsgToBotType.ArmSetTickLimitsEnabled,
+				createArmSetTickLimitsEnabledPayload(msg),
+			)
+		case "armMoveRelative":
+			return packet(
+				MsgToBotType.ArmMoveRelative,
+				createArmMoveRelativePayload(msg),
+			)
+		case "armClearFaults": {
+			const joint = msg.joint === undefined ? 255 : msg.joint
+			const payload = Buffer.from([clampInt(joint, 0, 0xff)])
+			return packet(MsgToBotType.ArmClearFaults, payload)
 		}
 		case "applyConfig": {
 			const payload = Buffer.from(msg.blob)
@@ -441,6 +632,64 @@ export const decodeBotMsg = (buffer: Buffer): MsgFromBot => {
 				type: MsgFromBotType.ConfigBlob,
 				protocolVersion,
 				blob,
+			}
+		}
+		case MsgFromBotType.ArmState: {
+			if (buffer.length < 4) {
+				throw new Error("Invalid arm state message: too short")
+			}
+			const count = buffer.readUInt8(3)
+			let offset = 4
+			const joints: ArmJointState[] = []
+			for (let i = 0; i < count; i++) {
+				if (offset + 25 > buffer.length) break
+				const servoId = buffer.readUInt8(offset)
+				const flags = buffer.readUInt8(offset + 1)
+				const tick = buffer.readInt32LE(offset + 2)
+				const targetTickRaw = buffer.readInt32LE(offset + 6)
+				const speed = buffer.readInt16LE(offset + 10)
+				const limitMin = buffer.readInt32LE(offset + 12)
+				const limitMax = buffer.readInt32LE(offset + 16)
+				const angleDegRaw = buffer.readFloatLE(offset + 20)
+				const faultLength = buffer.readUInt8(offset + 24)
+				offset += 25
+				const available = Math.min(faultLength, buffer.length - offset)
+				const fault = buffer
+					.subarray(offset, offset + available)
+					.toString("utf8")
+				offset += available
+				const hasFeedback = (flags & 0x02) !== 0
+				const hasTarget = (flags & 0x08) !== 0
+				joints.push({
+					servoId,
+					online: (flags & 0x01) !== 0,
+					hasFeedback,
+					limitReached: (flags & 0x04) !== 0,
+					hasTarget,
+					hasFault: (flags & 0x10) !== 0,
+					tick,
+					targetTick: hasTarget ? targetTickRaw : null,
+					speed,
+					limitMin,
+					limitMax,
+					angleDeg: hasFeedback ? angleDegRaw : null,
+					fault,
+				})
+			}
+			let poseValid = false
+			let coordsMm: ArmState["coordsMm"] = null
+			if (offset + 13 <= buffer.length) {
+				const poseFlags = buffer.readUInt8(offset)
+				poseValid = (poseFlags & 0x01) !== 0
+				const x = buffer.readFloatLE(offset + 1)
+				const y = buffer.readFloatLE(offset + 5)
+				const z = buffer.readFloatLE(offset + 9)
+				coordsMm = poseValid ? { x, y, z } : null
+			}
+			return {
+				type: MsgFromBotType.ArmState,
+				protocolVersion,
+				state: { joints, poseValid, coordsMm },
 			}
 		}
 		default:

@@ -107,6 +107,119 @@ type ArmMove = {
 	durationMs?: number
 }
 
+export type ArmJointState = {
+	servoId: number
+	online: boolean
+	hasFeedback: boolean
+	limitReached: boolean
+	hasTarget: boolean
+	hasFault: boolean
+	tick: number
+	targetTick: number | null
+	speed: number
+	limitMin: number
+	limitMax: number
+	angleDeg: number | null
+	fault: string
+}
+
+export type ArmState = {
+	joints: ArmJointState[]
+	poseValid: boolean
+	coordsMm: { x: number; y: number; z: number } | null
+}
+
+type ArmSetSpeed = {
+	type: "armSetSpeed"
+	botId: string
+	speed: number
+}
+
+type ArmJog = {
+	type: "armJog"
+	botId: string
+	joint: number
+	direction: -1 | 0 | 1
+	speed: number
+}
+
+type ArmStopJoint = {
+	type: "armStopJoint"
+	botId: string
+	joint: number
+}
+
+type ArmStopAll = {
+	type: "armStopAll"
+	botId: string
+}
+
+type ArmGotoTicks = {
+	type: "armGotoTicks"
+	botId: string
+	speed: number
+	ticks: [number, number, number, number]
+}
+
+type ArmGotoAngles = {
+	type: "armGotoAngles"
+	botId: string
+	speed: number
+	anglesDeg: [number, number, number, number]
+}
+
+type ArmGotoCoords = {
+	type: "armGotoCoords"
+	botId: string
+	speed: number
+	x: number
+	y: number
+	z: number
+}
+
+type ArmHold = {
+	type: "armHold"
+	botId: string
+	speed: number
+}
+
+type ArmSetJointTick = {
+	type: "armSetJointTick"
+	botId: string
+	joint: number
+	speed: number
+	tick: number
+}
+
+type ArmSetTickLimits = {
+	type: "armSetTickLimits"
+	botId: string
+	joint: number
+	min: number
+	max: number
+}
+
+type ArmSetTickLimitsEnabled = {
+	type: "armSetTickLimitsEnabled"
+	botId: string
+	joint: number
+	enabled: boolean
+}
+
+type ArmMoveRelative = {
+	type: "armMoveRelative"
+	botId: string
+	speed: number
+	dx: number
+	dy: number
+}
+
+type ArmClearFaults = {
+	type: "armClearFaults"
+	botId: string
+	joint?: number
+}
+
 type UpdateConfig = {
 	type: "updateConfig"
 	botId: string
@@ -137,6 +250,19 @@ export type MsgToServer =
 	| StopAllMotors
 	| TurnServo
 	| ArmMove
+	| ArmSetSpeed
+	| ArmJog
+	| ArmStopJoint
+	| ArmStopAll
+	| ArmGotoTicks
+	| ArmGotoAngles
+	| ArmGotoCoords
+	| ArmHold
+	| ArmSetJointTick
+	| ArmSetTickLimits
+	| ArmSetTickLimitsEnabled
+	| ArmMoveRelative
+	| ArmClearFaults
 	| SmartbusScan
 	| SmartbusSetId
 	| UpdateConfig
@@ -206,12 +332,19 @@ export type SmartbusSetIdBroadcast = {
 	status: number
 }
 
+export type ArmStateBroadcast = {
+	type: "armState"
+	botId: string
+	state: ArmState
+}
+
 export type MsgToUi =
 	| BotConnected
 	| BotDisconnected
 	| BotInfo
 	| ConfigBroadcast
 	| MotorStateBroadcast
+	| ArmStateBroadcast
 	| SmartbusScanBroadcast
 	| SmartbusSetIdBroadcast
 type ApplyConfig = {
@@ -236,6 +369,19 @@ export type MsgToBot =
 	| StopAllMotors
 	| Omit<TurnServo, "botId">
 	| Omit<ArmMove, "botId">
+	| Omit<ArmSetSpeed, "botId">
+	| Omit<ArmJog, "botId">
+	| Omit<ArmStopJoint, "botId">
+	| Omit<ArmStopAll, "botId">
+	| Omit<ArmGotoTicks, "botId">
+	| Omit<ArmGotoAngles, "botId">
+	| Omit<ArmGotoCoords, "botId">
+	| Omit<ArmHold, "botId">
+	| Omit<ArmSetJointTick, "botId">
+	| Omit<ArmSetTickLimits, "botId">
+	| Omit<ArmSetTickLimitsEnabled, "botId">
+	| Omit<ArmMoveRelative, "botId">
+	| Omit<ArmClearFaults, "botId">
 	| Omit<SmartbusScan, "botId">
 	| Omit<SmartbusSetId, "botId">
 	| SetMotorPoll

@@ -85,6 +85,13 @@ const handleMsg = (msg: MsgToUi) => {
 			state.motorStates.set({ ...existing, [msg.botId]: botStates })
 			break
 		}
+		case "armState": {
+			state.armStates.set({
+				...state.armStates.get(),
+				[msg.botId]: msg.state,
+			})
+			break
+		}
 		case "smartbusScan": {
 			state.smartbusScan.set({
 				...state.smartbusScan.get(),

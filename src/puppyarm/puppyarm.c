@@ -117,6 +117,29 @@ void puppyarm_stop(uint32_t now_ms) {
 		puppyarm_controller_stop_all(&g_puppyarm, now_ms);
 }
 
+int puppyarm_set_speed(uint16_t speed) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_set_speed(&g_puppyarm, speed);
+}
+
+int puppyarm_stop_joint(uint8_t joint, uint32_t now_ms) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_stop_joint(&g_puppyarm, joint, now_ms);
+}
+
+void puppyarm_clear_faults(void) {
+	if (g_initialized)
+		puppyarm_controller_clear_faults(&g_puppyarm);
+}
+
+int puppyarm_clear_joint_fault(uint8_t joint) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_clear_joint_fault(&g_puppyarm, joint);
+}
+
 int puppyarm_goto_ticks(const int32_t ticks[PUPPYARM_JOINT_COUNT],
                         uint16_t speed, uint32_t now_ms) {
 	if (!g_initialized)
@@ -146,6 +169,43 @@ int puppyarm_jog(uint8_t joint, int8_t direction, uint16_t speed,
 		return -1;
 	return puppyarm_controller_jog(&g_puppyarm, joint, direction, speed,
 	                               now_ms);
+}
+
+int puppyarm_hold(uint16_t speed, uint32_t now_ms) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_hold(&g_puppyarm, speed, now_ms);
+}
+
+int puppyarm_set_joint_tick(uint8_t joint, int32_t tick, uint16_t speed,
+                            uint32_t now_ms) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_set_joint_tick(&g_puppyarm, joint, tick, speed,
+	                                          now_ms);
+}
+
+int puppyarm_set_tick_limits(uint8_t joint, int32_t min_tick,
+                             int32_t max_tick) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_set_tick_limits(&g_puppyarm, joint, min_tick,
+	                                           max_tick);
+}
+
+int puppyarm_set_tick_limits_enabled(uint8_t joint, bool enabled) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_set_tick_limits_enabled(&g_puppyarm, joint,
+	                                                   enabled);
+}
+
+int puppyarm_move_relative(float dx_mm, float dy_mm, uint16_t speed,
+                           uint32_t now_ms) {
+	if (!g_initialized)
+		return -1;
+	return puppyarm_controller_move_relative(&g_puppyarm, dx_mm, dy_mm, speed,
+	                                         now_ms);
 }
 
 const puppyarm_controller_t *puppyarm_controller(void) {

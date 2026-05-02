@@ -15,6 +15,19 @@
 #define CMD_SET_MOTOR_POLL 9
 #define CMD_SET_BOT_ID 10
 #define CMD_ARM_MOVE 11
+#define CMD_ARM_SET_SPEED 12
+#define CMD_ARM_JOG 13
+#define CMD_ARM_STOP_JOINT 14
+#define CMD_ARM_STOP_ALL 15
+#define CMD_ARM_GOTO_TICKS 16
+#define CMD_ARM_GOTO_ANGLES 17
+#define CMD_ARM_GOTO_COORDS 18
+#define CMD_ARM_HOLD 19
+#define CMD_ARM_SET_JOINT_TICK 20
+#define CMD_ARM_SET_TICK_LIMITS 21
+#define CMD_ARM_SET_TICK_LIMITS_ENABLED 22
+#define CMD_ARM_MOVE_RELATIVE 23
+#define CMD_ARM_CLEAR_FAULTS 24
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -22,6 +35,7 @@
 #define MSG_TO_SRV_SMARTBUS_SCAN_RESULT 0x04
 #define MSG_TO_SRV_SMARTBUS_SET_ID_RESULT 0x05
 #define MSG_TO_SRV_CONFIG_BLOB 0x06
+#define MSG_TO_SRV_ARM_STATE 0x07
 
 #define PUPPY_PROTOCOL_VERSION 1
 
@@ -70,6 +84,60 @@ typedef struct {
 } ArmMoveCommand;
 
 typedef struct {
+	uint16_t speed;
+} ArmSetSpeedCommand;
+
+typedef struct {
+	uint8_t joint;
+	int8_t direction;
+	uint16_t speed;
+} ArmJogCommand;
+
+typedef struct {
+	uint8_t joint;
+} ArmJointCommand;
+
+typedef struct {
+	uint16_t speed;
+	int32_t ticks[4];
+} ArmGotoTicksCommand;
+
+typedef struct {
+	uint16_t speed;
+	float angles_deg[4];
+} ArmGotoAnglesCommand;
+
+typedef struct {
+	uint16_t speed;
+	float x;
+	float y;
+	float z;
+} ArmGotoCoordsCommand;
+
+typedef struct {
+	uint8_t joint;
+	uint16_t speed;
+	int32_t tick;
+} ArmSetJointTickCommand;
+
+typedef struct {
+	uint8_t joint;
+	int32_t min_tick;
+	int32_t max_tick;
+} ArmSetTickLimitsCommand;
+
+typedef struct {
+	uint8_t joint;
+	uint8_t enabled;
+} ArmSetTickLimitsEnabledCommand;
+
+typedef struct {
+	uint16_t speed;
+	float dx;
+	float dy;
+} ArmMoveRelativeCommand;
+
+typedef struct {
 	const uint8_t *data;
 	uint16_t length;
 } SetBotIdCommand;
@@ -85,6 +153,16 @@ union Command {
 		uint16_t length;
 	} apply_config;
 	ArmMoveCommand arm_move;
+	ArmSetSpeedCommand arm_set_speed;
+	ArmJogCommand arm_jog;
+	ArmJointCommand arm_joint;
+	ArmGotoTicksCommand arm_goto_ticks;
+	ArmGotoAnglesCommand arm_goto_angles;
+	ArmGotoCoordsCommand arm_goto_coords;
+	ArmSetJointTickCommand arm_set_joint_tick;
+	ArmSetTickLimitsCommand arm_set_tick_limits;
+	ArmSetTickLimitsEnabledCommand arm_set_tick_limits_enabled;
+	ArmMoveRelativeCommand arm_move_relative;
 	SetBotIdCommand set_bot_id;
 };
 
@@ -115,9 +193,45 @@ static inline const char *command_type_to_string(int cmd_type) {
 		return "SET_BOT_ID";
 	case CMD_ARM_MOVE:
 		return "ARM_MOVE";
+	case CMD_ARM_SET_SPEED:
+		return "ARM_SET_SPEED";
+	case CMD_ARM_JOG:
+		return "ARM_JOG";
+	case CMD_ARM_STOP_JOINT:
+		return "ARM_STOP_JOINT";
+	case CMD_ARM_STOP_ALL:
+		return "ARM_STOP_ALL";
+	case CMD_ARM_GOTO_TICKS:
+		return "ARM_GOTO_TICKS";
+	case CMD_ARM_GOTO_ANGLES:
+		return "ARM_GOTO_ANGLES";
+	case CMD_ARM_GOTO_COORDS:
+		return "ARM_GOTO_COORDS";
+	case CMD_ARM_HOLD:
+		return "ARM_HOLD";
+	case CMD_ARM_SET_JOINT_TICK:
+		return "ARM_SET_JOINT_TICK";
+	case CMD_ARM_SET_TICK_LIMITS:
+		return "ARM_SET_TICK_LIMITS";
+	case CMD_ARM_SET_TICK_LIMITS_ENABLED:
+		return "ARM_SET_TICK_LIMITS_ENABLED";
+	case CMD_ARM_MOVE_RELATIVE:
+		return "ARM_MOVE_RELATIVE";
+	case CMD_ARM_CLEAR_FAULTS:
+		return "ARM_CLEAR_FAULTS";
 	default:
 		return "UNKNOWN";
 	}
+}
+
+static inline uint16_t protocol_read_u16_le(const uint8_t *payload) {
+	return (uint16_t)(payload[0] | (payload[1] << 8));
+}
+
+static inline int32_t protocol_read_i32_le(const uint8_t *payload) {
+	uint32_t raw = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8) |
+	               ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
+	return (int32_t)raw;
 }
 
 static inline float protocol_read_float_le(const uint8_t *payload) {
@@ -213,9 +327,122 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd.arm_move.duration_ms =
 		    (payload_len >= 15) ? (uint16_t)(payload[13] | (payload[14] << 8)) : 0;
 		break;
+	case CMD_ARM_SET_SPEED:
+		cmd_packet->cmd_type = CMD_ARM_SET_SPEED;
+		cmd_packet->cmd.arm_set_speed.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		break;
+	case CMD_ARM_JOG:
+		cmd_packet->cmd_type = CMD_ARM_JOG;
+		cmd_packet->cmd.arm_jog.joint = (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.arm_jog.direction =
+		    (payload_len >= 2) ? (int8_t)payload[1] : 0;
+		cmd_packet->cmd.arm_jog.speed =
+		    (payload_len >= 4) ? protocol_read_u16_le(payload + 2) : 0;
+		break;
+	case CMD_ARM_STOP_JOINT:
+		cmd_packet->cmd_type = CMD_ARM_STOP_JOINT;
+		cmd_packet->cmd.arm_joint.joint = (payload_len >= 1) ? payload[0] : 0;
+		break;
+	case CMD_ARM_STOP_ALL:
+		cmd_packet->cmd_type = CMD_ARM_STOP_ALL;
+		break;
+	case CMD_ARM_GOTO_TICKS:
+		cmd_packet->cmd_type = CMD_ARM_GOTO_TICKS;
+		cmd_packet->cmd.arm_goto_ticks.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		for (uint8_t i = 0; i < 4; ++i) {
+			cmd_packet->cmd.arm_goto_ticks.ticks[i] =
+			    (payload_len >= (int)(6 + i * 4))
+			        ? protocol_read_i32_le(payload + 2 + i * 4)
+			        : 0;
+		}
+		break;
+	case CMD_ARM_GOTO_ANGLES:
+		cmd_packet->cmd_type = CMD_ARM_GOTO_ANGLES;
+		cmd_packet->cmd.arm_goto_angles.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		for (uint8_t i = 0; i < 4; ++i) {
+			cmd_packet->cmd.arm_goto_angles.angles_deg[i] =
+			    (payload_len >= (int)(6 + i * 4))
+			        ? protocol_read_float_le(payload + 2 + i * 4)
+			        : 0.0f;
+		}
+		break;
+	case CMD_ARM_GOTO_COORDS:
+		cmd_packet->cmd_type = CMD_ARM_GOTO_COORDS;
+		cmd_packet->cmd.arm_goto_coords.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		cmd_packet->cmd.arm_goto_coords.x =
+		    (payload_len >= 6) ? protocol_read_float_le(payload + 2) : 0.0f;
+		cmd_packet->cmd.arm_goto_coords.y =
+		    (payload_len >= 10) ? protocol_read_float_le(payload + 6) : 0.0f;
+		cmd_packet->cmd.arm_goto_coords.z =
+		    (payload_len >= 14) ? protocol_read_float_le(payload + 10) : 0.0f;
+		break;
+	case CMD_ARM_HOLD:
+		cmd_packet->cmd_type = CMD_ARM_HOLD;
+		cmd_packet->cmd.arm_set_speed.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		break;
+	case CMD_ARM_SET_JOINT_TICK:
+		cmd_packet->cmd_type = CMD_ARM_SET_JOINT_TICK;
+		cmd_packet->cmd.arm_set_joint_tick.joint =
+		    (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.arm_set_joint_tick.speed =
+		    (payload_len >= 3) ? protocol_read_u16_le(payload + 1) : 0;
+		cmd_packet->cmd.arm_set_joint_tick.tick =
+		    (payload_len >= 7) ? protocol_read_i32_le(payload + 3) : 0;
+		break;
+	case CMD_ARM_SET_TICK_LIMITS:
+		cmd_packet->cmd_type = CMD_ARM_SET_TICK_LIMITS;
+		cmd_packet->cmd.arm_set_tick_limits.joint =
+		    (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.arm_set_tick_limits.min_tick =
+		    (payload_len >= 5) ? protocol_read_i32_le(payload + 1) : 0;
+		cmd_packet->cmd.arm_set_tick_limits.max_tick =
+		    (payload_len >= 9) ? protocol_read_i32_le(payload + 5) : 0;
+		break;
+	case CMD_ARM_SET_TICK_LIMITS_ENABLED:
+		cmd_packet->cmd_type = CMD_ARM_SET_TICK_LIMITS_ENABLED;
+		cmd_packet->cmd.arm_set_tick_limits_enabled.joint =
+		    (payload_len >= 1) ? payload[0] : 0;
+		cmd_packet->cmd.arm_set_tick_limits_enabled.enabled =
+		    (payload_len >= 2) ? payload[1] : 0;
+		break;
+	case CMD_ARM_MOVE_RELATIVE:
+		cmd_packet->cmd_type = CMD_ARM_MOVE_RELATIVE;
+		cmd_packet->cmd.arm_move_relative.speed =
+		    (payload_len >= 2) ? protocol_read_u16_le(payload) : 0;
+		cmd_packet->cmd.arm_move_relative.dx =
+		    (payload_len >= 6) ? protocol_read_float_le(payload + 2) : 0.0f;
+		cmd_packet->cmd.arm_move_relative.dy =
+		    (payload_len >= 10) ? protocol_read_float_le(payload + 6) : 0.0f;
+		break;
+	case CMD_ARM_CLEAR_FAULTS:
+		cmd_packet->cmd_type = CMD_ARM_CLEAR_FAULTS;
+		cmd_packet->cmd.arm_joint.joint = (payload_len >= 1) ? payload[0] : 255;
+		break;
 	default:
 		break;
 	}
+}
+
+static inline void protocol_test_write_u16_le(uint8_t *dst, uint16_t value) {
+	dst[0] = (uint8_t)(value & 0xff);
+	dst[1] = (uint8_t)((value >> 8) & 0xff);
+}
+
+static inline void protocol_test_write_i32_le(uint8_t *dst, int32_t value) {
+	uint32_t raw = (uint32_t)value;
+	dst[0] = (uint8_t)(raw & 0xff);
+	dst[1] = (uint8_t)((raw >> 8) & 0xff);
+	dst[2] = (uint8_t)((raw >> 16) & 0xff);
+	dst[3] = (uint8_t)((raw >> 24) & 0xff);
+}
+
+static inline void protocol_test_write_float_le(uint8_t *dst, float value) {
+	memcpy(dst, &value, sizeof(value));
 }
 
 TEST(parse_cmd_test) {
@@ -290,6 +517,182 @@ TEST(parse_apply_config_test) {
 	ASSERT(cmd_packet.cmd.apply_config.data != NULL);
 	ASSERT_EQ(cmd_packet.cmd.apply_config.data[0], 0xAA);
 	ASSERT_EQ(cmd_packet.cmd.apply_config.data[3], 0xDD);
+}
+
+TEST(parse_arm_set_speed_cmd_test) {
+	uint8_t data[4 + 2] = {0x01, CMD_ARM_SET_SPEED, 0x02, 0x00};
+	protocol_test_write_u16_le(&data[4], 250);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_SET_SPEED);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_speed.speed, 250);
+}
+
+TEST(parse_arm_jog_cmd_test) {
+	uint8_t data[4 + 4] = {0x01, CMD_ARM_JOG, 0x04, 0x00};
+	data[4] = 2;
+	data[5] = (uint8_t)-1;
+	protocol_test_write_u16_le(&data[6], 300);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_JOG);
+	ASSERT_EQ(cmd_packet.cmd.arm_jog.joint, 2);
+	ASSERT_EQ(cmd_packet.cmd.arm_jog.direction, -1);
+	ASSERT_EQ(cmd_packet.cmd.arm_jog.speed, 300);
+}
+
+TEST(parse_arm_stop_cmds_test) {
+	uint8_t stop_joint[4 + 1] = {0x01, CMD_ARM_STOP_JOINT, 0x01, 0x00, 3};
+	uint8_t stop_all[4] = {0x01, CMD_ARM_STOP_ALL, 0x00, 0x00};
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(stop_joint, &cmd_packet);
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_STOP_JOINT);
+	ASSERT_EQ(cmd_packet.cmd.arm_joint.joint, 3);
+
+	parse_cmd(stop_all, &cmd_packet);
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_STOP_ALL);
+}
+
+TEST(parse_arm_goto_ticks_cmd_test) {
+	uint8_t data[4 + 18] = {0x01, CMD_ARM_GOTO_TICKS, 0x12, 0x00};
+	protocol_test_write_u16_le(&data[4], 400);
+	protocol_test_write_i32_le(&data[6], -1400);
+	protocol_test_write_i32_le(&data[10], 530);
+	protocol_test_write_i32_le(&data[14], 3565);
+	protocol_test_write_i32_le(&data[18], 1783);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_GOTO_TICKS);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_ticks.speed, 400);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_ticks.ticks[0], -1400);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_ticks.ticks[1], 530);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_ticks.ticks[2], 3565);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_ticks.ticks[3], 1783);
+}
+
+TEST(parse_arm_goto_angles_cmd_test) {
+	uint8_t data[4 + 18] = {0x01, CMD_ARM_GOTO_ANGLES, 0x12, 0x00};
+	protocol_test_write_u16_le(&data[4], 500);
+	protocol_test_write_float_le(&data[6], 10.0f);
+	protocol_test_write_float_le(&data[10], -20.5f);
+	protocol_test_write_float_le(&data[14], 30.25f);
+	protocol_test_write_float_le(&data[18], 45.0f);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_GOTO_ANGLES);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_angles.speed, 500);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_angles.angles_deg[0], 10.0f,
+	                 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_angles.angles_deg[1], -20.5f,
+	                 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_angles.angles_deg[2], 30.25f,
+	                 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_angles.angles_deg[3], 45.0f,
+	                 0.0001f);
+}
+
+TEST(parse_arm_goto_coords_cmd_test) {
+	uint8_t data[4 + 14] = {0x01, CMD_ARM_GOTO_COORDS, 0x0e, 0x00};
+	protocol_test_write_u16_le(&data[4], 180);
+	protocol_test_write_float_le(&data[6], 100.0f);
+	protocol_test_write_float_le(&data[10], -25.5f);
+	protocol_test_write_float_le(&data[14], 60.0f);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_GOTO_COORDS);
+	ASSERT_EQ(cmd_packet.cmd.arm_goto_coords.speed, 180);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_coords.x, 100.0f, 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_coords.y, -25.5f, 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_goto_coords.z, 60.0f, 0.0001f);
+}
+
+TEST(parse_arm_hold_cmd_test) {
+	uint8_t data[4 + 2] = {0x01, CMD_ARM_HOLD, 0x02, 0x00};
+	protocol_test_write_u16_le(&data[4], 210);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_HOLD);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_speed.speed, 210);
+}
+
+TEST(parse_arm_set_joint_tick_cmd_test) {
+	uint8_t data[4 + 7] = {0x01, CMD_ARM_SET_JOINT_TICK, 0x07, 0x00};
+	data[4] = 1;
+	protocol_test_write_u16_le(&data[5], 190);
+	protocol_test_write_i32_le(&data[7], -100);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_SET_JOINT_TICK);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_joint_tick.joint, 1);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_joint_tick.speed, 190);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_joint_tick.tick, -100);
+}
+
+TEST(parse_arm_set_tick_limits_cmd_test) {
+	uint8_t data[4 + 9] = {0x01, CMD_ARM_SET_TICK_LIMITS, 0x09, 0x00};
+	data[4] = 2;
+	protocol_test_write_i32_le(&data[5], -300);
+	protocol_test_write_i32_le(&data[9], 900);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_SET_TICK_LIMITS);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_tick_limits.joint, 2);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_tick_limits.min_tick, -300);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_tick_limits.max_tick, 900);
+}
+
+TEST(parse_arm_set_tick_limits_enabled_cmd_test) {
+	uint8_t data[4 + 2] = {0x01, CMD_ARM_SET_TICK_LIMITS_ENABLED,
+	                       0x02, 0x00, 0x03, 0x01};
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_SET_TICK_LIMITS_ENABLED);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_tick_limits_enabled.joint, 3);
+	ASSERT_EQ(cmd_packet.cmd.arm_set_tick_limits_enabled.enabled, 1);
+}
+
+TEST(parse_arm_move_relative_cmd_test) {
+	uint8_t data[4 + 10] = {0x01, CMD_ARM_MOVE_RELATIVE, 0x0a, 0x00};
+	protocol_test_write_u16_le(&data[4], 160);
+	protocol_test_write_float_le(&data[6], 12.5f);
+	protocol_test_write_float_le(&data[10], -4.0f);
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_MOVE_RELATIVE);
+	ASSERT_EQ(cmd_packet.cmd.arm_move_relative.speed, 160);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_move_relative.dx, 12.5f, 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_move_relative.dy, -4.0f, 0.0001f);
+}
+
+TEST(parse_arm_clear_faults_cmd_test) {
+	uint8_t data[4 + 1] = {0x01, CMD_ARM_CLEAR_FAULTS, 0x01, 0x00, 255};
+
+	CommandPacket cmd_packet = {0};
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_CLEAR_FAULTS);
+	ASSERT_EQ(cmd_packet.cmd.arm_joint.joint, 255);
 }
 
 #endif // PROTOCOL_H

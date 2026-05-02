@@ -7,6 +7,7 @@
 #include "pbcl.h"
 #include "pbcl_motor_handler.h"
 #include "platform.h"
+#include "puppyarm/puppyarm.h"
 #include "timer.h"
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +54,7 @@ static void motor_tick_callback(void *arg) {
 	(void)arg;
 	uint32_t now = platform_get_time_ms();
 	motor_tick_all(now);
+	(void)puppyarm_step(now);
 }
 
 static void motor_config_clear_active_blob(void) {
@@ -81,6 +83,18 @@ static int motor_config_set_active_blob(const uint8_t *blob, size_t len) {
 int motor_system_init(void) {
 	// Initialize hardware
 	motor_hw_init();
+
+	uint32_t now = platform_get_time_ms();
+	int arm_rc = puppyarm_init_default(1, 17, 16, 1000000, now);
+	if (arm_rc != 0) {
+		log_warn(TAG, "Failed to initialize PuppyArm controller (%d)", arm_rc);
+	} else {
+		int start_rc = puppyarm_start(now);
+		if (start_rc != 0) {
+			log_warn(TAG, "Failed to start PuppyArm controller (%d)",
+			         start_rc);
+		}
+	}
 
 	// Create motor tick timer (5ms interval)
 	motor_tick_timer = platform_timer_create(motor_tick_callback, NULL,

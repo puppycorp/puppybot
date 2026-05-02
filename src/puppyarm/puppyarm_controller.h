@@ -51,7 +51,11 @@ int puppyarm_controller_init(puppyarm_controller_t *ctrl,
 int puppyarm_controller_start(puppyarm_controller_t *ctrl, uint32_t now_ms);
 void puppyarm_controller_stop_all(puppyarm_controller_t *ctrl,
                                   uint32_t now_ms);
+int puppyarm_controller_stop_joint(puppyarm_controller_t *ctrl, uint8_t joint,
+                                   uint32_t now_ms);
 void puppyarm_controller_clear_faults(puppyarm_controller_t *ctrl);
+int puppyarm_controller_clear_joint_fault(puppyarm_controller_t *ctrl,
+                                          uint8_t joint);
 int puppyarm_controller_set_speed(puppyarm_controller_t *ctrl,
                                   uint16_t speed);
 int puppyarm_controller_jog(puppyarm_controller_t *ctrl, uint8_t joint,
@@ -67,6 +71,19 @@ int puppyarm_controller_goto_angles(
 int puppyarm_controller_goto_coords(puppyarm_controller_t *ctrl, float x_mm,
                                     float y_mm, float z_mm, uint16_t speed,
                                     uint32_t now_ms);
+int puppyarm_controller_hold(puppyarm_controller_t *ctrl, uint16_t speed,
+                             uint32_t now_ms);
+int puppyarm_controller_set_joint_tick(puppyarm_controller_t *ctrl,
+                                       uint8_t joint, int32_t tick,
+                                       uint16_t speed, uint32_t now_ms);
+int puppyarm_controller_set_tick_limits(puppyarm_controller_t *ctrl,
+                                        uint8_t joint, int32_t min_tick,
+                                        int32_t max_tick);
+int puppyarm_controller_set_tick_limits_enabled(puppyarm_controller_t *ctrl,
+                                                uint8_t joint, bool enabled);
+int puppyarm_controller_move_relative(puppyarm_controller_t *ctrl, float dx_mm,
+                                      float dy_mm, uint16_t speed,
+                                      uint32_t now_ms);
 int puppyarm_controller_step(puppyarm_controller_t *ctrl, uint32_t now_ms);
 void puppyarm_controller_get_joint_states(
     const puppyarm_controller_t *ctrl,

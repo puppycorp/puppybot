@@ -160,12 +160,32 @@ void puppyarm_controller_stop_all(puppyarm_controller_t *ctrl,
 	ctrl->last_command_ms = now_ms;
 }
 
+int puppyarm_controller_stop_joint(puppyarm_controller_t *ctrl, uint8_t joint,
+                                   uint32_t now_ms) {
+	if (!ctrl || joint >= PUPPYARM_JOINT_COUNT)
+		return -1;
+	ctrl->joints[joint].speed = 0;
+	ctrl->joints[joint].has_target = false;
+	int rc = send_speed(ctrl, joint, 0);
+	ctrl->last_command_ms = now_ms;
+	return rc;
+}
+
 void puppyarm_controller_clear_faults(puppyarm_controller_t *ctrl) {
 	if (!ctrl)
 		return;
 	ctrl->last_error[0] = '\0';
 	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i)
 		ctrl->joints[i].fault[0] = '\0';
+}
+
+int puppyarm_controller_clear_joint_fault(puppyarm_controller_t *ctrl,
+                                          uint8_t joint) {
+	if (!ctrl || joint >= PUPPYARM_JOINT_COUNT)
+		return -1;
+	ctrl->joints[joint].fault[0] = '\0';
+	ctrl->last_error[0] = '\0';
+	return 0;
 }
 
 int puppyarm_controller_set_speed(puppyarm_controller_t *ctrl,
@@ -257,6 +277,78 @@ int puppyarm_controller_goto_coords(puppyarm_controller_t *ctrl, float x_mm,
 		return rc;
 	}
 	return puppyarm_controller_goto_angles(ctrl, angles, speed, now_ms);
+}
+
+int puppyarm_controller_hold(puppyarm_controller_t *ctrl, uint16_t speed,
+                             uint32_t now_ms) {
+	if (!ctrl)
+		return -1;
+	int32_t ticks[PUPPYARM_JOINT_COUNT] = {0};
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i) {
+		if (!ctrl->joints[i].has_feedback) {
+			snprintf(ctrl->last_error, sizeof(ctrl->last_error),
+			         "missing feedback for hold");
+			return -2;
+		}
+		ticks[i] = ctrl->joints[i].tick;
+	}
+	return puppyarm_controller_goto_ticks(ctrl, ticks, speed, now_ms);
+}
+
+int puppyarm_controller_set_joint_tick(puppyarm_controller_t *ctrl,
+                                       uint8_t joint, int32_t tick,
+                                       uint16_t speed, uint32_t now_ms) {
+	if (!ctrl || joint >= PUPPYARM_JOINT_COUNT)
+		return -1;
+	int32_t ticks[PUPPYARM_JOINT_COUNT] = {0};
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i) {
+		if (!ctrl->joints[i].has_feedback) {
+			snprintf(ctrl->last_error, sizeof(ctrl->last_error),
+			         "missing feedback for joint tick move");
+			return -2;
+		}
+		ticks[i] = ctrl->joints[i].tick;
+	}
+	ticks[joint] = tick;
+	return puppyarm_controller_goto_ticks(ctrl, ticks, speed, now_ms);
+}
+
+int puppyarm_controller_set_tick_limits(puppyarm_controller_t *ctrl,
+                                        uint8_t joint, int32_t min_tick,
+                                        int32_t max_tick) {
+	if (!ctrl || joint >= PUPPYARM_JOINT_COUNT || min_tick == max_tick)
+		return -1;
+	ctrl->profile.joints[joint].tick_min = min_tick;
+	ctrl->profile.joints[joint].tick_max = max_tick;
+	return 0;
+}
+
+int puppyarm_controller_set_tick_limits_enabled(puppyarm_controller_t *ctrl,
+                                                uint8_t joint, bool enabled) {
+	if (!ctrl || joint >= PUPPYARM_JOINT_COUNT)
+		return -1;
+	ctrl->profile.joints[joint].limit_enabled = enabled;
+	return 0;
+}
+
+int puppyarm_controller_move_relative(puppyarm_controller_t *ctrl, float dx_mm,
+                                      float dy_mm, uint16_t speed,
+                                      uint32_t now_ms) {
+	if (!ctrl)
+		return -1;
+	float angles[PUPPYARM_JOINT_COUNT] = {0};
+	if (puppyarm_controller_current_angles(ctrl, angles) != 0) {
+		snprintf(ctrl->last_error, sizeof(ctrl->last_error),
+		         "missing feedback for relative move");
+		return -2;
+	}
+	float x = 0.0f;
+	float y = 0.0f;
+	float z = 0.0f;
+	puppyarm_fk(&ctrl->profile, angles[0], angles[1], angles[2], angles[3], &x,
+	            &y, &z);
+	return puppyarm_controller_goto_coords(ctrl, x + dx_mm, y + dy_mm, z,
+	                                       speed, now_ms);
 }
 
 static void read_feedback(puppyarm_controller_t *ctrl, uint32_t now_ms) {

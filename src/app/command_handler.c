@@ -8,6 +8,7 @@
 #include "motor_runtime.h"
 #include "motor_slots.h"
 #include "timer.h"
+#include "puppyarm/puppyarm.h"
 #include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
@@ -108,6 +109,24 @@ static float normalize_speed(int speed) {
 	if (speed < -127)
 		speed = -127;
 	return (float)speed / 127.0f;
+}
+
+static float deg_to_rad(float deg) { return deg * (PUPPYARM_PI / 180.0f); }
+
+static uint16_t clamp_arm_speed(uint16_t speed) {
+	return speed > 1000 ? 1000 : speed;
+}
+
+static float arm_table_z_to_shoulder_z(float z_mm) {
+	const puppyarm_controller_t *ctrl = puppyarm_controller();
+	if (!ctrl)
+		return z_mm;
+	return z_mm - ctrl->profile.z_origin_mm;
+}
+
+static void log_arm_result(const char *name, int rc) {
+	if (rc != 0)
+		log_warn(TAG, "%s failed (%d)", name, rc);
 }
 
 // Forward declarations
@@ -413,6 +432,135 @@ void command_handler_handle(CommandPacket *cmd) {
 		}
 		break;
 	}
+	case CMD_ARM_SET_SPEED:
+		log_info(TAG, "CMD_ARM_SET_SPEED speed=%u",
+		         (unsigned)cmd->cmd.arm_set_speed.speed);
+		log_arm_result(
+		    "puppyarm_set_speed",
+		    puppyarm_set_speed(clamp_arm_speed(cmd->cmd.arm_set_speed.speed)));
+		break;
+	case CMD_ARM_JOG:
+		log_info(TAG, "CMD_ARM_JOG joint=%u direction=%d speed=%u",
+		         (unsigned)cmd->cmd.arm_jog.joint,
+		         (int)cmd->cmd.arm_jog.direction,
+		         (unsigned)cmd->cmd.arm_jog.speed);
+		log_arm_result("puppyarm_jog",
+		               puppyarm_jog(cmd->cmd.arm_jog.joint,
+		                            cmd->cmd.arm_jog.direction,
+		                            clamp_arm_speed(cmd->cmd.arm_jog.speed),
+		                            platform_get_time_ms()));
+		break;
+	case CMD_ARM_STOP_JOINT:
+		log_info(TAG, "CMD_ARM_STOP_JOINT joint=%u",
+		         (unsigned)cmd->cmd.arm_joint.joint);
+		log_arm_result("puppyarm_stop_joint",
+		               puppyarm_stop_joint(cmd->cmd.arm_joint.joint,
+		                                   platform_get_time_ms()));
+		break;
+	case CMD_ARM_STOP_ALL:
+		log_info(TAG, "CMD_ARM_STOP_ALL");
+		puppyarm_stop(platform_get_time_ms());
+		break;
+	case CMD_ARM_GOTO_TICKS:
+		log_info(TAG, "CMD_ARM_GOTO_TICKS speed=%u",
+		         (unsigned)cmd->cmd.arm_goto_ticks.speed);
+		log_arm_result(
+		    "puppyarm_goto_ticks",
+		    puppyarm_goto_ticks(cmd->cmd.arm_goto_ticks.ticks,
+		                        clamp_arm_speed(cmd->cmd.arm_goto_ticks.speed),
+		                        platform_get_time_ms()));
+		break;
+	case CMD_ARM_GOTO_ANGLES: {
+		log_info(TAG, "CMD_ARM_GOTO_ANGLES speed=%u",
+		         (unsigned)cmd->cmd.arm_goto_angles.speed);
+		float angles_rad[PUPPYARM_JOINT_COUNT] = {0};
+		for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i)
+			angles_rad[i] = deg_to_rad(cmd->cmd.arm_goto_angles.angles_deg[i]);
+		log_arm_result(
+		    "puppyarm_goto_angles",
+		    puppyarm_goto_angles(angles_rad,
+		                         clamp_arm_speed(cmd->cmd.arm_goto_angles.speed),
+		                         platform_get_time_ms()));
+		break;
+	}
+	case CMD_ARM_GOTO_COORDS:
+		log_info(TAG, "CMD_ARM_GOTO_COORDS x=%.1f y=%.1f z=%.1f speed=%u",
+		         (double)cmd->cmd.arm_goto_coords.x,
+		         (double)cmd->cmd.arm_goto_coords.y,
+		         (double)cmd->cmd.arm_goto_coords.z,
+		         (unsigned)cmd->cmd.arm_goto_coords.speed);
+		log_arm_result(
+		    "puppyarm_goto_coords",
+		    puppyarm_goto_coords(
+		        cmd->cmd.arm_goto_coords.x, cmd->cmd.arm_goto_coords.y,
+		        arm_table_z_to_shoulder_z(cmd->cmd.arm_goto_coords.z),
+		        clamp_arm_speed(cmd->cmd.arm_goto_coords.speed),
+		        platform_get_time_ms()));
+		break;
+	case CMD_ARM_HOLD:
+		log_info(TAG, "CMD_ARM_HOLD speed=%u",
+		         (unsigned)cmd->cmd.arm_set_speed.speed);
+		log_arm_result("puppyarm_hold",
+		               puppyarm_hold(clamp_arm_speed(cmd->cmd.arm_set_speed.speed),
+		                             platform_get_time_ms()));
+		break;
+	case CMD_ARM_SET_JOINT_TICK:
+		log_info(TAG, "CMD_ARM_SET_JOINT_TICK joint=%u tick=%" PRId32
+		              " speed=%u",
+		         (unsigned)cmd->cmd.arm_set_joint_tick.joint,
+		         cmd->cmd.arm_set_joint_tick.tick,
+		         (unsigned)cmd->cmd.arm_set_joint_tick.speed);
+		log_arm_result(
+		    "puppyarm_set_joint_tick",
+		    puppyarm_set_joint_tick(
+		        cmd->cmd.arm_set_joint_tick.joint,
+		        cmd->cmd.arm_set_joint_tick.tick,
+		        clamp_arm_speed(cmd->cmd.arm_set_joint_tick.speed),
+		        platform_get_time_ms()));
+		break;
+	case CMD_ARM_SET_TICK_LIMITS:
+		log_info(TAG, "CMD_ARM_SET_TICK_LIMITS joint=%u min=%" PRId32
+		              " max=%" PRId32,
+		         (unsigned)cmd->cmd.arm_set_tick_limits.joint,
+		         cmd->cmd.arm_set_tick_limits.min_tick,
+		         cmd->cmd.arm_set_tick_limits.max_tick);
+		log_arm_result(
+		    "puppyarm_set_tick_limits",
+		    puppyarm_set_tick_limits(cmd->cmd.arm_set_tick_limits.joint,
+		                             cmd->cmd.arm_set_tick_limits.min_tick,
+		                             cmd->cmd.arm_set_tick_limits.max_tick));
+		break;
+	case CMD_ARM_SET_TICK_LIMITS_ENABLED:
+		log_info(TAG, "CMD_ARM_SET_TICK_LIMITS_ENABLED joint=%u enabled=%u",
+		         (unsigned)cmd->cmd.arm_set_tick_limits_enabled.joint,
+		         (unsigned)cmd->cmd.arm_set_tick_limits_enabled.enabled);
+		log_arm_result("puppyarm_set_tick_limits_enabled",
+		               puppyarm_set_tick_limits_enabled(
+		                   cmd->cmd.arm_set_tick_limits_enabled.joint,
+		                   cmd->cmd.arm_set_tick_limits_enabled.enabled != 0));
+		break;
+	case CMD_ARM_MOVE_RELATIVE:
+		log_info(TAG, "CMD_ARM_MOVE_RELATIVE dx=%.1f dy=%.1f speed=%u",
+		         (double)cmd->cmd.arm_move_relative.dx,
+		         (double)cmd->cmd.arm_move_relative.dy,
+		         (unsigned)cmd->cmd.arm_move_relative.speed);
+		log_arm_result(
+		    "puppyarm_move_relative",
+		    puppyarm_move_relative(
+		        cmd->cmd.arm_move_relative.dx, cmd->cmd.arm_move_relative.dy,
+		        clamp_arm_speed(cmd->cmd.arm_move_relative.speed),
+		        platform_get_time_ms()));
+		break;
+	case CMD_ARM_CLEAR_FAULTS:
+		log_info(TAG, "CMD_ARM_CLEAR_FAULTS joint=%u",
+		         (unsigned)cmd->cmd.arm_joint.joint);
+		if (cmd->cmd.arm_joint.joint == 255) {
+			puppyarm_clear_faults();
+		} else {
+			log_arm_result("puppyarm_clear_joint_fault",
+			               puppyarm_clear_joint_fault(cmd->cmd.arm_joint.joint));
+		}
+		break;
 	case CMD_STOP_MOTOR: {
 		log_info(TAG, "CMD_STOP_MOTOR motor %d", cmd->cmd.stop_motor.motor_id);
 		uint32_t node_id = (uint32_t)cmd->cmd.stop_motor.motor_id;
@@ -436,6 +584,7 @@ void command_handler_handle(CommandPacket *cmd) {
 	case CMD_STOP_ALL_MOTORS:
 		log_info(TAG, "CMD_STOP_ALL_MOTORS");
 		stop_all_drive_motors();
+		puppyarm_stop(platform_get_time_ms());
 
 		if (g_safety_timer) {
 			puppy_timer_stop(g_safety_timer);

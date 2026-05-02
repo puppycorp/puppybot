@@ -358,6 +358,20 @@ TEST(puppyarm_controller_stop_cancels_active_target) {
 	ASSERT_EQ(fake.speed[0], 0);
 }
 
+TEST(puppyarm_controller_stop_joint_cancels_only_selected_joint) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+
+	int32_t ticks[PUPPYARM_JOINT_COUNT] = {100, 100, 100, 100};
+	ASSERT_EQ(puppyarm_controller_goto_ticks(&ctrl, ticks, 200, 1), 0);
+	ASSERT_EQ(puppyarm_controller_stop_joint(&ctrl, 1, 2), 0);
+	ASSERT(ctrl.joints[0].has_target);
+	ASSERT(!ctrl.joints[1].has_target);
+	ASSERT_EQ(fake.speed[1], 0);
+}
+
 TEST(puppyarm_controller_goto_angles_sets_target_ticks) {
 	puppyarm_controller_t ctrl;
 	puppyarm_profile_t profile;
@@ -381,6 +395,52 @@ TEST(puppyarm_controller_goto_coords_uses_ik) {
 	                                          200, 1),
 	          0);
 	ASSERT(any_target_set(&ctrl));
+}
+
+TEST(puppyarm_controller_hold_targets_current_feedback_ticks) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i)
+		fake.pos[i] = (uint16_t)(100 + i);
+	ASSERT_EQ(puppyarm_controller_step(&ctrl, 10), 0);
+
+	ASSERT_EQ(puppyarm_controller_hold(&ctrl, 220, 20), 0);
+
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i) {
+		ASSERT(ctrl.joints[i].has_target);
+		ASSERT_EQ(ctrl.joints[i].target_tick, 100 + i);
+	}
+	ASSERT_EQ(ctrl.default_speed, 220);
+}
+
+TEST(puppyarm_controller_hold_requires_feedback) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+
+	ASSERT(puppyarm_controller_hold(&ctrl, 220, 20) != 0);
+	ASSERT(!any_target_set(&ctrl));
+}
+
+TEST(puppyarm_controller_set_joint_tick_keeps_other_feedback_ticks) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i)
+		fake.pos[i] = (uint16_t)(200 + i);
+	ASSERT_EQ(puppyarm_controller_step(&ctrl, 10), 0);
+
+	ASSERT_EQ(puppyarm_controller_set_joint_tick(&ctrl, 2, 900, 180, 20), 0);
+
+	ASSERT_EQ(ctrl.joints[0].target_tick, 200);
+	ASSERT_EQ(ctrl.joints[1].target_tick, 201);
+	ASSERT_EQ(ctrl.joints[2].target_tick, 900);
+	ASSERT_EQ(ctrl.joints[3].target_tick, 203);
+	ASSERT_EQ(ctrl.default_speed, 180);
 }
 
 TEST(puppyarm_controller_goto_coords_rejects_unreachable_target) {
@@ -410,6 +470,30 @@ TEST(puppyarm_controller_limit_blocks_motion_deeper_outside) {
 	ASSERT_EQ(puppyarm_controller_step(&ctrl, 10), 0);
 	ASSERT_EQ(fake.speed[0], 0);
 	ASSERT(ctrl.joints[0].fault[0] != '\0');
+}
+
+TEST(puppyarm_controller_set_tick_limits_updates_profile) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+
+	ASSERT_EQ(puppyarm_controller_set_tick_limits(&ctrl, 1, 300, 900), 0);
+	ASSERT_EQ(ctrl.profile.joints[1].tick_min, 300);
+	ASSERT_EQ(ctrl.profile.joints[1].tick_max, 900);
+	ASSERT_EQ(puppyarm_controller_set_tick_limits(&ctrl, 1, 500, 500), -1);
+}
+
+TEST(puppyarm_controller_set_tick_limits_enabled_updates_profile) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+
+	ASSERT_EQ(puppyarm_controller_set_tick_limits_enabled(&ctrl, 1, false), 0);
+	ASSERT(!ctrl.profile.joints[1].limit_enabled);
+	ASSERT_EQ(puppyarm_controller_set_tick_limits_enabled(&ctrl, 1, true), 0);
+	ASSERT(ctrl.profile.joints[1].limit_enabled);
 }
 
 TEST(puppyarm_controller_allows_return_within_limits) {
@@ -534,6 +618,46 @@ TEST(puppyarm_controller_clear_faults_clears_latched_faults) {
 	puppyarm_controller_clear_faults(&ctrl);
 	ASSERT_EQ(ctrl.joints[0].fault[0], '\0');
 	ASSERT_EQ(ctrl.last_error[0], '\0');
+}
+
+TEST(puppyarm_controller_clear_joint_fault_only_clears_one_joint) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+	ctrl.joints[0].fault[0] = 'x';
+	ctrl.joints[0].fault[1] = '\0';
+	ctrl.joints[1].fault[0] = 'y';
+	ctrl.joints[1].fault[1] = '\0';
+	ctrl.last_error[0] = 'z';
+	ctrl.last_error[1] = '\0';
+
+	ASSERT_EQ(puppyarm_controller_clear_joint_fault(&ctrl, 0), 0);
+
+	ASSERT_EQ(ctrl.joints[0].fault[0], '\0');
+	ASSERT_EQ(ctrl.joints[1].fault[0], 'y');
+	ASSERT_EQ(ctrl.last_error[0], '\0');
+}
+
+TEST(puppyarm_controller_move_relative_uses_current_pose) {
+	puppyarm_controller_t ctrl;
+	puppyarm_profile_t profile;
+	fake_arm_bus_t fake;
+	make_started_controller(&ctrl, &profile, &fake);
+
+	float angles[PUPPYARM_JOINT_COUNT] = {0};
+	ASSERT_EQ(puppyarm_solve_coords_exact(&profile, 120.0f, 0.0f, -50.0f,
+	                                      angles),
+	          0);
+	for (int i = 0; i < PUPPYARM_JOINT_COUNT; ++i) {
+		fake.pos[i] =
+		    (uint16_t)puppyarm_angle_to_tick(&profile.joints[i], angles[i]);
+	}
+	ASSERT_EQ(puppyarm_controller_step(&ctrl, 10), 0);
+
+	ASSERT_EQ(puppyarm_controller_move_relative(&ctrl, 0.0f, 0.0f, 200, 20),
+	          0);
+	ASSERT(any_target_set(&ctrl));
 }
 
 TEST(puppyarm_controller_invalid_commands_return_errors) {

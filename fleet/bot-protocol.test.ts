@@ -124,6 +124,146 @@ describe("encodeBotMsg", () => {
 		).toBe(true)
 	})
 
+	test("encodes arm set speed, jog, stop, hold, and clear commands", () => {
+		expect(
+			encodeBotMsg({ type: "armSetSpeed", speed: 250 } as any).equals(
+				Buffer.from([0xaa, 12, 2, 0, 0xfa, 0x00]),
+			),
+		).toBe(true)
+		expect(
+			encodeBotMsg({
+				type: "armJog",
+				joint: 2,
+				direction: -1,
+				speed: 300,
+			} as any).equals(Buffer.from([0xaa, 13, 4, 0, 2, 0xff, 0x2c, 0x01])),
+		).toBe(true)
+		expect(
+			encodeBotMsg({ type: "armStopJoint", joint: 3 } as any).equals(
+				Buffer.from([0xaa, 14, 1, 0, 3]),
+			),
+		).toBe(true)
+		expect(
+			encodeBotMsg({ type: "armStopAll" } as any).equals(
+				Buffer.from([0xaa, 15, 0, 0]),
+			),
+		).toBe(true)
+		expect(
+			encodeBotMsg({ type: "armHold", speed: 210 } as any).equals(
+				Buffer.from([0xaa, 19, 2, 0, 0xd2, 0x00]),
+			),
+		).toBe(true)
+		expect(
+			encodeBotMsg({ type: "armClearFaults" } as any).equals(
+				Buffer.from([0xaa, 24, 1, 0, 0xff]),
+			),
+		).toBe(true)
+	})
+
+	test("encodes arm goto ticks message", () => {
+		const buffer = encodeBotMsg({
+			type: "armGotoTicks",
+			speed: 400,
+			ticks: [-1400, 530, 3565, 1783],
+		} as any)
+		const expectedPayload = Buffer.alloc(18)
+		expectedPayload.writeUInt16LE(400, 0)
+		expectedPayload.writeInt32LE(-1400, 2)
+		expectedPayload.writeInt32LE(530, 6)
+		expectedPayload.writeInt32LE(3565, 10)
+		expectedPayload.writeInt32LE(1783, 14)
+		expect(
+			buffer.equals(Buffer.concat([Buffer.from([0xaa, 16, 18, 0]), expectedPayload])),
+		).toBe(true)
+	})
+
+	test("encodes arm goto angles message", () => {
+		const buffer = encodeBotMsg({
+			type: "armGotoAngles",
+			speed: 500,
+			anglesDeg: [10, -20.5, 30.25, 45],
+		} as any)
+		const expectedPayload = Buffer.alloc(18)
+		expectedPayload.writeUInt16LE(500, 0)
+		expectedPayload.writeFloatLE(10, 2)
+		expectedPayload.writeFloatLE(-20.5, 6)
+		expectedPayload.writeFloatLE(30.25, 10)
+		expectedPayload.writeFloatLE(45, 14)
+		expect(
+			buffer.equals(Buffer.concat([Buffer.from([0xaa, 17, 18, 0]), expectedPayload])),
+		).toBe(true)
+	})
+
+	test("encodes arm coords, joint tick, limits, and relative messages", () => {
+		const coords = encodeBotMsg({
+			type: "armGotoCoords",
+			speed: 180,
+			x: 100,
+			y: -25.5,
+			z: 60,
+		} as any)
+		const coordsPayload = Buffer.alloc(14)
+		coordsPayload.writeUInt16LE(180, 0)
+		coordsPayload.writeFloatLE(100, 2)
+		coordsPayload.writeFloatLE(-25.5, 6)
+		coordsPayload.writeFloatLE(60, 10)
+		expect(
+			coords.equals(Buffer.concat([Buffer.from([0xaa, 18, 14, 0]), coordsPayload])),
+		).toBe(true)
+
+		const tick = encodeBotMsg({
+			type: "armSetJointTick",
+			joint: 1,
+			speed: 190,
+			tick: -100,
+		} as any)
+		const tickPayload = Buffer.alloc(7)
+		tickPayload.writeUInt8(1, 0)
+		tickPayload.writeUInt16LE(190, 1)
+		tickPayload.writeInt32LE(-100, 3)
+		expect(
+			tick.equals(Buffer.concat([Buffer.from([0xaa, 20, 7, 0]), tickPayload])),
+		).toBe(true)
+
+		const limits = encodeBotMsg({
+			type: "armSetTickLimits",
+			joint: 2,
+			min: -300,
+			max: 900,
+		} as any)
+		const limitsPayload = Buffer.alloc(9)
+		limitsPayload.writeUInt8(2, 0)
+		limitsPayload.writeInt32LE(-300, 1)
+		limitsPayload.writeInt32LE(900, 5)
+		expect(
+			limits.equals(Buffer.concat([Buffer.from([0xaa, 21, 9, 0]), limitsPayload])),
+		).toBe(true)
+
+		expect(
+			encodeBotMsg({
+				type: "armSetTickLimitsEnabled",
+				joint: 3,
+				enabled: true,
+			} as any).equals(Buffer.from([0xaa, 22, 2, 0, 3, 1])),
+		).toBe(true)
+
+		const relative = encodeBotMsg({
+			type: "armMoveRelative",
+			speed: 160,
+			dx: 12.5,
+			dy: -4,
+		} as any)
+		const relativePayload = Buffer.alloc(10)
+		relativePayload.writeUInt16LE(160, 0)
+		relativePayload.writeFloatLE(12.5, 2)
+		relativePayload.writeFloatLE(-4, 6)
+		expect(
+			relative.equals(
+				Buffer.concat([Buffer.from([0xaa, 23, 10, 0]), relativePayload]),
+			),
+		).toBe(true)
+	})
+
 	test("decodes a MyInfo message with version, variant, and name", () => {
 		const version = "3.2.1"
 		const variant = "PuppyBot"
@@ -245,6 +385,53 @@ describe("encodeBotMsg", () => {
 		expect(msg.type).toBe(MsgFromBotType.ConfigBlob)
 		if (msg.type !== MsgFromBotType.ConfigBlob) return
 		expect(Buffer.from(msg.blob).equals(blob)).toBe(true)
+	})
+
+	test("decodes an arm state message", () => {
+		const fault = Buffer.from("limit")
+		const buffer = Buffer.alloc(3 + 1 + 25 + fault.length + 13)
+		buffer.writeUInt16LE(1, 0)
+		buffer.writeUInt8(MsgFromBotType.ArmState, 2)
+		buffer.writeUInt8(1, 3)
+		let offset = 4
+		buffer.writeUInt8(2, offset)
+		buffer.writeUInt8(0x1b, offset + 1)
+		buffer.writeInt32LE(530, offset + 2)
+		buffer.writeInt32LE(900, offset + 6)
+		buffer.writeInt16LE(-120, offset + 10)
+		buffer.writeInt32LE(100, offset + 12)
+		buffer.writeInt32LE(1000, offset + 16)
+		buffer.writeFloatLE(45.5, offset + 20)
+		buffer.writeUInt8(fault.length, offset + 24)
+		offset += 25
+		fault.copy(buffer, offset)
+		offset += fault.length
+		buffer.writeUInt8(1, offset)
+		buffer.writeFloatLE(10, offset + 1)
+		buffer.writeFloatLE(20, offset + 5)
+		buffer.writeFloatLE(30, offset + 9)
+
+		const msg = decodeBotMsg(buffer)
+		expect(msg.type).toBe(MsgFromBotType.ArmState)
+		if (msg.type !== MsgFromBotType.ArmState) return
+		expect(msg.state.joints).toEqual([
+			{
+				servoId: 2,
+				online: true,
+				hasFeedback: true,
+				limitReached: false,
+				hasTarget: true,
+				hasFault: true,
+				tick: 530,
+				targetTick: 900,
+				speed: -120,
+				limitMin: 100,
+				limitMax: 1000,
+				angleDeg: 45.5,
+				fault: "limit",
+			},
+		])
+		expect(msg.state.coordsMm).toEqual({ x: 10, y: 20, z: 30 })
 	})
 
 	test("encodes a set motor poll message", () => {

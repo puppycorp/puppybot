@@ -114,6 +114,24 @@ const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "armSetSpeed":
+		case "armJog":
+		case "armStopJoint":
+		case "armStopAll":
+		case "armGotoTicks":
+		case "armGotoAngles":
+		case "armGotoCoords":
+		case "armHold":
+		case "armSetJointTick":
+		case "armSetTickLimits":
+		case "armSetTickLimitsEnabled":
+		case "armMoveRelative":
+		case "armClearFaults": {
+			const conn = botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 		case "smartbusScan": {
 			const conn = botConnections.get(msg.botId)
 			if (!conn) return
@@ -179,6 +197,12 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 			const motors = msg.motors ?? []
 			for (const client of uiClients.values()) {
 				client.send({ type: "motorState", botId, motors })
+			}
+			break
+		}
+		case MsgFromBotType.ArmState: {
+			for (const client of uiClients.values()) {
+				client.send({ type: "armState", botId, state: msg.state })
 			}
 			break
 		}

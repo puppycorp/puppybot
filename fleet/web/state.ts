@@ -1,4 +1,10 @@
-import type { ArmConfig, Bot, MotorConfig, MotorStateEntry } from "../types"
+import type {
+	ArmConfig,
+	ArmState,
+	Bot,
+	MotorConfig,
+	MotorStateEntry,
+} from "../types"
 
 export type BotConfigState = {
 	motors: MotorConfig[]
@@ -34,6 +40,7 @@ export const state = {
 	motorStates: new NotifyValue<
 		Record<string, Record<number, MotorStateEntry>>
 	>({}),
+	armStates: new NotifyValue<Record<string, ArmState>>({}),
 	smartbusScan: new NotifyValue<
 		Record<
 			string,
