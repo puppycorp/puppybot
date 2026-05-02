@@ -1,7 +1,8 @@
-import type { Bot, MotorConfig, MotorStateEntry } from "../types"
+import type { ArmConfig, Bot, MotorConfig, MotorStateEntry } from "../types"
 
 export type BotConfigState = {
 	motors: MotorConfig[]
+	arm: ArmConfig | null
 	templateKey: string | null
 }
 

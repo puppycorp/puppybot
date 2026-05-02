@@ -1,4 +1,5 @@
 #include "command_handler.h"
+#include "arm_ik.h"
 #include "http.h"
 #include "platform.h"
 #include "log.h"
@@ -8,6 +9,7 @@
 #include "motor_slots.h"
 #include "timer.h"
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -32,6 +34,22 @@ static int clamp_motor_angle_deg(const motor_rt_t *motor, int angle_deg) {
 	if (!motor)
 		return angle_deg;
 
+	if (motor->type_id == MOTOR_TYPE_SMART && motor->smart_limit_raw) {
+		uint16_t raw = motor_smart_deg_to_raw(motor, (float)angle_deg);
+		uint16_t min_raw = motor->smart_min_raw;
+		uint16_t max_raw = motor->smart_max_raw;
+		if (min_raw > max_raw) {
+			uint16_t tmp = min_raw;
+			min_raw = max_raw;
+			max_raw = tmp;
+		}
+		if (raw < min_raw)
+			raw = min_raw;
+		if (raw > max_raw)
+			raw = max_raw;
+		return (int)lroundf(motor_smart_raw_to_deg(motor, raw));
+	}
+
 	int32_t min_x10 = motor->deg_min_x10;
 	int32_t max_x10 = motor->deg_max_x10;
 	if (min_x10 > max_x10) {
@@ -49,6 +67,13 @@ static int clamp_motor_angle_deg(const motor_rt_t *motor, int angle_deg) {
 	if (angle_x10 >= 0)
 		return (int)((angle_x10 + 5) / 10);
 	return (int)((angle_x10 - 5) / 10);
+}
+
+static float wrap_angle_deg(float deg) {
+	float wrapped = fmodf(deg, 360.0f);
+	if (wrapped < 0.0f)
+		wrapped += 360.0f;
+	return wrapped;
 }
 
 static inline uint32_t servo_slot_count(void) {
@@ -331,6 +356,60 @@ void command_handler_handle(CommandPacket *cmd) {
 
 		if (motor_set_speed(node_id, speed) != 0) {
 			log_error(TAG, "Failed to set speed for motor %" PRIu32, node_id);
+		}
+		break;
+	}
+	case CMD_ARM_MOVE: {
+		const arm_config_t *cfg = arm_config_get();
+		if (!cfg || !cfg->configured ||
+		    cfg->joint_count != ARM_IK_MAX_JOINTS) {
+			log_warn(TAG, "Arm config not ready for IK move");
+			break;
+		}
+
+		float angles[ARM_IK_MAX_JOINTS] = {0};
+		int rc = arm_ik_solve(cfg, cmd->cmd.arm_move.x, cmd->cmd.arm_move.y,
+		                      cmd->cmd.arm_move.z,
+		                      cmd->cmd.arm_move.elbow_up != 0, angles);
+		if (rc != 0) {
+			log_warn(TAG, "arm_ik_solve failed (%d)", rc);
+			break;
+		}
+
+		uint16_t duration_ms = cmd->cmd.arm_move.duration_ms;
+		for (int i = 0; i < ARM_IK_MAX_JOINTS; ++i) {
+			const arm_joint_map_t *joint = &cfg->joints[i];
+			if (joint->motor_id == 0)
+				continue;
+			motor_rt_t *motor = find_motor(joint->motor_id);
+			if (!motor) {
+				log_warn(TAG, "Unknown arm motor %" PRIu32, joint->motor_id);
+				continue;
+			}
+			if (motor->type_id != MOTOR_TYPE_ANGLE &&
+			    motor->type_id != MOTOR_TYPE_SMART) {
+				log_warn(TAG, "Arm motor %" PRIu32 " is not a servo",
+				         joint->motor_id);
+				continue;
+			}
+
+			int slot = servo_slot_from_node(joint->motor_id);
+			if (slot >= 0) {
+				cancel_servo_timeout((uint8_t)slot);
+			}
+
+			float servo_deg =
+			    wrap_angle_deg((float)joint->sign * angles[i] + joint->offset_deg);
+			int angle = (int)lroundf(servo_deg);
+			angle = clamp_motor_angle_deg(motor, angle);
+			if (motor->type_id == MOTOR_TYPE_SMART) {
+				motor_set_smart_angle(joint->motor_id, (float)angle,
+				                      duration_ms);
+			} else {
+				motor_set_angle(joint->motor_id, (float)angle);
+			}
+			if (slot >= 0)
+				g_servo_current_angle[slot] = (uint16_t)angle;
 		}
 		break;
 	}

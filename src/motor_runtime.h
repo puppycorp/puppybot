@@ -35,6 +35,11 @@ typedef struct {
 	uint16_t adc_max;
 	int16_t deg_min_x10;
 	int16_t deg_max_x10;
+	uint16_t smart_min_raw;
+	uint16_t smart_max_raw;
+	bool smart_limit_raw;
+	uint32_t last_limit_check_ms;
+	uint16_t last_pos_raw;
 
 	int8_t smart_tx_pin;
 	int8_t smart_rx_pin;
@@ -66,6 +71,8 @@ int motor_stop(uint32_t node_id);
 
 // Converts raw smartbus position units to degrees using motor profile settings.
 float motor_smart_raw_to_deg(const motor_rt_t *m, uint16_t raw);
+// Converts smartbus degrees to raw position units using motor profile settings.
+uint16_t motor_smart_deg_to_raw(const motor_rt_t *m, float deg);
 
 // Reads smart servo position in degrees for the given node.
 // Returns 0 on success, negative on error.

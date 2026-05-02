@@ -2,5 +2,40 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bootloader/subproject/components/micro-ecc/micro-ecc" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32c2/esp32c2-bt-lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32c3_family" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32c5/esp32c5-bt-lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32c6/esp32c6-bt-lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/controller/lib_esp32h2/esp32h2-bt-lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/esp_ble_mesh/lib/lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/bt/host/nimble/nimble" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/cmock/CMock" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/cmock/CMock/vendor/c_exception" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/cmock/CMock/vendor/unity" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/esp_coex/lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/esp_phy/lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/esp_wifi/lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/heap/tlsf" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/lwip/lwip" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/mbedtls/mbedtls" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/mqtt/esp-mqtt" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/openthread/lib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/openthread/openthread" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/protobuf-c/protobuf-c" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/spiffs/spiffs" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/espidf/components/unity/unity" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/fuzzing/libEpollFuzzer" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/fuzzing/seed-corpus" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/h1spec" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/libdeflate" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/uSockets" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/uSockets/boringssl" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/uSockets/lsquic" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/uSockets/lsquic/src/liblsquic/ls-qpack" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../deps/uWebSockets/uSockets/lsquic/src/lshpack" vcs="Git" />
   </component>
 </project>

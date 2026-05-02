@@ -11,12 +11,23 @@ enum {
 };
 
 enum {
+	PBCL_ARM_TYPE_CARTESIAN = 1
+};
+
+enum {
 	PBCL_T_M_PWM = 10,
 	PBCL_T_M_HBRIDGE = 11,
 	PBCL_T_M_ANALOG_FB = 12,
 	PBCL_T_M_LIMITS = 13,
 	PBCL_T_M_SMART_BUS = 14,
 	PBCL_T_M_ANGLE_LIMITS = 15
+};
+
+enum {
+	PBCL_T_ARM_JOINTS = 30,
+	PBCL_T_ARM_GEOMETRY = 31,
+	PBCL_T_ARM_JOINT_MAP = 32,
+	PBCL_T_ARM_SERVO_MAP = 33
 };
 
 typedef struct __attribute__((packed)) {

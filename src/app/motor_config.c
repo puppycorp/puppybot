@@ -3,6 +3,7 @@
 #include "motor_hw.h"
 #include "motor_runtime.h"
 #include "motor_slots.h"
+#include "arm_ik.h"
 #include "pbcl.h"
 #include "pbcl_motor_handler.h"
 #include "platform.h"
@@ -141,6 +142,7 @@ void motor_system_shutdown(void) {
 void motor_config_reset(void) {
 	motor_registry_clear();
 	motor_slots_reset();
+	arm_config_reset();
 	motor_config_clear_active_blob();
 }
 
@@ -152,6 +154,10 @@ static int apply_sections(const pbcl_doc_t *doc) {
 			return -1;
 		if (sec->class_id == PBCL_CLASS_MOTOR) {
 			int rc = pbcl_apply_motor_section(sec, payload, sec->tlv_len);
+			if (rc != 0)
+				return rc;
+		} else if (sec->class_id == PBCL_CLASS_ARM) {
+			int rc = arm_config_apply_pbcl(payload, sec->tlv_len);
 			if (rc != 0)
 				return rc;
 		}

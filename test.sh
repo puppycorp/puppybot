@@ -18,6 +18,7 @@ done < <(find "$ROOT_DIR/src/tests" -maxdepth 1 -type f -name '*.c' ! -name 'tes
   "${TEST_SOURCES[@]}" \
   "$ROOT_DIR/src/app/motor_config.c" \
   "$ROOT_DIR/src/app/motor_runtime.c" \
+  "$ROOT_DIR/src/app/arm_ik.c" \
   "$ROOT_DIR/src/app/pbcl_motor_handler.c" \
   "$ROOT_DIR/src/app/main.c" \
   -o "$BUILD_DIR/test_runner" -lm

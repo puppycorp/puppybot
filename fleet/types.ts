@@ -54,6 +54,20 @@ export type MotorConfig = {
 	analog?: MotorAnalogFeedbackConfig
 }
 
+export type ArmJointConfig = {
+	motorId: number
+	sign?: number
+	offsetDeg?: number
+}
+
+export type ArmConfig = {
+	jointCount: number
+	l1: number
+	l2: number
+	z0: number
+	joints?: ArmJointConfig[]
+}
+
 type DriveMotor = {
 	type: "drive"
 	botId: string
@@ -83,10 +97,21 @@ type TurnServo = {
 	durationMs?: number
 }
 
+type ArmMove = {
+	type: "armMove"
+	botId: string
+	x: number
+	y: number
+	z: number
+	elbowUp?: boolean
+	durationMs?: number
+}
+
 type UpdateConfig = {
 	type: "updateConfig"
 	botId: string
 	motors: MotorConfig[]
+	arm?: ArmConfig | null
 	templateKey?: string | null
 }
 
@@ -111,6 +136,7 @@ export type MsgToServer =
 	| Stop
 	| StopAllMotors
 	| TurnServo
+	| ArmMove
 	| SmartbusScan
 	| SmartbusSetId
 	| UpdateConfig
@@ -144,6 +170,7 @@ export type ConfigBroadcast = {
 	type: "config"
 	botId: string
 	motors: MotorConfig[]
+	arm?: ArmConfig | null
 	templateKey?: string | null
 }
 
@@ -208,6 +235,7 @@ export type MsgToBot =
 	| Ping
 	| StopAllMotors
 	| Omit<TurnServo, "botId">
+	| Omit<ArmMove, "botId">
 	| Omit<SmartbusScan, "botId">
 	| Omit<SmartbusSetId, "botId">
 	| SetMotorPoll

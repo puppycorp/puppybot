@@ -1,6 +1,7 @@
 import { botPage } from "./bot"
 import { botsPage } from "./bots"
 import { mountNavbar } from "./navbar"
+import { armPage } from "./arm"
 import { roverPage } from "./rover"
 import { routes } from "./router"
 import { Container } from "./ui"
@@ -16,6 +17,7 @@ window.onload = () => {
 	const container = new Container(appRoot)
 	routes({
 		"/": () => botsPage(container),
+		"/bot/:id/arm": (params) => armPage(container, params.id),
 		"/bot/:id/rover": (params) => roverPage(container, params.id),
 		"/bot/:id": (params) => botPage(container, params.id),
 		"*": () => {

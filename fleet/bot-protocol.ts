@@ -10,6 +10,7 @@ enum MsgToBotType {
 	SmartbusSetId = 8,
 	SetMotorPoll = 9,
 	SetBotId = 10,
+	ArmMove = 11,
 }
 
 export enum MsgFromBotType {
@@ -138,6 +139,7 @@ const createHeader = (
 }
 
 const DRIVE_PAYLOAD_LENGTH = 9
+const ARM_MOVE_PAYLOAD_LENGTH = 15
 
 type DrivePayloadInput = {
 	motorId?: number
@@ -171,6 +173,22 @@ const createDrivePayload = (input: DrivePayloadInput): Buffer => {
 	payload.writeUInt16LE(clampInt(input.steps, 0, 0xffff), 3)
 	payload.writeUInt16LE(clampInt(input.stepTimeMicros, 0, 0xffff), 5)
 	payload.writeUInt16LE(clampInt(input.angle, 0, 0xffff), 7)
+	return payload
+}
+
+const createArmMovePayload = (input: {
+	x: number
+	y: number
+	z: number
+	elbowUp?: boolean
+	durationMs?: number
+}): Buffer => {
+	const payload = Buffer.alloc(ARM_MOVE_PAYLOAD_LENGTH)
+	payload.writeFloatLE(Number.isFinite(input.x) ? input.x : 0, 0)
+	payload.writeFloatLE(Number.isFinite(input.y) ? input.y : 0, 4)
+	payload.writeFloatLE(Number.isFinite(input.z) ? input.z : 0, 8)
+	payload.writeUInt8(input.elbowUp ? 1 : 0, 12)
+	payload.writeUInt16LE(clampInt(input.durationMs, 0, 0xffff), 13)
 	return payload
 }
 
@@ -231,6 +249,20 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			const header = createHeader(
 				MsgToBotType.DriveMotor,
 				DRIVE_PAYLOAD_LENGTH,
+			)
+			return Buffer.concat([header, payload])
+		}
+		case "armMove": {
+			const payload = createArmMovePayload({
+				x: msg.x,
+				y: msg.y,
+				z: msg.z,
+				elbowUp: msg.elbowUp,
+				durationMs: msg.durationMs,
+			})
+			const header = createHeader(
+				MsgToBotType.ArmMove,
+				ARM_MOVE_PAYLOAD_LENGTH,
 			)
 			return Buffer.concat([header, payload])
 		}

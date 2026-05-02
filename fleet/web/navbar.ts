@@ -1,7 +1,7 @@
 import { onRouteChange } from "./router"
 
 const getBotIdFromPath = (path: string) => {
-	const match = path.match(/^\/bot\/([^/]+)(?:\/rover)?\/?$/)
+	const match = path.match(/^\/bot\/([^/]+)(?:\/rover|\/arm)?\/?$/)
 	return match ? match[1] : null
 }
 
@@ -35,6 +35,12 @@ export const mountNavbar = (root: HTMLElement) => {
 	roverLink.style.display = "none"
 	links.appendChild(roverLink)
 
+	const armLink = document.createElement("a")
+	armLink.className = "nav-link"
+	armLink.textContent = "Arm"
+	armLink.style.display = "none"
+	links.appendChild(armLink)
+
 	left.appendChild(links)
 
 	const right = document.createElement("div")
@@ -50,6 +56,7 @@ export const mountNavbar = (root: HTMLElement) => {
 	const updateActive = (path: string) => {
 		const botId = getBotIdFromPath(path)
 		const isRover = /^\/bot\/[^/]+\/rover\/?$/.test(path)
+		const isArm = /^\/bot\/[^/]+\/arm\/?$/.test(path)
 
 		const isBots = path === "/" || path === ""
 		if (isBots) botsLink.setAttribute("aria-current", "page")
@@ -60,18 +67,26 @@ export const mountNavbar = (root: HTMLElement) => {
 			roverLink.style.display = ""
 			if (isRover) roverLink.setAttribute("aria-current", "page")
 			else roverLink.removeAttribute("aria-current")
+			armLink.href = `/bot/${botId}/arm`
+			armLink.style.display = ""
+			if (isArm) armLink.setAttribute("aria-current", "page")
+			else armLink.removeAttribute("aria-current")
 		} else {
 			roverLink.style.display = "none"
 			roverLink.removeAttribute("aria-current")
+			armLink.style.display = "none"
+			armLink.removeAttribute("aria-current")
 		}
 
-		location.textContent = botId
-			? isRover
-				? `Rover · Bot ${botId}`
-				: `Bot ${botId}`
-			: isBots
-				? "Bots"
-				: path
+			location.textContent = botId
+				? isRover
+					? `Rover · Bot ${botId}`
+					: isArm
+						? `Arm · Bot ${botId}`
+						: `Bot ${botId}`
+				: isBots
+					? "Bots"
+					: path
 		location.title = location.textContent || ""
 	}
 

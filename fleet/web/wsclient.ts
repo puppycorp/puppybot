@@ -57,21 +57,23 @@ const handleMsg = (msg: MsgToUi) => {
 					),
 			)
 			break
-		case "config":
-			console.log(
-				"Config update:",
-				msg.botId,
-				msg.motors,
-				msg.templateKey ?? null,
-			)
-			state.configs.set({
-				...state.configs.get(),
-				[msg.botId]: {
-					motors: msg.motors,
-					templateKey: msg.templateKey ?? null,
-				},
-			})
-			break
+			case "config":
+				console.log(
+					"Config update:",
+					msg.botId,
+					msg.motors,
+					msg.arm ?? null,
+					msg.templateKey ?? null,
+				)
+				state.configs.set({
+					...state.configs.get(),
+					[msg.botId]: {
+						motors: msg.motors,
+						arm: msg.arm ?? null,
+						templateKey: msg.templateKey ?? null,
+					},
+				})
+				break
 		case "motorState": {
 			const existing = state.motorStates.get()
 			const botStates: Record<number, any> = {

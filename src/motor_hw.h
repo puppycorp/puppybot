@@ -52,6 +52,8 @@ int motor_hw_configure_smartbus(uint8_t uart_port, int tx_pin, int rx_pin,
                                 uint32_t baud_rate);
 void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
                             uint16_t angle_x10, uint16_t duration_ms);
+void motor_hw_smartbus_move_raw(uint8_t uart_port, uint8_t servo_id,
+                                uint16_t position_raw, uint16_t duration_ms);
 
 // Sets the servo mode register (typically 0=positional, 1=wheel).
 void motor_hw_smartbus_set_mode(uint8_t uart_port, uint8_t servo_id,

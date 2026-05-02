@@ -38,6 +38,9 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 	m.pwm_freq = 50;
 	m.deg_min_x10 = 0;
 	m.deg_max_x10 = m.type_id == MOTOR_TYPE_SMART ? 2400 : 1800;
+	m.smart_min_raw = 0;
+	m.smart_max_raw = 0;
+	m.smart_limit_raw = false;
 	m.smart_uart_port = 1;
 	m.smart_tx_pin = -1;
 	m.smart_rx_pin = -1;
@@ -133,8 +136,14 @@ int pbcl_apply_motor_section(const pbcl_sec_t *sec, const uint8_t *tlvs,
 			limit_min_x10 = limit_max_x10;
 			limit_max_x10 = tmp;
 		}
-		m.deg_min_x10 = limit_min_x10;
-		m.deg_max_x10 = limit_max_x10;
+		if (m.type_id == MOTOR_TYPE_SMART) {
+			m.smart_min_raw = (uint16_t)limit_min_x10;
+			m.smart_max_raw = (uint16_t)limit_max_x10;
+			m.smart_limit_raw = true;
+		} else {
+			m.deg_min_x10 = limit_min_x10;
+			m.deg_max_x10 = limit_max_x10;
+		}
 	}
 
 	if (m.type_id == MOTOR_TYPE_HBR) {

@@ -65,6 +65,20 @@ float motor_smart_raw_to_deg(const motor_rt_t *m, uint16_t raw) {
 	return ((float)raw / (float)raw_max) * deg_max;
 }
 
+uint16_t motor_smart_deg_to_raw(const motor_rt_t *m, float deg) {
+	const smart_servo_profile_t *profile = smart_servo_profile_for(m);
+	uint16_t raw_max = profile->raw_max ? profile->raw_max : 1;
+	float deg_max = profile->deg_max > 0.0f ? profile->deg_max : 0.0f;
+	if (deg_max <= 0.0f)
+		return 0;
+	float ratio = deg / deg_max;
+	if (ratio < 0.0f)
+		ratio = 0.0f;
+	if (ratio > 1.0f)
+		ratio = 1.0f;
+	return (uint16_t)lroundf(ratio * (float)raw_max);
+}
+
 int motor_registry_add(const motor_rt_t *m) {
 	if (!m)
 		return -1;
@@ -149,15 +163,66 @@ static void apply_smart_servo(motor_rt_t *m, float deg, uint16_t duration_ms) {
 		motor_hw_smartbus_set_mode(m->smart_uart_port, (uint8_t)m->node_id, 0);
 		m->smart_wheel_mode = false;
 	}
-	float dmin = m->deg_min_x10 / 10.0f;
-	float dmax = m->deg_max_x10 / 10.0f;
-	if (deg < dmin)
-		deg = dmin;
-	if (deg > dmax)
-		deg = dmax;
-	uint16_t angle_x10 = (uint16_t)lroundf(deg * 10.0f);
-	motor_hw_smartbus_move(m->smart_uart_port, (uint8_t)m->node_id, angle_x10,
-	                       duration_ms);
+	uint16_t raw = motor_smart_deg_to_raw(m, deg);
+	if (m->smart_limit_raw) {
+		uint16_t min_raw = m->smart_min_raw;
+		uint16_t max_raw = m->smart_max_raw;
+		if (min_raw > max_raw) {
+			uint16_t tmp = min_raw;
+			min_raw = max_raw;
+			max_raw = tmp;
+		}
+		if (raw < min_raw)
+			raw = min_raw;
+		if (raw > max_raw)
+			raw = max_raw;
+	} else {
+		float dmin = m->deg_min_x10 / 10.0f;
+		float dmax = m->deg_max_x10 / 10.0f;
+		if (deg < dmin)
+			raw = motor_smart_deg_to_raw(m, dmin);
+		if (deg > dmax)
+			raw = motor_smart_deg_to_raw(m, dmax);
+	}
+	motor_hw_smartbus_move_raw(m->smart_uart_port, (uint8_t)m->node_id, raw,
+	                           duration_ms);
+}
+
+static void enforce_smart_limit(motor_rt_t *m, uint32_t now_ms_val) {
+	if (!m || m->type_id != MOTOR_TYPE_SMART || !m->smart_limit_raw)
+		return;
+	if ((uint32_t)(now_ms_val - m->last_limit_check_ms) < 50)
+		return;
+	m->last_limit_check_ms = now_ms_val;
+
+	uint16_t raw = 0;
+	if (motor_hw_smartbus_read_position(m->smart_uart_port, (uint8_t)m->node_id,
+	                                    &raw) != 0) {
+		return;
+	}
+	m->last_pos_raw = raw;
+
+	uint16_t min_raw = m->smart_min_raw;
+	uint16_t max_raw = m->smart_max_raw;
+	if (min_raw > max_raw) {
+		uint16_t tmp = min_raw;
+		min_raw = max_raw;
+		max_raw = tmp;
+	}
+	if (raw >= min_raw && raw <= max_raw)
+		return;
+
+	uint16_t clamp_raw = raw < min_raw ? min_raw : max_raw;
+	if (m->smart_wheel_mode) {
+		motor_hw_smartbus_set_wheel_speed(m->smart_uart_port,
+		                                  (uint8_t)m->node_id, 0, 0);
+		m->last_cmd_val = 0.0f;
+		return;
+	}
+
+	motor_hw_smartbus_move_raw(m->smart_uart_port, (uint8_t)m->node_id,
+	                           clamp_raw, 0);
+	m->last_cmd_val = motor_smart_raw_to_deg(m, clamp_raw);
 }
 
 static void apply_smart_wheel(motor_rt_t *m, float speed) {
@@ -323,6 +388,7 @@ int motor_get_smart_position(uint32_t node_id, float *deg_out) {
 void motor_tick_all(uint32_t now_ms_val) {
 	for (int i = 0; i < g_mcount; ++i) {
 		motor_rt_t *m = &g_motors[i];
+		enforce_smart_limit(m, now_ms_val);
 		if (m->timeout_ms == 0)
 			continue;
 		if ((uint32_t)(now_ms_val - m->last_cmd_ms) > m->timeout_ms) {

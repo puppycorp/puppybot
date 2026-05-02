@@ -295,6 +295,16 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 		return;
 
 	uint16_t pos = angle_to_position(angle_x10);
+	motor_hw_smartbus_move_raw(uart_port, servo_id, pos, duration_ms);
+}
+
+void motor_hw_smartbus_move_raw(uint8_t uart_port, uint8_t servo_id,
+                                uint16_t position_raw, uint16_t duration_ms) {
+	if (uart_port >= UART_NUM_MAX)
+		return;
+	if (!g_smart_buses[uart_port].configured)
+		return;
+
 	uint16_t time_clamped = duration_ms;
 	if (time_clamped > 30000)
 		time_clamped = 30000;
@@ -303,8 +313,8 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	// Payload: addr, posL,posH, timeL,timeH, speedL,speedH
 	uint8_t params[7];
 	params[0] = (uint8_t)SMARTBUS_ADDR_GOAL_POSITION_L;
-	params[1] = (uint8_t)(pos & 0xFFu);
-	params[2] = (uint8_t)((pos >> 8) & 0xFFu);
+	params[1] = (uint8_t)(position_raw & 0xFFu);
+	params[2] = (uint8_t)((position_raw >> 8) & 0xFFu);
 	params[3] = (uint8_t)(time_clamped & 0xFFu);
 	params[4] = (uint8_t)((time_clamped >> 8) & 0xFFu);
 	params[5] = 0;

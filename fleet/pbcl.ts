@@ -1,8 +1,10 @@
-import type { MotorConfig } from "./types"
+import type { ArmConfig, ArmJointConfig, MotorConfig } from "./types"
 
 const PBCL_MAGIC = 0x5042434c
 const PBCL_VERSION = 1
 const PBCL_CLASS_MOTOR = 1
+const PBCL_CLASS_ARM = 7
+const PBCL_ARM_TYPE_CARTESIAN = 1
 
 const MOTOR_TYPE: Record<MotorConfig["type"], number> = {
 	angle: 1,
@@ -19,6 +21,11 @@ const PBCL_T_M_ANALOG_FB = 12
 const PBCL_T_M_LIMITS = 13
 const PBCL_T_M_SMART_BUS = 14
 const PBCL_T_M_ANGLE_LIMITS = 15
+
+const PBCL_T_ARM_JOINTS = 30
+const PBCL_T_ARM_GEOMETRY = 31
+const PBCL_T_ARM_JOINT_MAP = 32
+const PBCL_T_ARM_SERVO_MAP = 33
 
 const MOTOR_TYPE_REVERSE: Record<number, MotorConfig["type"]> = {
 	1: "angle",
@@ -46,6 +53,20 @@ const tlv = (tag: number, value: Buffer): Buffer => {
 	header.writeUInt16LE(value.length, 2)
 	return Buffer.concat([header, value])
 }
+
+const clampInt16 = (value: number): number =>
+	Math.max(-32768, Math.min(32767, value))
+
+const normalizeJointCount = (value: number): number => {
+	if (!Number.isFinite(value)) return 0
+	return Math.max(0, Math.min(255, Math.round(value)))
+}
+
+const normalizeJoint = (joint: ArmJointConfig | undefined) => ({
+	motorId: joint?.motorId ?? 0,
+	sign: joint?.sign === -1 ? -1 : 1,
+	offsetDeg: joint?.offsetDeg ?? 0,
+})
 
 const buildMotorSection = (config: MotorConfig): Buffer => {
 	const typeId = MOTOR_TYPE[config.type]
@@ -77,10 +98,11 @@ const buildMotorSection = (config: MotorConfig): Buffer => {
 		config.limitDegMax !== undefined
 	) {
 		const toInt16 = (value: number) =>
-			Math.max(-32768, Math.min(32767, Math.round(value * 10)))
+			Math.max(-32768, Math.min(32767, Math.round(value)))
+		const scale = config.type === "smart" ? 1 : 10
 		const limits = Buffer.alloc(4)
-		limits.writeInt16LE(toInt16(config.limitDegMin), 0)
-		limits.writeInt16LE(toInt16(config.limitDegMax), 2)
+		limits.writeInt16LE(toInt16(config.limitDegMin * scale), 0)
+		limits.writeInt16LE(toInt16(config.limitDegMax * scale), 2)
 		tlvs.push(tlv(PBCL_T_M_ANGLE_LIMITS, limits))
 	}
 
@@ -144,16 +166,62 @@ const buildMotorSection = (config: MotorConfig): Buffer => {
 	return Buffer.concat([sec, tlvPayload])
 }
 
-export const buildMotorBlob = (motors: MotorConfig[]): Buffer => {
+const buildArmSection = (arm: ArmConfig): Buffer => {
+	const jointCount = normalizeJointCount(arm.jointCount)
+	const tlvs: Buffer[] = []
+
+	const jointCountBuf = Buffer.alloc(1)
+	jointCountBuf.writeUInt8(jointCount, 0)
+	tlvs.push(tlv(PBCL_T_ARM_JOINTS, jointCountBuf))
+
+	const geometry = Buffer.alloc(12)
+	geometry.writeFloatLE(arm.l1 ?? 0, 0)
+	geometry.writeFloatLE(arm.l2 ?? 0, 4)
+	geometry.writeFloatLE(arm.z0 ?? 0, 8)
+	tlvs.push(tlv(PBCL_T_ARM_GEOMETRY, geometry))
+
+	if (jointCount > 0) {
+		const jointMap = Buffer.alloc(4 * jointCount)
+		const servoMap = Buffer.alloc(3 * jointCount)
+		for (let i = 0; i < jointCount; i++) {
+			const joint = normalizeJoint(arm.joints?.[i])
+			jointMap.writeUInt32LE(joint.motorId >>> 0, i * 4)
+			servoMap.writeInt8(joint.sign, i * 3)
+			servoMap.writeInt16LE(
+				clampInt16(Math.round(joint.offsetDeg * 10)),
+				i * 3 + 1,
+			)
+		}
+		tlvs.push(tlv(PBCL_T_ARM_JOINT_MAP, jointMap))
+		tlvs.push(tlv(PBCL_T_ARM_SERVO_MAP, servoMap))
+	}
+
+	const tlvPayload = Buffer.concat(tlvs)
+
+	const sec = Buffer.alloc(12)
+	sec.writeUInt16LE(PBCL_CLASS_ARM, 0)
+	sec.writeUInt16LE(PBCL_ARM_TYPE_CARTESIAN, 2)
+	sec.writeUInt32LE(0, 4)
+	sec.writeUInt16LE(tlvPayload.length, 8)
+	sec.writeUInt16LE(0, 10)
+
+	return Buffer.concat([sec, tlvPayload])
+}
+
+export const buildConfigBlob = (
+	motors: MotorConfig[],
+	arm: ArmConfig | null,
+): Buffer => {
 	const HEADER_SIZE = 20
 	const sections = motors.map((m) => buildMotorSection(m))
+	if (arm) sections.push(buildArmSection(arm))
 	const body = Buffer.concat(sections)
 	const totalSize = HEADER_SIZE + body.length
 	const header = Buffer.alloc(HEADER_SIZE)
 	header.writeUInt32LE(PBCL_MAGIC, 0)
 	header.writeUInt16LE(PBCL_VERSION, 4)
 	header.writeUInt16LE(0, 6)
-	header.writeUInt16LE(motors.length, 8)
+	header.writeUInt16LE(sections.length, 8)
 	header.writeUInt16LE(HEADER_SIZE, 10)
 	header.writeUInt32LE(totalSize, 12)
 	header.writeUInt32LE(0, 16)
@@ -165,7 +233,83 @@ export const buildMotorBlob = (motors: MotorConfig[]): Buffer => {
 	return Buffer.concat([header, body])
 }
 
-export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
+const parseArmSection = (
+	buffer: Buffer,
+	offset: number,
+	sectionEnd: number,
+): ArmConfig => {
+	const config: ArmConfig = {
+		jointCount: 0,
+		l1: 0,
+		l2: 0,
+		z0: 0,
+	}
+	let tlvOffset = offset + 12
+	while (tlvOffset + 4 <= sectionEnd) {
+		const tag = buffer.readUInt8(tlvOffset)
+		const len = buffer.readUInt16LE(tlvOffset + 2)
+		const valueOffset = tlvOffset + 4
+		const valueEnd = valueOffset + len
+		if (valueEnd > sectionEnd) {
+			break
+		}
+		switch (tag) {
+			case PBCL_T_ARM_JOINTS:
+				if (len >= 1) {
+					config.jointCount = buffer.readUInt8(valueOffset)
+				}
+				break
+			case PBCL_T_ARM_GEOMETRY:
+				if (len >= 12) {
+					config.l1 = buffer.readFloatLE(valueOffset)
+					config.l2 = buffer.readFloatLE(valueOffset + 4)
+					config.z0 = buffer.readFloatLE(valueOffset + 8)
+				}
+				break
+			case PBCL_T_ARM_JOINT_MAP: {
+				const jointCount =
+					config.jointCount > 0 ? config.jointCount : Math.floor(len / 4)
+				const joints = config.joints ?? []
+				for (
+					let i = 0;
+					i < jointCount && valueOffset + i * 4 + 4 <= valueEnd;
+					i++
+				) {
+					const joint = joints[i] ?? { motorId: 0 }
+					joint.motorId = buffer.readUInt32LE(valueOffset + i * 4)
+					joints[i] = joint
+				}
+				config.joints = joints
+				if (config.jointCount === 0) config.jointCount = jointCount
+				break
+			}
+			case PBCL_T_ARM_SERVO_MAP: {
+				const jointCount =
+					config.jointCount > 0 ? config.jointCount : Math.floor(len / 3)
+				const joints = config.joints ?? []
+				for (
+					let i = 0;
+					i < jointCount && valueOffset + i * 3 + 3 <= valueEnd;
+					i++
+				) {
+					const joint = joints[i] ?? { motorId: 0 }
+					joint.sign = buffer.readInt8(valueOffset + i * 3)
+					joint.offsetDeg = buffer.readInt16LE(valueOffset + i * 3 + 1) / 10
+					joints[i] = joint
+				}
+				config.joints = joints
+				if (config.jointCount === 0) config.jointCount = jointCount
+				break
+			}
+		}
+		tlvOffset = valueEnd
+	}
+	return config
+}
+
+export const parseConfigBlob = (
+	blob: Uint8Array,
+): { motors: MotorConfig[]; arm: ArmConfig | null } => {
 	const buffer = Buffer.from(blob)
 	if (buffer.length < 20) {
 		throw new Error("PBCL blob too short")
@@ -188,6 +332,7 @@ export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
 		throw new Error("PBCL blob has invalid total size")
 	}
 	const motors: MotorConfig[] = []
+	let arm: ArmConfig | null = null
 	let offset = headerSize
 	for (let i = 0; i < sections; i++) {
 		if (offset + 12 > buffer.length) {
@@ -231,14 +376,15 @@ export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
 									buffer.readUInt16LE(valueOffset) / 100
 							}
 							break
-						case PBCL_T_M_ANGLE_LIMITS:
-							if (len >= 4) {
-								config.limitDegMin =
-									buffer.readInt16LE(valueOffset) / 10
-								config.limitDegMax =
-									buffer.readInt16LE(valueOffset + 2) / 10
-							}
-							break
+							case PBCL_T_M_ANGLE_LIMITS:
+								if (len >= 4) {
+									const minRaw = buffer.readInt16LE(valueOffset)
+									const maxRaw = buffer.readInt16LE(valueOffset + 2)
+									const scale = config.type === "smart" ? 1 : 10
+									config.limitDegMin = minRaw / scale
+									config.limitDegMax = maxRaw / scale
+								}
+								break
 						case PBCL_T_M_PWM:
 							if (len >= 12) {
 								config.pwm = {
@@ -287,8 +433,10 @@ export const parseMotorBlob = (blob: Uint8Array): MotorConfig[] => {
 				}
 				motors.push(config)
 			}
+		} else if (classId === PBCL_CLASS_ARM && typeId === PBCL_ARM_TYPE_CARTESIAN) {
+			arm = parseArmSection(buffer, offset, sectionEnd)
 		}
 		offset = sectionEnd
 	}
-	return motors
+	return { motors, arm }
 }

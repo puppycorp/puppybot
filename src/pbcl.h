@@ -40,6 +40,7 @@ typedef enum : uint16_t {
 	PBCL_CLASS_NETWORK = 4,
 	PBCL_CLASS_IO = 5,
 	PBCL_CLASS_LOGIC = 6,
+	PBCL_CLASS_ARM = 7,
 	PBCL_CLASS_META = 255
 } pbcl_class_t;
 

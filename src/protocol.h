@@ -3,6 +3,7 @@
 
 #include "test.h"
 #include <stdint.h>
+#include <string.h>
 
 #define CMD_PING 1
 #define CMD_DRIVE_MOTOR 2
@@ -13,6 +14,7 @@
 #define CMD_SMARTBUS_SET_ID 8
 #define CMD_SET_MOTOR_POLL 9
 #define CMD_SET_BOT_ID 10
+#define CMD_ARM_MOVE 11
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -60,6 +62,14 @@ typedef struct {
 } StopMotorCommand;
 
 typedef struct {
+	float x;
+	float y;
+	float z;
+	uint8_t elbow_up;
+	uint16_t duration_ms;
+} ArmMoveCommand;
+
+typedef struct {
 	const uint8_t *data;
 	uint16_t length;
 } SetBotIdCommand;
@@ -74,6 +84,7 @@ union Command {
 		const uint8_t *data;
 		uint16_t length;
 	} apply_config;
+	ArmMoveCommand arm_move;
 	SetBotIdCommand set_bot_id;
 };
 
@@ -102,9 +113,19 @@ static inline const char *command_type_to_string(int cmd_type) {
 		return "SET_MOTOR_POLL";
 	case CMD_SET_BOT_ID:
 		return "SET_BOT_ID";
+	case CMD_ARM_MOVE:
+		return "ARM_MOVE";
 	default:
 		return "UNKNOWN";
 	}
+}
+
+static inline float protocol_read_float_le(const uint8_t *payload) {
+	uint32_t raw = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8) |
+	               ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
+	float value = 0.0f;
+	memcpy(&value, &raw, sizeof(value));
+	return value;
 }
 
 static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
@@ -179,6 +200,19 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd.set_bot_id.data = payload;
 		cmd_packet->cmd.set_bot_id.length = (uint16_t)payload_len;
 		break;
+	case CMD_ARM_MOVE:
+		cmd_packet->cmd_type = CMD_ARM_MOVE;
+		cmd_packet->cmd.arm_move.x =
+		    (payload_len >= 4) ? protocol_read_float_le(payload) : 0.0f;
+		cmd_packet->cmd.arm_move.y =
+		    (payload_len >= 8) ? protocol_read_float_le(payload + 4) : 0.0f;
+		cmd_packet->cmd.arm_move.z =
+		    (payload_len >= 12) ? protocol_read_float_le(payload + 8) : 0.0f;
+		cmd_packet->cmd.arm_move.elbow_up =
+		    (payload_len >= 13) ? payload[12] : 0;
+		cmd_packet->cmd.arm_move.duration_ms =
+		    (payload_len >= 15) ? (uint16_t)(payload[13] | (payload[14] << 8)) : 0;
+		break;
 	default:
 		break;
 	}
@@ -209,6 +243,33 @@ TEST(parse_cmd_test) {
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.steps, 3);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.step_time, 5);
 	ASSERT_EQ(cmd_packet.cmd.drive_motor.angle, 7);
+}
+
+TEST(parse_arm_move_cmd_test) {
+	uint8_t data[4 + 15] = {0};
+	data[0] = 0x01;
+	data[1] = CMD_ARM_MOVE;
+	data[2] = 0x0f;
+	data[3] = 0x00;
+	float x = 1.0f;
+	float y = 2.0f;
+	float z = 3.5f;
+	memcpy(&data[4], &x, sizeof(x));
+	memcpy(&data[8], &y, sizeof(y));
+	memcpy(&data[12], &z, sizeof(z));
+	data[16] = 1;
+	data[17] = 0xf4;
+	data[18] = 0x01;
+
+	CommandPacket cmd_packet;
+	parse_cmd(data, &cmd_packet);
+
+	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_MOVE);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_move.x, 1.0f, 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_move.y, 2.0f, 0.0001f);
+	EXPECT_APPROX_EQ(cmd_packet.cmd.arm_move.z, 3.5f, 0.0001f);
+	ASSERT_EQ(cmd_packet.cmd.arm_move.elbow_up, 1);
+	ASSERT_EQ(cmd_packet.cmd.arm_move.duration_ms, 500);
 }
 
 TEST(parse_apply_config_test) {

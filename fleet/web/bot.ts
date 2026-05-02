@@ -1,4 +1,4 @@
-import type { MotorConfig, MsgToServer } from "../types"
+import type { ArmConfig, ArmJointConfig, MotorConfig, MsgToServer } from "../types"
 import {
 	TEMPLATE_OPTIONS,
 	cloneTemplateMotors,
@@ -262,14 +262,14 @@ export const botPage = (container: Container, botId: string) => {
 	configCard.className = "card"
 
 	const configTitle = document.createElement("h3")
-	configTitle.textContent = "Motor configuration"
+	configTitle.textContent = "Configuration"
 	configTitle.style.margin = "0"
 	configCard.appendChild(configTitle)
 
 	const configHelp = document.createElement("p")
 	configHelp.className = "section-note"
 	configHelp.innerText =
-		"Configure each motor using the form below. Add motors, edit fields, and apply to sync the PBCL blob."
+		"Configure motors and arm geometry below. Apply to sync the PBCL blob."
 	configCard.appendChild(configHelp)
 
 	const templateSelect = document.createElement("select")
@@ -342,6 +342,184 @@ export const botPage = (container: Container, botId: string) => {
 		return Number.isNaN(parsed) ? undefined : parsed
 	}
 
+	const armSection = document.createElement("div")
+	armSection.className = "arm-config"
+
+	const armSectionTitle = document.createElement("div")
+	armSectionTitle.className = "motor-section-title"
+	armSectionTitle.textContent = "Arm geometry"
+	armSection.appendChild(armSectionTitle)
+
+	const armSectionHint = document.createElement("p")
+	armSectionHint.className = "section-note"
+	armSectionHint.textContent =
+		"Configure link lengths and joint mapping for 3-joint IK control."
+	armSection.appendChild(armSectionHint)
+
+	const armEnableInput = document.createElement("input")
+	armEnableInput.type = "checkbox"
+	armSection.appendChild(createFieldWrapper("Enable arm config", armEnableInput))
+
+	const armFields = document.createElement("div")
+	armFields.className = "arm-fields"
+	armSection.appendChild(armFields)
+
+	const armGrid = document.createElement("div")
+	armGrid.className = "motor-grid"
+	armFields.appendChild(armGrid)
+
+	const jointCountInput = document.createElement("input")
+	jointCountInput.type = "number"
+	jointCountInput.min = "1"
+	jointCountInput.max = "3"
+	jointCountInput.value = "3"
+	armGrid.appendChild(createFieldWrapper("Joints", jointCountInput))
+
+	const l1Input = document.createElement("input")
+	l1Input.type = "number"
+	l1Input.step = "0.001"
+	armGrid.appendChild(createFieldWrapper("L1", l1Input))
+
+	const l2Input = document.createElement("input")
+	l2Input.type = "number"
+	l2Input.step = "0.001"
+	armGrid.appendChild(createFieldWrapper("L2", l2Input))
+
+	const z0Input = document.createElement("input")
+	z0Input.type = "number"
+	z0Input.step = "0.001"
+	armGrid.appendChild(createFieldWrapper("Z0", z0Input))
+
+	const jointsTitle = document.createElement("div")
+	jointsTitle.className = "motor-section-title"
+	jointsTitle.textContent = "Joint mapping"
+	armFields.appendChild(jointsTitle)
+
+	const jointsContainer = document.createElement("div")
+	jointsContainer.className = "arm-joints"
+	armFields.appendChild(jointsContainer)
+
+	const ensureArmJoints = (config: ArmConfig): void => {
+		const count = Math.max(1, Math.min(3, Math.round(config.jointCount)))
+		config.jointCount = count
+		config.joints = config.joints ?? []
+		for (let i = 0; i < count; i++) {
+			if (!config.joints[i]) {
+				config.joints[i] = {
+					motorId: pickDefaultArmMotorId(i),
+					sign: 1,
+					offsetDeg: 0,
+				}
+			}
+		}
+		config.joints = config.joints.slice(0, count)
+	}
+
+	const renderArmJoints = () => {
+		jointsContainer.innerHTML = ""
+		if (!armConfig) return
+		ensureArmJoints(armConfig)
+		armConfig.joints?.forEach((joint, idx) => {
+			const jointCard = document.createElement("div")
+			jointCard.className = "motor-grid"
+
+			const jointLabel = document.createElement("div")
+			jointLabel.className = "section-note"
+			jointLabel.textContent = `Joint ${idx + 1}`
+			jointCard.appendChild(jointLabel)
+
+			const motorInput = document.createElement("input")
+			motorInput.type = "number"
+			motorInput.min = "0"
+			motorInput.value = joint.motorId?.toString() ?? "0"
+			motorInput.addEventListener("input", () => {
+				const parsed = parseInteger(motorInput.value)
+				if (parsed !== undefined && armConfig) {
+					armConfig.joints![idx].motorId = parsed
+				}
+			})
+			jointCard.appendChild(createFieldWrapper("Motor ID", motorInput))
+
+			const signSelect = document.createElement("select")
+			;[
+				{ label: "+1", value: "1" },
+				{ label: "-1", value: "-1" },
+			].forEach((option) => {
+				const opt = document.createElement("option")
+				opt.value = option.value
+				opt.textContent = option.label
+				signSelect.appendChild(opt)
+			})
+			signSelect.value = (joint.sign === -1 ? -1 : 1).toString()
+			signSelect.addEventListener("change", () => {
+				if (!armConfig) return
+				const parsed = parseInteger(signSelect.value)
+				armConfig.joints![idx].sign = parsed === -1 ? -1 : 1
+			})
+			jointCard.appendChild(createFieldWrapper("Sign", signSelect))
+
+			const offsetInput = document.createElement("input")
+			offsetInput.type = "number"
+			offsetInput.step = "0.1"
+			offsetInput.value = joint.offsetDeg?.toString() ?? "0"
+			offsetInput.addEventListener("input", () => {
+				const parsed = parseNumber(offsetInput.value)
+				if (parsed !== undefined && armConfig) {
+					armConfig.joints![idx].offsetDeg = parsed
+				}
+			})
+			jointCard.appendChild(createFieldWrapper("Offset °", offsetInput))
+
+			jointsContainer.appendChild(jointCard)
+		})
+	}
+
+	const syncArmSection = () => {
+		const enabled = !!armConfig
+		armEnableInput.checked = enabled
+		armFields.style.display = enabled ? "" : "none"
+		if (!enabled || !armConfig) return
+		ensureArmJoints(armConfig)
+		jointCountInput.value = armConfig.jointCount.toString()
+		l1Input.value = armConfig.l1.toString()
+		l2Input.value = armConfig.l2.toString()
+		z0Input.value = armConfig.z0.toString()
+		renderArmJoints()
+	}
+
+	armEnableInput.addEventListener("change", () => {
+		if (armEnableInput.checked) {
+			armConfig = armConfig ? cloneArmConfig(armConfig) : createDefaultArmConfig()
+		} else {
+			armConfig = null
+		}
+		syncArmSection()
+	})
+
+	jointCountInput.addEventListener("input", () => {
+		const parsed = parseInteger(jointCountInput.value)
+		if (!armConfig || parsed === undefined) return
+		armConfig.jointCount = Math.max(1, Math.min(3, parsed))
+		renderArmJoints()
+	})
+
+	l1Input.addEventListener("input", () => {
+		const parsed = parseNumber(l1Input.value)
+		if (armConfig && parsed !== undefined) armConfig.l1 = parsed
+	})
+
+	l2Input.addEventListener("input", () => {
+		const parsed = parseNumber(l2Input.value)
+		if (armConfig && parsed !== undefined) armConfig.l2 = parsed
+	})
+
+	z0Input.addEventListener("input", () => {
+		const parsed = parseNumber(z0Input.value)
+		if (armConfig && parsed !== undefined) armConfig.z0 = parsed
+	})
+
+	configCard.insertBefore(armSection, motorsContainer)
+
 	const cloneMotorConfig = (config: MotorConfig): MotorConfig => {
 		if (typeof structuredClone === "function") {
 			return structuredClone(config)
@@ -349,10 +527,38 @@ export const botPage = (container: Container, botId: string) => {
 		return JSON.parse(JSON.stringify(config)) as MotorConfig
 	}
 
+	const cloneArmConfig = (config: ArmConfig): ArmConfig => {
+		if (typeof structuredClone === "function") {
+			return structuredClone(config)
+		}
+		return JSON.parse(JSON.stringify(config)) as ArmConfig
+	}
+
 	let motors: MotorConfig[] = []
 	const defaultSteeringServoId = 0
 	const defaultDriveLeftMotorId = 1
 	const defaultDriveRightMotorId = 2
+
+	let armConfig: ArmConfig | null = null
+
+	const pickDefaultArmMotorId = (index: number): number => {
+		const servoMotors = motors.filter(
+			(motor) => motor.type === "angle" || motor.type === "smart",
+		)
+		return servoMotors[index]?.nodeId ?? index + 1
+	}
+
+	const createDefaultArmConfig = (): ArmConfig => ({
+		jointCount: 3,
+		l1: 100,
+		l2: 100,
+		z0: 0,
+		joints: [0, 1, 2].map((idx) => ({
+			motorId: pickDefaultArmMotorId(idx),
+			sign: 1,
+			offsetDeg: 0,
+		})),
+	})
 
 	let steeringServoId = defaultSteeringServoId
 	let driveLeft = defaultDriveLeftMotorId
@@ -468,11 +674,20 @@ export const botPage = (container: Container, botId: string) => {
 			sanitized.maxSpeed = Math.max(0, maxSpeed)
 		}
 		if (motor.type === "angle" || motor.type === "smart") {
-			const limitDegMin = toFloat(motor.limitDegMin)
-			const limitDegMax = toFloat(motor.limitDegMax)
-			if (limitDegMin !== undefined && limitDegMax !== undefined) {
-				sanitized.limitDegMin = limitDegMin
-				sanitized.limitDegMax = limitDegMax
+			if (motor.type === "smart") {
+				const limitMin = toInt(motor.limitDegMin)
+				const limitMax = toInt(motor.limitDegMax)
+				if (limitMin !== undefined && limitMax !== undefined) {
+					sanitized.limitDegMin = Math.max(0, limitMin)
+					sanitized.limitDegMax = Math.max(0, limitMax)
+				}
+			} else {
+				const limitDegMin = toFloat(motor.limitDegMin)
+				const limitDegMax = toFloat(motor.limitDegMax)
+				if (limitDegMin !== undefined && limitDegMax !== undefined) {
+					sanitized.limitDegMin = limitDegMin
+					sanitized.limitDegMax = limitDegMax
+				}
 			}
 		}
 
@@ -558,6 +773,34 @@ export const botPage = (container: Container, botId: string) => {
 			}
 		}
 
+		return sanitized
+	}
+
+	const sanitizeArmConfig = (config: ArmConfig): ArmConfig => {
+		const toInt = (value: number | undefined): number | undefined =>
+			value !== undefined && Number.isFinite(value) ? Math.round(value) : undefined
+		const toFloat = (value: number | undefined): number | undefined =>
+			value !== undefined && Number.isFinite(value) ? value : undefined
+		const clampJointCount = (value: number): number =>
+			Math.max(1, Math.min(3, Math.round(value)))
+
+		const jointCount = clampJointCount(toInt(config.jointCount) ?? 3)
+		const sanitized: ArmConfig = {
+			jointCount,
+			l1: toFloat(config.l1) ?? 0,
+			l2: toFloat(config.l2) ?? 0,
+			z0: toFloat(config.z0) ?? 0,
+		}
+
+		const joints: ArmJointConfig[] = []
+		for (let i = 0; i < jointCount; i++) {
+			const joint = config.joints?.[i]
+			const motorId = toInt(joint?.motorId) ?? pickDefaultArmMotorId(i)
+			const sign = joint?.sign === -1 ? -1 : 1
+			const offsetDeg = toFloat(joint?.offsetDeg) ?? 0
+			joints.push({ motorId, sign, offsetDeg })
+		}
+		sanitized.joints = joints
 		return sanitized
 	}
 
@@ -690,8 +933,8 @@ export const botPage = (container: Container, botId: string) => {
 		if (motor.type === "angle" || motor.type === "smart") {
 			const limitMinInput = document.createElement("input")
 			limitMinInput.type = "number"
-			limitMinInput.step = "0.1"
-			limitMinInput.placeholder = "Optional"
+			limitMinInput.step = motor.type === "smart" ? "1" : "0.1"
+			limitMinInput.placeholder = motor.type === "smart" ? "Ticks" : "Optional"
 			limitMinInput.value =
 				motor.limitDegMin !== undefined ? motor.limitDegMin.toString() : ""
 			limitMinInput.addEventListener("input", () => {
@@ -702,12 +945,13 @@ export const botPage = (container: Container, botId: string) => {
 				}
 				motor.limitDegMin = parsed
 			})
-			grid.appendChild(createFieldWrapper("Angle min", limitMinInput))
+			const minLabel = motor.type === "smart" ? "Raw min" : "Angle min"
+			grid.appendChild(createFieldWrapper(minLabel, limitMinInput))
 
 			const limitMaxInput = document.createElement("input")
 			limitMaxInput.type = "number"
-			limitMaxInput.step = "0.1"
-			limitMaxInput.placeholder = "Optional"
+			limitMaxInput.step = motor.type === "smart" ? "1" : "0.1"
+			limitMaxInput.placeholder = motor.type === "smart" ? "Ticks" : "Optional"
 			limitMaxInput.value =
 				motor.limitDegMax !== undefined ? motor.limitDegMax.toString() : ""
 			limitMaxInput.addEventListener("input", () => {
@@ -718,7 +962,8 @@ export const botPage = (container: Container, botId: string) => {
 				}
 				motor.limitDegMax = parsed
 			})
-			grid.appendChild(createFieldWrapper("Angle max", limitMaxInput))
+			const maxLabel = motor.type === "smart" ? "Raw max" : "Angle max"
+			grid.appendChild(createFieldWrapper(maxLabel, limitMaxInput))
 		}
 
 		if (motor.type === "smart") {
@@ -1482,6 +1727,7 @@ export const botPage = (container: Container, botId: string) => {
 			...state.configs.get(),
 			[botId]: {
 				motors: motors.map((motor) => cloneMotorConfig(motor)),
+				arm: armConfig ? cloneArmConfig(armConfig) : null,
 				templateKey: value,
 			},
 		})
@@ -1490,6 +1736,7 @@ export const botPage = (container: Container, botId: string) => {
 			type: "updateConfig",
 			botId,
 			motors: motors.map((motor) => sanitizeMotor(motor)),
+			arm: armConfig ? sanitizeArmConfig(armConfig) : null,
 			templateKey: value,
 		} as MsgToServer)
 	})
@@ -1579,50 +1826,89 @@ export const botPage = (container: Container, botId: string) => {
 		}
 
 		const sanitized = motors.map((motor) => sanitizeMotor(motor))
+		const sanitizedArm = armConfig ? sanitizeArmConfig(armConfig) : null
+		if (sanitizedArm) {
+			if (!Number.isFinite(sanitizedArm.l1) || sanitizedArm.l1 <= 0) {
+				alert("Arm L1 must be greater than 0.")
+				return
+			}
+			if (!Number.isFinite(sanitizedArm.l2) || sanitizedArm.l2 <= 0) {
+				alert("Arm L2 must be greater than 0.")
+				return
+			}
+			if (!Number.isFinite(sanitizedArm.z0)) {
+				alert("Arm Z0 must be a number.")
+				return
+			}
+		}
 
 		ws.send({
 			type: "updateConfig",
 			botId,
 			motors: sanitized,
+			arm: sanitizedArm,
 			templateKey: null,
 		} as MsgToServer)
 	}
 
-	const syncMotorsFromState = (botConfig: BotConfigState | undefined) => {
+	const syncConfigFromState = (botConfig: BotConfigState | undefined) => {
 		motors = botConfig?.motors
 			? botConfig.motors.map((config) => cloneMotorConfig(config))
 			: []
+		armConfig = botConfig?.arm ? cloneArmConfig(botConfig.arm) : null
 		const templateKey = botConfig?.templateKey ?? "custom"
 		templateSelect.value = templateKey
 		updateTemplateDescription(templateKey)
 		renderMotors()
+		syncArmSection()
 	}
 
 	state.configs.onChange((configs) => {
-		syncMotorsFromState(configs[botId])
+		syncConfigFromState(configs[botId])
 	})
 
-	syncMotorsFromState(state.configs.get()[botId])
+	syncConfigFromState(state.configs.get()[botId])
 
-	const roverCard = document.createElement("div")
-	roverCard.className = "card"
+	const linksCard = document.createElement("div")
+	linksCard.className = "card"
 
-	const roverTitle = document.createElement("h3")
+	const linksTitle = document.createElement("h3")
+	linksTitle.textContent = "Controls"
+	linksTitle.style.margin = "0"
+	linksCard.appendChild(linksTitle)
+
+	const armTitle = document.createElement("div")
+	armTitle.className = "motor-section-title"
+	armTitle.textContent = "Arm controls"
+	linksCard.appendChild(armTitle)
+
+	const armHint = document.createElement("p")
+	armHint.className = "section-note"
+	armHint.textContent =
+		"Move a 3-joint arm in coordinate space using the configured geometry."
+	linksCard.appendChild(armHint)
+
+	const armLink = document.createElement("a")
+	armLink.href = `/bot/${botId}/arm`
+	armLink.textContent = "Open arm controls"
+	linksCard.appendChild(armLink)
+
+	const roverTitle = document.createElement("div")
+	roverTitle.className = "motor-section-title"
 	roverTitle.textContent = "Rover controls"
-	roverTitle.style.margin = "0"
-	roverCard.appendChild(roverTitle)
+	linksCard.appendChild(roverTitle)
 
 	const roverHint = document.createElement("p")
 	roverHint.className = "section-note"
 	roverHint.textContent =
 		"Manual driving controls live on a separate page to avoid accidental key presses."
-	roverCard.appendChild(roverHint)
+	linksCard.appendChild(roverHint)
 
 	const roverLink = document.createElement("a")
 	roverLink.href = `/bot/${botId}/rover`
 	roverLink.textContent = "Open rover controls"
-	roverCard.appendChild(roverLink)
+	linksCard.appendChild(roverLink)
 
-	firstRow.appendChild(roverCard)
+	firstRow.appendChild(linksCard)
 	page.appendChild(configCard)
 }

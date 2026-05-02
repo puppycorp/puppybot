@@ -102,6 +102,28 @@ describe("encodeBotMsg", () => {
 		).toBe(true)
 	})
 
+	test("encodes an arm move message", () => {
+		const msg: MsgToBot = {
+			type: "armMove",
+			x: 1.25,
+			y: -2.5,
+			z: 3,
+			elbowUp: true,
+			durationMs: 400,
+		} as any
+		const buffer = encodeBotMsg(msg)
+		const expectedHeader = Buffer.from([0xaa, 11, 15, 0])
+		const expectedPayload = Buffer.alloc(15)
+		expectedPayload.writeFloatLE(1.25, 0)
+		expectedPayload.writeFloatLE(-2.5, 4)
+		expectedPayload.writeFloatLE(3, 8)
+		expectedPayload.writeUInt8(1, 12)
+		expectedPayload.writeUInt16LE(400, 13)
+		expect(
+			buffer.equals(Buffer.concat([expectedHeader, expectedPayload])),
+		).toBe(true)
+	})
+
 	test("decodes a MyInfo message with version, variant, and name", () => {
 		const version = "3.2.1"
 		const variant = "PuppyBot"

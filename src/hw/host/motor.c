@@ -503,11 +503,18 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	(void)uart_port;
 	uint16_t time_clamped = duration_ms > 30000 ? 30000 : duration_ms;
 	uint16_t pos = angle_to_position(angle_x10);
+	motor_hw_smartbus_move_raw(uart_port, servo_id, pos, time_clamped);
+}
+
+void motor_hw_smartbus_move_raw(uint8_t uart_port, uint8_t servo_id,
+                                uint16_t position_raw, uint16_t duration_ms) {
+	(void)uart_port;
+	uint16_t time_clamped = duration_ms > 30000 ? 30000 : duration_ms;
 
 	uint8_t params[7];
 	params[0] = (uint8_t)SMARTBUS_ADDR_GOAL_POSITION_L;
-	params[1] = (uint8_t)(pos & 0xFFu);
-	params[2] = (uint8_t)((pos >> 8) & 0xFFu);
+	params[1] = (uint8_t)(position_raw & 0xFFu);
+	params[2] = (uint8_t)((position_raw >> 8) & 0xFFu);
 	params[3] = (uint8_t)(time_clamped & 0xFFu);
 	params[4] = (uint8_t)((time_clamped >> 8) & 0xFFu);
 	params[5] = 0;
@@ -532,10 +539,10 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	}
 	pthread_mutex_unlock(&g_serial_mu);
 
-	log_info(
-	    TAG,
-	    "Smart servo move: id=%u angle_x10=%u duration_ms=%u via serial fd=%d",
-	    (unsigned)servo_id, (unsigned)angle_x10, (unsigned)time_clamped, fd);
+	log_info(TAG,
+	         "Smart servo move: id=%u pos_raw=%u duration_ms=%u via serial fd=%d",
+	         (unsigned)servo_id, (unsigned)position_raw,
+	         (unsigned)time_clamped, fd);
 }
 
 static void smartbus_write_bytes(uint8_t servo_id, uint8_t addr,

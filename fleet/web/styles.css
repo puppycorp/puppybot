@@ -296,6 +296,13 @@ label.field textarea:focus {
 	accent-color: #2563eb;
 }
 
+.arm-fields,
+.arm-joints {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
 .empty-state {
 	border: 1px dashed rgba(148, 163, 184, 0.6);
 	border-radius: 12px;

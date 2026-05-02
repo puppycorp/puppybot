@@ -71,6 +71,17 @@ float motor_slots_servo_boot_angle(int idx) {
 	motor_rt_t *m = motor_slots_servo(idx);
 	if (!m)
 		return 90.0f;
+	if (m->type_id == MOTOR_TYPE_SMART && m->smart_limit_raw) {
+		uint16_t min_raw = m->smart_min_raw;
+		uint16_t max_raw = m->smart_max_raw;
+		if (min_raw > max_raw) {
+			uint16_t tmp = min_raw;
+			min_raw = max_raw;
+			max_raw = tmp;
+		}
+		uint16_t mid_raw = (uint16_t)(min_raw + (max_raw - min_raw) / 2);
+		return motor_smart_raw_to_deg(m, mid_raw);
+	}
 	float dmin = m->deg_min_x10 / 10.0f;
 	float dmax = m->deg_max_x10 / 10.0f;
 	if (dmax <= dmin)

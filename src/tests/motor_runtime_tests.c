@@ -1,5 +1,6 @@
 #include "test.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "motor_runtime.h"
@@ -12,8 +13,15 @@ typedef struct {
 	int pulse_calls;
 	int duty_calls;
 	int hbridge_calls;
+	int smart_move_calls;
+	int smart_wheel_calls;
+	int smart_read_calls;
 	uint16_t last_freq;
 	uint16_t last_pulse_us;
+	uint16_t smart_move_angle_x10;
+	uint16_t smart_read_value;
+	int16_t smart_wheel_speed;
+	int smart_read_rc;
 	float last_duty_ratio;
 	bool last_forward;
 	bool last_brake;
@@ -89,6 +97,17 @@ void motor_hw_smartbus_move(uint8_t uart_port, uint8_t servo_id,
 	(void)duration_ms;
 }
 
+void motor_hw_smartbus_move_raw(uint8_t uart_port, uint8_t servo_id,
+                                uint16_t position_raw, uint16_t duration_ms) {
+	(void)uart_port;
+	(void)servo_id;
+	(void)duration_ms;
+	if (!g_active_mock)
+		return;
+	g_active_mock->smart_move_calls++;
+	g_active_mock->smart_read_value = position_raw;
+}
+
 void motor_hw_smartbus_set_mode(uint8_t uart_port, uint8_t servo_id,
                                 uint8_t mode) {
 	(void)uart_port;
@@ -100,8 +119,11 @@ void motor_hw_smartbus_set_wheel_speed(uint8_t uart_port, uint8_t servo_id,
                                        int16_t speed_raw, uint8_t acc) {
 	(void)uart_port;
 	(void)servo_id;
-	(void)speed_raw;
 	(void)acc;
+	if (!g_active_mock)
+		return;
+	g_active_mock->smart_wheel_calls++;
+	g_active_mock->smart_wheel_speed = speed_raw;
 }
 
 void motor_hw_smartbus_write_u8(uint8_t uart_port, uint8_t servo_id,
@@ -116,8 +138,11 @@ int motor_hw_smartbus_read_position(uint8_t uart_port, uint8_t servo_id,
                                     uint16_t *pos_raw_out) {
 	(void)uart_port;
 	(void)servo_id;
-	(void)pos_raw_out;
-	return -2;
+	if (!g_active_mock || !pos_raw_out)
+		return -2;
+	g_active_mock->smart_read_calls++;
+	*pos_raw_out = g_active_mock->smart_read_value;
+	return g_active_mock->smart_read_rc;
 }
 
 int motor_hw_smartbus_ping(uint8_t uart_port, uint8_t servo_id,
@@ -244,4 +269,46 @@ TEST(motor_smart_raw_to_deg_uses_default_profile_for_unknown) {
 
 	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 250), 60.0f, 0.1f);
 	EXPECT_APPROX_EQ(motor_smart_raw_to_deg(&m, 1000), 240.0f, 0.1f);
+}
+
+TEST(motor_smart_deg_to_raw_matches_st3215_profile) {
+	motor_rt_t m = make_sample_motor(7, MOTOR_TYPE_SMART);
+	strncpy(m.name, "st3215_base", sizeof(m.name) - 1);
+
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 0.0f), 0);
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 180.0f), 2048);
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 360.0f), 4096);
+}
+
+TEST(motor_smart_deg_to_raw_matches_lx16a_profile) {
+	motor_rt_t m = make_sample_motor(8, MOTOR_TYPE_SMART);
+	strncpy(m.name, "lx16a_elbow", sizeof(m.name) - 1);
+
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 0.0f), 0);
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 120.0f), 500);
+	ASSERT_EQ(motor_smart_deg_to_raw(&m, 240.0f), 1000);
+}
+
+TEST(motor_smart_limit_clamps_position) {
+	motor_registry_clear();
+	mock_hw_t mock;
+	mock_hw_setup(&mock);
+	mock.now_value = 100;
+	mock.smart_read_rc = 0;
+	mock.smart_read_value = 50;
+
+	motor_rt_t m = make_sample_motor(9, MOTOR_TYPE_SMART);
+	strncpy(m.name, "st3215_joint", sizeof(m.name) - 1);
+	m.smart_limit_raw = true;
+	m.smart_min_raw = 1000;
+	m.smart_max_raw = 2000;
+	ASSERT_EQ(motor_registry_add(&m), 0);
+
+	motor_tick_all(mock.now_value);
+
+	ASSERT_EQ(mock.smart_read_calls, 1);
+	ASSERT_EQ(mock.smart_move_calls, 1);
+	ASSERT_EQ(mock.smart_read_value, 1000);
+
+	mock_hw_teardown();
 }

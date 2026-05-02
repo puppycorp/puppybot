@@ -155,6 +155,15 @@ static void ws_client_process_binary_frame(const uint8_t *payload, size_t len) {
 		log_info(TAG, "Command %s payloadLen=%u", cmd_name,
 		         cmd_packet.cmd.apply_config.length);
 		break;
+	case CMD_ARM_MOVE:
+		log_info(TAG,
+		         "Command %s x=%.3f y=%.3f z=%.3f elbowUp=%u durationMs=%u",
+		         cmd_name, (double)cmd_packet.cmd.arm_move.x,
+		         (double)cmd_packet.cmd.arm_move.y,
+		         (double)cmd_packet.cmd.arm_move.z,
+		         (unsigned)cmd_packet.cmd.arm_move.elbow_up,
+		         (unsigned)cmd_packet.cmd.arm_move.duration_ms);
+		break;
 	default:
 		log_info(TAG, "Command %s", cmd_name);
 		break;

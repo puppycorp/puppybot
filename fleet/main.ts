@@ -1,6 +1,13 @@
 import type { ServerWebSocket } from "bun"
 import index from "./web/index.html"
-import type { MsgToBot, MsgToUi, MsgToServer, Bot, MotorConfig } from "./types"
+import type {
+	ArmConfig,
+	Bot,
+	MotorConfig,
+	MsgToBot,
+	MsgToServer,
+	MsgToUi,
+} from "./types"
 import {
 	decodeBotMsg,
 	encodeBotMsg,
@@ -14,12 +21,17 @@ import {
 	type Instance,
 	type InstanceWatcher,
 } from "./mdns"
-import { buildMotorBlob, parseMotorBlob } from "./pbcl"
+import { buildConfigBlob, parseConfigBlob } from "./pbcl"
 import { isConfigTemplateKey, type ConfigTemplateKey } from "./config-templates"
 
 type BotSocket = {
 	send(data: string | Uint8Array | ArrayBufferLike): void
 	close(): void
+}
+
+type BotConfig = {
+	motors: MotorConfig[]
+	arm: ArmConfig | null
 }
 
 class BotConnection {
@@ -96,6 +108,12 @@ const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
+		case "armMove": {
+			const conn = botConnections.get(msg.botId)
+			if (!conn) return
+			conn.send(msg)
+			break
+		}
 		case "smartbusScan": {
 			const conn = botConnections.get(msg.botId)
 			if (!conn) return
@@ -108,14 +126,15 @@ const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
-		case "updateConfig": {
-			const motors = msg.motors ?? []
-			const templateKey = parseTemplateKey(msg.templateKey)
-			setBotConfig(msg.botId, motors, templateKey, "user")
-			applyConfigToBot(msg.botId)
-			broadcastConfig(msg.botId)
-			break
-		}
+			case "updateConfig": {
+				const motors = msg.motors ?? []
+				const arm = msg.arm ?? null
+				const templateKey = parseTemplateKey(msg.templateKey)
+				setBotConfig(msg.botId, { motors, arm }, templateKey, "user")
+				applyConfigToBot(msg.botId)
+				broadcastConfig(msg.botId)
+				break
+			}
 	}
 }
 
@@ -189,17 +208,17 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 			}
 			break
 		}
-		case MsgFromBotType.ConfigBlob: {
-			try {
-				const motors = parseMotorBlob(msg.blob)
-				console.log("Parsed motor config blob", motors)
-				setBotConfig(botId, motors, null, "auto")
-				broadcastConfig(botId)
-			} catch (err) {
-				console.warn("Failed to parse motor config blob", err)
+			case MsgFromBotType.ConfigBlob: {
+				try {
+					const config = parseConfigBlob(msg.blob)
+					console.log("Parsed config blob", config)
+					setBotConfig(botId, config, null, "auto")
+					broadcastConfig(botId)
+				} catch (err) {
+					console.warn("Failed to parse config blob", err)
+				}
+				break
 			}
-			break
-		}
 		case MsgFromBotType.Pong:
 			break
 		default:
@@ -220,7 +239,7 @@ const botConnections = new Map<string, BotConnection>()
 const uiClients = new Map<ServerWebSocket<Context>, UiConnection>()
 // Track currently connected bots and (optionally) latest known info
 const connectedBots = new Map<string, Bot>()
-const botConfigs = new Map<string, MotorConfig[]>()
+const botConfigs = new Map<string, BotConfig>()
 const botConfigStates = new Map<
 	string,
 	{
@@ -379,7 +398,7 @@ const detachBotConnection = (botId: string, expected?: BotConnection) => {
 	broadcastBotDisconnected(botId)
 }
 
-const cloneConfig = (motors: MotorConfig[]): MotorConfig[] =>
+const cloneMotors = (motors: MotorConfig[]): MotorConfig[] =>
 	motors.map((m) => ({
 		...m,
 		pwm: m.pwm ? { ...m.pwm } : undefined,
@@ -387,24 +406,38 @@ const cloneConfig = (motors: MotorConfig[]): MotorConfig[] =>
 		analog: m.analog ? { ...m.analog } : undefined,
 	}))
 
+const cloneArm = (arm: ArmConfig | null): ArmConfig | null => {
+	if (!arm) return null
+	return {
+		...arm,
+		joints: arm.joints?.map((joint) => ({ ...joint })),
+	}
+}
+
+const cloneConfig = (config: BotConfig): BotConfig => ({
+	motors: cloneMotors(config.motors),
+	arm: cloneArm(config.arm),
+})
+
 const setBotConfig = (
 	botId: string,
-	motors: MotorConfig[],
+	config: BotConfig,
 	templateKey: ConfigTemplateKey | null,
 	source: "auto" | "user",
 ) => {
-	botConfigs.set(botId, cloneConfig(motors))
+	botConfigs.set(botId, cloneConfig(config))
 	botConfigStates.set(botId, { templateKey, source })
 }
 
 const buildConfigBroadcast = (botId: string): MsgToUi | null => {
-	const motors = botConfigs.get(botId)
-	if (!motors) return null
+	const config = botConfigs.get(botId)
+	if (!config) return null
 	const state = botConfigStates.get(botId)
 	return {
 		type: "config",
 		botId,
-		motors: cloneConfig(motors),
+		motors: cloneMotors(config.motors),
+		arm: cloneArm(config.arm),
 		templateKey: state?.templateKey ?? null,
 	}
 }
@@ -418,9 +451,11 @@ const broadcastConfig = (botId: string) => {
 }
 
 const applyConfigToBot = (botId: string) => {
-	const motors = botConfigs.get(botId)
-	if (!motors || motors.length === 0) return
-	const blob = buildMotorBlob(motors)
+	const config = botConfigs.get(botId)
+	if (!config) return
+	const { motors, arm } = config
+	if (motors.length === 0 && !arm) return
+	const blob = buildConfigBlob(motors, arm)
 	const conn = botConnections.get(botId)
 	if (!conn) return
 	conn.send({ type: "applyConfig", blob: new Uint8Array(blob) })
@@ -435,7 +470,7 @@ const ensureBotConfig = (botId: string) => {
 	if (botConfigs.has(botId)) {
 		return
 	}
-	setBotConfig(botId, [], null, "auto")
+	setBotConfig(botId, { motors: [], arm: null }, null, "auto")
 }
 
 const parseTemplateKey = (
@@ -913,7 +948,7 @@ Bun.serve<Context, {}>({
 				})
 			}
 		}
-				for (const [botId, motors] of botConfigs.entries()) {
+				for (const botId of botConfigs.keys()) {
 					const message = buildConfigBroadcast(botId)
 					if (message) {
 						conn.send(message)
