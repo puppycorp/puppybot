@@ -1,6 +1,6 @@
 when making changes always try to match coding style of surrounding code.
 
-if you make changes fleet folder run tests and build
+if you make changes mothership folder run tests and build
 
 if you make changes to esp32 code please run the build script also if you
 make or modify tests in src folder run tests with test.sh. Also you should

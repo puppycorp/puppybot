@@ -22,5 +22,5 @@
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
 	},
-	"include": ["fleet/*", "server/*"]
+	"include": ["mothership/*", "server/*"]
 }

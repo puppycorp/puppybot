@@ -1,5 +1,5 @@
 import { botPage } from "./bot"
-import { botsPage } from "./bots"
+import { botsPage, robotsPage } from "./bots"
 import { mountNavbar } from "./navbar"
 import { armPage } from "./arm"
 import { roverPage } from "./rover"
@@ -17,6 +17,7 @@ window.onload = () => {
 	const container = new Container(appRoot)
 	routes({
 		"/": () => botsPage(container),
+		"/robots": () => robotsPage(container),
 		"/bot/:id/arm": (params) => armPage(container, params.id),
 		"/bot/:id/rover": (params) => roverPage(container, params.id),
 		"/bot/:id": (params) => botPage(container, params.id),
