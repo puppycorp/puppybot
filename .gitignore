@@ -52,3 +52,8 @@ esp32/.cache/
 puppybot.xml
 puppybot.dat
 puppybot.pbcl
+__pycache__/
+*.pyc
+python/STServo_Python/.DS_Store
+python/STServo_Python/stservo.xml
+python/STServo_Python/stservo-env/
