@@ -428,6 +428,7 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 	}
 }
 
+#ifdef UNIT_TEST
 static inline void protocol_test_write_u16_le(uint8_t *dst, uint16_t value) {
 	dst[0] = (uint8_t)(value & 0xff);
 	dst[1] = (uint8_t)((value >> 8) & 0xff);
@@ -694,5 +695,6 @@ TEST(parse_arm_clear_faults_cmd_test) {
 	ASSERT_EQ(cmd_packet.cmd_type, CMD_ARM_CLEAR_FAULTS);
 	ASSERT_EQ(cmd_packet.cmd.arm_joint.joint, 255);
 }
+#endif
 
 #endif // PROTOCOL_H

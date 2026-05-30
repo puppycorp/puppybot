@@ -1,1 +1,1 @@
-export const DATABASE_FILE = process.env.DATABASE_FILE || "puppymothership.db"
+export const DATABASE_FILE = process.env.DATABASE_FILE || "puppymothership.db";

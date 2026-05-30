@@ -59,6 +59,9 @@ target_include_directories(puppybot PRIVATE src)
 
 find_package(Threads REQUIRED)
 target_link_libraries(puppybot PRIVATE Threads::Threads)
+if(UNIX)
+	target_link_libraries(puppybot PRIVATE m)
+endif()
 
 string(CONCAT VERSION_DEFINITION "\"${PUPPYBOT_BUILD_VERSION}\"")
 target_compile_definitions(
