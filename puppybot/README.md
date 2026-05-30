@@ -26,6 +26,27 @@ newgrp dialout
 ./scripts/build.sh
 ```
 
+To build firmware that connects to Wi-Fi, provide credentials at build time:
+
+```sh
+WIFI_SSID="your-network" WIFI_PASSWORD="your-password" ./scripts/build.sh
+```
+
+Or put them in a local `.env` file:
+
+```sh
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```sh
+WIFI_SSID=your-network
+WIFI_PASSWORD=your-password
+```
+
+Without those variables the firmware still runs, but Wi-Fi is disabled.
+
 For a debug build:
 
 ```sh
@@ -37,3 +58,11 @@ For a debug build:
 ```sh
 ./scripts/flash.sh
 ```
+
+To flash a Wi-Fi-enabled build:
+
+```sh
+WIFI_SSID="your-network" WIFI_PASSWORD="your-password" ./scripts/flash.sh
+```
+
+If `.env` exists, `./scripts/flash.sh` will use it automatically.
