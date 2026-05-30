@@ -1,9 +1,8 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
 use embassy_executor::Spawner;
+
 use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
@@ -19,6 +18,10 @@ use esp_hal::{
 use esp_radio::wifi::{
     Config as WifiConfig, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
+
+mod mdns;
+mod utility;
+mod ws;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -53,9 +56,7 @@ async fn main(spawner: Spawner) -> ! {
     let (ssid, password) = match (WIFI_SSID, WIFI_PASSWORD) {
         (Some(ssid), Some(password)) if !ssid.is_empty() => (ssid, password),
         _ => {
-            log::warn!(
-                "Wi-Fi disabled; build with WIFI_SSID and WIFI_PASSWORD to connect"
-            );
+            log::warn!("Wi-Fi disabled; build with WIFI_SSID and WIFI_PASSWORD to connect");
             loop {
                 Timer::after(Duration::from_secs(60)).await;
             }
@@ -83,7 +84,7 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         network_config,
-        mk_static!(StackResources<3>, StackResources::<3>::new()),
+        mk_static!(StackResources<8>, StackResources::<8>::new()),
         seed,
     );
 
@@ -94,6 +95,8 @@ async fn main(spawner: Spawner) -> ! {
 
     if let Some(config) = stack.config_v4() {
         log::info!("Wi-Fi got IPv4 address {}", config.address);
+        spawner.spawn(mdns::responder(stack, config.address.address()).unwrap());
+        spawner.spawn(ws::http_websocket_server(stack).unwrap());
     }
 
     loop {

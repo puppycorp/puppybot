@@ -46,6 +46,12 @@ WIFI_PASSWORD=your-password
 ```
 
 Without those variables the firmware still runs, but Wi-Fi is disabled.
+When Wi-Fi is enabled and DHCP succeeds, the firmware advertises
+`PuppyBot._ws._tcp.local` on port 80 with hostname `puppybot.local`.
+The HTTP server responds on port 80, and WebSocket clients can connect to
+`ws://puppybot.local/ws`. The Rust firmware currently accepts command frames
+and replies to protocol pings; motor/arm command execution still needs the
+Rust hardware control layer.
 
 For a debug build:
 
