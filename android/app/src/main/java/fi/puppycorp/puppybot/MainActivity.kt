@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,6 +59,7 @@ import fi.puppycorp.puppybot.ble.BleState
 import fi.puppycorp.puppybot.ble.PuppybotBleController
 import fi.puppycorp.puppybot.ble.PuppybotBleDevice
 import fi.puppycorp.puppybot.control.PuppybotCommandSender
+import fi.puppycorp.puppybot.control.PuppybotServoConfig
 import fi.puppycorp.puppybot.mdns.PuppybotMdns
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import fi.puppycorp.puppybot.ui.theme.PuppybotTheme
@@ -117,6 +121,7 @@ class MainActivity : ComponentActivity() {
                 val devices by mdns.devices.collectAsState(initial = emptyList())
                 val wsState by ws.state.collectAsState()
                 val lastWsEvent by ws.events.collectAsState(initial = "")
+                val servoConfig by ws.servoConfig.collectAsState()
                 val bleDevices by ble.devices.collectAsState()
                 val bleState by ble.state.collectAsState()
                 val lastBleEvent by ble.events.collectAsState(initial = "")
@@ -143,7 +148,8 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(wsState) {
                     if (wsState is WebSocketState.Connected) {
-                        ws.turnServo(STEERING_SERVO_ID, CENTER_ANGLE, null)
+                        ws.requestServoConfig()
+                        ws.turnServo(servoConfig.steeringServoId, CENTER_ANGLE, null)
                     }
                 }
 
@@ -178,6 +184,7 @@ class MainActivity : ComponentActivity() {
                         networkDevices = devices,
                         wsState = wsState,
                         lastWsEvent = lastWsEvent.takeIf { it.isNotBlank() },
+                        servoConfig = servoConfig,
                         networkController = ws,
                         bleDevices = bleDevices,
                         bleState = bleState,
@@ -230,6 +237,7 @@ private fun PuppybotScreen(
     networkDevices: List<PuppybotDevice>,
     wsState: WebSocketState,
     lastWsEvent: String?,
+    servoConfig: PuppybotServoConfig,
     networkController: PuppybotCommandSender,
     bleDevices: List<PuppybotBleDevice>,
     bleState: BleState,
@@ -241,7 +249,12 @@ private fun PuppybotScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         OutlinedButton(onClick = {
             coroutineScope.launch(Dispatchers.IO) {
                 UpdateManager.checkAndPrompt(context.applicationContext)
@@ -314,7 +327,7 @@ private fun PuppybotScreen(
         deviceSummary()
 
         if (isConnected) {
-            ControlPanel(controller)
+            ControlPanel(controller, servoConfig)
         }
     }
 }
@@ -340,10 +353,12 @@ private fun TransportToggle(
 }
 
 @Composable
-private fun ControlPanel(controller: PuppybotCommandSender) {
+private fun ControlPanel(controller: PuppybotCommandSender, servoConfig: PuppybotServoConfig) {
     var mode by remember { mutableStateOf(ControlMode.Buttons) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ServoConfigPanel(config = servoConfig, controller = controller)
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ModeSelectionButton(
                 label = "Buttons",
@@ -359,34 +374,103 @@ private fun ControlPanel(controller: PuppybotCommandSender) {
         }
 
         when (mode) {
-            ControlMode.Buttons -> ButtonsControlPanel(controller)
+            ControlMode.Buttons -> ButtonsControlPanel(controller, servoConfig)
             ControlMode.Joystick -> JoystickControlPanel(controller)
+        }
+
+        ArmControlPanel(controller, servoConfig)
+    }
+}
+
+@Composable
+private fun ServoConfigPanel(config: PuppybotServoConfig, controller: PuppybotCommandSender) {
+    var steeringId by remember(config) { mutableStateOf(config.steeringServoId) }
+    val armIds = remember(config) { mutableStateListOf(*config.armServoIds.take(4).toTypedArray()) }
+
+    fun updateArmId(index: Int, value: Int) {
+        if (index in 0 until armIds.size) {
+            armIds[index] = value.coerceIn(0, 253)
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Servo ID config", style = MaterialTheme.typography.titleMedium)
+        IdStepper(
+            label = "Steering",
+            value = steeringId,
+            onValueChange = { steeringId = it.coerceIn(0, 253) }
+        )
+        armIds.forEachIndexed { index, value ->
+            IdStepper(
+                label = "Arm ${index + 1}",
+                value = value,
+                onValueChange = { updateArmId(index, it) }
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = {
+                controller.setServoConfig(
+                    PuppybotServoConfig(
+                        steeringServoId = steeringId,
+                        armServoIds = armIds.toList()
+                    )
+                )
+            }) {
+                Text("Apply")
+            }
+            OutlinedButton(onClick = { controller.requestServoConfig() }) {
+                Text("Refresh")
+            }
         }
     }
 }
 
 @Composable
-private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
-    var speed by remember { mutableStateOf(DEFAULT_SPEED.toFloat()) }
-    val servoAngles = remember { mutableStateListOf(*SERVO_INITIAL_ANGLES.toTypedArray()) }
-    var selectedPulse by remember { mutableStateOf(PULSE_OPTIONS.first()) }
-
-    fun updateServoAngle(servoId: Int, angle: Int) {
-        val clamped = angle.coerceIn(0, 180)
-        if (servoId in 0 until servoAngles.size) {
-            servoAngles[servoId] = clamped
+private fun IdStepper(label: String, value: Int, onValueChange: (Int) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+        OutlinedButton(onClick = { onValueChange(value - 1) }) {
+            Text("-")
         }
-        controller.turnServo(servoId, clamped)
+        Text("$value", modifier = Modifier.width(36.dp), style = MaterialTheme.typography.bodyMedium)
+        OutlinedButton(onClick = { onValueChange(value + 1) }) {
+            Text("+")
+        }
+    }
+}
+
+@Composable
+private fun ButtonsControlPanel(controller: PuppybotCommandSender, servoConfig: PuppybotServoConfig) {
+    var speed by remember { mutableStateOf(DEFAULT_SPEED.toFloat()) }
+    val servoAngles = remember { mutableStateMapOf<Int, Int>() }
+    var selectedPulse by remember { mutableStateOf(PULSE_OPTIONS.first()) }
+    val steeringServoId = servoConfig.steeringServoId
+    val servoTargets = configuredServoTargets(servoConfig)
+
+    fun updateServoAngle(target: ServoTarget, angle: Int) {
+        val clamped = angle.coerceIn(0, 180)
+        servoAngles[target.servoId] = clamped
+        controller.turnServo(target.servoId, clamped)
     }
 
-    fun centerServo(servoId: Int) {
-        val fallback = SERVO_INITIAL_ANGLES.getOrNull(servoId) ?: 90
-        updateServoAngle(servoId, fallback)
+    fun centerServo(target: ServoTarget) {
+        updateServoAngle(target, target.centerAngle)
     }
 
-    fun stopAndCenter(servoId: Int) {
+    fun stopAndCenter(target: ServoTarget) {
+        controller.stopDrive()
         controller.stopAllMotors()
-        centerServo(servoId)
+        centerServo(target)
+    }
+
+    fun stopAndCenterSteering() {
+        controller.stopDrive()
+        controller.stopAllMotors()
+        servoAngles[steeringServoId] = CENTER_ANGLE
+        controller.turnServo(steeringServoId, CENTER_ANGLE)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -403,12 +487,10 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             label = "Forward",
             modifier = Modifier.fillMaxWidth(),
             onRepeat = {
-                val magnitude = speed.toInt()
-                controller.driveMotor(DRIVE_LEFT, magnitude)
-                controller.driveMotor(DRIVE_RIGHT, -magnitude)
+                controller.driveSteer(speed.toInt(), 0)
             },
             onRelease = {
-                stopAndCenter(STEERING_SERVO_ID)
+                controller.stopDrive()
             }
         )
 
@@ -416,12 +498,12 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             HoldRepeatButton(
                 label = "Left",
                 modifier = Modifier.weight(1f),
-                onRepeat = { updateServoAngle(STEERING_SERVO_ID, LEFT_ANGLE) },
-                onRelease = { centerServo(STEERING_SERVO_ID) }
+                onRepeat = { controller.driveSteer(0, -100) },
+                onRelease = { controller.driveSteer(0, 0) }
             )
 
             Button(
-                onClick = { centerServo(STEERING_SERVO_ID) },
+                onClick = { controller.driveSteer(0, 0) },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Center")
@@ -429,7 +511,7 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
 
             Button(
                 onClick = {
-                    stopAndCenter(STEERING_SERVO_ID)
+                    stopAndCenterSteering()
                 },
                 modifier = Modifier.weight(1f)
             ) {
@@ -439,8 +521,8 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             HoldRepeatButton(
                 label = "Right",
                 modifier = Modifier.weight(1f),
-                onRepeat = { updateServoAngle(STEERING_SERVO_ID, RIGHT_ANGLE) },
-                onRelease = { centerServo(STEERING_SERVO_ID) }
+                onRepeat = { controller.driveSteer(0, 100) },
+                onRelease = { controller.driveSteer(0, 0) }
             )
         }
 
@@ -448,12 +530,10 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
             label = "Backward",
             modifier = Modifier.fillMaxWidth(),
             onRepeat = {
-                val magnitude = speed.toInt()
-                controller.driveMotor(DRIVE_LEFT, -magnitude)
-                controller.driveMotor(DRIVE_RIGHT, magnitude)
+                controller.driveSteer(-speed.toInt(), 0)
             },
             onRelease = {
-                stopAndCenter(STEERING_SERVO_ID)
+                controller.stopDrive()
             }
         )
 
@@ -509,7 +589,7 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
         }
 
         OutlinedButton(
-            onClick = { stopAndCenter(STEERING_SERVO_ID) },
+            onClick = { stopAndCenterSteering() },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Emergency Stop")
@@ -517,21 +597,22 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Servo controls", style = MaterialTheme.typography.titleMedium)
-            servoAngles.forEachIndexed { servoId, angle ->
+            servoTargets.forEach { target ->
+                val angle = servoAngles[target.servoId] ?: target.centerAngle
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Servo ${servoId + 1}",
-                        modifier = Modifier.width(80.dp),
+                        text = "${target.label} id ${target.servoId}",
+                        modifier = Modifier.width(112.dp),
                         style = MaterialTheme.typography.bodyMedium
                     )
 
                     Slider(
                         value = angle.toFloat(),
                         onValueChange = { newAngle ->
-                            updateServoAngle(servoId, newAngle.roundToInt())
+                            updateServoAngle(target, newAngle.roundToInt())
                         },
                         valueRange = 0f..180f,
                         steps = 0,
@@ -544,11 +625,11 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender) {
                         style = MaterialTheme.typography.bodyMedium
                     )
 
-                    Button(onClick = { centerServo(servoId) }) {
+                    Button(onClick = { centerServo(target) }) {
                         Text("Center")
                     }
 
-                    Button(onClick = { stopAndCenter(servoId) }) {
+                    Button(onClick = { stopAndCenter(target) }) {
                         Text("Stop")
                     }
                 }
@@ -583,42 +664,22 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
 
     DisposableEffect(Unit) {
         onDispose {
-            controller.stopAllMotors()
-            controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+            controller.driveSteer(0, 0)
+            controller.stopDrive()
         }
     }
 
-    LaunchedEffect(throttleActive, throttle) {
-        if (!throttleActive || throttle.absoluteValue < JOYSTICK_DEAD_ZONE) {
-            controller.stopAllMotors()
+    LaunchedEffect(throttleActive, throttle, steeringActive, steering) {
+        val throttlePercent = joystickPercent(throttle, throttleActive, JOYSTICK_DEAD_ZONE)
+        val steeringPercent = joystickPercent(steering, steeringActive, 0.05f)
+        if (throttlePercent == 0 && steeringPercent == 0) {
+            controller.driveSteer(0, 0)
+            controller.stopDrive()
         } else {
             while (true) {
-                val active = throttleActive
-                val value = throttle
-                if (!active || value.absoluteValue < JOYSTICK_DEAD_ZONE) {
-                    controller.stopAllMotors()
-                    break
-                }
-
-                val magnitude = throttleToMagnitude(value)
-                if (value > 0f) {
-                    controller.driveMotor(DRIVE_LEFT, magnitude)
-                    controller.driveMotor(DRIVE_RIGHT, -magnitude)
-                } else {
-                    controller.driveMotor(DRIVE_LEFT, -magnitude)
-                    controller.driveMotor(DRIVE_RIGHT, magnitude)
-                }
-
+                controller.driveSteer(throttlePercent, steeringPercent)
                 delay(JOYSTICK_COMMAND_INTERVAL)
             }
-        }
-    }
-
-    LaunchedEffect(steeringActive, steering) {
-        if (!steeringActive || steering.absoluteValue < 0.05f) {
-            controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
-        } else {
-            controller.turnServo(STEERING_SERVO_ID, servoAngleFromInput(steering))
         }
     }
 
@@ -692,12 +753,72 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
                 throttleActive = false
                 steering = 0f
                 steeringActive = false
-                controller.stopAllMotors()
-                controller.turnServo(STEERING_SERVO_ID, CENTER_ANGLE)
+                controller.driveSteer(0, 0)
+                controller.stopDrive()
             },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Emergency Stop")
+        }
+    }
+}
+
+@Composable
+private fun ArmControlPanel(controller: PuppybotCommandSender, servoConfig: PuppybotServoConfig) {
+    var joint by remember { mutableStateOf(0) }
+    var angle by remember { mutableStateOf(90f) }
+    var speed by remember { mutableStateOf(200f) }
+    val servoId = servoConfig.armServoIds.getOrNull(joint) ?: 0
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Arm control", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Joint", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { joint = (joint - 1).coerceAtLeast(0) }) {
+                Text("-")
+            }
+            Text("${joint + 1} / servo $servoId", modifier = Modifier.width(96.dp), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { joint = (joint + 1).coerceAtMost(3) }) {
+                Text("+")
+            }
+        }
+
+        Text("Angle: ${angle.roundToInt()}°", style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = angle,
+            onValueChange = { angle = it },
+            valueRange = 0f..180f,
+            steps = 0
+        )
+
+        Text("Speed: ${speed.roundToInt()}", style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = speed,
+            onValueChange = { speed = it },
+            valueRange = 0f..1000f,
+            steps = 0
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { controller.armJoint(joint, angle.roundToInt(), speed.roundToInt()) },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Move Joint")
+            }
+            OutlinedButton(
+                onClick = { controller.armStop() },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Arm Stop")
+            }
+        }
+
+        OutlinedButton(
+            onClick = { controller.armPose(0f, 0f, 0f, angle, speed.roundToInt()) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Send Pose")
         }
     }
 }
@@ -822,23 +943,26 @@ private fun horizontalToNormalized(position: Float, width: Float): Float {
     return (fraction - 0.5f) * 2f
 }
 
-private fun throttleToMagnitude(throttle: Float): Int {
-    val normalized = throttle.absoluteValue.coerceIn(0f, 1f)
-    return (MIN_SPEED + (MAX_SPEED - MIN_SPEED) * normalized).roundToInt()
+private fun joystickPercent(input: Float, active: Boolean, deadZone: Float): Int {
+    if (!active || input.absoluteValue < deadZone) return 0
+    return (input.coerceIn(-1f, 1f) * 100f).roundToInt().coerceIn(-100, 100)
 }
 
-private fun servoAngleFromInput(input: Float): Int {
-    val clamped = input.coerceIn(-1f, 1f)
-    return if (clamped >= 0f) {
-        lerpInt(CENTER_ANGLE, RIGHT_ANGLE, clamped)
-    } else {
-        lerpInt(CENTER_ANGLE, LEFT_ANGLE, -clamped)
+private fun configuredServoTargets(config: PuppybotServoConfig): List<ServoTarget> {
+    val targets = mutableListOf(
+        ServoTarget("Steering", config.steeringServoId, CENTER_ANGLE)
+    )
+    config.armServoIds.take(4).forEachIndexed { index, servoId ->
+        targets += ServoTarget("Arm ${index + 1}", servoId, DEFAULT_SERVO_ANGLE)
     }
+    return targets
 }
 
-private fun lerpInt(start: Int, stop: Int, fraction: Float): Int {
-    return (start + (stop - start) * fraction).roundToInt()
-}
+private data class ServoTarget(
+    val label: String,
+    val servoId: Int,
+    val centerAngle: Int
+)
 
 private enum class TransportMode {
     Network,
@@ -853,7 +977,7 @@ private enum class ControlMode {
 private const val JOYSTICK_COMMAND_INTERVAL = 200L
 private const val JOYSTICK_DEAD_ZONE = 0.1f
 private const val MIN_SPEED = 40
-private const val MAX_SPEED = 120
+private const val MAX_SPEED = 100
 
 @Composable
 @OptIn(ExperimentalComposeUiApi::class)
@@ -931,9 +1055,7 @@ private const val DRIVE_LEFT = 1
 private const val DRIVE_RIGHT = 2
 private const val STEERING_SERVO_ID = 0
 private const val CENTER_ANGLE = 88
-private const val LEFT_ANGLE = 50
-private const val RIGHT_ANGLE = 150
-private val SERVO_INITIAL_ANGLES = listOf(CENTER_ANGLE, 90, 90, 90)
+private const val DEFAULT_SERVO_ANGLE = 90
 private const val DEFAULT_SPEED = 80
 private val PULSE_OPTIONS = listOf(50, 100, 200, 400)
 private const val PULSE_STEP_TIME_US = 1_000
@@ -955,6 +1077,7 @@ private fun PuppybotScreenPreview() {
             ),
             wsState = WebSocketState.Connected(device = PuppybotDevice("puppybot", null, 80), url = "ws://example/ws"),
             lastWsEvent = "-> cmd=2 len=2",
+            servoConfig = PuppybotServoConfig(),
             networkController = stubController,
             bleDevices = emptyList(),
             bleState = BleState.Disconnected(null),

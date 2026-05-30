@@ -35,12 +35,23 @@ const CMD_ARM_SET_TICK_LIMITS: u8 = 21;
 const CMD_ARM_SET_TICK_LIMITS_ENABLED: u8 = 22;
 const CMD_ARM_MOVE_RELATIVE: u8 = 23;
 const CMD_ARM_CLEAR_FAULTS: u8 = 24;
+const CMD_CONFIG_GET: u8 = 25;
+const CMD_CONFIG_SET: u8 = 26;
+const CMD_DRIVE_STEER: u8 = 27;
+const CMD_STOP_DRIVE: u8 = 28;
+const CMD_ARM_JOINT: u8 = 29;
+const CMD_ARM_POSE: u8 = 30;
+const CMD_ARM_STOP: u8 = 31;
+const CMD_SERVO_SET: u8 = 32;
 const MSG_TO_SRV_PONG: u8 = 1;
+const MSG_TO_SRV_CONFIG_STATE: u8 = 8;
+const CONFIG_VERSION: u8 = 1;
 
 #[embassy_executor::task]
 pub async fn http_websocket_server(stack: Stack<'static>) {
     let mut rx_buffer = [0u8; 4096];
     let mut tx_buffer = [0u8; 4096];
+    let mut config = RobotConfig::default();
 
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
@@ -52,7 +63,7 @@ pub async fn http_websocket_server(stack: Stack<'static>) {
         match socket.accept(HTTP_PORT).await {
             Ok(()) => {
                 log::info!("HTTP client connected: {:?}", socket.remote_endpoint());
-                if let Err(err) = handle_http_connection(&mut socket).await {
+                if let Err(err) = handle_http_connection(&mut socket, &mut config).await {
                     log::warn!("HTTP/WebSocket connection ended: {:?}", err);
                 }
             }
@@ -67,14 +78,17 @@ pub async fn http_websocket_server(stack: Stack<'static>) {
     }
 }
 
-async fn handle_http_connection(socket: &mut TcpSocket<'_>) -> Result<(), HttpError> {
+async fn handle_http_connection(
+    socket: &mut TcpSocket<'_>,
+    config: &mut RobotConfig,
+) -> Result<(), HttpError> {
     let mut request = [0u8; MAX_HTTP_REQUEST];
     let request_len = read_http_request(socket, &mut request).await?;
     let request = &request[..request_len];
 
     if is_websocket_request(request) {
         handle_websocket_upgrade(socket, request).await?;
-        websocket_loop(socket).await
+        websocket_loop(socket, config).await
     } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
         write_all(
             socket,
@@ -134,7 +148,10 @@ async fn handle_websocket_upgrade(
     Ok(())
 }
 
-async fn websocket_loop(socket: &mut TcpSocket<'_>) -> Result<(), HttpError> {
+async fn websocket_loop(
+    socket: &mut TcpSocket<'_>,
+    config: &mut RobotConfig,
+) -> Result<(), HttpError> {
     let mut payload = [0u8; MAX_WS_FRAME_SIZE];
 
     loop {
@@ -148,7 +165,7 @@ async fn websocket_loop(socket: &mut TcpSocket<'_>) -> Result<(), HttpError> {
                 }
             }
             0x2 => {
-                handle_binary_ws_frame(socket, frame.payload).await?;
+                handle_binary_ws_frame(socket, frame.payload, config).await?;
             }
             0x8 => {
                 log::info!("WS close frame received");
@@ -171,6 +188,7 @@ async fn websocket_loop(socket: &mut TcpSocket<'_>) -> Result<(), HttpError> {
 async fn handle_binary_ws_frame(
     socket: &mut TcpSocket<'_>,
     payload: &[u8],
+    config: &mut RobotConfig,
 ) -> Result<(), HttpError> {
     if payload.len() < 4 {
         log::warn!("ignoring short binary WS frame len={}", payload.len());
@@ -196,9 +214,155 @@ async fn handle_binary_ws_frame(
             MSG_TO_SRV_PONG,
         ];
         send_ws_frame(socket, 0x2, &pong).await?;
+    } else if cmd == CMD_CONFIG_GET {
+        send_config_state(socket, config).await?;
+    } else if cmd == CMD_CONFIG_SET {
+        match RobotConfig::decode(&payload[4..]) {
+            Some(new_config) => {
+                *config = new_config;
+                log::info!(
+                    "updated config steering_servo_id={} arm_servo_ids={:?}",
+                    config.steering_servo_id,
+                    config.arm_servo_ids
+                );
+                send_config_state(socket, config).await?;
+            }
+            None => {
+                log::warn!("invalid CONFIG_SET payload len={}", payload[4..].len());
+            }
+        }
+    } else {
+        handle_robot_command(cmd, &payload[4..], config);
     }
 
     Ok(())
+}
+
+fn handle_robot_command(cmd: u8, payload: &[u8], config: &RobotConfig) {
+    match cmd {
+        CMD_DRIVE_STEER => {
+            if payload.len() < 2 {
+                log::warn!("invalid DRIVE_STEER payload len={}", payload.len());
+                return;
+            }
+            let throttle = payload[0] as i8;
+            let steering = payload[1] as i8;
+            log::info!(
+                "robot drive throttle={} steering={} steering_servo_id={}",
+                throttle,
+                steering,
+                config.steering_servo_id
+            );
+        }
+        CMD_STOP_DRIVE => {
+            log::info!("robot stop drive");
+        }
+        CMD_ARM_JOINT => {
+            if payload.len() < 5 {
+                log::warn!("invalid ARM_JOINT payload len={}", payload.len());
+                return;
+            }
+            let joint = payload[0];
+            let angle_deg = i16::from_le_bytes([payload[1], payload[2]]);
+            let speed = u16::from_le_bytes([payload[3], payload[4]]);
+            let servo_id = config
+                .arm_servo_ids
+                .get(joint as usize)
+                .copied()
+                .unwrap_or(0xff);
+            log::info!(
+                "robot arm joint={} servo_id={} angle_deg={} speed={}",
+                joint,
+                servo_id,
+                angle_deg,
+                speed
+            );
+        }
+        CMD_ARM_POSE => {
+            if payload.len() < 18 {
+                log::warn!("invalid ARM_POSE payload len={}", payload.len());
+                return;
+            }
+            let x = read_f32_le(&payload[0..4]);
+            let y = read_f32_le(&payload[4..8]);
+            let z = read_f32_le(&payload[8..12]);
+            let wrist_deg = read_f32_le(&payload[12..16]);
+            let speed = u16::from_le_bytes([payload[16], payload[17]]);
+            log::info!(
+                "robot arm pose x={} y={} z={} wrist_deg={} speed={}",
+                x,
+                y,
+                z,
+                wrist_deg,
+                speed
+            );
+        }
+        CMD_ARM_STOP => {
+            log::info!("robot arm stop");
+        }
+        CMD_SERVO_SET => {
+            if payload.len() < 5 {
+                log::warn!("invalid SERVO_SET payload len={}", payload.len());
+                return;
+            }
+            let servo_id = payload[0];
+            let angle_deg = u16::from_le_bytes([payload[1], payload[2]]);
+            let duration_ms = u16::from_le_bytes([payload[3], payload[4]]);
+            log::info!(
+                "servo set id={} angle_deg={} duration_ms={}",
+                servo_id,
+                angle_deg,
+                duration_ms
+            );
+        }
+        _ => {}
+    }
+}
+
+fn read_f32_le(bytes: &[u8]) -> f32 {
+    f32::from_bits(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+async fn send_config_state(
+    socket: &mut TcpSocket<'_>,
+    config: &RobotConfig,
+) -> Result<(), HttpError> {
+    let mut frame = [0u8; 9];
+    frame[0] = (PUPPY_PROTOCOL_VERSION & 0xff) as u8;
+    frame[1] = (PUPPY_PROTOCOL_VERSION >> 8) as u8;
+    frame[2] = MSG_TO_SRV_CONFIG_STATE;
+    frame[3] = CONFIG_VERSION;
+    frame[4] = config.steering_servo_id;
+    frame[5..9].copy_from_slice(&config.arm_servo_ids);
+    send_ws_frame(socket, 0x2, &frame).await
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RobotConfig {
+    steering_servo_id: u8,
+    arm_servo_ids: [u8; 4],
+}
+
+impl RobotConfig {
+    fn decode(payload: &[u8]) -> Option<Self> {
+        if payload.len() < 6 || payload[0] != CONFIG_VERSION {
+            return None;
+        }
+
+        Some(Self {
+            steering_servo_id: payload[1],
+            arm_servo_ids: [payload[2], payload[3], payload[4], payload[5]],
+        })
+    }
+}
+
+impl Default for RobotConfig {
+    fn default() -> Self {
+        Self {
+            steering_servo_id: 0,
+            arm_servo_ids: [1, 2, 3, 4],
+        }
+    }
 }
 
 struct WsFrame<'a> {
@@ -359,6 +523,14 @@ fn command_name(command: u8) -> &'static str {
         CMD_ARM_SET_TICK_LIMITS_ENABLED => "ARM_SET_TICK_LIMITS_ENABLED",
         CMD_ARM_MOVE_RELATIVE => "ARM_MOVE_RELATIVE",
         CMD_ARM_CLEAR_FAULTS => "ARM_CLEAR_FAULTS",
+        CMD_CONFIG_GET => "CONFIG_GET",
+        CMD_CONFIG_SET => "CONFIG_SET",
+        CMD_DRIVE_STEER => "DRIVE_STEER",
+        CMD_STOP_DRIVE => "STOP_DRIVE",
+        CMD_ARM_JOINT => "ARM_JOINT",
+        CMD_ARM_POSE => "ARM_POSE",
+        CMD_ARM_STOP => "ARM_STOP",
+        CMD_SERVO_SET => "SERVO_SET",
         _ => "UNKNOWN",
     }
 }

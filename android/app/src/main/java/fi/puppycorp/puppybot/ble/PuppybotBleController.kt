@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 
 private const val TAG = "PuppybotBle"
@@ -42,6 +44,12 @@ private const val CMD_PING: Int = 0x01
 private const val CMD_DRIVE_MOTOR: Int = 0x02
 private const val CMD_STOP_MOTOR: Int = 0x03
 private const val CMD_STOP_ALL_MOTORS: Int = 0x04
+private const val CMD_DRIVE_STEER: Int = 0x1B
+private const val CMD_STOP_DRIVE: Int = 0x1C
+private const val CMD_ARM_JOINT: Int = 0x1D
+private const val CMD_ARM_POSE: Int = 0x1E
+private const val CMD_ARM_STOP: Int = 0x1F
+private const val CMD_SERVO_SET: Int = 0x20
 
 private val SERVICE_UUID: UUID = UUID.fromString("000000FF-0000-1000-8000-00805F9B34FB")
 private val CHARACTERISTIC_UUID: UUID = UUID.fromString("0000FF01-0000-1000-8000-00805F9B34FB")
@@ -200,14 +208,51 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
     }
 
     override fun turnServo(servoId: Int, angle: Int, durationMs: Int?) {
-        // Use CMD_DRIVE_MOTOR with angle field for servos
-        val payload = buildDrivePayload(servoId, speed = 0, pulses = 0, stepMicros = 0, angle = angle)
-        sendCommand(CMD_DRIVE_MOTOR, payload)
+        val payload = buildServoSetPayload(servoId, angle, durationMs ?: 0)
+        sendCommand(CMD_SERVO_SET, payload)
     }
 
     override fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int) {
         val payload = buildDrivePayload(motorId, speed, pulses, stepMicros)
         sendCommand(CMD_DRIVE_MOTOR, payload)
+    }
+
+    override fun driveSteer(throttle: Int, steering: Int) {
+        sendCommand(
+            CMD_DRIVE_STEER,
+            byteArrayOf(
+                throttle.coerceIn(-100, 100).toByte(),
+                steering.coerceIn(-100, 100).toByte()
+            )
+        )
+    }
+
+    override fun stopDrive() {
+        sendCommand(CMD_STOP_DRIVE, byteArrayOf())
+    }
+
+    override fun armJoint(joint: Int, angleDeg: Int, speed: Int) {
+        val payload = ByteArray(5)
+        payload[0] = (joint.coerceIn(0, 3) and 0xFF).toByte()
+        writeI16Le(payload, 1, angleDeg.coerceIn(-180, 180))
+        writeU16Le(payload, 3, speed.coerceIn(0, 0xFFFF))
+        sendCommand(CMD_ARM_JOINT, payload)
+    }
+
+    override fun armPose(x: Float, y: Float, z: Float, wristDeg: Float, speed: Int) {
+        val payload = ByteBuffer.allocate(18)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putFloat(x)
+            .putFloat(y)
+            .putFloat(z)
+            .putFloat(wristDeg)
+            .putShort(speed.coerceIn(0, 0xFFFF).toShort())
+            .array()
+        sendCommand(CMD_ARM_POSE, payload)
+    }
+
+    override fun armStop() {
+        sendCommand(CMD_ARM_STOP, byteArrayOf())
     }
 
     private fun buildDrivePayload(
@@ -233,6 +278,24 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
             (sanitizedAngle and 0xFF).toByte(),
             ((sanitizedAngle shr 8) and 0xFF).toByte()
         )
+    }
+
+    private fun buildServoSetPayload(servoId: Int, angle: Int, durationMs: Int): ByteArray {
+        val payload = ByteArray(5)
+        payload[0] = (servoId.coerceIn(0, 255) and 0xFF).toByte()
+        writeU16Le(payload, 1, angle.coerceIn(0, 180))
+        writeU16Le(payload, 3, durationMs.coerceIn(0, 0xFFFF))
+        return payload
+    }
+
+    private fun writeI16Le(payload: ByteArray, offset: Int, value: Int) {
+        payload[offset] = (value and 0xFF).toByte()
+        payload[offset + 1] = ((value shr 8) and 0xFF).toByte()
+    }
+
+    private fun writeU16Le(payload: ByteArray, offset: Int, value: Int) {
+        payload[offset] = (value and 0xFF).toByte()
+        payload[offset + 1] = ((value shr 8) and 0xFF).toByte()
     }
 
     private fun sendCommand(cmd: Int, payload: ByteArray) {

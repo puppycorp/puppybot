@@ -2,6 +2,7 @@ package fi.puppycorp.puppybot.ws
 
 import android.util.Log
 import fi.puppycorp.puppybot.control.PuppybotCommandSender
+import fi.puppycorp.puppybot.control.PuppybotServoConfig
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
 
 sealed class WebSocketState(open val device: PuppybotDevice?) {
@@ -33,6 +36,16 @@ class PuppybotWebSocket : PuppybotCommandSender {
         private const val CMD_DRIVE_MOTOR: Byte = 0x02
         private const val CMD_STOP_MOTOR: Byte = 0x03
         private const val CMD_STOP_ALL_MOTORS: Byte = 0x04
+        private const val CMD_CONFIG_GET: Byte = 0x19
+        private const val CMD_CONFIG_SET: Byte = 0x1A
+        private const val CMD_DRIVE_STEER: Byte = 0x1B
+        private const val CMD_STOP_DRIVE: Byte = 0x1C
+        private const val CMD_ARM_JOINT: Byte = 0x1D
+        private const val CMD_ARM_POSE: Byte = 0x1E
+        private const val CMD_ARM_STOP: Byte = 0x1F
+        private const val CMD_SERVO_SET: Byte = 0x20
+        private const val MSG_CONFIG_STATE: Int = 0x08
+        private const val CONFIG_VERSION: Byte = 0x01
         private val PING_FRAME = byteArrayOf(
             PROTOCOL_VERSION,
             CMD_PING,
@@ -52,6 +65,9 @@ class PuppybotWebSocket : PuppybotCommandSender {
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val events: SharedFlow<String> = _events
+
+    private val _servoConfig = MutableStateFlow(PuppybotServoConfig())
+    val servoConfig: StateFlow<PuppybotServoConfig> = _servoConfig
 
     @Volatile
     private var webSocket: WebSocket? = null
@@ -84,6 +100,7 @@ class PuppybotWebSocket : PuppybotCommandSender {
                 _state.value = WebSocketState.Connected(device, url)
                 scope.launch { _events.emit("Connected to ${device.name}") }
                 sendPing(webSocket)
+                requestServoConfig()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -92,9 +109,7 @@ class PuppybotWebSocket : PuppybotCommandSender {
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                val hex = bytes.hex().chunked(2).joinToString(" ")
-                Log.d(TAG, "WS bin <- $hex")
-                scope.launch { _events.emit("Binary: $hex") }
+                handleBinaryMessage(bytes)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -158,9 +173,63 @@ class PuppybotWebSocket : PuppybotCommandSender {
     }
 
     override fun turnServo(servoId: Int, angle: Int, durationMs: Int?) {
-        // Use CMD_DRIVE_MOTOR with angle field for servos
-        val payload = buildDrivePayload(servoId, speed = 0, pulses = 0, stepMicros = 0, angle = angle)
-        sendCommand(CMD_DRIVE_MOTOR, payload)
+        val payload = buildServoSetPayload(servoId, angle, durationMs ?: 0)
+        sendCommand(CMD_SERVO_SET, payload)
+    }
+
+    override fun driveSteer(throttle: Int, steering: Int) {
+        sendCommand(
+            CMD_DRIVE_STEER,
+            byteArrayOf(
+                throttle.coerceIn(-100, 100).toByte(),
+                steering.coerceIn(-100, 100).toByte()
+            )
+        )
+    }
+
+    override fun stopDrive() {
+        sendCommand(CMD_STOP_DRIVE, byteArrayOf())
+    }
+
+    override fun armJoint(joint: Int, angleDeg: Int, speed: Int) {
+        val payload = ByteArray(5)
+        payload[0] = (joint.coerceIn(0, 3) and 0xFF).toByte()
+        writeI16Le(payload, 1, angleDeg.coerceIn(-180, 180))
+        writeU16Le(payload, 3, speed.coerceIn(0, 0xFFFF))
+        sendCommand(CMD_ARM_JOINT, payload)
+    }
+
+    override fun armPose(x: Float, y: Float, z: Float, wristDeg: Float, speed: Int) {
+        val payload = ByteBuffer.allocate(18)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putFloat(x)
+            .putFloat(y)
+            .putFloat(z)
+            .putFloat(wristDeg)
+            .putShort(speed.coerceIn(0, 0xFFFF).toShort())
+            .array()
+        sendCommand(CMD_ARM_POSE, payload)
+    }
+
+    override fun armStop() {
+        sendCommand(CMD_ARM_STOP, byteArrayOf())
+    }
+
+    override fun requestServoConfig() {
+        sendCommand(CMD_CONFIG_GET, byteArrayOf())
+    }
+
+    override fun setServoConfig(config: PuppybotServoConfig) {
+        val armIds = (config.armServoIds + listOf(1, 2, 3, 4)).take(4)
+        val payload = byteArrayOf(
+            CONFIG_VERSION,
+            (config.steeringServoId.coerceIn(0, 255) and 0xFF).toByte(),
+            (armIds[0].coerceIn(0, 255) and 0xFF).toByte(),
+            (armIds[1].coerceIn(0, 255) and 0xFF).toByte(),
+            (armIds[2].coerceIn(0, 255) and 0xFF).toByte(),
+            (armIds[3].coerceIn(0, 255) and 0xFF).toByte()
+        )
+        sendCommand(CMD_CONFIG_SET, payload)
     }
 
     private fun buildDrivePayload(
@@ -188,12 +257,53 @@ class PuppybotWebSocket : PuppybotCommandSender {
         )
     }
 
+    private fun buildServoSetPayload(servoId: Int, angle: Int, durationMs: Int): ByteArray {
+        val payload = ByteArray(5)
+        payload[0] = (servoId.coerceIn(0, 255) and 0xFF).toByte()
+        writeU16Le(payload, 1, angle.coerceIn(0, 180))
+        writeU16Le(payload, 3, durationMs.coerceIn(0, 0xFFFF))
+        return payload
+    }
+
+    private fun writeI16Le(payload: ByteArray, offset: Int, value: Int) {
+        payload[offset] = (value and 0xFF).toByte()
+        payload[offset + 1] = ((value shr 8) and 0xFF).toByte()
+    }
+
+    private fun writeU16Le(payload: ByteArray, offset: Int, value: Int) {
+        payload[offset] = (value and 0xFF).toByte()
+        payload[offset + 1] = ((value shr 8) and 0xFF).toByte()
+    }
+
     private fun sendPing(socket: WebSocket) {
         if (!socket.send(ByteString.of(*PING_FRAME))) {
             Log.w(TAG, "Failed to send CMD_PING")
         } else {
             scope.launch { _events.emit("-> CMD_PING") }
         }
+    }
+
+    private fun handleBinaryMessage(bytes: ByteString) {
+        val data = bytes.toByteArray()
+        val hex = bytes.hex().chunked(2).joinToString(" ")
+        Log.d(TAG, "WS bin <- $hex")
+
+        if (data.size >= 9 && (data[2].toInt() and 0xFF) == MSG_CONFIG_STATE && data[3] == CONFIG_VERSION) {
+            val config = PuppybotServoConfig(
+                steeringServoId = data[4].toInt() and 0xFF,
+                armServoIds = listOf(
+                    data[5].toInt() and 0xFF,
+                    data[6].toInt() and 0xFF,
+                    data[7].toInt() and 0xFF,
+                    data[8].toInt() and 0xFF
+                )
+            )
+            _servoConfig.value = config
+            scope.launch { _events.emit("Config: steering=${config.steeringServoId} arm=${config.armServoIds.joinToString(",")}") }
+            return
+        }
+
+        scope.launch { _events.emit("Binary: $hex") }
     }
 
     private fun sendCommand(cmd: Byte, payload: ByteArray) {
