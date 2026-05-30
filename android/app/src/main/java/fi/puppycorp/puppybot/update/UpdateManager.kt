@@ -150,11 +150,11 @@ object UpdateManager {
         if (newInfo.packageName != context.packageName) {
             return false
         }
-        return newInfo.longVersionCode > currentInfo.longVersionCode
+        return newInfo.versionCodeCompat > currentInfo.versionCodeCompat
     }
 
     private fun promptInstall(context: Context, apk: File) {
-        if (!context.packageManager.canRequestPackageInstalls()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
                 .setData(Uri.parse("package:${context.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -213,6 +213,14 @@ private fun PackageInfo.firstSignerBytes(): ByteArray? {
         signatures?.firstOrNull()?.toByteArray()
     }
 }
+
+private val PackageInfo.versionCodeCompat: Long
+    get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        versionCode.toLong()
+    }
 
 suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : Callback {

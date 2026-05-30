@@ -1,6 +1,7 @@
 package fi.puppycorp.puppybot.ble
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -9,12 +10,14 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
@@ -76,6 +79,15 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
     private var gatt: BluetoothGatt? = null
     private var controlCharacteristic: BluetoothGattCharacteristic? = null
     private val writeMutex = Mutex()
+
+    private fun hasBluetoothConnectPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun emitMissingBluetoothConnectPermission(operation: String) {
+        scope.launch { _events.emit("Missing Bluetooth permission for $operation") }
+    }
 
     @SuppressLint("MissingPermission")
     fun startScan() {
@@ -250,11 +262,26 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
+        @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    if (!hasBluetoothConnectPermission()) {
+                        emitMissingBluetoothConnectPermission("service discovery")
+                        val device = _state.value.device
+                        _state.value = BleState.Disconnected(device, "Bluetooth permission missing")
+                        cleanupGatt()
+                        return
+                    }
                     scope.launch { _events.emit("Gatt connected, discovering services") }
-                    gatt.discoverServices()
+                    try {
+                        gatt.discoverServices()
+                    } catch (t: SecurityException) {
+                        Log.w(TAG, "discoverServices without permission", t)
+                        val device = _state.value.device
+                        _state.value = BleState.Disconnected(device, "Bluetooth permission missing")
+                        cleanupGatt()
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     scope.launch { _events.emit("Gatt disconnected: status=$status") }
@@ -296,15 +323,28 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun cleanupGatt() {
-        gatt?.close()
+        if (!hasBluetoothConnectPermission()) {
+            gatt = null
+            controlCharacteristic = null
+            return
+        }
+        try {
+            gatt?.close()
+        } catch (t: SecurityException) {
+            Log.w(TAG, "close without permission", t)
+        }
         gatt = null
         controlCharacteristic = null
     }
 
+    @SuppressLint("MissingPermission")
     private fun handleScanResult(result: ScanResult) {
         val device = result.device ?: return
-        val name = device.name ?: result.scanRecord?.deviceName ?: device.address
+        val name = result.scanRecord?.deviceName
+            ?: if (hasBluetoothConnectPermission()) device.name else null
+            ?: device.address
         val updated = _devices.value.toMutableList()
         val index = updated.indexOfFirst { it.address == device.address }
         val entry = PuppybotBleDevice(device, name, device.address, result.rssi)
@@ -316,7 +356,12 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
         _devices.value = updated.sortedBy { it.name.lowercase() }
     }
 
+    @SuppressLint("MissingPermission")
     private suspend fun writeFrame(frame: ByteArray) {
+        if (!hasBluetoothConnectPermission()) {
+            _events.emit("Missing Bluetooth permission for Gatt write")
+            return
+        }
         val gatt = gatt ?: run {
             _events.emit("writeFrame while gatt null")
             return
@@ -328,13 +373,18 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
 
         writeMutex.withLock {
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            val success = if (Build.VERSION.SDK_INT >= 33) {
-                gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
-            } else {
-                @Suppress("DEPRECATION")
-                characteristic.value = frame
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(characteristic)
+            val success = try {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    characteristic.value = frame
+                    @Suppress("DEPRECATION")
+                    gatt.writeCharacteristic(characteristic)
+                }
+            } catch (t: SecurityException) {
+                Log.w(TAG, "writeCharacteristic without permission", t)
+                false
             }
             if (!success) {
                 _events.emit("Gatt write enqueue failed")
