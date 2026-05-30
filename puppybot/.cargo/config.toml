@@ -1,0 +1,18 @@
+[build]
+target = "xtensa-esp32-none-elf"
+
+[target.'cfg(target_arch = "xtensa")']
+runner = "espflash flash --monitor"
+rustflags = [
+    "-C",
+    "link-arg=-Wl,-Tlinkall.x",
+    "-C",
+    "link-arg=-nostartfiles",
+]
+
+[unstable]
+build-std = ["core", "alloc"]
+
+[env]
+MCU = "esp32"
+ESP_LOG = "info"
