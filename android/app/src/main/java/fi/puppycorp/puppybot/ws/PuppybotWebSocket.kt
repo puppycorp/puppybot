@@ -110,6 +110,7 @@ class PuppybotWebSocket : PuppybotCommandSender {
         val request = Request.Builder().url(url).build()
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (!isCurrentSocket(webSocket)) return
                 Log.i(TAG, "WebSocket opened -> ${device.name}")
                 _state.value = WebSocketState.Connected(device, url)
                 scope.launch { _events.emit("Connected to ${device.name}") }
@@ -121,15 +122,18 @@ class PuppybotWebSocket : PuppybotCommandSender {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (!isCurrentSocket(webSocket)) return
                 Log.d(TAG, "WS text <- $text")
                 scope.launch { _events.emit("Text: $text") }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (!isCurrentSocket(webSocket)) return
                 handleBinaryMessage(bytes)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (!isCurrentSocket(webSocket)) return
                 Log.i(TAG, "WebSocket closed ($code): $reason")
                 _state.value = WebSocketState.Disconnected(device, reason.ifBlank { null })
                 scope.launch { _events.emit("Closed: $reason") }
@@ -137,11 +141,13 @@ class PuppybotWebSocket : PuppybotCommandSender {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                if (!isCurrentSocket(webSocket)) return
                 Log.i(TAG, "WebSocket closing ($code): $reason")
                 webSocket.close(code, reason)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (!isCurrentSocket(webSocket)) return
                 Log.e(TAG, "WebSocket failure", t)
                 _state.value = WebSocketState.Disconnected(device, t.message)
                 scope.launch { _events.emit("Failure: ${t.message}") }
@@ -445,6 +451,8 @@ class PuppybotWebSocket : PuppybotCommandSender {
         }
         webSocket = null
     }
+
+    private fun isCurrentSocket(socket: WebSocket): Boolean = webSocket == socket
 
     private fun cleanup(socket: WebSocket) {
         if (webSocket == socket) {
