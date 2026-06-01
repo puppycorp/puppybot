@@ -357,6 +357,12 @@ type SetMotorPoll = {
 	ids: number[]
 }
 
+type Subscribe = {
+	type: "subscribe"
+	topic: "armState"
+	enabled: boolean
+}
+
 type SetBotId = {
 	type: "setBotId"
 	id: string
@@ -385,6 +391,7 @@ export type MsgToBot =
 	| Omit<SmartbusScan, "botId">
 	| Omit<SmartbusSetId, "botId">
 	| SetMotorPoll
+	| Subscribe
 	| SetBotId
 	| ApplyConfig
 

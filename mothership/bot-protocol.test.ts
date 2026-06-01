@@ -136,7 +136,9 @@ describe("encodeBotMsg", () => {
 				joint: 2,
 				direction: -1,
 				speed: 300,
-			} as any).equals(Buffer.from([0xaa, 13, 4, 0, 2, 0xff, 0x2c, 0x01])),
+			} as any).equals(
+				Buffer.from([0xaa, 13, 4, 0, 2, 0xff, 0x2c, 0x01])
+			),
 		).toBe(true)
 		expect(
 			encodeBotMsg({ type: "armStopJoint", joint: 3 } as any).equals(
@@ -173,7 +175,9 @@ describe("encodeBotMsg", () => {
 		expectedPayload.writeInt32LE(3565, 10)
 		expectedPayload.writeInt32LE(1783, 14)
 		expect(
-			buffer.equals(Buffer.concat([Buffer.from([0xaa, 16, 18, 0]), expectedPayload])),
+			buffer.equals(
+				Buffer.concat([Buffer.from([0xaa, 16, 18, 0]), expectedPayload])
+			),
 		).toBe(true)
 	})
 
@@ -190,7 +194,9 @@ describe("encodeBotMsg", () => {
 		expectedPayload.writeFloatLE(30.25, 10)
 		expectedPayload.writeFloatLE(45, 14)
 		expect(
-			buffer.equals(Buffer.concat([Buffer.from([0xaa, 17, 18, 0]), expectedPayload])),
+			buffer.equals(
+				Buffer.concat([Buffer.from([0xaa, 17, 18, 0]), expectedPayload])
+			),
 		).toBe(true)
 	})
 
@@ -439,6 +445,20 @@ describe("encodeBotMsg", () => {
 		const buffer = encodeBotMsg(msg)
 		const expectedHeader = Buffer.from([0xaa, 9, 3, 0])
 		const expectedPayload = Buffer.from([2, 1, 2])
+		expect(
+			buffer.equals(Buffer.concat([expectedHeader, expectedPayload])),
+		).toBe(true)
+	})
+
+	test("encodes an arm state subscription message", () => {
+		const msg: MsgToBot = {
+			type: "subscribe",
+			topic: "armState",
+			enabled: true,
+		}
+		const buffer = encodeBotMsg(msg)
+		const expectedHeader = Buffer.from([0xaa, 33, 2, 0])
+		const expectedPayload = Buffer.from([1, 1])
 		expect(
 			buffer.equals(Buffer.concat([expectedHeader, expectedPayload])),
 		).toBe(true)

@@ -144,15 +144,15 @@ const handleUiMsg = async (_ws: ServerWebSocket<Context>, msg: MsgToServer) => {
 			conn.send(msg)
 			break
 		}
-			case "updateConfig": {
-				const motors = msg.motors ?? []
-				const arm = msg.arm ?? null
-				const templateKey = parseTemplateKey(msg.templateKey)
-				setBotConfig(msg.botId, { motors, arm }, templateKey, "user")
-				applyConfigToBot(msg.botId)
-				broadcastConfig(msg.botId)
-				break
-			}
+		case "updateConfig": {
+			const motors = msg.motors ?? []
+			const arm = msg.arm ?? null
+			const templateKey = parseTemplateKey(msg.templateKey)
+			setBotConfig(msg.botId, { motors, arm }, templateKey, "user")
+			applyConfigToBot(msg.botId)
+			broadcastConfig(msg.botId)
+			break
+		}
 	}
 }
 
@@ -160,39 +160,39 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 	botConnections.get(botId)?.handlePong()
 	console.log("handleBotMsg", msg)
 	switch (msg.type) {
-	case MsgFromBotType.MyInfo: {
-		// Update known info for this bot
-		const previous = connectedBots.get(botId)
-		const ip = previous?.ip ?? ""
-		const clientId = previous?.clientId ?? ""
-		const name = msg.deviceName || previous?.name || ""
-		connectedBots.set(botId, {
-			id: botId,
-			version: msg.firmwareVersion || "",
-			variant: msg.variant || "",
-			connected: true,
-			ip,
-			name,
-			clientId,
-		})
-		ensureBotConfig(botId)
-		// Default to a fully custom, empty config on connect.
-		// Users can apply templates manually from the UI.
-		broadcastConfig(botId)
-		logConnectionsTable()
-		for (const client of uiClients.values()) {
-			client.send({
-				type: "botInfo",
-				botId,
+		case MsgFromBotType.MyInfo: {
+			// Update known info for this bot
+			const previous = connectedBots.get(botId)
+			const ip = previous?.ip ?? ""
+			const clientId = previous?.clientId ?? ""
+			const name = msg.deviceName || previous?.name || ""
+			connectedBots.set(botId, {
+				id: botId,
 				version: msg.firmwareVersion || "",
 				variant: msg.variant || "",
-				name,
+				connected: true,
 				ip,
+				name,
 				clientId,
 			})
+			ensureBotConfig(botId)
+			// Default to a fully custom, empty config on connect.
+			// Users can apply templates manually from the UI.
+			broadcastConfig(botId)
+			logConnectionsTable()
+			for (const client of uiClients.values()) {
+				client.send({
+					type: "botInfo",
+					botId,
+					version: msg.firmwareVersion || "",
+					variant: msg.variant || "",
+					name,
+					ip,
+					clientId,
+				})
+			}
+			break
 		}
-		break
-	}
 		case MsgFromBotType.MotorState: {
 			const motors = msg.motors ?? []
 			for (const client of uiClients.values()) {
@@ -232,17 +232,17 @@ const handleBotMsg = async (botId: string, msg: MsgFromBot) => {
 			}
 			break
 		}
-			case MsgFromBotType.ConfigBlob: {
-				try {
-					const config = parseConfigBlob(msg.blob)
-					console.log("Parsed config blob", config)
-					setBotConfig(botId, config, null, "auto")
-					broadcastConfig(botId)
-				} catch (err) {
-					console.warn("Failed to parse config blob", err)
-				}
-				break
+		case MsgFromBotType.ConfigBlob: {
+			try {
+				const config = parseConfigBlob(msg.blob)
+				console.log("Parsed config blob", config)
+				setBotConfig(botId, config, null, "auto")
+				broadcastConfig(botId)
+			} catch (err) {
+				console.warn("Failed to parse config blob", err)
 			}
+			break
+		}
 		case MsgFromBotType.Pong:
 			break
 		default:
@@ -488,6 +488,7 @@ const applyConfigToBot = (botId: string) => {
 		.filter((m) => m.type === "smart" && m.pollStatus)
 		.map((m) => m.nodeId)
 	conn.send({ type: "setMotorPoll", ids: pollIds })
+	conn.send({ type: "subscribe", topic: "armState", enabled: arm !== null })
 }
 
 const ensureBotConfig = (botId: string) => {
@@ -954,24 +955,24 @@ Bun.serve<Context, {}>({
 				uiClients.set(ws, conn)
 				logConnectionsTable()
 				// Send current snapshot of connected bots to this UI client
-		for (const bot of connectedBots.values()) {
-			conn.send({
-				type: "botConnected",
-				botId: bot.id,
-				clientId: bot.clientId ?? undefined,
-			})
-			if (bot.version || bot.variant) {
-				conn.send({
-					type: "botInfo",
-					botId: bot.id,
-					version: bot.version,
-					variant: bot.variant,
-					name: bot.name ?? "",
-					ip: bot.ip ?? "",
-					clientId: bot.clientId ?? "",
-				})
-			}
-		}
+				for (const bot of connectedBots.values()) {
+					conn.send({
+						type: "botConnected",
+						botId: bot.id,
+						clientId: bot.clientId ?? undefined,
+					})
+					if (bot.version || bot.variant) {
+						conn.send({
+							type: "botInfo",
+							botId: bot.id,
+							version: bot.version,
+							variant: bot.variant,
+							name: bot.name ?? "",
+							ip: bot.ip ?? "",
+							clientId: bot.clientId ?? "",
+						})
+					}
+				}
 				for (const botId of botConfigs.keys()) {
 					const message = buildConfigBroadcast(botId)
 					if (message) {

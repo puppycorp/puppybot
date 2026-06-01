@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -58,6 +59,7 @@ import androidx.core.content.ContextCompat
 import fi.puppycorp.puppybot.ble.BleState
 import fi.puppycorp.puppybot.ble.PuppybotBleController
 import fi.puppycorp.puppybot.ble.PuppybotBleDevice
+import fi.puppycorp.puppybot.control.PuppybotArmTelemetry
 import fi.puppycorp.puppybot.control.PuppybotCommandSender
 import fi.puppycorp.puppybot.control.PuppybotServoConfig
 import fi.puppycorp.puppybot.mdns.PuppybotMdns
@@ -69,6 +71,7 @@ import fi.puppycorp.puppybot.ws.WebSocketState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -122,6 +125,8 @@ class MainActivity : ComponentActivity() {
                 val wsState by ws.state.collectAsState()
                 val lastWsEvent by ws.events.collectAsState(initial = "")
                 val servoConfig by ws.servoConfig.collectAsState()
+                val armTelemetryEnabled by ws.armTelemetryEnabled.collectAsState()
+                val armTelemetry by ws.armTelemetry.collectAsState()
                 val bleDevices by ble.devices.collectAsState()
                 val bleState by ble.state.collectAsState()
                 val lastBleEvent by ble.events.collectAsState(initial = "")
@@ -185,6 +190,8 @@ class MainActivity : ComponentActivity() {
                         wsState = wsState,
                         lastWsEvent = lastWsEvent.takeIf { it.isNotBlank() },
                         servoConfig = servoConfig,
+                        armTelemetryEnabled = armTelemetryEnabled,
+                        armTelemetry = armTelemetry,
                         networkController = ws,
                         bleDevices = bleDevices,
                         bleState = bleState,
@@ -238,6 +245,8 @@ private fun PuppybotScreen(
     wsState: WebSocketState,
     lastWsEvent: String?,
     servoConfig: PuppybotServoConfig,
+    armTelemetryEnabled: Boolean,
+    armTelemetry: PuppybotArmTelemetry?,
     networkController: PuppybotCommandSender,
     bleDevices: List<PuppybotBleDevice>,
     bleState: BleState,
@@ -269,6 +278,9 @@ private fun PuppybotScreen(
         val lastEvent: String?
         val deviceSummary: @Composable () -> Unit
         val controller: PuppybotCommandSender
+        val activeArmTelemetryAvailable: Boolean
+        val activeArmTelemetryEnabled: Boolean
+        val activeArmTelemetry: PuppybotArmTelemetry?
         val isConnected: Boolean
 
         when (transportMode) {
@@ -294,6 +306,9 @@ private fun PuppybotScreen(
                     }
                 }
                 controller = networkController
+                activeArmTelemetryAvailable = true
+                activeArmTelemetryEnabled = armTelemetryEnabled
+                activeArmTelemetry = armTelemetry
                 isConnected = wsState is WebSocketState.Connected
             }
 
@@ -318,6 +333,9 @@ private fun PuppybotScreen(
                     }
                 }
                 controller = bleController
+                activeArmTelemetryAvailable = false
+                activeArmTelemetryEnabled = false
+                activeArmTelemetry = null
                 isConnected = bleState is BleState.Connected
             }
         }
@@ -327,7 +345,13 @@ private fun PuppybotScreen(
         deviceSummary()
 
         if (isConnected) {
-            ControlPanel(controller, servoConfig)
+            ControlPanel(
+                controller,
+                servoConfig,
+                activeArmTelemetryAvailable,
+                activeArmTelemetryEnabled,
+                activeArmTelemetry
+            )
         }
     }
 }
@@ -353,7 +377,13 @@ private fun TransportToggle(
 }
 
 @Composable
-private fun ControlPanel(controller: PuppybotCommandSender, servoConfig: PuppybotServoConfig) {
+private fun ControlPanel(
+    controller: PuppybotCommandSender,
+    servoConfig: PuppybotServoConfig,
+    armTelemetryAvailable: Boolean,
+    armTelemetryEnabled: Boolean,
+    armTelemetry: PuppybotArmTelemetry?
+) {
     var mode by remember { mutableStateOf(ControlMode.Buttons) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -378,7 +408,13 @@ private fun ControlPanel(controller: PuppybotCommandSender, servoConfig: Puppybo
             ControlMode.Joystick -> JoystickControlPanel(controller)
         }
 
-        ArmControlPanel(controller, servoConfig)
+        ArmControlPanel(
+            controller,
+            servoConfig,
+            armTelemetryAvailable,
+            armTelemetryEnabled,
+            armTelemetry
+        )
     }
 }
 
@@ -764,7 +800,13 @@ private fun JoystickControlPanel(controller: PuppybotCommandSender) {
 }
 
 @Composable
-private fun ArmControlPanel(controller: PuppybotCommandSender, servoConfig: PuppybotServoConfig) {
+private fun ArmControlPanel(
+    controller: PuppybotCommandSender,
+    servoConfig: PuppybotServoConfig,
+    armTelemetryAvailable: Boolean,
+    armTelemetryEnabled: Boolean,
+    armTelemetry: PuppybotArmTelemetry?
+) {
     var joint by remember { mutableStateOf(0) }
     var angle by remember { mutableStateOf(90f) }
     var speed by remember { mutableStateOf(200f) }
@@ -772,6 +814,24 @@ private fun ArmControlPanel(controller: PuppybotCommandSender, servoConfig: Pupp
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Arm control", style = MaterialTheme.typography.titleMedium)
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Telemetry", style = MaterialTheme.typography.bodyMedium)
+            Switch(
+                checked = armTelemetryEnabled,
+                enabled = armTelemetryAvailable,
+                onCheckedChange = { enabled -> controller.setArmTelemetryEnabled(enabled) }
+            )
+        }
+        ArmTelemetryView(
+            available = armTelemetryAvailable,
+            enabled = armTelemetryEnabled,
+            telemetry = armTelemetry
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Joint", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { joint = (joint - 1).coerceAtLeast(0) }) {
@@ -819,6 +879,54 @@ private fun ArmControlPanel(controller: PuppybotCommandSender, servoConfig: Pupp
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Send Pose")
+        }
+    }
+}
+
+@Composable
+private fun ArmTelemetryView(
+    available: Boolean,
+    enabled: Boolean,
+    telemetry: PuppybotArmTelemetry?
+) {
+    if (!available) {
+        Text("Arm telemetry only available over network", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    if (!enabled) {
+        Text("Arm telemetry disabled", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    if (telemetry == null) {
+        Text("Waiting for arm telemetry...", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        telemetry.coords?.let { coords ->
+            Text(
+                "XYZ ${coords.x.format1()}, ${coords.y.format1()}, ${coords.z.format1()} mm",
+                style = MaterialTheme.typography.bodySmall
+            )
+        } ?: Text("XYZ --", style = MaterialTheme.typography.bodySmall)
+
+        telemetry.joints.forEachIndexed { index, joint ->
+            val angle = joint.angleDeg?.format1() ?: "--"
+            val tick = joint.tick?.toString() ?: "--"
+            val target = joint.targetTick?.toString() ?: "--"
+            val status = when {
+                joint.fault.isNotBlank() -> joint.fault
+                !joint.online -> "offline"
+                !joint.hasFeedback -> "no feedback"
+                joint.limitReached -> "limit"
+                else -> "ok"
+            }
+            Text(
+                "J${index + 1} s${joint.servoId}: $angle° tick $tick target $target speed ${joint.speed} $status",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -1060,6 +1168,8 @@ private const val DEFAULT_SPEED = 80
 private val PULSE_OPTIONS = listOf(50, 100, 200, 400)
 private const val PULSE_STEP_TIME_US = 1_000
 
+private fun Float.format1(): String = String.format(Locale.US, "%.1f", this)
+
 @Preview(showBackground = true)
 @Composable
 private fun PuppybotScreenPreview() {
@@ -1078,6 +1188,8 @@ private fun PuppybotScreenPreview() {
             wsState = WebSocketState.Connected(device = PuppybotDevice("puppybot", null, 80), url = "ws://example/ws"),
             lastWsEvent = "-> cmd=2 len=2",
             servoConfig = PuppybotServoConfig(),
+            armTelemetryEnabled = false,
+            armTelemetry = null,
             networkController = stubController,
             bleDevices = emptyList(),
             bleState = BleState.Disconnected(null),

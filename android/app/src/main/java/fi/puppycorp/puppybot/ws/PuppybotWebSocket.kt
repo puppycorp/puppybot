@@ -2,6 +2,9 @@ package fi.puppycorp.puppybot.ws
 
 import android.util.Log
 import fi.puppycorp.puppybot.control.PuppybotCommandSender
+import fi.puppycorp.puppybot.control.PuppybotArmCoords
+import fi.puppycorp.puppybot.control.PuppybotArmJointTelemetry
+import fi.puppycorp.puppybot.control.PuppybotArmTelemetry
 import fi.puppycorp.puppybot.control.PuppybotServoConfig
 import fi.puppycorp.puppybot.mdns.PuppybotDevice
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +47,9 @@ class PuppybotWebSocket : PuppybotCommandSender {
         private const val CMD_ARM_POSE: Byte = 0x1E
         private const val CMD_ARM_STOP: Byte = 0x1F
         private const val CMD_SERVO_SET: Byte = 0x20
+        private const val CMD_SUBSCRIBE: Byte = 0x21
+        private const val SUBSCRIPTION_ARM_STATE: Byte = 0x01
+        private const val MSG_ARM_STATE: Int = 0x07
         private const val MSG_CONFIG_STATE: Int = 0x08
         private const val CONFIG_VERSION: Byte = 0x01
         private val PING_FRAME = byteArrayOf(
@@ -68,6 +74,12 @@ class PuppybotWebSocket : PuppybotCommandSender {
 
     private val _servoConfig = MutableStateFlow(PuppybotServoConfig())
     val servoConfig: StateFlow<PuppybotServoConfig> = _servoConfig
+
+    private val _armTelemetryEnabled = MutableStateFlow(false)
+    val armTelemetryEnabled: StateFlow<Boolean> = _armTelemetryEnabled
+
+    private val _armTelemetry = MutableStateFlow<PuppybotArmTelemetry?>(null)
+    val armTelemetry: StateFlow<PuppybotArmTelemetry?> = _armTelemetry
 
     @Volatile
     private var webSocket: WebSocket? = null
@@ -101,6 +113,9 @@ class PuppybotWebSocket : PuppybotCommandSender {
                 scope.launch { _events.emit("Connected to ${device.name}") }
                 sendPing(webSocket)
                 requestServoConfig()
+                if (_armTelemetryEnabled.value) {
+                    sendArmTelemetrySubscription(webSocket, enabled = true)
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -232,6 +247,14 @@ class PuppybotWebSocket : PuppybotCommandSender {
         sendCommand(CMD_CONFIG_SET, payload)
     }
 
+    override fun setArmTelemetryEnabled(enabled: Boolean) {
+        _armTelemetryEnabled.value = enabled
+        if (!enabled) {
+            _armTelemetry.value = null
+        }
+        webSocket?.let { sendArmTelemetrySubscription(it, enabled) }
+    }
+
     private fun buildDrivePayload(
         motorId: Int,
         speed: Int,
@@ -283,6 +306,14 @@ class PuppybotWebSocket : PuppybotCommandSender {
         }
     }
 
+    private fun sendArmTelemetrySubscription(socket: WebSocket, enabled: Boolean) {
+        sendCommand(
+            socket,
+            CMD_SUBSCRIBE,
+            byteArrayOf(SUBSCRIPTION_ARM_STATE, (if (enabled) 1 else 0).toByte())
+        )
+    }
+
     private fun handleBinaryMessage(bytes: ByteString) {
         val data = bytes.toByteArray()
         val hex = bytes.hex().chunked(2).joinToString(" ")
@@ -303,7 +334,68 @@ class PuppybotWebSocket : PuppybotCommandSender {
             return
         }
 
+        if (data.size >= 4 && (data[2].toInt() and 0xFF) == MSG_ARM_STATE) {
+            parseArmTelemetry(data)?.let { telemetry ->
+                _armTelemetry.value = telemetry
+            }
+            return
+        }
+
         scope.launch { _events.emit("Binary: $hex") }
+    }
+
+    private fun parseArmTelemetry(data: ByteArray): PuppybotArmTelemetry? {
+        return try {
+            val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+            buffer.position(3)
+            val jointCount = buffer.get().toInt() and 0xFF
+            val joints = mutableListOf<PuppybotArmJointTelemetry>()
+            repeat(jointCount) {
+                if (buffer.remaining() < 25) return null
+                val servoId = buffer.get().toInt() and 0xFF
+                val flags = buffer.get().toInt() and 0xFF
+                val tick = buffer.int
+                val targetTick = buffer.int
+                val speed = buffer.short.toInt()
+                val limitMin = buffer.int
+                val limitMax = buffer.int
+                val angleDeg = buffer.float
+                val faultLength = buffer.get().toInt() and 0xFF
+                if (buffer.remaining() < faultLength) return null
+                val faultBytes = ByteArray(faultLength)
+                buffer.get(faultBytes)
+                val hasFeedback = (flags and 0x02) != 0
+                val hasTarget = (flags and 0x08) != 0
+                joints += PuppybotArmJointTelemetry(
+                    servoId = servoId,
+                    online = (flags and 0x01) != 0,
+                    hasFeedback = hasFeedback,
+                    limitReached = (flags and 0x04) != 0,
+                    tick = if (hasFeedback) tick else null,
+                    targetTick = if (hasTarget) targetTick else null,
+                    speed = speed,
+                    limitMin = limitMin,
+                    limitMax = limitMax,
+                    angleDeg = if (hasFeedback) angleDeg else null,
+                    fault = String(faultBytes, Charsets.UTF_8)
+                )
+            }
+
+            val coords = if (buffer.remaining() >= 13) {
+                val poseFlags = buffer.get().toInt() and 0xFF
+                val x = buffer.float
+                val y = buffer.float
+                val z = buffer.float
+                if ((poseFlags and 0x01) != 0) PuppybotArmCoords(x, y, z) else null
+            } else {
+                null
+            }
+
+            PuppybotArmTelemetry(joints = joints, coords = coords)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Failed to parse arm telemetry", error)
+            null
+        }
     }
 
     private fun sendCommand(cmd: Byte, payload: ByteArray) {
@@ -312,6 +404,10 @@ class PuppybotWebSocket : PuppybotCommandSender {
             return
         }
 
+        sendCommand(socket, cmd, payload)
+    }
+
+    private fun sendCommand(socket: WebSocket, cmd: Byte, payload: ByteArray) {
         val frame = ByteArray(4 + payload.size)
         frame[0] = PROTOCOL_VERSION
         frame[1] = cmd

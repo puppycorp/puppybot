@@ -24,7 +24,10 @@ enum MsgToBotType {
 	ArmSetTickLimitsEnabled = 22,
 	ArmMoveRelative = 23,
 	ArmClearFaults = 24,
+	Subscribe = 33,
 }
+
+const SUBSCRIPTION_TOPIC_ARM_STATE = 1
 
 export enum MsgFromBotType {
 	Pong = 1,
@@ -503,6 +506,13 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			)
 			return Buffer.concat([header, payload])
 		}
+		case "subscribe": {
+			const payload = Buffer.alloc(2)
+			payload.writeUInt8(subscriptionTopicId(msg.topic), 0)
+			payload.writeUInt8(msg.enabled ? 1 : 0, 1)
+			const header = createHeader(MsgToBotType.Subscribe, payload.length)
+			return Buffer.concat([header, payload])
+		}
 		case "setBotId": {
 			const payload = createSetBotIdPayload(msg.id)
 			const header = createHeader(MsgToBotType.SetBotId, payload.length)
@@ -512,6 +522,15 @@ export const encodeBotMsg = (msg: MsgToBot): Buffer => {
 			return createHeader(MsgToBotType.Ping, 0)
 		default:
 			throw new Error("Unknown message type")
+	}
+}
+
+const subscriptionTopicId = (topic: string): number => {
+	switch (topic) {
+		case "armState":
+			return SUBSCRIPTION_TOPIC_ARM_STATE
+		default:
+			return 0
 	}
 }
 

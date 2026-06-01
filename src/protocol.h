@@ -28,6 +28,7 @@
 #define CMD_ARM_SET_TICK_LIMITS_ENABLED 22
 #define CMD_ARM_MOVE_RELATIVE 23
 #define CMD_ARM_CLEAR_FAULTS 24
+#define CMD_SUBSCRIBE 33
 
 #define MSG_TO_SRV_PONG 0x01
 #define MSG_TO_SRV_MY_INFO 0x02
@@ -142,6 +143,11 @@ typedef struct {
 	uint16_t length;
 } SetBotIdCommand;
 
+typedef struct {
+	uint8_t topic;
+	uint8_t enabled;
+} SubscribeCommand;
+
 union Command {
 	DriveMotorCommand drive_motor;
 	StopMotorCommand stop_motor;
@@ -164,6 +170,7 @@ union Command {
 	ArmSetTickLimitsEnabledCommand arm_set_tick_limits_enabled;
 	ArmMoveRelativeCommand arm_move_relative;
 	SetBotIdCommand set_bot_id;
+	SubscribeCommand subscribe;
 };
 
 typedef struct {
@@ -219,6 +226,8 @@ static inline const char *command_type_to_string(int cmd_type) {
 		return "ARM_MOVE_RELATIVE";
 	case CMD_ARM_CLEAR_FAULTS:
 		return "ARM_CLEAR_FAULTS";
+	case CMD_SUBSCRIBE:
+		return "SUBSCRIBE";
 	default:
 		return "UNKNOWN";
 	}
@@ -313,6 +322,11 @@ static inline void parse_cmd(uint8_t *data, CommandPacket *cmd_packet) {
 		cmd_packet->cmd_type = CMD_SET_BOT_ID;
 		cmd_packet->cmd.set_bot_id.data = payload;
 		cmd_packet->cmd.set_bot_id.length = (uint16_t)payload_len;
+		break;
+	case CMD_SUBSCRIBE:
+		cmd_packet->cmd_type = CMD_SUBSCRIBE;
+		cmd_packet->cmd.subscribe.topic = payload_len >= 1 ? payload[0] : 0;
+		cmd_packet->cmd.subscribe.enabled = payload_len >= 2 ? payload[1] : 0;
 		break;
 	case CMD_ARM_MOVE:
 		cmd_packet->cmd_type = CMD_ARM_MOVE;

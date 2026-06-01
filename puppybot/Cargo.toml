@@ -36,6 +36,7 @@ embassy-net = { version = "0.9.0", features = [
     "tcp",
     "udp",
 ] }
+embassy-sync = "0.8.0"
 embassy-time = "0.5.0"
 esp-alloc = "0.10.0"
 esp-backtrace = { version = "0.19.0", features = ["panic-handler", "println"] }
@@ -45,6 +46,7 @@ esp-println = { version = "0.17.0", features = ["log-04"] }
 esp-radio = { version = "0.18.0", features = ["log-04", "wifi"] }
 esp-rtos = { version = "0.3.0", features = ["embassy", "esp-radio", "log-04"] }
 log = "0.4"
+libm = "0.2"
 sha1 = { version = "0.11.0", default-features = false }
 static_cell = "2.1.1"
 

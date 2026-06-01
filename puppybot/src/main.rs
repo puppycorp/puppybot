@@ -4,6 +4,7 @@
 use embassy_executor::Spawner;
 
 use embassy_net::{Runner, StackResources};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -14,12 +15,15 @@ use esp_hal::{
     ram,
     rng::Rng,
     timer::timg::TimerGroup,
+    uart::{Config as UartConfig, Uart},
 };
 use esp_radio::wifi::{
     Config as WifiConfig, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
 
 mod mdns;
+pub mod puppyarm;
+pub mod stservo;
 mod utility;
 mod ws;
 
@@ -47,9 +51,31 @@ async fn main(spawner: Spawner) -> ! {
     let status_led = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
     spawner.spawn(heartbeat(status_led).unwrap());
 
+    let servo_uart = Uart::new(
+        peripherals.UART2,
+        UartConfig::default().with_baudrate(stservo::DEFAULT_BAUD),
+    )
+    .unwrap()
+    .with_tx(peripherals.GPIO17)
+    .with_rx(peripherals.GPIO16);
+    let servo_bus = stservo::StServo::new(servo_uart);
+    let arm_intents = mk_static!(
+        puppyarm::task::IntentChannel,
+        Channel::<CriticalSectionRawMutex, puppyarm::task::PuppyarmIntent, 16>::new()
+    );
+    let arm_telemetry = mk_static!(
+        puppyarm::task::TelemetryChannel,
+        Channel::<CriticalSectionRawMutex, puppyarm::task::PuppyarmTelemetry, 4>::new()
+    );
+    log::info!(
+        "STServo bus configured on UART2 tx=GPIO17 rx=GPIO16 baud={}",
+        stservo::DEFAULT_BAUD
+    );
+
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+    spawner.spawn(puppyarm::task::arm_task(servo_bus, arm_intents, arm_telemetry).unwrap());
 
     log::info!("puppybot bare-metal firmware starting");
 
@@ -96,7 +122,7 @@ async fn main(spawner: Spawner) -> ! {
     if let Some(config) = stack.config_v4() {
         log::info!("Wi-Fi got IPv4 address {}", config.address);
         spawner.spawn(mdns::responder(stack, config.address.address()).unwrap());
-        spawner.spawn(ws::http_websocket_server(stack).unwrap());
+        spawner.spawn(ws::http_websocket_server(stack, arm_intents, arm_telemetry).unwrap());
     }
 
     loop {

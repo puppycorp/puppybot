@@ -5,6 +5,31 @@ data class PuppybotServoConfig(
     val armServoIds: List<Int> = listOf(1, 2, 3, 4)
 )
 
+data class PuppybotArmTelemetry(
+    val joints: List<PuppybotArmJointTelemetry>,
+    val coords: PuppybotArmCoords?
+)
+
+data class PuppybotArmJointTelemetry(
+    val servoId: Int,
+    val online: Boolean,
+    val hasFeedback: Boolean,
+    val limitReached: Boolean,
+    val tick: Int?,
+    val targetTick: Int?,
+    val speed: Int,
+    val limitMin: Int,
+    val limitMax: Int,
+    val angleDeg: Float?,
+    val fault: String
+)
+
+data class PuppybotArmCoords(
+    val x: Float,
+    val y: Float,
+    val z: Float
+)
+
 interface PuppybotCommandSender {
     fun driveMotor(motorId: Int, speed: Int)
     fun stopMotor(motorId: Int)
@@ -18,4 +43,5 @@ interface PuppybotCommandSender {
     fun armStop() {}
     fun requestServoConfig() {}
     fun setServoConfig(config: PuppybotServoConfig) {}
+    fun setArmTelemetryEnabled(enabled: Boolean) {}
 }
