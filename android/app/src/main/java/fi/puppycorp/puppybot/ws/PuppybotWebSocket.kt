@@ -39,6 +39,8 @@ class PuppybotWebSocket : PuppybotCommandSender {
         private const val CMD_DRIVE_MOTOR: Byte = 0x02
         private const val CMD_STOP_MOTOR: Byte = 0x03
         private const val CMD_STOP_ALL_MOTORS: Byte = 0x04
+        private const val CMD_ARM_JOG: Byte = 0x0D
+        private const val CMD_ARM_STOP_JOINT: Byte = 0x0E
         private const val CMD_CONFIG_GET: Byte = 0x19
         private const val CMD_CONFIG_SET: Byte = 0x1A
         private const val CMD_DRIVE_STEER: Byte = 0x1B
@@ -204,6 +206,18 @@ class PuppybotWebSocket : PuppybotCommandSender {
 
     override fun stopDrive() {
         sendCommand(CMD_STOP_DRIVE, byteArrayOf())
+    }
+
+    override fun armJog(joint: Int, direction: Int, speed: Int) {
+        val payload = ByteArray(4)
+        payload[0] = (joint.coerceIn(0, 3) and 0xFF).toByte()
+        payload[1] = direction.coerceIn(-1, 1).toByte()
+        writeU16Le(payload, 2, speed.coerceIn(0, 0xFFFF))
+        sendCommand(CMD_ARM_JOG, payload)
+    }
+
+    override fun armStopJoint(joint: Int) {
+        sendCommand(CMD_ARM_STOP_JOINT, byteArrayOf((joint.coerceIn(0, 3) and 0xFF).toByte()))
     }
 
     override fun armJoint(joint: Int, angleDeg: Int, speed: Int) {

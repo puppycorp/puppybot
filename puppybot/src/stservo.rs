@@ -3,7 +3,7 @@ use core::cmp;
 use embassy_time::{Duration, Instant, Timer};
 
 pub const DEFAULT_BAUD: u32 = 1_000_000;
-pub const MIN_SERVO_ID: u8 = 0;
+pub const MIN_SERVO_ID: u8 = 1;
 pub const MAX_SERVO_ID: u8 = 253;
 pub const MAX_POSITION: u16 = 4095;
 

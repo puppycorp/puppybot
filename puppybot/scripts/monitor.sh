@@ -39,14 +39,14 @@ fi
 
 mode="${1:-release}"
 
+if [[ "$mode" == "-h" || "$mode" == "--help" ]]; then
+    echo "usage: $0 [debug|release]" >&2
+    exit 0
+fi
+
 case "$mode" in
-    release)
-        ./scripts/build.sh release
-        profile="release"
-        ;;
-    debug)
-        ./scripts/build.sh debug
-        profile="debug"
+    release | debug)
+        profile="$mode"
         ;;
     *)
         echo "usage: $0 [debug|release]" >&2
@@ -54,10 +54,14 @@ case "$mode" in
         ;;
 esac
 
-flash_args=(flash --monitor)
+args=(monitor)
 if [[ -n "$serial_port" ]]; then
-    flash_args+=(--port "$serial_port")
+    args+=("--port" "$serial_port")
 fi
-flash_args+=("target/xtensa-esp32-none-elf/$profile/puppybot")
 
-espflash "${flash_args[@]}"
+elf="target/xtensa-esp32-none-elf/$profile/puppybot"
+if [[ -f "$elf" ]]; then
+    args+=("--elf" "$elf")
+fi
+
+espflash "${args[@]}"

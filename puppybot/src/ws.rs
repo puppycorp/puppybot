@@ -342,6 +342,10 @@ fn handle_robot_command(
                 steering,
                 config.steering_servo_id
             );
+            if config.steering_servo_id == 0 {
+                log::warn!("ignoring DRIVE_STEER because steering servo id is not configured");
+                return;
+            }
             let angle_deg = steering_to_angle(steering);
             send_puppyarm_intent(
                 arm_intents,
@@ -565,6 +569,10 @@ fn handle_robot_command(
             let servo_id = payload[0];
             let angle_deg = u16::from_le_bytes([payload[1], payload[2]]);
             let duration_ms = u16::from_le_bytes([payload[3], payload[4]]);
+            if servo_id == 0 {
+                log::warn!("ignoring SERVO_SET for unconfigured servo id 0");
+                return;
+            }
             log::info!(
                 "servo set id={} angle_deg={} duration_ms={}",
                 servo_id,
@@ -758,6 +766,9 @@ struct RobotConfig {
 impl RobotConfig {
     fn decode(payload: &[u8]) -> Option<Self> {
         if payload.len() < 6 || payload[0] != CONFIG_VERSION {
+            return None;
+        }
+        if payload[2..6].contains(&0) {
             return None;
         }
 

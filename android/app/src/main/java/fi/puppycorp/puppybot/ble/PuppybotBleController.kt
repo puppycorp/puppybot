@@ -44,6 +44,8 @@ private const val CMD_PING: Int = 0x01
 private const val CMD_DRIVE_MOTOR: Int = 0x02
 private const val CMD_STOP_MOTOR: Int = 0x03
 private const val CMD_STOP_ALL_MOTORS: Int = 0x04
+private const val CMD_ARM_JOG: Int = 0x0D
+private const val CMD_ARM_STOP_JOINT: Int = 0x0E
 private const val CMD_DRIVE_STEER: Int = 0x1B
 private const val CMD_STOP_DRIVE: Int = 0x1C
 private const val CMD_ARM_JOINT: Int = 0x1D
@@ -229,6 +231,18 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
 
     override fun stopDrive() {
         sendCommand(CMD_STOP_DRIVE, byteArrayOf())
+    }
+
+    override fun armJog(joint: Int, direction: Int, speed: Int) {
+        val payload = ByteArray(4)
+        payload[0] = (joint.coerceIn(0, 3) and 0xFF).toByte()
+        payload[1] = direction.coerceIn(-1, 1).toByte()
+        writeU16Le(payload, 2, speed.coerceIn(0, 0xFFFF))
+        sendCommand(CMD_ARM_JOG, payload)
+    }
+
+    override fun armStopJoint(joint: Int) {
+        sendCommand(CMD_ARM_STOP_JOINT, byteArrayOf((joint.coerceIn(0, 3) and 0xFF).toByte()))
     }
 
     override fun armJoint(joint: Int, angleDeg: Int, speed: Int) {

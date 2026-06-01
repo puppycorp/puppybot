@@ -16,6 +16,7 @@ const DIRECT_SERVO_ACC: u8 = 50;
 const DIRECT_SERVO_SPEED: u16 = 2400;
 const WHEEL_MODE_INIT_ATTEMPTS: usize = 3;
 const WHEEL_MODE_INIT_RETRY: Duration = Duration::from_millis(50);
+const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const RAD_TO_DEG: f64 = 180.0 / core::f64::consts::PI;
 
 pub type ServoController = StServo<Uart<'static, Blocking>>;
@@ -26,6 +27,7 @@ pub type TelemetryChannel = Channel<CriticalSectionRawMutex, PuppyarmTelemetry, 
 struct WheelModeState {
     servo_ids: [u8; JOINT_COUNT],
     ready: [bool; JOINT_COUNT],
+    last_attempt_ms: [u64; JOINT_COUNT],
 }
 
 impl WheelModeState {
@@ -33,6 +35,7 @@ impl WheelModeState {
         Self {
             servo_ids: core::array::from_fn(|index| controller.profiles[index].servo_id),
             ready: [false; JOINT_COUNT],
+            last_attempt_ms: [0; JOINT_COUNT],
         }
     }
 
@@ -42,6 +45,7 @@ impl WheelModeState {
             if self.servo_ids[index] != servo_id {
                 self.servo_ids[index] = servo_id;
                 self.ready[index] = false;
+                self.last_attempt_ms[index] = 0;
             }
         }
     }
@@ -60,6 +64,7 @@ impl WheelModeState {
 
     fn mark_all_not_ready(&mut self) {
         self.ready = [false; JOINT_COUNT];
+        self.last_attempt_ms = [0; JOINT_COUNT];
     }
 
     fn mark_servo_not_ready(&mut self, servo_id: u8) {
@@ -72,6 +77,17 @@ impl WheelModeState {
 
     fn is_ready(&self, index: usize, servo_id: u8) -> bool {
         index < JOINT_COUNT && self.servo_ids[index] == servo_id && self.ready[index]
+    }
+
+    fn can_retry(&self, index: usize, now: u64) -> bool {
+        index < JOINT_COUNT
+            && now.saturating_sub(self.last_attempt_ms[index]) >= WHEEL_MODE_RECOVERY_RETRY_MS
+    }
+
+    fn mark_attempt(&mut self, index: usize, now: u64) {
+        if index < JOINT_COUNT {
+            self.last_attempt_ms[index] = now;
+        }
     }
 }
 
@@ -138,31 +154,180 @@ impl PuppyarmIntent {
     }
 }
 
-#[embassy_executor::task]
-pub async fn arm_task(
-    mut servo: ServoController,
-    intents: &'static IntentChannel,
-    telemetry: &'static TelemetryChannel,
-) {
-    let mut controller = ArmController::new(Instant::now().as_millis());
-    let mut wheel_modes = WheelModeState::new(&controller);
-    let mut telemetry_seq = 0;
-    let mut last_telemetry_ms = 0;
-    initialize_wheel_mode(&mut servo, &controller, &mut wheel_modes).await;
+fn telemetry_snapshot(controller: &ArmController, seq: u32) -> PuppyarmTelemetry {
+    let coords_mm = controller.current_coords().ok().map(|(x, y, z)| {
+        (
+            x as f32,
+            y as f32,
+            kinematics::shoulder_to_table_z(z) as f32,
+        )
+    });
 
-    loop {
-        let now = Instant::now().as_millis();
-        drain_intents(intents, &mut controller, &mut servo, &mut wheel_modes, now).await;
-        read_feedback(&mut servo, &mut controller, &mut wheel_modes, now).await;
-        apply_outputs(&mut servo, &mut controller, &mut wheel_modes, now).await;
-        publish_telemetry(
-            telemetry,
-            &controller,
-            &mut telemetry_seq,
-            &mut last_telemetry_ms,
-            now,
-        );
-        Timer::after(CONTROL_PERIOD).await;
+    PuppyarmTelemetry {
+        seq,
+        joints: core::array::from_fn(|index| {
+            let joint = controller.safety.joints[index];
+            PuppyarmJointTelemetry {
+                servo_id: joint.servo_id,
+                online: joint.is_online,
+                has_feedback: joint.has_feedback && joint.tick.is_some(),
+                limit_reached: super::servo_safety::is_outside_limits(&joint),
+                tick: joint.tick,
+                target_tick: joint.target_tick,
+                speed: joint.speed,
+                limit_min: joint.tick_min,
+                limit_max: joint.tick_max,
+                angle_deg: controller
+                    .joint_angle(index)
+                    .ok()
+                    .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32),
+                fault: joint.fault,
+            }
+        }),
+        coords_mm,
+    }
+}
+
+fn publish_telemetry(
+    telemetry: &'static TelemetryChannel,
+    controller: &ArmController,
+    seq: &mut u32,
+    last_telemetry_ms: &mut u64,
+    now: u64,
+) {
+    if now.saturating_sub(*last_telemetry_ms) < TELEMETRY_PERIOD_MS {
+        return;
+    }
+
+    *last_telemetry_ms = now;
+    *seq = seq.wrapping_add(1);
+
+    let snapshot = telemetry_snapshot(controller, *seq);
+    if telemetry.try_send(snapshot).is_err() {
+        let _ = telemetry.try_receive();
+        let _ = telemetry.try_send(snapshot);
+    }
+}
+
+async fn ensure_wheel_mode(
+    servo: &mut ServoController,
+    wheel_modes: &mut WheelModeState,
+    index: usize,
+    servo_id: u8,
+    now: u64,
+    force: bool,
+) -> bool {
+    if wheel_modes.is_ready(index, servo_id) {
+        return true;
+    }
+
+    if !force && !wheel_modes.can_retry(index, now) {
+        return false;
+    }
+
+    wheel_modes.mark_attempt(index, now);
+    match servo.set_mode(servo_id, Mode::Wheel).await {
+        Ok(()) => {
+            log::info!("wheel mode ready for arm servo {servo_id}");
+            wheel_modes.mark_ready(index);
+            true
+        }
+        Err(err) => {
+            log::warn!("set wheel mode failed for servo {servo_id}: {:?}", err);
+            wheel_modes.mark_not_ready(index);
+            false
+        }
+    }
+}
+
+async fn initialize_wheel_mode(
+    servo: &mut ServoController,
+    controller: &ArmController,
+    wheel_modes: &mut WheelModeState,
+) {
+    for (index, profile) in controller.profiles.iter().copied().enumerate() {
+        let servo_id = profile.servo_id;
+        for attempt in 1..=WHEEL_MODE_INIT_ATTEMPTS {
+            if ensure_wheel_mode(
+                servo,
+                wheel_modes,
+                index,
+                servo_id,
+                Instant::now().as_millis(),
+                true,
+            )
+            .await
+            {
+                if let Err(err) = servo.write_wheel_speed(servo_id, 0, ARM_WHEEL_ACC).await {
+                    log::warn!("initial wheel stop failed for servo {servo_id}: {:?}", err);
+                    wheel_modes.mark_not_ready(index);
+                }
+                break;
+            }
+
+            if attempt < WHEEL_MODE_INIT_ATTEMPTS {
+                Timer::after(WHEEL_MODE_INIT_RETRY).await;
+            }
+        }
+    }
+}
+
+async fn apply_outputs(
+    servo: &mut ServoController,
+    controller: &mut ArmController,
+    wheel_modes: &mut WheelModeState,
+    now: u64,
+) {
+    let outputs = controller.update(now);
+    for (index, output) in outputs.iter().copied().enumerate() {
+        if !output.should_send {
+            continue;
+        }
+
+        if !ensure_wheel_mode(servo, wheel_modes, index, output.servo_id, now, false).await {
+            continue;
+        }
+
+        if let Err(err) = servo
+            .write_wheel_speed(output.servo_id, output.speed, ARM_WHEEL_ACC)
+            .await
+        {
+            log::warn!(
+                "set wheel speed failed for servo {} speed {}: {:?}",
+                output.servo_id,
+                output.speed,
+                err
+            );
+            wheel_modes.mark_not_ready(index);
+            continue;
+        }
+
+        let _ = controller.mark_speed_sent(index, output.speed, now);
+    }
+}
+
+async fn read_feedback(
+    servo: &mut ServoController,
+    controller: &mut ArmController,
+    wheel_modes: &mut WheelModeState,
+    now: u64,
+) {
+    for index in 0..JOINT_COUNT {
+        let servo_id = controller.profiles[index].servo_id;
+        let was_online = controller.safety.joints[index].is_online;
+        match servo.read_position(servo_id).await {
+            Ok(tick) => {
+                let _ = controller.record_feedback(index, tick as i32, now);
+                if !was_online {
+                    wheel_modes.mark_not_ready(index);
+                }
+            }
+            Err(err) => {
+                log::warn!("read position failed for servo {servo_id}: {:?}", err);
+                let _ = controller.record_feedback_error(index);
+                wheel_modes.mark_not_ready(index);
+            }
+        }
     }
 }
 
@@ -218,163 +383,30 @@ async fn drain_intents(
     }
 }
 
-async fn read_feedback(
-    servo: &mut ServoController,
-    controller: &mut ArmController,
-    wheel_modes: &mut WheelModeState,
-    now: u64,
-) {
-    for index in 0..JOINT_COUNT {
-        let servo_id = controller.profiles[index].servo_id;
-        let was_online = controller.safety.joints[index].is_online;
-        match servo.read_position(servo_id).await {
-            Ok(tick) => {
-                let _ = controller.record_feedback(index, tick as i32, now);
-                if !was_online {
-                    wheel_modes.mark_not_ready(index);
-                }
-            }
-            Err(err) => {
-                log::warn!("read position failed for servo {servo_id}: {:?}", err);
-                let _ = controller.record_feedback_error(index);
-                wheel_modes.mark_not_ready(index);
-            }
-        }
-    }
-}
-
-async fn apply_outputs(
-    servo: &mut ServoController,
-    controller: &mut ArmController,
-    wheel_modes: &mut WheelModeState,
-    now: u64,
-) {
-    let outputs = controller.update(now);
-    for (index, output) in outputs.iter().copied().enumerate() {
-        if !output.should_send {
-            continue;
-        }
-
-        if !ensure_wheel_mode(servo, wheel_modes, index, output.servo_id).await {
-            continue;
-        }
-
-        if let Err(err) = servo
-            .write_wheel_speed(output.servo_id, output.speed, ARM_WHEEL_ACC)
-            .await
-        {
-            log::warn!(
-                "set wheel speed failed for servo {} speed {}: {:?}",
-                output.servo_id,
-                output.speed,
-                err
-            );
-            wheel_modes.mark_not_ready(index);
-            continue;
-        }
-
-        let _ = controller.mark_speed_sent(index, output.speed, now);
-    }
-}
-
-async fn initialize_wheel_mode(
-    servo: &mut ServoController,
-    controller: &ArmController,
-    wheel_modes: &mut WheelModeState,
-) {
-    for (index, profile) in controller.profiles.iter().copied().enumerate() {
-        let servo_id = profile.servo_id;
-        for attempt in 1..=WHEEL_MODE_INIT_ATTEMPTS {
-            if ensure_wheel_mode(servo, wheel_modes, index, servo_id).await {
-                if let Err(err) = servo.write_wheel_speed(servo_id, 0, ARM_WHEEL_ACC).await {
-                    log::warn!("initial wheel stop failed for servo {servo_id}: {:?}", err);
-                    wheel_modes.mark_not_ready(index);
-                }
-                break;
-            }
-
-            if attempt < WHEEL_MODE_INIT_ATTEMPTS {
-                Timer::after(WHEEL_MODE_INIT_RETRY).await;
-            }
-        }
-    }
-}
-
-async fn ensure_wheel_mode(
-    servo: &mut ServoController,
-    wheel_modes: &mut WheelModeState,
-    index: usize,
-    servo_id: u8,
-) -> bool {
-    if wheel_modes.is_ready(index, servo_id) {
-        return true;
-    }
-
-    match servo.set_mode(servo_id, Mode::Wheel).await {
-        Ok(()) => {
-            log::info!("wheel mode ready for arm servo {servo_id}");
-            wheel_modes.mark_ready(index);
-            true
-        }
-        Err(err) => {
-            log::warn!("set wheel mode failed for servo {servo_id}: {:?}", err);
-            wheel_modes.mark_not_ready(index);
-            false
-        }
-    }
-}
-
-fn publish_telemetry(
+#[embassy_executor::task]
+pub async fn arm_task(
+    mut servo: ServoController,
+    intents: &'static IntentChannel,
     telemetry: &'static TelemetryChannel,
-    controller: &ArmController,
-    seq: &mut u32,
-    last_telemetry_ms: &mut u64,
-    now: u64,
 ) {
-    if now.saturating_sub(*last_telemetry_ms) < TELEMETRY_PERIOD_MS {
-        return;
-    }
+    let mut controller = ArmController::new(Instant::now().as_millis());
+    let mut wheel_modes = WheelModeState::new(&controller);
+    let mut telemetry_seq = 0;
+    let mut last_telemetry_ms = 0;
+    initialize_wheel_mode(&mut servo, &controller, &mut wheel_modes).await;
 
-    *last_telemetry_ms = now;
-    *seq = seq.wrapping_add(1);
-
-    let snapshot = telemetry_snapshot(controller, *seq);
-    if telemetry.try_send(snapshot).is_err() {
-        let _ = telemetry.try_receive();
-        let _ = telemetry.try_send(snapshot);
-    }
-}
-
-fn telemetry_snapshot(controller: &ArmController, seq: u32) -> PuppyarmTelemetry {
-    let coords_mm = controller.current_coords().ok().map(|(x, y, z)| {
-        (
-            x as f32,
-            y as f32,
-            kinematics::shoulder_to_table_z(z) as f32,
-        )
-    });
-
-    PuppyarmTelemetry {
-        seq,
-        joints: core::array::from_fn(|index| {
-            let joint = controller.safety.joints[index];
-            PuppyarmJointTelemetry {
-                servo_id: joint.servo_id,
-                online: joint.is_online,
-                has_feedback: joint.has_feedback && joint.tick.is_some(),
-                limit_reached: super::servo_safety::is_outside_limits(&joint),
-                tick: joint.tick,
-                target_tick: joint.target_tick,
-                speed: joint.speed,
-                limit_min: joint.tick_min,
-                limit_max: joint.tick_max,
-                angle_deg: controller
-                    .joint_angle(index)
-                    .ok()
-                    .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32),
-                fault: joint.fault,
-            }
-        }),
-        coords_mm,
+    loop {
+        let now = Instant::now().as_millis();
+        drain_intents(intents, &mut controller, &mut servo, &mut wheel_modes, now).await;
+        read_feedback(&mut servo, &mut controller, &mut wheel_modes, now).await;
+        apply_outputs(&mut servo, &mut controller, &mut wheel_modes, now).await;
+        publish_telemetry(
+            telemetry,
+            &controller,
+            &mut telemetry_seq,
+            &mut last_telemetry_ms,
+            now,
+        );
+        Timer::after(CONTROL_PERIOD).await;
     }
 }

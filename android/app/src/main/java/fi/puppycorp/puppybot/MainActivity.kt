@@ -154,7 +154,9 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(wsState) {
                     if (wsState is WebSocketState.Connected) {
                         ws.requestServoConfig()
-                        ws.turnServo(servoConfig.steeringServoId, CENTER_ANGLE, null)
+                        if (servoConfig.steeringServoId > 0) {
+                            ws.turnServo(servoConfig.steeringServoId, CENTER_ANGLE, null)
+                        }
                     }
                 }
 
@@ -425,7 +427,7 @@ private fun ServoConfigPanel(config: PuppybotServoConfig, controller: PuppybotCo
 
     fun updateArmId(index: Int, value: Int) {
         if (index in 0 until armIds.size) {
-            armIds[index] = value.coerceIn(0, 253)
+            armIds[index] = value.coerceIn(1, 253)
         }
     }
 
@@ -505,8 +507,10 @@ private fun ButtonsControlPanel(controller: PuppybotCommandSender, servoConfig: 
     fun stopAndCenterSteering() {
         controller.stopDrive()
         controller.stopAllMotors()
-        servoAngles[steeringServoId] = CENTER_ANGLE
-        controller.turnServo(steeringServoId, CENTER_ANGLE)
+        if (steeringServoId > 0) {
+            servoAngles[steeringServoId] = CENTER_ANGLE
+            controller.turnServo(steeringServoId, CENTER_ANGLE)
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -832,6 +836,35 @@ private fun ArmControlPanel(
             telemetry = armTelemetry
         )
 
+        Text("Jog", style = MaterialTheme.typography.bodyMedium)
+        (servoConfig.armServoIds + listOf(1, 2, 3, 4)).take(4).forEachIndexed { index, jogServoId ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "J${index + 1} / servo $jogServoId",
+                    modifier = Modifier.width(112.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                HoldRepeatButton(
+                    label = "-",
+                    repeatIntervalMs = ARM_JOG_REPEAT_INTERVAL_MS,
+                    onRepeat = { controller.armJog(index, -1, speed.roundToInt()) },
+                    onRelease = { controller.armStopJoint(index) },
+                    modifier = Modifier.weight(1f)
+                )
+                HoldRepeatButton(
+                    label = "+",
+                    repeatIntervalMs = ARM_JOG_REPEAT_INTERVAL_MS,
+                    onRepeat = { controller.armJog(index, 1, speed.roundToInt()) },
+                    onRelease = { controller.armStopJoint(index) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Joint", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { joint = (joint - 1).coerceAtLeast(0) }) {
@@ -1057,11 +1090,14 @@ private fun joystickPercent(input: Float, active: Boolean, deadZone: Float): Int
 }
 
 private fun configuredServoTargets(config: PuppybotServoConfig): List<ServoTarget> {
-    val targets = mutableListOf(
-        ServoTarget("Steering", config.steeringServoId, CENTER_ANGLE)
-    )
+    val targets = mutableListOf<ServoTarget>()
+    if (config.steeringServoId > 0) {
+        targets += ServoTarget("Steering", config.steeringServoId, CENTER_ANGLE)
+    }
     config.armServoIds.take(4).forEachIndexed { index, servoId ->
-        targets += ServoTarget("Arm ${index + 1}", servoId, DEFAULT_SERVO_ANGLE)
+        if (servoId > 0) {
+            targets += ServoTarget("Arm ${index + 1}", servoId, DEFAULT_SERVO_ANGLE)
+        }
     }
     return targets
 }
@@ -1083,6 +1119,7 @@ private enum class ControlMode {
 }
 
 private const val JOYSTICK_COMMAND_INTERVAL = 200L
+private const val ARM_JOG_REPEAT_INTERVAL_MS = 200L
 private const val JOYSTICK_DEAD_ZONE = 0.1f
 private const val MIN_SPEED = 40
 private const val MAX_SPEED = 100

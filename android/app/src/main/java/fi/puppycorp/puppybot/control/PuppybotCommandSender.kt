@@ -38,6 +38,8 @@ interface PuppybotCommandSender {
     fun runMotorPulses(motorId: Int, speed: Int, pulses: Int, stepMicros: Int)
     fun driveSteer(throttle: Int, steering: Int) {}
     fun stopDrive() {}
+    fun armJog(joint: Int, direction: Int, speed: Int) {}
+    fun armStopJoint(joint: Int) {}
     fun armJoint(joint: Int, angleDeg: Int, speed: Int) {}
     fun armPose(x: Float, y: Float, z: Float, wristDeg: Float, speed: Int) {}
     fun armStop() {}
