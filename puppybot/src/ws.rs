@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use embassy_net::{
     Stack,
     tcp::{Error as TcpError, TcpSocket},
@@ -5,6 +7,7 @@ use embassy_net::{
 use embassy_time::{Duration, Timer};
 use sha1::{Digest, Sha1};
 
+use crate::protocol::{self, ProtocolEvent, ProtocolState, RobotConfig};
 use crate::puppyarm::{
     controller::{ArmCommand, JOINT_COUNT},
     kinematics,
@@ -258,42 +261,63 @@ async fn handle_binary_ws_frame(
     let actual_len = payload.len().saturating_sub(4);
     log::info!(
         "WS command {} version={} declared_len={} actual_len={}",
-        command_name(cmd),
+        protocol::command_name(cmd),
         version,
         payload_len,
         actual_len
     );
 
-    if cmd == CMD_PING {
-        let pong = [
-            (PUPPY_PROTOCOL_VERSION & 0xff) as u8,
-            (PUPPY_PROTOCOL_VERSION >> 8) as u8,
-            MSG_TO_SRV_PONG,
-        ];
-        send_ws_frame(socket, 0x2, &pong).await?;
-    } else if cmd == CMD_CONFIG_GET {
-        send_config_state(socket, config).await?;
-    } else if cmd == CMD_CONFIG_SET {
-        match RobotConfig::decode(&payload[4..]) {
-            Some(new_config) => {
-                *config = new_config;
-                log::info!(
-                    "updated config steering_servo_id={} arm_servo_ids={:?}",
-                    config.steering_servo_id,
-                    config.arm_servo_ids
-                );
-                send_arm_intent(arm_intents, ArmCommand::SetServoIds(config.arm_servo_ids));
-                send_config_state(socket, config).await?;
-            }
-            None => {
-                log::warn!("invalid CONFIG_SET payload len={}", payload[4..].len());
-            }
-        }
-    } else {
-        handle_robot_command(cmd, &payload[4..], config, arm_intents, telemetry_enabled);
+    let mut protocol_state = ProtocolState {
+        config: *config,
+        telemetry_enabled: *telemetry_enabled,
+    };
+    let output = protocol::handle_binary_command(payload, &mut protocol_state);
+    *config = protocol_state.config;
+    *telemetry_enabled = protocol_state.telemetry_enabled;
+
+    for event in output.events {
+        dispatch_protocol_event(arm_intents, event);
+    }
+
+    if let Some(response) = output.response {
+        send_ws_frame(socket, 0x2, &response).await?;
     }
 
     Ok(())
+}
+
+fn dispatch_protocol_event(arm_intents: &'static IntentChannel, event: ProtocolEvent) {
+    match event {
+        ProtocolEvent::Arm(command) => send_arm_intent(arm_intents, command),
+        ProtocolEvent::DirectServoSet {
+            servo_id,
+            angle_deg,
+            speed,
+            acc,
+        } => send_puppyarm_intent(
+            arm_intents,
+            PuppyarmIntent::DirectServoSet {
+                servo_id,
+                angle_deg,
+                speed,
+                acc,
+            },
+        ),
+        ProtocolEvent::SteeringSet {
+            servo_id,
+            angle_deg,
+            speed,
+            acc,
+        } => send_puppyarm_intent(
+            arm_intents,
+            PuppyarmIntent::SteeringSet {
+                servo_id,
+                angle_deg,
+                speed,
+                acc,
+            },
+        ),
+    }
 }
 
 fn handle_robot_command(
@@ -755,37 +779,6 @@ fn push_bytes(frame: &mut [u8], offset: &mut usize, value: &[u8]) {
     let end = *offset + value.len();
     frame[*offset..end].copy_from_slice(value);
     *offset = end;
-}
-
-#[derive(Clone, Copy, Debug)]
-struct RobotConfig {
-    steering_servo_id: u8,
-    arm_servo_ids: [u8; 4],
-}
-
-impl RobotConfig {
-    fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() < 6 || payload[0] != CONFIG_VERSION {
-            return None;
-        }
-        if payload[2..6].contains(&0) {
-            return None;
-        }
-
-        Some(Self {
-            steering_servo_id: payload[1],
-            arm_servo_ids: [payload[2], payload[3], payload[4], payload[5]],
-        })
-    }
-}
-
-impl Default for RobotConfig {
-    fn default() -> Self {
-        Self {
-            steering_servo_id: 0,
-            arm_servo_ids: [1, 2, 3, 4],
-        }
-    }
 }
 
 struct WsFrame<'a> {

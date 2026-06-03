@@ -27,32 +27,45 @@ opt-level = 3
 opt-level = 3
 
 [dependencies]
-embassy-executor = "0.10.0"
-embassy-futures = "0.1.2"
-embassy-net = { version = "0.9.0", features = [
+embassy-executor = { version = "0.10.0", optional = true }
+embassy-futures = { version = "0.1.2", optional = true }
+embassy-net = { version = "0.9.0", optional = true, features = [
     "dhcpv4",
     "medium-ethernet",
     "multicast",
     "tcp",
     "udp",
 ] }
-embassy-sync = "0.8.0"
+embassy-sync = { version = "0.8.0", optional = true }
 embassy-time = "0.5.0"
-esp-alloc = "0.10.0"
-esp-backtrace = { version = "0.19.0", features = ["panic-handler", "println"] }
-esp-bootloader-esp-idf = "0.5.0"
-esp-hal = { version = "1.1.1", features = ["log-04", "unstable"] }
-esp-println = { version = "0.17.0", features = ["log-04"] }
-esp-radio = { version = "0.18.0", features = ["log-04", "wifi"] }
-esp-rtos = { version = "0.3.0", features = ["embassy", "esp-radio", "log-04"] }
+env_logger = { version = "0.11", optional = true }
+esp-alloc = { version = "0.10.0", optional = true }
+esp-backtrace = { version = "0.19.0", optional = true, features = ["panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "0.5.0", optional = true }
+esp-hal = { version = "1.1.1", optional = true, features = ["log-04", "unstable"] }
+esp-println = { version = "0.17.0", optional = true, features = ["log-04"] }
+esp-radio = { version = "0.18.0", optional = true, features = ["log-04", "wifi"] }
+esp-rtos = { version = "0.3.0", optional = true, features = ["embassy", "esp-radio", "log-04"] }
 log = "0.4"
 libm = "0.2"
 sha1 = { version = "0.11.0", default-features = false }
-static_cell = "2.1.1"
+static_cell = { version = "2.1.1", optional = true }
 
 [features]
 default = ["esp32"]
 esp32 = [
+    "dep:embassy-executor",
+    "dep:embassy-futures",
+    "dep:embassy-net",
+    "dep:embassy-sync",
+    "dep:esp-alloc",
+    "dep:esp-backtrace",
+    "dep:esp-bootloader-esp-idf",
+    "dep:esp-hal",
+    "dep:esp-println",
+    "dep:esp-radio",
+    "dep:esp-rtos",
+    "dep:static_cell",
     "esp-alloc/esp32",
     "esp-backtrace/esp32",
     "esp-bootloader-esp-idf/esp32",
@@ -60,4 +73,12 @@ esp32 = [
     "esp-radio/esp32",
     "esp-rtos/esp32",
     "esp-println/esp32",
+]
+host = [
+    "dep:embassy-executor",
+    "dep:env_logger",
+    "embassy-executor/embassy-time-driver",
+    "embassy-executor/executor-thread",
+    "embassy-executor/platform-std",
+    "embassy-time/std",
 ]

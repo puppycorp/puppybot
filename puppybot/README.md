@@ -59,6 +59,23 @@ For a debug build:
 ./scripts/build.sh debug
 ```
 
+## Host simulator
+
+The Rust app can also run on the PC with the host feature. It uses the same
+arm controller and STServo packet code, backed by a fake byte-level servo bus,
+and exposes the Android-compatible WebSocket endpoint on `/ws`.
+
+```sh
+./scripts/run-host.sh
+```
+
+By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
+`ws://<pc-ip>:8080/ws`. To bind a different address:
+
+```sh
+PUPPYBOT_HOST_ADDR=127.0.0.1:8081 ./scripts/run-host.sh
+```
+
 ## Flash
 
 ```sh

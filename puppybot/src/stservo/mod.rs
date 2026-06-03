@@ -108,6 +108,10 @@ where
         &mut self.bus
     }
 
+    pub fn bus(&self) -> &B {
+        &self.bus
+    }
+
     pub async fn ping(&mut self, servo_id: u8) -> Result<(), Error<B::Error>> {
         require_id(servo_id)?;
         let frame = self.tx_rx(servo_id, INST_PING, &[], self.timeout).await?;
@@ -500,7 +504,7 @@ fn to_servo_signed(value: i16) -> u16 {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "host"))]
 pub(crate) mod mock;
 
 #[cfg(feature = "esp32")]

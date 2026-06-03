@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -211,7 +212,8 @@ class MainActivity : ComponentActivity() {
                                 }
                                 TransportMode.Bluetooth -> ensureBleScanning()
                             }
-                        }
+                        },
+                        onManualNetworkConnect = { host, port -> ws.connectToHost(host, port) }
                     )
                 }
             }
@@ -255,10 +257,13 @@ private fun PuppybotScreen(
     lastBleEvent: String?,
     bleController: PuppybotCommandSender,
     transportMode: TransportMode,
-    onTransportModeChange: (TransportMode) -> Unit
+    onTransportModeChange: (TransportMode) -> Unit,
+    onManualNetworkConnect: (String, Int) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    var manualNetworkHost by remember { mutableStateOf("10.70.0.149") }
+    var manualNetworkPort by remember { mutableStateOf("80") }
 
     Column(
         modifier = modifier
@@ -345,6 +350,20 @@ private fun PuppybotScreen(
         stateText?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
         lastEvent?.let { Text("Last event: $it", style = MaterialTheme.typography.bodySmall) }
         deviceSummary()
+        if (transportMode == TransportMode.Network) {
+            ManualNetworkConnection(
+                host = manualNetworkHost,
+                port = manualNetworkPort,
+                onHostChange = { manualNetworkHost = it },
+                onPortChange = { manualNetworkPort = it },
+                onConnect = {
+                    onManualNetworkConnect(
+                        manualNetworkHost,
+                        manualNetworkPort.toIntOrNull()?.coerceIn(1, 65535) ?: 80
+                    )
+                }
+            )
+        }
 
         if (isConnected) {
             ControlPanel(
@@ -354,6 +373,38 @@ private fun PuppybotScreen(
                 activeArmTelemetryEnabled,
                 activeArmTelemetry
             )
+        }
+    }
+}
+
+@Composable
+private fun ManualNetworkConnection(
+    host: String,
+    port: String,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onConnect: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Manual network connection", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = host,
+                onValueChange = onHostChange,
+                label = { Text("Host") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = port,
+                onValueChange = { value -> onPortChange(value.filter { it.isDigit() }.take(5)) },
+                label = { Text("Port") },
+                singleLine = true,
+                modifier = Modifier.width(96.dp)
+            )
+        }
+        Button(onClick = onConnect, enabled = host.isNotBlank()) {
+            Text("Connect")
         }
     }
 }
@@ -1233,7 +1284,8 @@ private fun PuppybotScreenPreview() {
             lastBleEvent = null,
             bleController = stubController,
             transportMode = TransportMode.Network,
-            onTransportModeChange = {}
+            onTransportModeChange = {},
+            onManualNetworkConnect = { _, _ -> }
         )
     }
 }

@@ -599,7 +599,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(controller.safety.joints[0].target_tick, Some(1000));
-        assert_eq!(controller.safety.joints[2].target_tick, Some(1500));
+        assert_eq!(
+            controller.safety.joints[2].target_tick,
+            Some(ELBOW_TICK_MIN)
+        );
     }
 
     #[test]
@@ -634,6 +637,113 @@ mod tests {
             10,
         );
         assert_eq!(result, Err(ControllerError::Ik(IkError::Unreachable)));
+    }
+
+    #[test]
+    fn goto_pose_sets_targets_from_pose_solution() {
+        let mut controller = ArmController::new(0);
+        let tool_phi_rad = -PI / 4.0;
+        let angles =
+            kinematics::solve_coords_with_tool_pitch(180.0, 40.0, 20.0, tool_phi_rad).unwrap();
+        let expected_ticks = [
+            angle_to_tick(&controller.profiles[0], angles.0),
+            angle_to_tick(&controller.profiles[1], angles.1),
+            angle_to_tick(&controller.profiles[2], angles.2),
+            angle_to_tick(&controller.profiles[3], angles.3),
+        ];
+        let expected_targets = core::array::from_fn(|index| {
+            servo_safety::clip_tick_to_joint_limits(
+                &controller.safety.joints[index],
+                expected_ticks[index],
+            )
+        });
+
+        controller
+            .handle_command(
+                ArmCommand::GotoPose {
+                    x: 180.0,
+                    y: 40.0,
+                    z: 20.0,
+                    tool_phi_rad,
+                },
+                10,
+            )
+            .unwrap();
+
+        assert_eq!(
+            controller
+                .safety
+                .joints
+                .map(|joint| joint.target_tick.unwrap()),
+            expected_targets
+        );
+    }
+
+    #[test]
+    fn table_and_shoulder_z_conversion_round_trips() {
+        let table_z = 42.0;
+        let shoulder_z = kinematics::table_to_shoulder_z(table_z);
+
+        assert_eq!(shoulder_z, table_z - kinematics::Z_ORIGIN_MM);
+        assert_eq!(kinematics::shoulder_to_table_z(shoulder_z), table_z);
+    }
+
+    #[test]
+    fn angle_and_tick_conversion_ignore_soft_limit_changes() {
+        let mut profiles = default_joint_profiles();
+        let angle = PI / 4.0;
+        let original_tick = angle_to_tick(&profiles[0], angle);
+        let original_angle = tick_to_angle(&profiles[1], SHOULDER_ZERO_TICK);
+
+        profiles[0].tick_min = -200;
+        profiles[0].tick_max = 900;
+        profiles[1].tick_min = 3400;
+        profiles[1].tick_max = 3900;
+
+        assert_eq!(angle_to_tick(&profiles[0], angle), original_tick);
+        assert_eq!(
+            tick_to_angle(&profiles[1], SHOULDER_ZERO_TICK),
+            original_angle
+        );
+    }
+
+    #[test]
+    fn wrapped_feedback_tick_does_not_jump_reported_angle() {
+        let profiles = default_joint_profiles();
+        let wrapped_angle = tick_to_angle(&profiles[1], 4);
+        let unwrapped_angle = tick_to_angle(&profiles[1], 4100);
+
+        assert!((wrapped_angle - unwrapped_angle).abs() <= 1.0e-6);
+    }
+
+    #[test]
+    fn current_coords_are_present_when_all_feedback_exists() {
+        let mut controller = ArmController::new(0);
+        let ticks = [
+            YAW_ZERO_TICK,
+            SHOULDER_ZERO_TICK,
+            ELBOW_ZERO_TICK,
+            TIP_ZERO_TICK,
+        ];
+        for (index, tick) in ticks.iter().copied().enumerate() {
+            controller.record_feedback(index, tick, 0).unwrap();
+        }
+
+        let coords = controller.current_coords().unwrap();
+
+        assert!(coords.0.is_finite());
+        assert!(coords.1.is_finite());
+        assert!(coords.2.is_finite());
+    }
+
+    #[test]
+    fn current_coords_are_absent_when_required_feedback_is_missing() {
+        let controller = ArmController::new(0);
+
+        assert_eq!(
+            controller.current_coords(),
+            Err(ControllerError::MissingFeedback)
+        );
     }
 
     #[test]

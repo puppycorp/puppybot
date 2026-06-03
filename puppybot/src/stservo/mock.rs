@@ -20,6 +20,8 @@ pub(crate) struct FakeServo {
     pub(crate) mode: Mode,
     pub(crate) position: u16,
     pub(crate) wheel_speed: i16,
+    pub(crate) voltage_raw: u8,
+    pub(crate) temperature_c: u8,
     pub(crate) online: bool,
 }
 
@@ -30,6 +32,8 @@ impl FakeServo {
             mode: Mode::Position,
             position,
             wheel_speed: 0,
+            voltage_raw: 74,
+            temperature_c: 25,
             online: true,
         }
     }
@@ -39,6 +43,8 @@ impl FakeServo {
 pub(crate) enum FakeBusError {
     PacketTooLarge,
     BadPacket,
+    ForcedReadFailure,
+    ForcedWriteFailure,
 }
 
 #[derive(Clone, Debug)]
@@ -48,6 +54,9 @@ pub(crate) struct FakeSerialBus {
     read_buf: [u8; FAKE_MAX_READ],
     read_start: usize,
     read_end: usize,
+    fail_reads: [bool; 256],
+    fail_writes: [bool; 256],
+    timeout_reads: [bool; 256],
 }
 
 impl FakeSerialBus {
@@ -58,6 +67,9 @@ impl FakeSerialBus {
             read_buf: [0; FAKE_MAX_READ],
             read_start: 0,
             read_end: 0,
+            fail_reads: [false; 256],
+            fail_writes: [false; 256],
+            timeout_reads: [false; 256],
         }
     }
 
@@ -92,6 +104,36 @@ impl FakeSerialBus {
         *slot = Some(servo);
     }
 
+    pub(crate) fn set_read_failure(&mut self, servo_id: u8, enabled: bool) {
+        self.fail_reads[servo_id as usize] = enabled;
+    }
+
+    pub(crate) fn set_read_timeout(&mut self, servo_id: u8, enabled: bool) {
+        self.timeout_reads[servo_id as usize] = enabled;
+    }
+
+    pub(crate) fn set_write_failure(&mut self, servo_id: u8, enabled: bool) {
+        self.fail_writes[servo_id as usize] = enabled;
+    }
+
+    pub(crate) fn set_online(&mut self, servo_id: u8, online: bool) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.online = online;
+        }
+    }
+
+    pub(crate) fn set_position(&mut self, servo_id: u8, position: u16) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.position = position;
+        }
+    }
+
+    pub(crate) fn set_temperature(&mut self, servo_id: u8, temperature_c: u8) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.temperature_c = temperature_c;
+        }
+    }
+
     fn servo_mut(&mut self, id: u8) -> Option<&mut FakeServo> {
         self.servos
             .iter_mut()
@@ -115,6 +157,16 @@ impl FakeSerialBus {
 
         let instruction = packet[4];
         let params = &packet[5..packet.len() - 1];
+
+        if instruction == INST_READ && self.fail_reads[id as usize] {
+            return Err(FakeBusError::ForcedReadFailure);
+        }
+        if instruction == INST_WRITE && self.fail_writes[id as usize] {
+            return Err(FakeBusError::ForcedWriteFailure);
+        }
+        if instruction == INST_READ && self.timeout_reads[id as usize] {
+            return Ok(());
+        }
 
         let Some(servo) = self.servo_mut(id) else {
             return Ok(());
@@ -142,6 +194,14 @@ impl FakeSerialBus {
                             Mode::Position => 0,
                             Mode::Wheel => 1,
                         };
+                        &response[..1]
+                    }
+                    (SMS_STS_PRESENT_VOLTAGE, 1) => {
+                        response[0] = servo.voltage_raw;
+                        &response[..1]
+                    }
+                    (SMS_STS_PRESENT_TEMPERATURE, 1) => {
+                        response[0] = servo.temperature_c;
                         &response[..1]
                     }
                     _ => return Err(FakeBusError::BadPacket),
@@ -242,7 +302,7 @@ fn fake_serial_bus_records_real_set_mode_packet() {
 
     let mut response = [0u8; 6];
     assert_eq!(bus.read_buffered(&mut response).unwrap(), 6);
-    assert_eq!(response, status_packet(1, 0, &[]));
+    assert_eq!(response.as_slice(), status_packet(1, 0, &[]).as_slice());
 }
 
 #[test]
@@ -309,6 +369,81 @@ fn servo_id_zero_is_rejected_before_bus_write() {
         Err(Error::InvalidId)
     );
     assert!(servo.bus_mut().writes.is_empty());
+}
+
+#[test]
+fn fake_serial_bus_can_inject_read_failure() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 0);
+    bus.set_read_failure(1, true);
+
+    assert_eq!(
+        bus.write_all(&packet(1, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2])),
+        Err(FakeBusError::ForcedReadFailure)
+    );
+}
+
+#[test]
+fn fake_serial_bus_can_inject_read_timeout() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 0);
+    bus.set_read_timeout(1, true);
+
+    bus.write_all(&packet(1, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2]))
+        .unwrap();
+
+    assert_eq!(
+        bus.writes[0],
+        packet(1, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2])
+    );
+    let mut response = [0u8; 8];
+    assert_eq!(bus.read_buffered(&mut response).unwrap(), 0);
+}
+
+#[test]
+fn fake_serial_bus_can_inject_write_failure() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 0);
+    bus.set_write_failure(1, true);
+
+    assert_eq!(
+        bus.write_all(&packet(1, INST_WRITE, &[SMS_STS_MODE, 1])),
+        Err(FakeBusError::ForcedWriteFailure)
+    );
+}
+
+#[test]
+fn fake_serial_bus_offline_servo_does_not_queue_response() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 0);
+    bus.set_online(1, false);
+
+    bus.write_all(&packet(1, INST_PING, &[])).unwrap();
+
+    let mut response = [0u8; 8];
+    assert_eq!(bus.read_buffered(&mut response).unwrap(), 0);
+}
+
+#[test]
+fn fake_serial_bus_position_can_be_frozen_by_test() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 100);
+    bus.set_position(1, 555);
+
+    bus.write_all(&packet(1, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2]))
+        .unwrap();
+
+    let expected = status_packet(1, 0, &555u16.to_le_bytes());
+    let mut response = [0u8; 8];
+    assert_eq!(bus.read_buffered(&mut response).unwrap(), expected.len());
+    assert_eq!(&response[..expected.len()], expected.as_slice());
+}
+
+#[test]
+fn read_status_uses_fake_voltage_and_temperature() {
+    let mut bus = FakeSerialBus::new().with_servo(1, 0);
+    bus.set_temperature(1, 42);
+    let mut servo = StServo::new(bus);
+
+    let status = block_on_ready(servo.read_status(1)).unwrap();
+
+    assert_eq!(status.voltage_raw, 74);
+    assert_eq!(status.temperature_c, 42);
 }
 
 pub(crate) fn packet(id: u8, instruction: u8, params: &[u8]) -> Vec<u8> {

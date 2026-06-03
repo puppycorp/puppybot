@@ -1,13 +1,25 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(feature = "esp32", no_std)]
+#![cfg_attr(feature = "esp32", no_main)]
 
+#[cfg(all(feature = "esp32", feature = "host"))]
+compile_error!(
+    "features `esp32` and `host` are mutually exclusive; use --no-default-features --features host for the PC simulator"
+);
+
+#[cfg(feature = "esp32")]
 use embassy_executor::Spawner;
 
+#[cfg(feature = "esp32")]
 use embassy_net::{Runner, StackResources};
+#[cfg(feature = "esp32")]
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+#[cfg(feature = "esp32")]
 use embassy_time::{Duration, Timer};
+#[cfg(feature = "esp32")]
 use esp_alloc as _;
+#[cfg(feature = "esp32")]
 use esp_backtrace as _;
+#[cfg(feature = "esp32")]
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output, OutputConfig},
@@ -17,21 +29,32 @@ use esp_hal::{
     timer::timg::TimerGroup,
     uart::{Config as UartConfig, Uart},
 };
+#[cfg(feature = "esp32")]
 use esp_radio::wifi::{
     Config as WifiConfig, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
 
+#[cfg(feature = "host")]
+mod host;
+#[cfg(feature = "esp32")]
 mod mdns;
+#[cfg(any(feature = "esp32", feature = "host"))]
+mod protocol;
 pub mod puppyarm;
 pub mod stservo;
 mod utility;
+#[cfg(feature = "esp32")]
 mod ws;
 
+#[cfg(feature = "esp32")]
 esp_bootloader_esp_idf::esp_app_desc!();
 
+#[cfg(feature = "esp32")]
 const WIFI_SSID: Option<&str> = option_env!("WIFI_SSID");
+#[cfg(feature = "esp32")]
 const WIFI_PASSWORD: Option<&str> = option_env!("WIFI_PASSWORD");
 
+#[cfg(feature = "esp32")]
 macro_rules! mk_static {
     ($t:ty, $val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -39,6 +62,12 @@ macro_rules! mk_static {
     }};
 }
 
+#[cfg(feature = "host")]
+fn main() {
+    host::run();
+}
+
+#[cfg(feature = "esp32")]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
@@ -130,6 +159,7 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
+#[cfg(feature = "esp32")]
 #[embassy_executor::task]
 async fn heartbeat(mut status_led: Output<'static>) {
     loop {
@@ -139,6 +169,7 @@ async fn heartbeat(mut status_led: Output<'static>) {
     }
 }
 
+#[cfg(feature = "esp32")]
 #[embassy_executor::task]
 async fn wifi_connection(mut controller: WifiController<'static>) {
     loop {
@@ -159,6 +190,7 @@ async fn wifi_connection(mut controller: WifiController<'static>) {
     }
 }
 
+#[cfg(feature = "esp32")]
 #[embassy_executor::task]
 async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
     runner.run().await

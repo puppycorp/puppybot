@@ -284,7 +284,17 @@ async fn apply_outputs(
             continue;
         }
 
-        if !ensure_wheel_mode(servo, wheel_modes, index, output.servo_id, now, false).await {
+        let force_wheel_mode = output.speed == 0;
+        if !ensure_wheel_mode(
+            servo,
+            wheel_modes,
+            index,
+            output.servo_id,
+            now,
+            force_wheel_mode,
+        )
+        .await
+        {
             continue;
         }
 
