@@ -37,9 +37,6 @@ pub const CONFIG_VERSION: u8 = 1;
 pub const SUBSCRIPTION_TOPIC_ARM_STATE: u8 = 1;
 
 const DEFAULT_SERVO_SPEED: u16 = 2400;
-const DIRECT_SERVO_ACC: u8 = 50;
-const STEERING_CENTER_DEG: i16 = 90;
-const STEERING_RANGE_DEG: i16 = 90;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RobotConfig {
@@ -90,18 +87,6 @@ impl Default for ProtocolState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ProtocolEvent {
     Arm(ArmCommand),
-    DirectServoSet {
-        servo_id: u8,
-        angle_deg: u16,
-        speed: u16,
-        acc: u8,
-    },
-    SteeringSet {
-        servo_id: u8,
-        angle_deg: u16,
-        speed: u16,
-        acc: u8,
-    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -314,24 +299,18 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
             }
         }
         CMD_DRIVE_STEER => {
-            if body.len() >= 2 && state.config.steering_servo_id != 0 {
-                output.events.push(ProtocolEvent::SteeringSet {
-                    servo_id: state.config.steering_servo_id,
-                    angle_deg: steering_to_angle(body[1] as i8),
-                    speed: DEFAULT_SERVO_SPEED,
-                    acc: DIRECT_SERVO_ACC,
-                });
-            }
+            let _ = body;
         }
         CMD_SERVO_SET => {
             if body.len() >= 5 && body[0] != 0 {
                 let duration_ms = u16::from_le_bytes([body[3], body[4]]);
-                output.events.push(ProtocolEvent::DirectServoSet {
-                    servo_id: body[0],
-                    angle_deg: u16::from_le_bytes([body[1], body[2]]),
-                    speed: servo_speed_from_duration(duration_ms),
-                    acc: DIRECT_SERVO_ACC,
-                });
+                output
+                    .events
+                    .push(ProtocolEvent::Arm(ArmCommand::SetServoAngle {
+                        servo_id: body[0],
+                        angle_rad: deg_to_rad(u16::from_le_bytes([body[1], body[2]]) as f32),
+                        speed: servo_speed_from_duration(duration_ms) as i16,
+                    }));
             }
         }
         CMD_STOP_DRIVE => {}
@@ -480,11 +459,6 @@ pub fn fault_name_str(fault: SafetyFault) -> &'static str {
         SafetyFault::DeadmanFeedbackStale => "deadman_feedback",
         SafetyFault::DeadmanCommandStale => "deadman_command",
     }
-}
-
-fn steering_to_angle(steering: i8) -> u16 {
-    let steering = steering.clamp(-100, 100) as i16;
-    (STEERING_CENTER_DEG + (steering * STEERING_RANGE_DEG) / 100).clamp(0, 240) as u16
 }
 
 fn servo_speed_from_duration(duration_ms: u16) -> u16 {

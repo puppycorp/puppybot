@@ -56,6 +56,11 @@ pub enum ArmCommand {
         joint: usize,
         angle_rad: f64,
     },
+    SetServoAngle {
+        servo_id: u8,
+        angle_rad: f64,
+        speed: i16,
+    },
     SetTickLimits {
         joint: usize,
         min: i32,
@@ -207,6 +212,11 @@ impl ArmController {
             ArmCommand::SetJointAngle { joint, angle_rad } => {
                 self.set_joint_angle(joint, angle_rad, now_ms)
             }
+            ArmCommand::SetServoAngle {
+                servo_id,
+                angle_rad,
+                speed,
+            } => self.set_servo_angle(servo_id, angle_rad, speed, now_ms),
             ArmCommand::SetTickLimits { joint, min, max } => self.set_tick_limits(joint, min, max),
             ArmCommand::SetTickLimitsEnabled { joint, enabled } => {
                 let joint = validate_joint(joint)?;
@@ -388,6 +398,22 @@ impl ArmController {
         }
         ticks[joint] = angle_to_tick(&self.profiles[joint], angle_rad);
         self.goto_ticks(ticks, now_ms)
+    }
+
+    fn set_servo_angle(
+        &mut self,
+        servo_id: u8,
+        angle_rad: f64,
+        speed: i16,
+        now_ms: u64,
+    ) -> Result<(), ControllerError> {
+        let joint = self
+            .profiles
+            .iter()
+            .position(|profile| profile.servo_id == servo_id)
+            .ok_or(ControllerError::InvalidJoint)?;
+        self.safety.set_default_speed(speed, now_ms);
+        self.set_joint_angle(joint, angle_rad, now_ms)
     }
 
     fn set_tick_limits(&mut self, joint: usize, min: i32, max: i32) -> Result<(), ControllerError> {

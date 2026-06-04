@@ -90,7 +90,7 @@ async fn main(spawner: Spawner) -> ! {
     let servo_bus = stservo::StServo::new(servo_uart);
     let arm_intents = mk_static!(
         puppyarm::task::IntentChannel,
-        Channel::<CriticalSectionRawMutex, puppyarm::task::PuppyarmIntent, 16>::new()
+        Channel::<CriticalSectionRawMutex, puppyarm::controller::ArmIntent, 16>::new()
     );
     let arm_telemetry = mk_static!(
         puppyarm::task::TelemetryChannel,

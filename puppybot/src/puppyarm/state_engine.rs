@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use super::{
-    controller::{ArmCommand, ArmController, ArmIntent, ArmMode, ArmState, JOINT_COUNT},
+    controller::{ArmCommand, ArmController, ArmMode, ArmState, JOINT_COUNT},
     servo_safety::{self, SafetyFault},
 };
 #[cfg(feature = "host")]
@@ -14,52 +14,9 @@ use crate::stservo::{
 use alloc::vec::Vec;
 
 const ARM_WHEEL_ACC: u8 = 0;
-const DIRECT_SERVO_ACC: u8 = 50;
-const DIRECT_SERVO_SPEED: u16 = 2400;
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 #[cfg(feature = "host")]
 const HOST_TICK_RATE_DIVISOR: i32 = 15;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PuppyarmIntent {
-    Arm(ArmIntent),
-    DirectServoSet {
-        servo_id: u8,
-        angle_deg: u16,
-        speed: u16,
-        acc: u8,
-    },
-    SteeringSet {
-        servo_id: u8,
-        angle_deg: u16,
-        speed: u16,
-        acc: u8,
-    },
-}
-
-impl PuppyarmIntent {
-    pub fn direct_servo_set(servo_id: u8, angle_deg: u16, speed: u16) -> Self {
-        Self::DirectServoSet {
-            servo_id,
-            angle_deg,
-            speed: if speed == 0 {
-                DIRECT_SERVO_SPEED
-            } else {
-                speed
-            },
-            acc: DIRECT_SERVO_ACC,
-        }
-    }
-
-    pub fn steering_set(servo_id: u8, angle_deg: u16) -> Self {
-        Self::SteeringSet {
-            servo_id,
-            angle_deg,
-            speed: DIRECT_SERVO_SPEED,
-            acc: DIRECT_SERVO_ACC,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WheelModeState {
@@ -105,14 +62,6 @@ impl WheelModeState {
         self.last_attempt_ms = [0; JOINT_COUNT];
     }
 
-    fn mark_servo_not_ready(&mut self, servo_id: u8) {
-        for index in 0..JOINT_COUNT {
-            if self.servo_ids[index] == servo_id {
-                self.ready[index] = false;
-            }
-        }
-    }
-
     fn is_ready(&self, index: usize, servo_id: u8) -> bool {
         index < JOINT_COUNT && self.servo_ids[index] == servo_id && self.ready[index]
     }
@@ -129,7 +78,7 @@ impl WheelModeState {
     }
 }
 
-pub struct PuppyarmStateEngine {
+pub struct PuppyArm {
     servo: StServo<FakeSerialBus>,
     controller: ArmController,
     wheel_modes: WheelModeState,
@@ -157,7 +106,7 @@ pub struct PuppyarmSnapshot {
     pub last_error: Option<SafetyFault>,
 }
 
-impl PuppyarmStateEngine {
+impl PuppyArm {
     pub fn new(now_ms: u64) -> Self {
         let mut controller = ArmController::new(now_ms);
         let mut bus = FakeSerialBus::new();
@@ -216,28 +165,8 @@ impl PuppyarmStateEngine {
         &self.servo.bus().writes
     }
 
-    pub fn apply_intent(&mut self, intent: PuppyarmIntent, now_ms: u64) {
-        match intent {
-            PuppyarmIntent::Arm(command) => self.apply_arm_command(command, now_ms),
-            PuppyarmIntent::DirectServoSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            }
-            | PuppyarmIntent::SteeringSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            } => {
-                if block_on_ready(self.servo.set_mode(servo_id, Mode::Position)).is_err() {
-                    return;
-                }
-                self.wheel_modes.mark_servo_not_ready(servo_id);
-                let _ = block_on_ready(self.servo.write_angle(servo_id, angle_deg, speed, acc));
-            }
-        }
+    pub fn handle_arm_cmd(&mut self, command: ArmCommand, now_ms: u64) {
+        self.apply_arm_command(command, now_ms);
     }
 
     pub fn step(&mut self, now_ms: u64) {
@@ -430,7 +359,7 @@ mod tests {
 
     #[test]
     fn initializes_arm_servos_to_wheel_mode_before_any_motion() {
-        let engine = PuppyarmStateEngine::new(0);
+        let engine = PuppyArm::new(0);
 
         for servo_id in 1..=4 {
             let servo = engine.fake_servo(servo_id).unwrap();
@@ -449,14 +378,14 @@ mod tests {
 
     #[test]
     fn jog_sends_wheel_speed_through_fake_serial_bus() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(300)), 10);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::Spin {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(300), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::Spin {
                 joint: 0,
                 direction: 1,
-            }),
+            },
             10,
         );
         engine.step(20);
@@ -467,18 +396,18 @@ mod tests {
 
     #[test]
     fn stop_joint_sends_zero_speed() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(300)), 10);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::Spin {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(300), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::Spin {
                 joint: 0,
                 direction: 1,
-            }),
+            },
             10,
         );
         engine.step(20);
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::Stop { joint: 0 }), 30);
+        engine.handle_arm_cmd(ArmCommand::Stop { joint: 0 }, 30);
         engine.step(40);
 
         assert_eq!(engine.state().joints[0].speed, 0);
@@ -487,7 +416,7 @@ mod tests {
 
     #[test]
     fn read_failure_with_free_spin_stops_motion() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
@@ -504,14 +433,14 @@ mod tests {
 
     #[test]
     fn read_failure_with_active_target_stops_motion() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(300)), 10);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::SetJointTick {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(300), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::SetJointTick {
                 joint: 0,
                 tick: 500,
-            }),
+            },
             10,
         );
         engine.step(20);
@@ -528,7 +457,7 @@ mod tests {
 
     #[test]
     fn recovered_servo_is_left_stopped() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
@@ -543,7 +472,7 @@ mod tests {
 
     #[test]
     fn wheel_mode_recovery_waits_for_retry_timeout_after_write_failure() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         engine.set_write_failure(1, true);
         spin_joint_zero(&mut engine, 300, 10);
@@ -571,19 +500,16 @@ mod tests {
 
     #[test]
     fn changing_servo_ids_reinitializes_wheel_mode_before_speed() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
         let before = engine.bus_writes().len();
 
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::SetServoIds([2, 1, 3, 4])),
-            10,
-        );
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(250)), 20);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::Spin {
+        engine.handle_arm_cmd(ArmCommand::SetServoIds([2, 1, 3, 4]), 10);
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(250), 20);
+        engine.handle_arm_cmd(
+            ArmCommand::Spin {
                 joint: 0,
                 direction: 1,
-            }),
+            },
             20,
         );
         engine.step(30);
@@ -602,48 +528,47 @@ mod tests {
     }
 
     #[test]
-    fn direct_servo_set_switches_target_servo_to_position_mode() {
-        let mut engine = PuppyarmStateEngine::new(0);
+    fn direct_servo_set_targets_matching_arm_joint() {
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::direct_servo_set(2, 90, 0), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::SetServoAngle {
+                servo_id: 2,
+                angle_rad: core::f64::consts::FRAC_PI_2,
+                speed: 2400,
+            },
+            10,
+        );
 
+        let state = engine.state();
+        assert!(state.joints[1].target_tick.is_some());
+        assert_eq!(state.default_speed, 2400);
         let servo = engine.fake_servo(2).unwrap();
-        assert_eq!(servo.mode, Mode::Position);
-        assert!(servo.position > 0);
+        assert_eq!(servo.mode, Mode::Wheel);
     }
 
     #[test]
-    fn direct_servo_set_requires_later_wheel_mode_before_wheel_speed() {
-        let mut engine = PuppyarmStateEngine::new(0);
+    fn direct_servo_set_ignores_non_arm_servo() {
+        let mut engine = PuppyArm::new(0);
+        let before = engine.state();
 
-        engine.apply_intent(PuppyarmIntent::direct_servo_set(1, 60, 0), 10);
-        spin_joint_zero(&mut engine, 300, 20);
-        engine.step(40);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        engine.handle_arm_cmd(
+            ArmCommand::SetServoAngle {
+                servo_id: 42,
+                angle_rad: core::f64::consts::PI / 3.0,
+                speed: 2400,
+            },
+            10,
+        );
 
-        let writes_before_retry = engine.bus_writes().len();
-        engine.step(1020);
-        let writes = &engine.bus_writes()[writes_before_retry..];
-        let mode_index = writes
-            .iter()
-            .position(|write| is_write_to(write, 1, SMS_STS_MODE))
-            .expect("missing wheel mode write for servo 1");
-        let speed_index = writes
-            .iter()
-            .position(|write| is_write_to(write, 1, SMS_STS_ACC))
-            .expect("missing wheel speed write for servo 1");
-        assert!(mode_index < speed_index);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
+        assert_eq!(engine.state(), before);
     }
 
     #[test]
     fn invalid_servo_id_config_does_not_mutate_state() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::SetServoIds([0, 2, 3, 4])),
-            10,
-        );
+        engine.handle_arm_cmd(ArmCommand::SetServoIds([0, 2, 3, 4]), 10);
 
         assert_eq!(
             engine.state().joints.map(|joint| joint.servo_id),
@@ -653,7 +578,7 @@ mod tests {
 
     #[test]
     fn snapshot_exposes_joint_status_target_speed_limit_and_fault_fields() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         engine.controller.safety.default_speed = 321;
         engine.controller.safety.joints[0].tick = Some(2000);
@@ -690,7 +615,7 @@ mod tests {
 
     #[test]
     fn deadman_feedback_timeout_stops_free_spin() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
@@ -709,7 +634,7 @@ mod tests {
 
     #[test]
     fn deadman_command_timeout_stops_free_spin() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
@@ -726,14 +651,14 @@ mod tests {
 
     #[test]
     fn deadman_command_timeout_does_not_cancel_target_tracking() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(300)), 10);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::SetJointTick {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(300), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::SetJointTick {
                 joint: 0,
                 tick: 1000,
-            }),
+            },
             10,
         );
         engine.step(20);
@@ -752,7 +677,7 @@ mod tests {
 
     #[test]
     fn over_temperature_fault_stops_motion() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
@@ -769,14 +694,14 @@ mod tests {
 
     #[test]
     fn target_tracking_stall_fault_stops_motion() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(300)), 10);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::SetJointTick {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(300), 10);
+        engine.handle_arm_cmd(
+            ArmCommand::SetJointTick {
                 joint: 0,
                 tick: 1000,
-            }),
+            },
             10,
         );
         engine.step(20);
@@ -792,30 +717,24 @@ mod tests {
 
     #[test]
     fn clear_faults_command_clears_selected_and_all_faults() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         engine.controller.safety.joints[0].fault = Some(servo_safety::SafetyFault::Stall);
         engine.controller.safety.joints[1].fault = Some(servo_safety::SafetyFault::OverTemperature);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::ClearFaults { joint: Some(0) }),
-            10,
-        );
+        engine.handle_arm_cmd(ArmCommand::ClearFaults { joint: Some(0) }, 10);
         assert_eq!(engine.controller.safety.joints[0].fault, None);
         assert_eq!(
             engine.controller.safety.joints[1].fault,
             Some(servo_safety::SafetyFault::OverTemperature)
         );
 
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::ClearFaults { joint: None }),
-            20,
-        );
+        engine.handle_arm_cmd(ArmCommand::ClearFaults { joint: None }, 20);
         assert_eq!(engine.controller.safety.joints[1].fault, None);
     }
 
     #[test]
     fn spin_clears_latched_fault_for_joint() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         engine.controller.safety.joints[0].fault = Some(servo_safety::SafetyFault::Stall);
         spin_joint_zero(&mut engine, 300, 10);
@@ -825,14 +744,14 @@ mod tests {
 
     #[test]
     fn stop_is_state_safe_when_zero_speed_write_fails() {
-        let mut engine = PuppyarmStateEngine::new(0);
+        let mut engine = PuppyArm::new(0);
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
         assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
 
         engine.set_write_failure(1, true);
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::Stop { joint: 0 }), 30);
+        engine.handle_arm_cmd(ArmCommand::Stop { joint: 0 }, 30);
         engine.step(40);
 
         let state = engine.state();
@@ -849,13 +768,13 @@ mod tests {
             && packet[5] == address
     }
 
-    fn spin_joint_zero(engine: &mut PuppyarmStateEngine, speed: i16, now_ms: u64) {
-        engine.apply_intent(PuppyarmIntent::Arm(ArmCommand::SetSpeed(speed)), now_ms);
-        engine.apply_intent(
-            PuppyarmIntent::Arm(ArmCommand::Spin {
+    fn spin_joint_zero(engine: &mut PuppyArm, speed: i16, now_ms: u64) {
+        engine.handle_arm_cmd(ArmCommand::SetSpeed(speed), now_ms);
+        engine.handle_arm_cmd(
+            ArmCommand::Spin {
                 joint: 0,
                 direction: 1,
-            }),
+            },
             now_ms,
         );
     }

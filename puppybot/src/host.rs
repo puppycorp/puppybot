@@ -10,7 +10,7 @@ use sha1::{Digest, Sha1};
 
 use crate::{
     protocol::{self, ProtocolEvent, ProtocolState},
-    puppyarm::state_engine::{PuppyarmIntent, PuppyarmStateEngine},
+    puppyarm::state_engine::PuppyArm,
     utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii},
 };
 
@@ -126,7 +126,7 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<HostRobot>>) -> Resul
 }
 
 struct HostRobot {
-    engine: PuppyarmStateEngine,
+    engine: PuppyArm,
     protocol: ProtocolState,
     started_at: Instant,
     last_tick_at: Instant,
@@ -137,7 +137,7 @@ impl HostRobot {
     fn new() -> Self {
         let started_at = Instant::now();
         Self {
-            engine: PuppyarmStateEngine::new(0),
+            engine: PuppyArm::new(0),
             protocol: ProtocolState::default(),
             started_at,
             last_tick_at: started_at,
@@ -196,35 +196,9 @@ impl HostRobot {
 
     fn dispatch_protocol_event(&mut self, event: ProtocolEvent) {
         let now_ms = self.now_ms();
-        let intent = match event {
-            ProtocolEvent::Arm(command) => PuppyarmIntent::Arm(command),
-            ProtocolEvent::DirectServoSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            } => PuppyarmIntent::DirectServoSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            },
-            ProtocolEvent::SteeringSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            } => PuppyarmIntent::SteeringSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            },
-        };
-        self.engine.apply_intent(intent, now_ms);
-        if let ProtocolEvent::Arm(_) = event {
-            self.engine.step(now_ms);
-        }
+        let ProtocolEvent::Arm(command) = event;
+        self.engine.handle_arm_cmd(command, now_ms);
+        self.engine.step(now_ms);
     }
 
     fn arm_state_frame(&self) -> Vec<u8> {

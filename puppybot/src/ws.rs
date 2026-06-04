@@ -12,7 +12,7 @@ use crate::puppyarm::{
     controller::{ArmCommand, JOINT_COUNT},
     kinematics,
     servo_safety::SafetyFault,
-    task::{IntentChannel, PuppyarmIntent, PuppyarmTelemetry, TelemetryChannel},
+    task::{IntentChannel, PuppyarmTelemetry, TelemetryChannel},
 };
 use crate::utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii};
 
@@ -60,8 +60,6 @@ const CONFIG_VERSION: u8 = 1;
 const SUBSCRIPTION_TOPIC_ARM_STATE: u8 = 1;
 const WS_IDLE_POLL: Duration = Duration::from_millis(20);
 const DEFAULT_SERVO_SPEED: u16 = 2400;
-const STEERING_CENTER_DEG: i16 = 90;
-const STEERING_RANGE_DEG: i16 = 90;
 
 #[embassy_executor::task]
 pub async fn http_websocket_server(
@@ -289,34 +287,6 @@ async fn handle_binary_ws_frame(
 fn dispatch_protocol_event(arm_intents: &'static IntentChannel, event: ProtocolEvent) {
     match event {
         ProtocolEvent::Arm(command) => send_arm_intent(arm_intents, command),
-        ProtocolEvent::DirectServoSet {
-            servo_id,
-            angle_deg,
-            speed,
-            acc,
-        } => send_puppyarm_intent(
-            arm_intents,
-            PuppyarmIntent::DirectServoSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            },
-        ),
-        ProtocolEvent::SteeringSet {
-            servo_id,
-            angle_deg,
-            speed,
-            acc,
-        } => send_puppyarm_intent(
-            arm_intents,
-            PuppyarmIntent::SteeringSet {
-                servo_id,
-                angle_deg,
-                speed,
-                acc,
-            },
-        ),
     }
 }
 
@@ -370,11 +340,7 @@ fn handle_robot_command(
                 log::warn!("ignoring DRIVE_STEER because steering servo id is not configured");
                 return;
             }
-            let angle_deg = steering_to_angle(steering);
-            send_puppyarm_intent(
-                arm_intents,
-                PuppyarmIntent::steering_set(config.steering_servo_id, angle_deg),
-            );
+            log::warn!("ignoring DRIVE_STEER because steering is not handled by puppyarm");
         }
         CMD_STOP_DRIVE => {
             log::info!("robot stop drive");
@@ -603,23 +569,17 @@ fn handle_robot_command(
                 angle_deg,
                 duration_ms
             );
-            send_puppyarm_intent(
+            send_arm_intent(
                 arm_intents,
-                PuppyarmIntent::direct_servo_set(
+                ArmCommand::SetServoAngle {
                     servo_id,
-                    angle_deg,
-                    servo_speed_from_duration(duration_ms),
-                ),
+                    angle_rad: deg_to_rad(angle_deg as f32),
+                    speed: servo_speed_from_duration(duration_ms) as i16,
+                },
             );
         }
         _ => {}
     }
-}
-
-fn steering_to_angle(steering: i8) -> u16 {
-    let steering = steering.clamp(-100, 100) as i16;
-    let angle = STEERING_CENTER_DEG + (steering * STEERING_RANGE_DEG) / 100;
-    clamp_angle(angle)
 }
 
 fn clamp_angle(angle_deg: i16) -> u16 {
@@ -647,11 +607,7 @@ fn arm_telemetry_requested(payload: &[u8], config: &RobotConfig) -> bool {
 }
 
 fn send_arm_intent(arm_intents: &'static IntentChannel, command: ArmCommand) {
-    send_puppyarm_intent(arm_intents, PuppyarmIntent::Arm(command));
-}
-
-fn send_puppyarm_intent(arm_intents: &'static IntentChannel, intent: PuppyarmIntent) {
-    if arm_intents.try_send(intent).is_err() {
+    if arm_intents.try_send(command).is_err() {
         log::warn!("arm intent queue full; dropping intent");
     }
 }
