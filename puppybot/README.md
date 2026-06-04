@@ -2,6 +2,13 @@
 
 Minimal Rust firmware project for a classic ESP32 using `esp-hal`.
 
+The Rust code is split into a small workspace:
+
+- `core/` contains reusable protocol, arm control, kinematics, safety, and
+  STServo packet logic.
+- `esp32/` contains the firmware binary and ESP32 hardware/network glue.
+- `host/` contains the PC simulator binary.
+
 ## Setup
 
 Install the Espressif Rust toolchain and flashing dependencies. This is still
@@ -61,9 +68,9 @@ For a debug build:
 
 ## Host simulator
 
-The Rust app can also run on the PC with the host feature. It uses the same
-arm controller and STServo packet code, backed by a fake byte-level servo bus,
-and exposes the Android-compatible WebSocket endpoint on `/ws`.
+The Rust app can also run on the PC through the `host/` crate. It uses the
+same arm controller and STServo packet code, backed by a fake byte-level servo
+bus, and exposes the Android-compatible WebSocket endpoint on `/ws`.
 
 ```sh
 ./scripts/run-host.sh

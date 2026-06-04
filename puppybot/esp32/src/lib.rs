@@ -2,9 +2,6 @@
 
 extern crate alloc;
 
-#[cfg(feature = "host")]
-use embassy_executor as _;
-
-pub mod protocol;
+pub use puppybot_core::{protocol, utility};
 pub mod puppyarm;
 pub mod stservo;

@@ -10,7 +10,7 @@ use crate::stservo::{
     MAX_SERVO_ID, MIN_SERVO_ID, Mode, StServo,
     mock::{FakeSerialBus, FakeServo, block_on_ready},
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "host"))]
 use alloc::vec::Vec;
 
 const ARM_WHEEL_ACC: u8 = 0;

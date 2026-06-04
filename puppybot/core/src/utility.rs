@@ -1,4 +1,4 @@
-pub(crate) fn base64_encode(input: &[u8], out: &mut [u8]) -> Result<usize, ()> {
+pub fn base64_encode(input: &[u8], out: &mut [u8]) -> Result<usize, ()> {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let encoded_len = input.len().div_ceil(3) * 4;
     if out.len() < encoded_len {
@@ -33,13 +33,13 @@ pub(crate) fn base64_encode(input: &[u8], out: &mut [u8]) -> Result<usize, ()> {
     Ok(encoded_len)
 }
 
-pub(crate) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
 }
 
-pub(crate) fn trim_ascii(value: &[u8]) -> &[u8] {
+pub fn trim_ascii(value: &[u8]) -> &[u8] {
     let start = value
         .iter()
         .position(|byte| !byte.is_ascii_whitespace())
@@ -52,7 +52,7 @@ pub(crate) fn trim_ascii(value: &[u8]) -> &[u8] {
     &value[start..end]
 }
 
-pub(crate) fn eq_ignore_ascii_case(left: &[u8], right: &[u8]) -> bool {
+pub fn eq_ignore_ascii_case(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len()
         && left
             .iter()

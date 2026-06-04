@@ -15,18 +15,18 @@ const FAKE_MAX_PACKET: usize = 128;
 const FAKE_MAX_READ: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FakeServo {
-    pub(crate) id: u8,
-    pub(crate) mode: Mode,
-    pub(crate) position: u16,
-    pub(crate) wheel_speed: i16,
-    pub(crate) voltage_raw: u8,
-    pub(crate) temperature_c: u8,
-    pub(crate) online: bool,
+pub struct FakeServo {
+    pub id: u8,
+    pub mode: Mode,
+    pub position: u16,
+    pub wheel_speed: i16,
+    pub voltage_raw: u8,
+    pub temperature_c: u8,
+    pub online: bool,
 }
 
 impl FakeServo {
-    pub(crate) fn new(id: u8, position: u16) -> Self {
+    pub fn new(id: u8, position: u16) -> Self {
         Self {
             id,
             mode: Mode::Position,
@@ -40,7 +40,7 @@ impl FakeServo {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum FakeBusError {
+pub enum FakeBusError {
     PacketTooLarge,
     BadPacket,
     ForcedReadFailure,
@@ -48,9 +48,9 @@ pub(crate) enum FakeBusError {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FakeSerialBus {
+pub struct FakeSerialBus {
     servos: [Option<FakeServo>; 8],
-    pub(crate) writes: Vec<Vec<u8>>,
+    pub writes: Vec<Vec<u8>>,
     read_buf: [u8; FAKE_MAX_READ],
     read_start: usize,
     read_end: usize,
@@ -60,7 +60,7 @@ pub(crate) struct FakeSerialBus {
 }
 
 impl FakeSerialBus {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             servos: [None; 8],
             writes: Vec::new(),
@@ -73,12 +73,12 @@ impl FakeSerialBus {
         }
     }
 
-    pub(crate) fn with_servo(mut self, id: u8, position: u16) -> Self {
+    pub fn with_servo(mut self, id: u8, position: u16) -> Self {
         self.set_servo(FakeServo::new(id, position));
         self
     }
 
-    pub(crate) fn servo(&self, id: u8) -> Option<FakeServo> {
+    pub fn servo(&self, id: u8) -> Option<FakeServo> {
         self.servos
             .iter()
             .flatten()
@@ -86,7 +86,7 @@ impl FakeSerialBus {
             .copied()
     }
 
-    pub(crate) fn set_servo(&mut self, servo: FakeServo) {
+    pub fn set_servo(&mut self, servo: FakeServo) {
         if let Some(slot) = self
             .servos
             .iter_mut()
@@ -104,31 +104,31 @@ impl FakeSerialBus {
         *slot = Some(servo);
     }
 
-    pub(crate) fn set_read_failure(&mut self, servo_id: u8, enabled: bool) {
+    pub fn set_read_failure(&mut self, servo_id: u8, enabled: bool) {
         self.fail_reads[servo_id as usize] = enabled;
     }
 
-    pub(crate) fn set_read_timeout(&mut self, servo_id: u8, enabled: bool) {
+    pub fn set_read_timeout(&mut self, servo_id: u8, enabled: bool) {
         self.timeout_reads[servo_id as usize] = enabled;
     }
 
-    pub(crate) fn set_write_failure(&mut self, servo_id: u8, enabled: bool) {
+    pub fn set_write_failure(&mut self, servo_id: u8, enabled: bool) {
         self.fail_writes[servo_id as usize] = enabled;
     }
 
-    pub(crate) fn set_online(&mut self, servo_id: u8, online: bool) {
+    pub fn set_online(&mut self, servo_id: u8, online: bool) {
         if let Some(servo) = self.servo_mut(servo_id) {
             servo.online = online;
         }
     }
 
-    pub(crate) fn set_position(&mut self, servo_id: u8, position: u16) {
+    pub fn set_position(&mut self, servo_id: u8, position: u16) {
         if let Some(servo) = self.servo_mut(servo_id) {
             servo.position = position;
         }
     }
 
-    pub(crate) fn set_temperature(&mut self, servo_id: u8, temperature_c: u8) {
+    pub fn set_temperature(&mut self, servo_id: u8, temperature_c: u8) {
         if let Some(servo) = self.servo_mut(servo_id) {
             servo.temperature_c = temperature_c;
         }
@@ -253,7 +253,7 @@ impl FakeSerialBus {
         self.queue_read(&frame[..frame_len])
     }
 
-    pub(crate) fn queue_read(&mut self, bytes: &[u8]) -> Result<(), FakeBusError> {
+    pub fn queue_read(&mut self, bytes: &[u8]) -> Result<(), FakeBusError> {
         if self.read_end + bytes.len() > self.read_buf.len() {
             return Err(FakeBusError::PacketTooLarge);
         }
@@ -446,13 +446,13 @@ fn read_status_uses_fake_voltage_and_temperature() {
     assert_eq!(status.temperature_c, 42);
 }
 
-pub(crate) fn packet(id: u8, instruction: u8, params: &[u8]) -> Vec<u8> {
+pub fn packet(id: u8, instruction: u8, params: &[u8]) -> Vec<u8> {
     let mut out = [0u8; FAKE_MAX_PACKET];
     let len = build_packet(&mut out, id, instruction, params).unwrap();
     out[..len].to_vec()
 }
 
-pub(crate) fn status_packet(id: u8, status: u8, params: &[u8]) -> Vec<u8> {
+pub fn status_packet(id: u8, status: u8, params: &[u8]) -> Vec<u8> {
     let mut out = vec![0xff, 0xff, id, (params.len() + 2) as u8, status];
     out.extend_from_slice(params);
     let crc = checksum(&out);
@@ -469,7 +469,7 @@ fn from_servo_signed(value: u16) -> i16 {
     }
 }
 
-pub(crate) fn block_on_ready<F: Future>(future: F) -> F::Output {
+pub fn block_on_ready<F: Future>(future: F) -> F::Output {
     let waker = noop_waker();
     let mut context = Context::from_waker(&waker);
     let mut future = core::pin::pin!(future);

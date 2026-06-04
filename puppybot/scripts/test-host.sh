@@ -8,16 +8,14 @@ project_dir="$(cd "$script_dir/.." && pwd)"
 cd "$project_dir"
 
 cargo_cmd=(cargo)
-if rustup toolchain list | grep -q '^stable-'; then
+if command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^stable-'; then
     cargo_cmd=(cargo +stable)
 fi
 
-"${cargo_cmd[@]}" test \
+"${cargo_cmd[@]}" test -p puppybot-core \
     --config 'build.target="x86_64-unknown-linux-gnu"' \
     --config 'unstable.build-std=[]' \
-    --no-default-features \
     --features host \
-    --lib \
     "$@"
 
 if [ "$#" -ne 0 ]; then
@@ -26,11 +24,9 @@ fi
 
 host_addr="127.0.0.1:18080"
 host_log="$(mktemp)"
-PUPPYBOT_HOST_ADDR="$host_addr" "${cargo_cmd[@]}" run \
+PUPPYBOT_HOST_ADDR="$host_addr" "${cargo_cmd[@]}" run -p puppybot-host \
     --config 'build.target="x86_64-unknown-linux-gnu"' \
     --config 'unstable.build-std=[]' \
-    --no-default-features \
-    --features host \
     >"$host_log" 2>&1 &
 host_pid="$!"
 cleanup() {

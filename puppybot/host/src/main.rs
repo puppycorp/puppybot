@@ -6,20 +6,19 @@ use std::{
 };
 
 use embassy_executor as _;
-use sha1::{Digest, Sha1};
-
-use crate::{
+use puppybot_core::{
     protocol::{self, ProtocolEvent, ProtocolState},
     puppyarm::state_engine::PuppyArm,
     utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii},
 };
+use sha1::{Digest, Sha1};
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
 const MAX_HTTP_REQUEST: usize = 2048;
 const MAX_WS_FRAME_SIZE: usize = 2048;
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-pub(crate) fn run() {
+fn main() {
     init_logger();
 
     let bind = std::env::var("PUPPYBOT_HOST_ADDR").unwrap_or_else(|_| DEFAULT_BIND.to_string());

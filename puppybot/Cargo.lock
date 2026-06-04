@@ -1507,7 +1507,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "puppybot"
+name = "puppybot-core"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "embassy-time",
+ "libm",
+ "log",
+]
+
+[[package]]
+name = "puppybot-esp32"
 version = "0.1.0"
 dependencies = [
  "embassy-executor",
@@ -1515,7 +1525,6 @@ dependencies = [
  "embassy-net",
  "embassy-sync 0.8.0",
  "embassy-time",
- "env_logger",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
@@ -1523,10 +1532,21 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
- "libm",
  "log",
+ "puppybot-core",
  "sha1 0.11.0",
  "static_cell",
+]
+
+[[package]]
+name = "puppybot-host"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "env_logger",
+ "log",
+ "puppybot-core",
+ "sha1 0.11.0",
 ]
 
 [[package]]

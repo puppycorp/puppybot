@@ -1,0 +1,16 @@
+[package]
+name = "puppybot-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[dependencies]
+embassy-executor = { version = "0.10.0", features = [
+    "embassy-time-driver",
+    "executor-thread",
+    "platform-std",
+] }
+env_logger = "0.11"
+log = "0.4"
+puppybot-core = { path = "../core", default-features = false, features = ["host"] }
+sha1 = { version = "0.11.0", default-features = false }

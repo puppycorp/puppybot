@@ -505,7 +505,4 @@ fn to_servo_signed(value: i16) -> u16 {
 }
 
 #[cfg(any(test, feature = "host"))]
-pub(crate) mod mock;
-
-#[cfg(feature = "esp32")]
-mod esp32;
+pub mod mock;

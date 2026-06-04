@@ -1,11 +1,6 @@
 #![cfg_attr(feature = "esp32", no_std)]
 #![cfg_attr(feature = "esp32", no_main)]
 
-#[cfg(all(feature = "esp32", feature = "host"))]
-compile_error!(
-    "features `esp32` and `host` are mutually exclusive; use --no-default-features --features host for the PC simulator"
-);
-
 #[cfg(feature = "esp32")]
 use embassy_executor::Spawner;
 
@@ -34,15 +29,11 @@ use esp_radio::wifi::{
     Config as WifiConfig, ControllerConfig, Interface, WifiController, sta::StationConfig,
 };
 
-#[cfg(feature = "host")]
-mod host;
 #[cfg(feature = "esp32")]
 mod mdns;
-#[cfg(any(feature = "esp32", feature = "host"))]
-mod protocol;
+pub use puppybot_core::{protocol, utility};
 pub mod puppyarm;
 pub mod stservo;
-mod utility;
 #[cfg(feature = "esp32")]
 mod ws;
 
@@ -60,11 +51,6 @@ macro_rules! mk_static {
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         STATIC_CELL.uninit().write($val)
     }};
-}
-
-#[cfg(feature = "host")]
-fn main() {
-    host::run();
 }
 
 #[cfg(feature = "esp32")]
@@ -87,7 +73,7 @@ async fn main(spawner: Spawner) -> ! {
     .unwrap()
     .with_tx(peripherals.GPIO17)
     .with_rx(peripherals.GPIO16);
-    let servo_bus = stservo::StServo::new(servo_uart);
+    let servo_bus = stservo::StServo::new(stservo::EspUartBus::new(servo_uart));
     let arm_intents = mk_static!(
         puppyarm::task::IntentChannel,
         Channel::<CriticalSectionRawMutex, puppyarm::controller::ArmIntent, 16>::new()

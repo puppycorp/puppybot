@@ -1,12 +1,14 @@
 #[cfg(feature = "esp32")]
 use embassy_time::{Duration, Instant, Timer};
 #[cfg(feature = "esp32")]
-use esp_hal::{Blocking, uart::Uart};
+use esp_hal::Blocking;
 
 use super::controller::ArmCommand;
 pub use super::puppyarm::PuppyArm;
 #[cfg(feature = "esp32")]
 pub use super::puppyarm::{IntentChannel, PuppyarmTelemetry, TelemetryChannel};
+#[cfg(feature = "esp32")]
+use crate::stservo::EspUartBus;
 use crate::stservo::{Mode, SerialBus, StServo};
 
 #[cfg(feature = "esp32")]
@@ -14,7 +16,7 @@ const CONTROL_PERIOD: Duration = Duration::from_millis(20);
 const ARM_WHEEL_ACC: u8 = 0;
 
 #[cfg(feature = "esp32")]
-pub type ServoController = StServo<Uart<'static, Blocking>>;
+pub type ServoController = StServo<EspUartBus<Blocking>>;
 
 pub trait ArmCommandSource {
     fn try_receive_arm_cmd(&mut self) -> Option<ArmCommand>;
