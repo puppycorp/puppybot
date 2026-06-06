@@ -1,55 +1,23 @@
 use std::{
     io::{ErrorKind, Read, Write},
-    net::{TcpListener, TcpStream},
+    net::TcpStream,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use embassy_executor as _;
-use puppybot_core::{
-    protocol::{self, ProtocolEvent, ProtocolState},
-    puppyarm::state_engine::PuppyArm,
-    utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii},
-};
+use puppybot_core::utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii};
 use sha1::{Digest, Sha1};
 
-const DEFAULT_BIND: &str = "0.0.0.0:8080";
+use crate::RuntimeRobot;
+
 const MAX_HTTP_REQUEST: usize = 2048;
 const MAX_WS_FRAME_SIZE: usize = 2048;
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-fn main() {
-    init_logger();
-
-    let bind = std::env::var("PUPPYBOT_HOST_ADDR").unwrap_or_else(|_| DEFAULT_BIND.to_string());
-    let listener = TcpListener::bind(&bind).expect("failed to bind host websocket server");
-    let robot = Arc::new(Mutex::new(HostRobot::new()));
-
-    log::info!("puppybot host simulator listening on ws://{bind}/ws");
-    log::info!("set PUPPYBOT_HOST_ADDR=127.0.0.1:8080 to bind another address");
-
-    for incoming in listener.incoming() {
-        match incoming {
-            Ok(stream) => {
-                let robot = Arc::clone(&robot);
-                std::thread::spawn(move || {
-                    if let Err(err) = handle_connection(stream, robot) {
-                        log::warn!("host websocket connection ended: {err}");
-                    }
-                });
-            }
-            Err(err) => log::warn!("accept failed: {err:?}"),
-        }
-    }
-}
-
-fn init_logger() {
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .try_init();
-}
-
-fn handle_connection(mut stream: TcpStream, robot: Arc<Mutex<HostRobot>>) -> Result<(), HostError> {
+pub(crate) fn handle_connection(
+    mut stream: TcpStream,
+    robot: Arc<Mutex<RuntimeRobot>>,
+) -> Result<(), Error> {
     stream.set_read_timeout(Some(Duration::from_millis(100)))?;
     stream.set_nodelay(true)?;
 
@@ -62,7 +30,7 @@ fn handle_connection(mut stream: TcpStream, robot: Arc<Mutex<HostRobot>>) -> Res
         websocket_loop(&mut stream, robot)
     } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
         stream.write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 43\r\n\r\npuppybot host websocket is on ws://host/ws\n",
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 47\r\n\r\npuppybot runtime websocket is available on /ws\n",
         )?;
         Ok(())
     } else {
@@ -73,7 +41,7 @@ fn handle_connection(mut stream: TcpStream, robot: Arc<Mutex<HostRobot>>) -> Res
     }
 }
 
-fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<HostRobot>>) -> Result<(), HostError> {
+fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<RuntimeRobot>>) -> Result<(), Error> {
     let mut payload = [0u8; MAX_WS_FRAME_SIZE];
     let mut telemetry_enabled = false;
     let mut sent_telemetry_seq = None;
@@ -82,8 +50,8 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<HostRobot>>) -> Resul
         let telemetry = {
             let mut robot = robot.lock().unwrap();
             robot.tick();
-            if telemetry_enabled && sent_telemetry_seq != Some(robot.telemetry_seq) {
-                Some((robot.telemetry_seq, robot.arm_state_frame()))
+            if telemetry_enabled && sent_telemetry_seq != Some(robot.telemetry_seq()) {
+                Some((robot.telemetry_seq(), robot.arm_state_frame()))
             } else {
                 None
             }
@@ -95,7 +63,7 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<HostRobot>>) -> Resul
 
         let frame = match read_ws_frame(stream, &mut payload) {
             Ok(frame) => frame,
-            Err(HostError::WouldBlock) => continue,
+            Err(Error::WouldBlock) => continue,
             Err(err) => return Err(err),
         };
 
@@ -124,102 +92,21 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<HostRobot>>) -> Resul
     }
 }
 
-struct HostRobot {
-    engine: PuppyArm,
-    protocol: ProtocolState,
-    started_at: Instant,
-    last_tick_at: Instant,
-    telemetry_seq: u32,
-}
-
-impl HostRobot {
-    fn new() -> Self {
-        let started_at = Instant::now();
-        Self {
-            engine: PuppyArm::new(0),
-            protocol: ProtocolState::default(),
-            started_at,
-            last_tick_at: started_at,
-            telemetry_seq: 0,
-        }
-    }
-
-    fn now_ms(&self) -> u64 {
-        self.started_at.elapsed().as_millis() as u64
-    }
-
-    fn tick(&mut self) {
-        let now = Instant::now();
-        let elapsed_ms = now.duration_since(self.last_tick_at).as_millis() as i32;
-        if elapsed_ms == 0 {
-            return;
-        }
-        self.last_tick_at = now;
-
-        let now_ms = self.now_ms();
-        self.engine.advance_simulation(elapsed_ms as u64, now_ms);
-        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
-    }
-
-    fn handle_binary_command(
-        &mut self,
-        payload: &[u8],
-        telemetry_enabled: &mut bool,
-    ) -> Option<Vec<u8>> {
-        if payload.len() < 4 {
-            log::warn!("ignoring short host WS frame len={}", payload.len());
-            return None;
-        }
-
-        let version = payload[0];
-        let cmd = payload[1];
-        let payload_len = u16::from_le_bytes([payload[2], payload[3]]) as usize;
-        log::info!(
-            "host WS command {} version={} declared_len={} actual_len={}",
-            protocol::command_name(cmd),
-            version,
-            payload_len,
-            payload.len().saturating_sub(4)
-        );
-
-        self.protocol.telemetry_enabled = *telemetry_enabled;
-        let output = protocol::handle_binary_command(payload, &mut self.protocol);
-        *telemetry_enabled = self.protocol.telemetry_enabled;
-
-        for event in output.events {
-            self.dispatch_protocol_event(event);
-        }
-
-        output.response
-    }
-
-    fn dispatch_protocol_event(&mut self, event: ProtocolEvent) {
-        let now_ms = self.now_ms();
-        let ProtocolEvent::Arm(command) = event;
-        self.engine.handle_arm_cmd(command, now_ms);
-        self.engine.step(now_ms);
-    }
-
-    fn arm_state_frame(&self) -> Vec<u8> {
-        self.engine.arm_state_frame()
-    }
-}
-
 struct WsFrame<'a> {
     opcode: u8,
     payload: &'a [u8],
 }
 
-fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize, HostError> {
+fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize, Error> {
     let mut len = 0;
 
     loop {
         if len == request.len() {
-            return Err(HostError::RequestTooLarge);
+            return Err(Error::RequestTooLarge);
         }
 
         match stream.read(&mut request[len..]) {
-            Ok(0) => return Err(HostError::Closed),
+            Ok(0) => return Err(Error::Closed),
             Ok(read) => {
                 len += read;
                 if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
@@ -229,15 +116,15 @@ fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize
             Err(err)
                 if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
             {
-                return Err(HostError::WouldBlock);
+                return Err(Error::WouldBlock);
             }
             Err(err) => return Err(err.into()),
         }
     }
 }
 
-fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<(), HostError> {
-    let key = header_value(request, b"sec-websocket-key").ok_or(HostError::BadRequest)?;
+fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<(), Error> {
+    let key = header_value(request, b"sec-websocket-key").ok_or(Error::BadRequest)?;
     let mut accept = [0u8; 28];
     websocket_accept_key(key, &mut accept)?;
 
@@ -250,10 +137,7 @@ fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<()
     Ok(())
 }
 
-fn read_ws_frame<'a>(
-    stream: &mut TcpStream,
-    payload: &'a mut [u8],
-) -> Result<WsFrame<'a>, HostError> {
+fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<WsFrame<'a>, Error> {
     let mut header = [0u8; 2];
     read_exact(stream, &mut header)?;
 
@@ -270,13 +154,13 @@ fn read_ws_frame<'a>(
         read_exact(stream, &mut extended)?;
         let raw_len = u64::from_be_bytes(extended);
         if raw_len > usize::MAX as u64 {
-            return Err(HostError::FrameTooLarge);
+            return Err(Error::FrameTooLarge);
         }
         len = raw_len as usize;
     }
 
     if len > payload.len() {
-        return Err(HostError::FrameTooLarge);
+        return Err(Error::FrameTooLarge);
     }
 
     let mut mask = [0u8; 4];
@@ -297,7 +181,7 @@ fn read_ws_frame<'a>(
     })
 }
 
-fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), HostError> {
+fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), Error> {
     let mut header = [0u8; 10];
     header[0] = 0x80 | (opcode & 0x0f);
 
@@ -319,10 +203,10 @@ fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(
     Ok(())
 }
 
-fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), HostError> {
+fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), Error> {
     while !buf.is_empty() {
         match stream.read(buf) {
-            Ok(0) => return Err(HostError::Closed),
+            Ok(0) => return Err(Error::Closed),
             Ok(read) => {
                 let (_, rest) = buf.split_at_mut(read);
                 buf = rest;
@@ -330,7 +214,7 @@ fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), HostErro
             Err(err)
                 if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
             {
-                return Err(HostError::WouldBlock);
+                return Err(Error::WouldBlock);
             }
             Err(err) => return Err(err.into()),
         }
@@ -361,17 +245,17 @@ fn header_value<'a>(request: &'a [u8], name: &[u8]) -> Option<&'a [u8]> {
     None
 }
 
-fn websocket_accept_key(key: &[u8], out: &mut [u8; 28]) -> Result<(), HostError> {
+fn websocket_accept_key(key: &[u8], out: &mut [u8; 28]) -> Result<(), Error> {
     let mut hasher = Sha1::new();
     hasher.update(key);
     hasher.update(WEBSOCKET_GUID);
     let digest = hasher.finalize();
-    base64_encode(&digest, out).map_err(|()| HostError::FrameTooLarge)?;
+    base64_encode(&digest, out).map_err(|()| Error::FrameTooLarge)?;
     Ok(())
 }
 
 #[derive(Debug)]
-enum HostError {
+pub(crate) enum Error {
     BadRequest,
     Closed,
     FrameTooLarge,
@@ -380,13 +264,13 @@ enum HostError {
     Io(std::io::Error),
 }
 
-impl From<std::io::Error> for HostError {
+impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
     }
 }
 
-impl std::fmt::Display for HostError {
+impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BadRequest => formatter.write_str("bad request"),
@@ -399,4 +283,4 @@ impl std::fmt::Display for HostError {
     }
 }
 
-impl std::error::Error for HostError {}
+impl std::error::Error for Error {}

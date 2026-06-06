@@ -4,19 +4,19 @@ use super::{
     controller::{ArmCommand, ArmController, ArmMode, ArmState, JOINT_COUNT},
     servo_safety::{self, SafetyFault},
 };
-#[cfg(feature = "host")]
+#[cfg(feature = "runtime")]
 use crate::protocol::{self, ProtocolJointTelemetry};
 use crate::stservo::{
     MAX_SERVO_ID, MIN_SERVO_ID, Mode, StServo,
     mock::{FakeSerialBus, FakeServo, block_on_ready},
 };
-#[cfg(any(test, feature = "host"))]
+#[cfg(any(test, feature = "runtime"))]
 use alloc::vec::Vec;
 
 const ARM_WHEEL_ACC: u8 = 0;
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
-#[cfg(feature = "host")]
-const HOST_TICK_RATE_DIVISOR: i32 = 15;
+#[cfg(feature = "runtime")]
+const RUNTIME_TICK_RATE_DIVISOR: i32 = 15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WheelModeState {
@@ -174,7 +174,7 @@ impl PuppyArm {
         self.apply_outputs(now_ms);
     }
 
-    #[cfg(feature = "host")]
+    #[cfg(feature = "runtime")]
     pub fn advance_simulation(&mut self, elapsed_ms: u64, now_ms: u64) {
         let elapsed_ms = elapsed_ms as i32;
         if elapsed_ms > 0 {
@@ -183,7 +183,7 @@ impl PuppyArm {
                 if let Some(servo) = self.servo.bus().servo(servo_id) {
                     let current = servo.position as i32;
                     let next = (current
-                        + servo.wheel_speed as i32 * elapsed_ms / HOST_TICK_RATE_DIVISOR)
+                        + servo.wheel_speed as i32 * elapsed_ms / RUNTIME_TICK_RATE_DIVISOR)
                         .clamp(0, servo_safety::TICK_WRAP) as u16;
                     self.servo.bus_mut().set_position(servo_id, next);
                 }
@@ -193,7 +193,7 @@ impl PuppyArm {
         self.step(now_ms);
     }
 
-    #[cfg(feature = "host")]
+    #[cfg(feature = "runtime")]
     pub fn arm_state_frame(&self) -> Vec<u8> {
         let snapshot = self.snapshot();
         let joints: [ProtocolJointTelemetry<'_>; JOINT_COUNT] = core::array::from_fn(|index| {

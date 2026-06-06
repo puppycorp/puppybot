@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 default-members = ["esp32"]
-members = ["core", "esp32", "host"]
+members = ["core", "esp32", "runtime"]
 
 [profile.release]
 opt-level = "s"

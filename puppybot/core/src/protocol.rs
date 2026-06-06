@@ -7,6 +7,15 @@ use crate::puppyarm::{controller::ArmCommand, kinematics, servo_safety::SafetyFa
 
 pub const PUPPY_PROTOCOL_VERSION: u16 = 1;
 pub const CMD_PING: u8 = 1;
+pub const CMD_DRIVE_MOTOR: u8 = 2;
+pub const CMD_STOP_MOTOR: u8 = 3;
+pub const CMD_STOP_ALL_MOTORS: u8 = 4;
+pub const CMD_APPLY_CONFIG: u8 = 6;
+pub const CMD_SMARTBUS_SCAN: u8 = 7;
+pub const CMD_SMARTBUS_SET_ID: u8 = 8;
+pub const CMD_SET_MOTOR_POLL: u8 = 9;
+pub const CMD_SET_BOT_ID: u8 = 10;
+pub const CMD_ARM_MOVE: u8 = 11;
 pub const CMD_ARM_SET_SPEED: u8 = 12;
 pub const CMD_ARM_JOG: u8 = 13;
 pub const CMD_ARM_STOP_JOINT: u8 = 14;
@@ -18,6 +27,7 @@ pub const CMD_ARM_HOLD: u8 = 19;
 pub const CMD_ARM_SET_JOINT_TICK: u8 = 20;
 pub const CMD_ARM_SET_TICK_LIMITS: u8 = 21;
 pub const CMD_ARM_SET_TICK_LIMITS_ENABLED: u8 = 22;
+pub const CMD_ARM_MOVE_RELATIVE: u8 = 23;
 pub const CMD_ARM_CLEAR_FAULTS: u8 = 24;
 pub const CMD_CONFIG_GET: u8 = 25;
 pub const CMD_CONFIG_SET: u8 = 26;
@@ -128,6 +138,9 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
 
     match cmd {
         CMD_PING => output.response = Some(pong_frame()),
+        CMD_SET_MOTOR_POLL => {
+            state.telemetry_enabled = arm_telemetry_requested(body, &state.config);
+        }
         CMD_CONFIG_GET => output.response = Some(config_state_frame(&state.config)),
         CMD_CONFIG_SET => {
             if let Some(config) = RobotConfig::decode(body) {
@@ -320,7 +333,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
     output
 }
 
-#[cfg(all(test, feature = "host"))]
+#[cfg(all(test, feature = "runtime"))]
 pub fn command_frame(cmd: u8, body: &[u8]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(body.len() + 4);
     frame.push((PUPPY_PROTOCOL_VERSION & 0xff) as u8);
@@ -424,6 +437,15 @@ pub fn fault_name(fault: SafetyFault) -> &'static [u8] {
 pub fn command_name(command: u8) -> &'static str {
     match command {
         CMD_PING => "PING",
+        CMD_DRIVE_MOTOR => "DRIVE_MOTOR",
+        CMD_STOP_MOTOR => "STOP_MOTOR",
+        CMD_STOP_ALL_MOTORS => "STOP_ALL_MOTORS",
+        CMD_APPLY_CONFIG => "APPLY_CONFIG",
+        CMD_SMARTBUS_SCAN => "SMARTBUS_SCAN",
+        CMD_SMARTBUS_SET_ID => "SMARTBUS_SET_ID",
+        CMD_SET_MOTOR_POLL => "SET_MOTOR_POLL",
+        CMD_SET_BOT_ID => "SET_BOT_ID",
+        CMD_ARM_MOVE => "ARM_MOVE",
         CMD_ARM_SET_SPEED => "ARM_SET_SPEED",
         CMD_ARM_JOG => "ARM_JOG",
         CMD_ARM_STOP_JOINT => "ARM_STOP_JOINT",
@@ -435,6 +457,7 @@ pub fn command_name(command: u8) -> &'static str {
         CMD_ARM_SET_JOINT_TICK => "ARM_SET_JOINT_TICK",
         CMD_ARM_SET_TICK_LIMITS => "ARM_SET_TICK_LIMITS",
         CMD_ARM_SET_TICK_LIMITS_ENABLED => "ARM_SET_TICK_LIMITS_ENABLED",
+        CMD_ARM_MOVE_RELATIVE => "ARM_MOVE_RELATIVE",
         CMD_ARM_CLEAR_FAULTS => "ARM_CLEAR_FAULTS",
         CMD_CONFIG_GET => "CONFIG_GET",
         CMD_CONFIG_SET => "CONFIG_SET",
@@ -469,6 +492,16 @@ fn servo_speed_from_duration(duration_ms: u16) -> u16 {
     ((1_000_000u32 / duration_ms as u32).clamp(1, DEFAULT_SERVO_SPEED as u32)) as u16
 }
 
+fn arm_telemetry_requested(payload: &[u8], config: &RobotConfig) -> bool {
+    let Some(count) = payload.first().copied() else {
+        return false;
+    };
+    let count = (count as usize).min(payload.len().saturating_sub(1));
+    payload[1..1 + count]
+        .iter()
+        .any(|servo_id| config.arm_servo_ids.contains(servo_id))
+}
+
 fn read_u16_le(bytes: &[u8]) -> u16 {
     u16::from_le_bytes([bytes[0], bytes[1]])
 }
@@ -485,7 +518,7 @@ fn deg_to_rad(degrees: f32) -> f64 {
     degrees as f64 * core::f64::consts::PI / 180.0
 }
 
-#[cfg(all(test, feature = "host"))]
+#[cfg(all(test, feature = "runtime"))]
 mod tests {
     use super::*;
     use crate::puppyarm::servo_safety::TICK_WRAP;
@@ -546,6 +579,17 @@ mod tests {
             &mut state,
         );
         assert!(!state.telemetry_enabled);
+    }
+
+    #[test]
+    fn set_motor_poll_toggles_telemetry_for_arm_servos() {
+        let mut state = ProtocolState::default();
+
+        handle_binary_command(&command_frame(CMD_SET_MOTOR_POLL, &[1, 99]), &mut state);
+        assert!(!state.telemetry_enabled);
+
+        handle_binary_command(&command_frame(CMD_SET_MOTOR_POLL, &[2, 99, 2]), &mut state);
+        assert!(state.telemetry_enabled);
     }
 
     #[test]

@@ -504,5 +504,5 @@ fn to_servo_signed(value: i16) -> u16 {
     }
 }
 
-#[cfg(any(test, feature = "host"))]
+#[cfg(any(test, feature = "runtime"))]
 pub mod mock;

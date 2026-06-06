@@ -7,7 +7,7 @@ The Rust code is split into a small workspace:
 - `core/` contains reusable protocol, arm control, kinematics, safety, and
   STServo packet logic.
 - `esp32/` contains the firmware binary and ESP32 hardware/network glue.
-- `host/` contains the PC simulator binary.
+- `runtime/` contains the OS runtime binary.
 
 ## Setup
 
@@ -66,21 +66,24 @@ For a debug build:
 ./scripts/build.sh debug
 ```
 
-## Host simulator
+## Runtime
 
-The Rust app can also run on the PC through the `host/` crate. It uses the
-same arm controller and STServo packet code, backed by a fake byte-level servo
-bus, and exposes the Android-compatible WebSocket endpoint on `/ws`.
+The Rust app can also run as a normal OS process through the `runtime/` crate.
+It uses the same arm controller and STServo packet code, backed by a fake
+byte-level servo bus, and exposes the Android-compatible WebSocket endpoint on
+`/ws`.
 
 ```sh
-./scripts/run-host.sh
+./scripts/run-runtime.sh
 ```
 
 By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
-`ws://<pc-ip>:8080/ws`. To bind a different address:
+`ws://<runtime-ip>:8080/ws`. It also advertises
+`PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the
+bound port. To bind a different address:
 
 ```sh
-PUPPYBOT_HOST_ADDR=127.0.0.1:8081 ./scripts/run-host.sh
+PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8081 ./scripts/run-runtime.sh
 ```
 
 ## Flash
