@@ -2,6 +2,6 @@
 
 extern crate alloc;
 
-pub use puppybot_core::{protocol, utility};
+pub use puppybot_core::{drive, protocol, utility};
 pub mod puppyarm;
 pub mod stservo;

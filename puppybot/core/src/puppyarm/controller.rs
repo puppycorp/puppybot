@@ -469,7 +469,7 @@ pub fn active_jog(safety: &ServoSafety<JOINT_COUNT>) -> Option<(usize, i8)> {
 pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
     [
         JointProfile {
-            servo_id: 1,
+            servo_id: 2,
             tick_min: YAW_TICK_MIN,
             tick_max: YAW_TICK_MAX,
             raw_tick_min: YAW_TICK_MIN,
@@ -485,7 +485,7 @@ pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
             ),
         },
         JointProfile {
-            servo_id: 2,
+            servo_id: 3,
             tick_min: SHOULDER_TICK_MIN,
             tick_max: SHOULDER_TICK_MAX,
             raw_tick_min: SHOULDER_TICK_MIN,
@@ -501,7 +501,7 @@ pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
             ),
         },
         JointProfile {
-            servo_id: 3,
+            servo_id: 4,
             tick_min: ELBOW_TICK_MIN,
             tick_max: ELBOW_TICK_MAX,
             raw_tick_min: ELBOW_TICK_MIN,
@@ -517,7 +517,7 @@ pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
             ),
         },
         JointProfile {
-            servo_id: 4,
+            servo_id: 5,
             tick_min: TIP_TICK_MIN,
             tick_max: TIP_TICK_MAX,
             raw_tick_min: TIP_TICK_MIN,

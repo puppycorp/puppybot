@@ -361,13 +361,13 @@ mod tests {
     fn initializes_arm_servos_to_wheel_mode_before_any_motion() {
         let engine = PuppyArm::new(0);
 
-        for servo_id in 1..=4 {
+        for servo_id in 2..=5 {
             let servo = engine.fake_servo(servo_id).unwrap();
             assert_eq!(servo.mode, Mode::Wheel);
             assert_eq!(servo.wheel_speed, 0);
         }
 
-        for servo_id in 1..=4 {
+        for servo_id in 2..=5 {
             assert!(engine.bus_writes().iter().any(|write| is_write_to(
                 write,
                 servo_id,
@@ -391,7 +391,7 @@ mod tests {
         engine.step(20);
 
         assert_eq!(engine.state().joints[0].speed, 300);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 300);
     }
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
         engine.step(40);
 
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -420,15 +420,15 @@ mod tests {
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 300);
 
-        engine.set_read_failure(1, true);
+        engine.set_read_failure(2, true);
         engine.step(40);
 
         let state = engine.state();
         assert_eq!(state.joints[0].speed, 0);
         assert!(!state.joints[0].is_online);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -444,15 +444,15 @@ mod tests {
             10,
         );
         engine.step(20);
-        assert!(engine.fake_servo(1).unwrap().wheel_speed > 0);
+        assert!(engine.fake_servo(2).unwrap().wheel_speed > 0);
 
-        engine.set_read_failure(1, true);
+        engine.set_read_failure(2, true);
         engine.step(40);
 
         let state = engine.state();
         assert_eq!(state.joints[0].speed, 0);
         assert!(state.joints[0].target_tick.is_some());
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -461,40 +461,40 @@ mod tests {
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        engine.set_read_failure(1, true);
+        engine.set_read_failure(2, true);
         engine.step(40);
-        engine.set_read_failure(1, false);
+        engine.set_read_failure(2, false);
         engine.step(1060);
 
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
     fn wheel_mode_recovery_waits_for_retry_timeout_after_write_failure() {
         let mut engine = PuppyArm::new(0);
 
-        engine.set_write_failure(1, true);
+        engine.set_write_failure(2, true);
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
 
-        engine.set_write_failure(1, false);
+        engine.set_write_failure(2, false);
         let writes_before_retry = engine.bus_writes().len();
         engine.step(40);
         assert!(
             !engine.bus_writes()[writes_before_retry..]
                 .iter()
-                .any(|write| is_write_to(write, 1, SMS_STS_MODE)
-                    || is_write_to(write, 1, SMS_STS_ACC))
+                .any(|write| is_write_to(write, 2, SMS_STS_MODE)
+                    || is_write_to(write, 2, SMS_STS_ACC))
         );
 
         engine.step(1010);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 300);
         assert!(
             engine.bus_writes()[writes_before_retry..]
                 .iter()
-                .any(|write| is_write_to(write, 1, SMS_STS_MODE))
+                .any(|write| is_write_to(write, 2, SMS_STS_MODE))
         );
     }
 
@@ -503,7 +503,7 @@ mod tests {
         let mut engine = PuppyArm::new(0);
         let before = engine.bus_writes().len();
 
-        engine.handle_arm_cmd(ArmCommand::SetServoIds([2, 1, 3, 4]), 10);
+        engine.handle_arm_cmd(ArmCommand::SetServoIds([3, 2, 4, 5]), 10);
         engine.handle_arm_cmd(ArmCommand::SetSpeed(250), 20);
         engine.handle_arm_cmd(
             ArmCommand::Spin {
@@ -517,14 +517,14 @@ mod tests {
         let writes = &engine.bus_writes()[before..];
         let mode_index = writes
             .iter()
-            .position(|write| is_write_to(write, 2, SMS_STS_MODE))
-            .expect("missing wheel mode write for servo 2");
+            .position(|write| is_write_to(write, 3, SMS_STS_MODE))
+            .expect("missing wheel mode write for servo 3");
         let speed_index = writes
             .iter()
-            .position(|write| is_write_to(write, 2, SMS_STS_ACC))
-            .expect("missing wheel speed write for servo 2");
+            .position(|write| is_write_to(write, 3, SMS_STS_ACC))
+            .expect("missing wheel speed write for servo 3");
         assert!(mode_index < speed_index);
-        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 250);
+        assert_eq!(engine.fake_servo(3).unwrap().wheel_speed, 250);
     }
 
     #[test]
@@ -533,7 +533,7 @@ mod tests {
 
         engine.handle_arm_cmd(
             ArmCommand::SetServoAngle {
-                servo_id: 2,
+                servo_id: 3,
                 angle_rad: core::f64::consts::FRAC_PI_2,
                 speed: 2400,
             },
@@ -543,7 +543,7 @@ mod tests {
         let state = engine.state();
         assert!(state.joints[1].target_tick.is_some());
         assert_eq!(state.default_speed, 2400);
-        let servo = engine.fake_servo(2).unwrap();
+        let servo = engine.fake_servo(3).unwrap();
         assert_eq!(servo.mode, Mode::Wheel);
     }
 
@@ -568,11 +568,11 @@ mod tests {
     fn invalid_servo_id_config_does_not_mutate_state() {
         let mut engine = PuppyArm::new(0);
 
-        engine.handle_arm_cmd(ArmCommand::SetServoIds([0, 2, 3, 4]), 10);
+        engine.handle_arm_cmd(ArmCommand::SetServoIds([0, 3, 4, 5]), 10);
 
         assert_eq!(
             engine.state().joints.map(|joint| joint.servo_id),
-            [1, 2, 3, 4]
+            [2, 3, 4, 5]
         );
     }
 
@@ -598,7 +598,7 @@ mod tests {
             snapshot.last_error,
             Some(servo_safety::SafetyFault::FeedbackStale)
         );
-        assert_eq!(snapshot.joints[0].servo_id, 1);
+        assert_eq!(snapshot.joints[0].servo_id, 2);
         assert_eq!(snapshot.joints[0].tick, Some(2000));
         assert_eq!(snapshot.joints[0].target_tick, Some(2100));
         assert_eq!(snapshot.joints[0].speed, 123);
@@ -619,7 +619,7 @@ mod tests {
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        for servo_id in 1..=4 {
+        for servo_id in 2..=5 {
             engine.set_read_failure(servo_id, true);
         }
         engine.step(servo_safety::DEADMAN_FEEDBACK_TIMEOUT_MS + 30);
@@ -629,7 +629,7 @@ mod tests {
             Some(servo_safety::SafetyFault::DeadmanFeedbackStale)
         );
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -638,7 +638,7 @@ mod tests {
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        engine.set_position(1, 100);
+        engine.set_position(2, 100);
         engine.step(servo_safety::DEADMAN_CMD_TIMEOUT_MS + 11);
 
         assert_eq!(
@@ -646,7 +646,7 @@ mod tests {
             Some(servo_safety::SafetyFault::DeadmanCommandStale)
         );
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -662,11 +662,11 @@ mod tests {
             10,
         );
         engine.step(20);
-        engine.set_position(1, 100);
+        engine.set_position(2, 100);
         engine.step(360);
-        engine.set_position(1, 200);
+        engine.set_position(2, 200);
         engine.step(720);
-        engine.set_position(1, 300);
+        engine.set_position(2, 300);
         engine.step(servo_safety::DEADMAN_CMD_TIMEOUT_MS + 11);
 
         let state = engine.state();
@@ -689,7 +689,7 @@ mod tests {
             Some(servo_safety::SafetyFault::OverTemperature)
         );
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod tests {
             Some(servo_safety::SafetyFault::Stall)
         );
         assert_eq!(engine.state().joints[0].speed, 0);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 0);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 0);
     }
 
     #[test]
@@ -748,9 +748,9 @@ mod tests {
 
         spin_joint_zero(&mut engine, 300, 10);
         engine.step(20);
-        assert_eq!(engine.fake_servo(1).unwrap().wheel_speed, 300);
+        assert_eq!(engine.fake_servo(2).unwrap().wheel_speed, 300);
 
-        engine.set_write_failure(1, true);
+        engine.set_write_failure(2, true);
         engine.handle_arm_cmd(ArmCommand::Stop { joint: 0 }, 30);
         engine.step(40);
 

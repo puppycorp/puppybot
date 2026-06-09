@@ -3,7 +3,10 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::puppyarm::{controller::ArmCommand, kinematics, servo_safety::SafetyFault};
+use crate::{
+    drive::DriveCommand,
+    puppyarm::{controller::ArmCommand, kinematics, servo_safety::SafetyFault},
+};
 
 pub const PUPPY_PROTOCOL_VERSION: u16 = 1;
 pub const CMD_PING: u8 = 1;
@@ -47,6 +50,7 @@ pub const CONFIG_VERSION: u8 = 1;
 pub const SUBSCRIPTION_TOPIC_ARM_STATE: u8 = 1;
 
 const DEFAULT_SERVO_SPEED: u16 = 2400;
+const MOTOR_TYPE_DC: u8 = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RobotConfig {
@@ -59,7 +63,7 @@ impl RobotConfig {
         if payload.len() < 6 || payload[0] != CONFIG_VERSION {
             return None;
         }
-        if payload[2..6].contains(&0) {
+        if payload[1..6].contains(&0) {
             return None;
         }
 
@@ -73,8 +77,8 @@ impl RobotConfig {
 impl Default for RobotConfig {
     fn default() -> Self {
         Self {
-            steering_servo_id: 0,
-            arm_servo_ids: [1, 2, 3, 4],
+            steering_servo_id: 1,
+            arm_servo_ids: [2, 3, 4, 5],
         }
     }
 }
@@ -97,6 +101,7 @@ impl Default for ProtocolState {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ProtocolEvent {
     Arm(ArmCommand),
+    Drive(DriveCommand),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -138,6 +143,25 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
 
     match cmd {
         CMD_PING => output.response = Some(pong_frame()),
+        CMD_DRIVE_MOTOR => {
+            if body.len() >= 3 && body[1] == MOTOR_TYPE_DC {
+                output
+                    .events
+                    .push(ProtocolEvent::Drive(DriveCommand::SetMotorSpeed {
+                        motor_id: body[0],
+                        speed: body[2] as i8,
+                    }));
+            }
+        }
+        CMD_STOP_MOTOR => {
+            if let Some(motor_id) = body.first() {
+                output
+                    .events
+                    .push(ProtocolEvent::Drive(DriveCommand::StopMotor {
+                        motor_id: *motor_id,
+                    }));
+            }
+        }
         CMD_SET_MOTOR_POLL => {
             state.telemetry_enabled = arm_telemetry_requested(body, &state.config);
         }
@@ -149,6 +173,11 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                     .events
                     .push(ProtocolEvent::Arm(ArmCommand::SetServoIds(
                         config.arm_servo_ids,
+                    )));
+                output
+                    .events
+                    .push(ProtocolEvent::Drive(DriveCommand::SetSteeringServoId(
+                        config.steering_servo_id,
                     )));
                 output.response = Some(config_state_frame(&state.config));
             }
@@ -187,6 +216,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
         CMD_ARM_STOP_ALL | CMD_ARM_STOP => {
             output.events.push(ProtocolEvent::Arm(ArmCommand::StopAll));
         }
+        CMD_STOP_ALL_MOTORS => output.events.push(ProtocolEvent::Drive(DriveCommand::Stop)),
         CMD_ARM_GOTO_TICKS => {
             if body.len() >= 18 {
                 output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
@@ -312,7 +342,14 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
             }
         }
         CMD_DRIVE_STEER => {
-            let _ = body;
+            if body.len() >= 2 {
+                output
+                    .events
+                    .push(ProtocolEvent::Drive(DriveCommand::DriveSteer {
+                        throttle: body[0] as i8,
+                        steering: body[1] as i8,
+                    }));
+            }
         }
         CMD_SERVO_SET => {
             if body.len() >= 5 && body[0] != 0 {
@@ -326,7 +363,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                     }));
             }
         }
-        CMD_STOP_DRIVE => {}
+        CMD_STOP_DRIVE => output.events.push(ProtocolEvent::Drive(DriveCommand::Stop)),
         _ => {}
     }
 
@@ -547,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn config_set_updates_servo_ids_and_emits_arm_config_event() {
+    fn config_set_updates_servo_ids_and_emits_config_events() {
         let mut state = ProtocolState::default();
 
         let output = handle_binary_command(
@@ -559,7 +596,10 @@ mod tests {
         assert_eq!(state.config.arm_servo_ids, [2, 3, 4, 5]);
         assert_eq!(
             output.events,
-            vec![ProtocolEvent::Arm(ArmCommand::SetServoIds([2, 3, 4, 5]))]
+            vec![
+                ProtocolEvent::Arm(ArmCommand::SetServoIds([2, 3, 4, 5])),
+                ProtocolEvent::Drive(DriveCommand::SetSteeringServoId(9)),
+            ]
         );
         assert_eq!(output.response, Some(config_state_frame(&state.config)));
     }
@@ -684,11 +724,67 @@ mod tests {
     }
 
     #[test]
-    fn drive_steer_ignores_unconfigured_steering_servo() {
+    fn drive_steer_maps_to_drive_intent() {
         let mut state = ProtocolState::default();
-        let output = handle_binary_command(&command_frame(CMD_DRIVE_STEER, &[0, 50]), &mut state);
+        let output = handle_binary_command(&command_frame(CMD_DRIVE_STEER, &[216, 50]), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Drive(DriveCommand::DriveSteer {
+                throttle: -40,
+                steering: 50,
+            })]
+        );
+    }
+
+    #[test]
+    fn drive_motor_maps_dc_payload_to_motor_speed_intent() {
+        let mut state = ProtocolState::default();
+        let output = handle_binary_command(
+            &command_frame(CMD_DRIVE_MOTOR, &[2, MOTOR_TYPE_DC, 206, 0, 0, 0, 0]),
+            &mut state,
+        );
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Drive(DriveCommand::SetMotorSpeed {
+                motor_id: 2,
+                speed: -50,
+            })]
+        );
+    }
+
+    #[test]
+    fn drive_motor_ignores_non_dc_payload() {
+        let mut state = ProtocolState::default();
+        let output =
+            handle_binary_command(&command_frame(CMD_DRIVE_MOTOR, &[2, 1, 50]), &mut state);
 
         assert!(output.events.is_empty());
+    }
+
+    #[test]
+    fn stop_motor_maps_to_stop_motor_intent() {
+        let mut state = ProtocolState::default();
+        let output = handle_binary_command(&command_frame(CMD_STOP_MOTOR, &[2]), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Drive(DriveCommand::StopMotor {
+                motor_id: 2,
+            })]
+        );
+    }
+
+    #[test]
+    fn stop_drive_maps_to_drive_stop_intent() {
+        let mut state = ProtocolState::default();
+        let output = handle_binary_command(&command_frame(CMD_STOP_DRIVE, &[]), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Drive(DriveCommand::Stop)]
+        );
     }
 
     #[test]

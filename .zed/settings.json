@@ -1,0 +1,9 @@
+{
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "/home/puppy/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rust-analyzer"
+      }
+    }
+  }
+}

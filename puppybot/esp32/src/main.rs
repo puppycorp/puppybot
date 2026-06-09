@@ -30,8 +30,10 @@ use esp_radio::wifi::{
 };
 
 #[cfg(feature = "esp32")]
+mod app;
+#[cfg(feature = "esp32")]
 mod mdns;
-pub use puppybot_core::{protocol, utility};
+pub use puppybot_core::{drive, protocol, utility};
 pub mod puppyarm;
 pub mod stservo;
 #[cfg(feature = "esp32")]
@@ -74,11 +76,11 @@ async fn main(spawner: Spawner) -> ! {
     .with_tx(peripherals.GPIO17)
     .with_rx(peripherals.GPIO16);
     let servo_bus = stservo::StServo::new(stservo::EspUartBus::new(servo_uart));
-    let arm_intents = mk_static!(
+    let robot_intents = mk_static!(
         puppyarm::task::IntentChannel,
-        Channel::<CriticalSectionRawMutex, puppyarm::controller::ArmIntent, 16>::new()
+        Channel::<CriticalSectionRawMutex, protocol::ProtocolEvent, 16>::new()
     );
-    let arm_telemetry = mk_static!(
+    let robot_telemetry = mk_static!(
         puppyarm::task::TelemetryChannel,
         Channel::<CriticalSectionRawMutex, puppyarm::task::PuppyarmTelemetry, 4>::new()
     );
@@ -90,7 +92,7 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
-    spawner.spawn(puppyarm::task::arm_task(servo_bus, arm_intents, arm_telemetry).unwrap());
+    spawner.spawn(puppyarm::task::robot_task(servo_bus, robot_intents, robot_telemetry).unwrap());
 
     log::info!("puppybot bare-metal firmware starting");
 
@@ -137,7 +139,7 @@ async fn main(spawner: Spawner) -> ! {
     if let Some(config) = stack.config_v4() {
         log::info!("Wi-Fi got IPv4 address {}", config.address);
         spawner.spawn(mdns::responder(stack, config.address.address()).unwrap());
-        spawner.spawn(ws::http_websocket_server(stack, arm_intents, arm_telemetry).unwrap());
+        spawner.spawn(ws::http_websocket_server(stack, robot_intents, robot_telemetry).unwrap());
     }
 
     loop {

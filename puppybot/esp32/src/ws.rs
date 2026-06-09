@@ -4,14 +4,12 @@ use embassy_net::{
     Stack,
     tcp::{Error as TcpError, TcpSocket},
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use sha1::{Digest, Sha1};
 
-use crate::protocol::{self, ProtocolEvent, ProtocolJointTelemetry, ProtocolState, RobotConfig};
-use crate::puppyarm::{
-    controller::ArmCommand,
-    task::{IntentChannel, PuppyarmTelemetry, TelemetryChannel},
-};
+use crate::app::{self, PuppybotApp};
+use crate::protocol;
+use crate::puppyarm::task::{IntentChannel, PuppyarmTelemetry, TelemetryChannel};
 use crate::utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii};
 
 const HTTP_PORT: u16 = 80;
@@ -28,7 +26,7 @@ pub async fn http_websocket_server(
 ) {
     let mut rx_buffer = [0u8; 4096];
     let mut tx_buffer = [0u8; 4096];
-    let mut config = RobotConfig::default();
+    let mut app = PuppybotApp::new(Instant::now().as_millis());
 
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
@@ -41,8 +39,7 @@ pub async fn http_websocket_server(
             Ok(()) => {
                 log::info!("HTTP client connected: {:?}", socket.remote_endpoint());
                 if let Err(err) =
-                    handle_http_connection(&mut socket, &mut config, arm_intents, arm_telemetry)
-                        .await
+                    handle_http_connection(&mut socket, &mut app, arm_intents, arm_telemetry).await
                 {
                     log::warn!("HTTP/WebSocket connection ended: {:?}", err);
                 }
@@ -60,7 +57,7 @@ pub async fn http_websocket_server(
 
 async fn handle_http_connection(
     socket: &mut TcpSocket<'_>,
-    config: &mut RobotConfig,
+    app: &mut PuppybotApp,
     arm_intents: &'static IntentChannel,
     arm_telemetry: &'static TelemetryChannel,
 ) -> Result<(), HttpError> {
@@ -70,7 +67,7 @@ async fn handle_http_connection(
 
     if is_websocket_request(request) {
         handle_websocket_upgrade(socket, request).await?;
-        websocket_loop(socket, config, arm_intents, arm_telemetry).await
+        websocket_loop(socket, app, arm_intents, arm_telemetry).await
     } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
         write_all(
             socket,
@@ -132,7 +129,7 @@ async fn handle_websocket_upgrade(
 
 async fn websocket_loop(
     socket: &mut TcpSocket<'_>,
-    config: &mut RobotConfig,
+    app: &mut PuppybotApp,
     arm_intents: &'static IntentChannel,
     arm_telemetry: &'static TelemetryChannel,
 ) -> Result<(), HttpError> {
@@ -142,6 +139,8 @@ async fn websocket_loop(
     let mut sent_telemetry_seq: Option<u32> = None;
 
     loop {
+        app.tick();
+
         while let Ok(snapshot) = arm_telemetry.try_receive() {
             latest_telemetry = Some(snapshot);
         }
@@ -176,7 +175,7 @@ async fn websocket_loop(
                 handle_binary_ws_frame(
                     socket,
                     frame.payload,
-                    config,
+                    app,
                     arm_intents,
                     &mut telemetry_enabled,
                 )
@@ -203,7 +202,7 @@ async fn websocket_loop(
 async fn handle_binary_ws_frame(
     socket: &mut TcpSocket<'_>,
     payload: &[u8],
-    config: &mut RobotConfig,
+    app: &mut PuppybotApp,
     arm_intents: &'static IntentChannel,
     telemetry_enabled: &mut bool,
 ) -> Result<(), HttpError> {
@@ -224,17 +223,7 @@ async fn handle_binary_ws_frame(
         actual_len
     );
 
-    let mut protocol_state = ProtocolState {
-        config: *config,
-        telemetry_enabled: *telemetry_enabled,
-    };
-    let output = protocol::handle_binary_command(payload, &mut protocol_state);
-    *config = protocol_state.config;
-    *telemetry_enabled = protocol_state.telemetry_enabled;
-
-    for event in output.events {
-        dispatch_protocol_event(arm_intents, event);
-    }
+    let output = app.handle_frame(payload, telemetry_enabled, arm_intents);
 
     if let Some(response) = output.response {
         send_ws_frame(socket, 0x2, &response).await?;
@@ -243,36 +232,11 @@ async fn handle_binary_ws_frame(
     Ok(())
 }
 
-fn dispatch_protocol_event(arm_intents: &'static IntentChannel, event: ProtocolEvent) {
-    match event {
-        ProtocolEvent::Arm(command) => send_arm_intent(arm_intents, command),
-    }
-}
-
-fn send_arm_intent(arm_intents: &'static IntentChannel, command: ArmCommand) {
-    if arm_intents.try_send(command).is_err() {
-        log::warn!("arm intent queue full; dropping intent");
-    }
-}
-
 async fn send_arm_state(
     socket: &mut TcpSocket<'_>,
     telemetry: &PuppyarmTelemetry,
 ) -> Result<(), HttpError> {
-    let joints = telemetry.joints.map(|joint| ProtocolJointTelemetry {
-        servo_id: joint.servo_id,
-        online: joint.online,
-        has_feedback: joint.has_feedback,
-        limit_reached: joint.limit_reached,
-        tick: joint.tick,
-        target_tick: joint.target_tick,
-        speed: joint.speed,
-        limit_min: joint.limit_min,
-        limit_max: joint.limit_max,
-        angle_deg: joint.angle_deg,
-        fault: joint.fault.map(protocol::fault_name),
-    });
-    let frame = protocol::arm_state_frame(&joints, telemetry.coords_mm);
+    let frame = app::arm_state_frame(telemetry);
     send_ws_frame(socket, 0x2, &frame).await
 }
 

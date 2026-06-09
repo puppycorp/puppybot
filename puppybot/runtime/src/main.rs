@@ -6,17 +6,19 @@ use std::{
 
 use embassy_executor as _;
 use puppybot_core::{
-    protocol::{self, ProtocolEvent, ProtocolState},
-    puppyarm::state_engine::PuppyArm,
+    protocol::{self, ProtocolEvent},
+    robot::Puppybot,
 };
 
 mod mdns;
+mod stservo;
 mod ws;
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
 
 fn main() {
     init_logger();
+    stservo::log_serial_config_from_env();
 
     let bind = runtime_bind_addr();
     let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
@@ -65,8 +67,7 @@ fn runtime_bind_addr() -> String {
 }
 
 pub(crate) struct RuntimeRobot {
-    engine: PuppyArm,
-    protocol: ProtocolState,
+    robot: Puppybot,
     started_at: Instant,
     last_tick_at: Instant,
     telemetry_seq: u32,
@@ -76,8 +77,7 @@ impl RuntimeRobot {
     fn new() -> Self {
         let started_at = Instant::now();
         Self {
-            engine: PuppyArm::new(0),
-            protocol: ProtocolState::default(),
+            robot: Puppybot::new(0),
             started_at,
             last_tick_at: started_at,
             telemetry_seq: 0,
@@ -97,7 +97,7 @@ impl RuntimeRobot {
         self.last_tick_at = now;
 
         let now_ms = self.now_ms();
-        self.engine.advance_simulation(elapsed_ms as u64, now_ms);
+        self.robot.tick(elapsed_ms as u64, now_ms);
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
 
@@ -126,25 +126,21 @@ impl RuntimeRobot {
             payload.len().saturating_sub(4)
         );
 
-        self.protocol.telemetry_enabled = *telemetry_enabled;
-        let output = protocol::handle_binary_command(payload, &mut self.protocol);
-        *telemetry_enabled = self.protocol.telemetry_enabled;
+        self.robot.set_telemetry_enabled(*telemetry_enabled);
+        let output = self.robot.handle_frame(payload, self.now_ms());
+        *telemetry_enabled = self.robot.telemetry_enabled();
 
-        for event in output.events {
-            self.dispatch_protocol_event(event);
+        if output
+            .events
+            .iter()
+            .any(|event| matches!(event, ProtocolEvent::Drive(_)))
+        {
+            log::info!("runtime drive output: {:?}", self.robot.drive_output());
         }
-
         output.response
     }
 
-    fn dispatch_protocol_event(&mut self, event: ProtocolEvent) {
-        let now_ms = self.now_ms();
-        let ProtocolEvent::Arm(command) = event;
-        self.engine.handle_arm_cmd(command, now_ms);
-        self.engine.step(now_ms);
-    }
-
     pub(crate) fn arm_state_frame(&self) -> Vec<u8> {
-        self.engine.arm_state_frame()
+        self.robot.arm_state_frame()
     }
 }

@@ -1,25 +1,12 @@
-#[cfg(feature = "esp32")]
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-
-#[cfg(feature = "esp32")]
-use super::kinematics;
 use super::{
     controller::{ArmCommand, ArmController, JOINT_COUNT},
-    servo_safety::{SafetyFault, SpeedCommand},
+    servo_safety::{self, SafetyFault, SpeedCommand},
 };
 use crate::stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode};
 
-#[cfg(feature = "esp32")]
-const TELEMETRY_PERIOD_MS: u64 = 100;
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
-#[cfg(feature = "esp32")]
 const RAD_TO_DEG: f64 = 180.0 / core::f64::consts::PI;
-
-#[cfg(feature = "esp32")]
-pub type IntentChannel = Channel<CriticalSectionRawMutex, ArmCommand, 16>;
-#[cfg(feature = "esp32")]
-pub type TelemetryChannel = Channel<CriticalSectionRawMutex, PuppyarmTelemetry, 4>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WheelModeState {
@@ -108,16 +95,6 @@ pub struct PuppyArm {
     controller: ArmController,
     wheel_modes: WheelModeState,
     queued_initial_wheel_mode: bool,
-    #[cfg(feature = "esp32")]
-    telemetry_seq: u32,
-    #[cfg(feature = "esp32")]
-    last_telemetry_ms: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PuppyArmFeedbackRequest {
-    pub joint: usize,
-    pub servo_id: u8,
 }
 
 impl PuppyArm {
@@ -128,18 +105,7 @@ impl PuppyArm {
             controller,
             wheel_modes,
             queued_initial_wheel_mode: false,
-            #[cfg(feature = "esp32")]
-            telemetry_seq: 0,
-            #[cfg(feature = "esp32")]
-            last_telemetry_ms: 0,
         }
-    }
-
-    pub fn feedback_requests(&self) -> [PuppyArmFeedbackRequest; JOINT_COUNT] {
-        core::array::from_fn(|joint| PuppyArmFeedbackRequest {
-            joint,
-            servo_id: self.controller.profiles[joint].servo_id,
-        })
     }
 
     pub fn record_feedback(&mut self, joint: usize, tick: u16, now: u64) {
@@ -256,15 +222,39 @@ impl PuppyArm {
         }
     }
 
-    #[cfg(feature = "esp32")]
-    pub fn publish_telemetry(&mut self, telemetry: &'static TelemetryChannel, now: u64) {
-        publish_telemetry(
-            telemetry,
-            &self.controller,
-            &mut self.telemetry_seq,
-            &mut self.last_telemetry_ms,
-            now,
-        );
+    pub fn telemetry_snapshot(&self, seq: u32) -> PuppyarmTelemetry {
+        let coords_mm = self.controller.current_coords().ok().map(|(x, y, z)| {
+            (
+                x as f32,
+                y as f32,
+                super::kinematics::shoulder_to_table_z(z) as f32,
+            )
+        });
+
+        PuppyarmTelemetry {
+            seq,
+            joints: core::array::from_fn(|index| {
+                let joint = self.controller.safety.joints[index];
+                PuppyarmJointTelemetry {
+                    servo_id: joint.servo_id,
+                    online: joint.is_online,
+                    has_feedback: joint.has_feedback && joint.tick.is_some(),
+                    limit_reached: servo_safety::is_outside_limits(&joint),
+                    tick: joint.tick,
+                    target_tick: joint.target_tick,
+                    speed: joint.speed,
+                    limit_min: joint.tick_min,
+                    limit_max: joint.tick_max,
+                    angle_deg: self
+                        .controller
+                        .joint_angle(index)
+                        .ok()
+                        .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32),
+                    fault: joint.fault,
+                }
+            }),
+            coords_mm,
+        }
     }
 
     pub fn handle_arm_cmd(&mut self, command: ArmCommand, now: u64) {
@@ -300,61 +290,4 @@ fn valid_servo_ids(servo_ids: &[u8; JOINT_COUNT]) -> bool {
     servo_ids
         .iter()
         .all(|servo_id| (MIN_SERVO_ID..=MAX_SERVO_ID).contains(servo_id))
-}
-
-#[cfg(feature = "esp32")]
-fn telemetry_snapshot(controller: &ArmController, seq: u32) -> PuppyarmTelemetry {
-    let coords_mm = controller.current_coords().ok().map(|(x, y, z)| {
-        (
-            x as f32,
-            y as f32,
-            kinematics::shoulder_to_table_z(z) as f32,
-        )
-    });
-
-    PuppyarmTelemetry {
-        seq,
-        joints: core::array::from_fn(|index| {
-            let joint = controller.safety.joints[index];
-            PuppyarmJointTelemetry {
-                servo_id: joint.servo_id,
-                online: joint.is_online,
-                has_feedback: joint.has_feedback && joint.tick.is_some(),
-                limit_reached: super::servo_safety::is_outside_limits(&joint),
-                tick: joint.tick,
-                target_tick: joint.target_tick,
-                speed: joint.speed,
-                limit_min: joint.tick_min,
-                limit_max: joint.tick_max,
-                angle_deg: controller
-                    .joint_angle(index)
-                    .ok()
-                    .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32),
-                fault: joint.fault,
-            }
-        }),
-        coords_mm,
-    }
-}
-
-#[cfg(feature = "esp32")]
-fn publish_telemetry(
-    telemetry: &'static TelemetryChannel,
-    controller: &ArmController,
-    seq: &mut u32,
-    last_telemetry_ms: &mut u64,
-    now: u64,
-) {
-    if now.saturating_sub(*last_telemetry_ms) < TELEMETRY_PERIOD_MS {
-        return;
-    }
-
-    *last_telemetry_ms = now;
-    *seq = seq.wrapping_add(1);
-
-    let snapshot = telemetry_snapshot(controller, *seq);
-    if telemetry.try_send(snapshot).is_err() {
-        let _ = telemetry.try_receive();
-        let _ = telemetry.try_send(snapshot);
-    }
 }
