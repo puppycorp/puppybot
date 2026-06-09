@@ -1,6 +1,10 @@
 use std::{
+    future::Future,
     net::TcpListener,
+    sync::Arc as StdArc,
     sync::{Arc, Mutex},
+    task::{Context, Poll, Wake, Waker},
+    thread,
     time::Instant,
 };
 
@@ -18,7 +22,7 @@ const DEFAULT_BIND: &str = "0.0.0.0:8080";
 
 fn main() {
     init_logger();
-    stservo::log_serial_config_from_env();
+    let servo = stservo::open_serial_from_env();
 
     let bind = runtime_bind_addr();
     let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
@@ -26,7 +30,7 @@ fn main() {
         .local_addr()
         .ok()
         .and_then(|addr| mdns::start_advertisement(addr.port()));
-    let robot = Arc::new(Mutex::new(RuntimeRobot::new()));
+    let robot = Arc::new(Mutex::new(RuntimeRobot::new(servo)));
 
     log::info!("puppybot runtime listening on ws://{bind}/ws");
     log::info!("set PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 to bind another address");
@@ -68,16 +72,18 @@ fn runtime_bind_addr() -> String {
 
 pub(crate) struct RuntimeRobot {
     robot: Puppybot,
+    servo: Option<stservo::RuntimeStServo>,
     started_at: Instant,
     last_tick_at: Instant,
     telemetry_seq: u32,
 }
 
 impl RuntimeRobot {
-    fn new() -> Self {
+    fn new(servo: Option<stservo::RuntimeStServo>) -> Self {
         let started_at = Instant::now();
         Self {
             robot: Puppybot::new(0),
+            servo,
             started_at,
             last_tick_at: started_at,
             telemetry_seq: 0,
@@ -97,7 +103,11 @@ impl RuntimeRobot {
         self.last_tick_at = now;
 
         let now_ms = self.now_ms();
-        self.robot.tick(elapsed_ms as u64, now_ms);
+        if let Some(servo) = self.servo.as_mut() {
+            block_on(self.robot.run_once(servo, now_ms, || None));
+        } else {
+            self.robot.tick(elapsed_ms as u64, now_ms);
+        }
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
 
@@ -142,5 +152,34 @@ impl RuntimeRobot {
 
     pub(crate) fn arm_state_frame(&self) -> Vec<u8> {
         self.robot.arm_state_frame()
+    }
+}
+
+fn block_on<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    let current_thread = thread::current();
+    let waker = Waker::from(StdArc::new(ThreadWaker(current_thread)));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => thread::park(),
+        }
+    }
+}
+
+struct ThreadWaker(thread::Thread);
+
+impl Wake for ThreadWaker {
+    fn wake(self: StdArc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &StdArc<Self>) {
+        self.0.unpark();
     }
 }

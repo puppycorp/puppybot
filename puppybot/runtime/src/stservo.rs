@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use puppybot_core::stservo::{DEFAULT_BAUD, SerialBus};
+use puppybot_core::stservo::{DEFAULT_BAUD, SerialBus, StServo};
 
 const STSERVO_PORT_ENV: &str = "PUPPYBOT_STSERVO_PORT";
 const STSERVO_BAUD_ENV: &str = "PUPPYBOT_STSERVO_BAUD";
@@ -51,6 +51,8 @@ impl RuntimeSerialBus {
     }
 }
 
+pub(crate) type RuntimeStServo = StServo<RuntimeSerialBus>;
+
 impl SerialBus for RuntimeSerialBus {
     type Error = io::Error;
 
@@ -71,9 +73,12 @@ impl SerialBus for RuntimeSerialBus {
     }
 }
 
-pub(crate) fn log_serial_config_from_env() {
+pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
     let Some(config) = RuntimeSerialConfig::from_env() else {
-        return;
+        log::info!(
+            "runtime using simulated PuppyArm state; set {STSERVO_PORT_ENV} to use hardware"
+        );
+        return None;
     };
 
     log::info!(
@@ -81,14 +86,25 @@ pub(crate) fn log_serial_config_from_env() {
         config.port,
         config.baud
     );
-    log::info!(
-        "runtime currently uses simulated PuppyArm state; serial bus is available for the hardware arm worker"
-    );
 
     if std::env::var(STSERVO_PROBE_ENV).ok().as_deref() == Some("1") {
         match RuntimeSerialBus::open(&config) {
-            Ok(_) => log::info!("runtime STServo serial bus probe opened successfully"),
-            Err(err) => log::warn!("runtime STServo serial bus probe failed: {err}"),
+            Ok(bus) => {
+                log::info!("runtime STServo serial bus probe opened successfully");
+                return Some(StServo::new(bus));
+            }
+            Err(err) => {
+                log::warn!("runtime STServo serial bus probe failed: {err}");
+                return None;
+            }
+        }
+    }
+
+    match RuntimeSerialBus::open(&config) {
+        Ok(bus) => Some(StServo::new(bus)),
+        Err(err) => {
+            log::warn!("runtime STServo serial bus open failed: {err}");
+            None
         }
     }
 }
