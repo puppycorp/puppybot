@@ -16,6 +16,23 @@ pub(crate) struct RuntimeSerialConfig {
     pub baud: u32,
 }
 
+pub(crate) struct RuntimeSerialBus {
+    port: Box<dyn serialport::SerialPort>,
+}
+
+pub(crate) type RuntimeStServo = StServo<RuntimeSerialBus>;
+
+fn parse_baud(value: &str) -> Option<u32> {
+    value.trim().parse::<u32>().ok().filter(|baud| *baud > 0)
+}
+
+fn is_nonblocking_empty(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
+    )
+}
+
 impl RuntimeSerialConfig {
     pub(crate) fn from_env() -> Option<Self> {
         let port = std::env::var(STSERVO_PORT_ENV).ok()?;
@@ -34,10 +51,6 @@ impl RuntimeSerialConfig {
     }
 }
 
-pub(crate) struct RuntimeSerialBus {
-    port: Box<dyn serialport::SerialPort>,
-}
-
 impl RuntimeSerialBus {
     pub(crate) fn open(config: &RuntimeSerialConfig) -> serialport::Result<Self> {
         let port = serialport::new(&config.port, config.baud)
@@ -50,8 +63,6 @@ impl RuntimeSerialBus {
         Ok(Self { port })
     }
 }
-
-pub(crate) type RuntimeStServo = StServo<RuntimeSerialBus>;
 
 impl SerialBus for RuntimeSerialBus {
     type Error = io::Error;
@@ -107,17 +118,6 @@ pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
             None
         }
     }
-}
-
-fn is_nonblocking_empty(err: &io::Error) -> bool {
-    matches!(
-        err.kind(),
-        ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
-    )
-}
-
-fn parse_baud(value: &str) -> Option<u32> {
-    value.trim().parse::<u32>().ok().filter(|baud| *baud > 0)
 }
 
 #[cfg(test)]

@@ -144,6 +144,133 @@ pub struct ArmController {
     pub mode: ArmMode,
 }
 
+pub fn current_targets(safety: &ServoSafety<JOINT_COUNT>) -> Option<[i32; JOINT_COUNT]> {
+    let mut targets = [0; JOINT_COUNT];
+    for (index, joint) in safety.joints.iter().enumerate() {
+        targets[index] = joint.target_tick?;
+    }
+    Some(targets)
+}
+
+pub fn active_jog(safety: &ServoSafety<JOINT_COUNT>) -> Option<(usize, i8)> {
+    for (index, joint) in safety.joints.iter().enumerate() {
+        if joint.target_tick.is_none() && joint.speed != 0 {
+            return Some((index, joint.speed.signum() as i8));
+        }
+    }
+    None
+}
+
+pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
+    [
+        JointProfile {
+            servo_id: 2,
+            tick_min: YAW_TICK_MIN,
+            tick_max: YAW_TICK_MAX,
+            raw_tick_min: YAW_TICK_MIN,
+            raw_tick_max: YAW_TICK_MAX,
+            sign: YAW_SIGN,
+            drive_sign: 1,
+            zero_offset_rad: zero_offset_from_reference(
+                YAW_ZERO_TICK,
+                YAW_TICK_MIN,
+                YAW_TICK_MAX,
+                YAW_SIGN,
+                0.0,
+            ),
+        },
+        JointProfile {
+            servo_id: 3,
+            tick_min: SHOULDER_TICK_MIN,
+            tick_max: SHOULDER_TICK_MAX,
+            raw_tick_min: SHOULDER_TICK_MIN,
+            raw_tick_max: SHOULDER_TICK_MAX,
+            sign: SHOULDER_SIGN,
+            drive_sign: SHOULDER_DRIVE_SIGN,
+            zero_offset_rad: zero_offset_from_reference(
+                SHOULDER_ZERO_TICK,
+                SHOULDER_TICK_MIN,
+                SHOULDER_TICK_MAX,
+                SHOULDER_SIGN,
+                PI / 2.0,
+            ),
+        },
+        JointProfile {
+            servo_id: 4,
+            tick_min: ELBOW_TICK_MIN,
+            tick_max: ELBOW_TICK_MAX,
+            raw_tick_min: ELBOW_TICK_MIN,
+            raw_tick_max: ELBOW_TICK_MAX,
+            sign: ELBOW_SIGN,
+            drive_sign: ELBOW_DRIVE_SIGN,
+            zero_offset_rad: zero_offset_from_reference(
+                ELBOW_ZERO_TICK,
+                ELBOW_TICK_MIN,
+                ELBOW_TICK_MAX,
+                ELBOW_SIGN,
+                0.0,
+            ),
+        },
+        JointProfile {
+            servo_id: 5,
+            tick_min: TIP_TICK_MIN,
+            tick_max: TIP_TICK_MAX,
+            raw_tick_min: TIP_TICK_MIN,
+            raw_tick_max: TIP_TICK_MAX,
+            sign: TIP_SIGN,
+            drive_sign: 1,
+            zero_offset_rad: zero_offset_from_reference(
+                TIP_ZERO_TICK,
+                TIP_TICK_MIN,
+                TIP_TICK_MAX,
+                TIP_SIGN,
+                0.0,
+            ),
+        },
+    ]
+}
+
+pub fn angle_to_tick(profile: &JointProfile, angle_rad: f64) -> i32 {
+    let mid_tick = reference_mid_tick(profile);
+    let physical_angle = profile.sign * angle_rad + profile.zero_offset_rad;
+    libm::round(mid_tick + physical_angle * TICK_WRAP as f64 / (2.0 * PI)) as i32
+}
+
+pub fn tick_to_angle(profile: &JointProfile, tick: i32) -> f64 {
+    let mid_tick = reference_mid_tick(profile);
+    let aligned_tick = servo_safety::align_tick_to_reference(tick, mid_tick as i32);
+    let physical_angle = (aligned_tick as f64 - mid_tick) * (2.0 * PI / TICK_WRAP as f64);
+    (physical_angle - profile.zero_offset_rad) / profile.sign
+}
+
+pub fn zero_offset_from_reference(
+    tick: i32,
+    raw_tick_min: i32,
+    raw_tick_max: i32,
+    sign: f64,
+    target_angle_rad: f64,
+) -> f64 {
+    let (lo, hi) = servo_safety::continuous_tick_interval(raw_tick_min, raw_tick_max);
+    let mid_tick = 0.5 * (lo + hi) as f64;
+    let aligned_tick = servo_safety::align_tick_to_reference(tick, mid_tick as i32);
+    let physical_angle = (aligned_tick as f64 - mid_tick) * (2.0 * PI / TICK_WRAP as f64);
+    physical_angle - sign * target_angle_rad
+}
+
+fn reference_mid_tick(profile: &JointProfile) -> f64 {
+    let (lo, hi) =
+        servo_safety::continuous_tick_interval(profile.raw_tick_min, profile.raw_tick_max);
+    0.5 * (lo + hi) as f64
+}
+
+fn validate_joint(joint: usize) -> Result<usize, ControllerError> {
+    if joint < JOINT_COUNT {
+        Ok(joint)
+    } else {
+        Err(ControllerError::InvalidJoint)
+    }
+}
+
 impl ArmController {
     pub fn new(now_ms: u64) -> Self {
         let profiles = default_joint_profiles();
@@ -446,133 +573,6 @@ impl ArmController {
         }
 
         self.mode = ArmMode::Idle;
-    }
-}
-
-pub fn current_targets(safety: &ServoSafety<JOINT_COUNT>) -> Option<[i32; JOINT_COUNT]> {
-    let mut targets = [0; JOINT_COUNT];
-    for (index, joint) in safety.joints.iter().enumerate() {
-        targets[index] = joint.target_tick?;
-    }
-    Some(targets)
-}
-
-pub fn active_jog(safety: &ServoSafety<JOINT_COUNT>) -> Option<(usize, i8)> {
-    for (index, joint) in safety.joints.iter().enumerate() {
-        if joint.target_tick.is_none() && joint.speed != 0 {
-            return Some((index, joint.speed.signum() as i8));
-        }
-    }
-    None
-}
-
-pub fn default_joint_profiles() -> [JointProfile; JOINT_COUNT] {
-    [
-        JointProfile {
-            servo_id: 2,
-            tick_min: YAW_TICK_MIN,
-            tick_max: YAW_TICK_MAX,
-            raw_tick_min: YAW_TICK_MIN,
-            raw_tick_max: YAW_TICK_MAX,
-            sign: YAW_SIGN,
-            drive_sign: 1,
-            zero_offset_rad: zero_offset_from_reference(
-                YAW_ZERO_TICK,
-                YAW_TICK_MIN,
-                YAW_TICK_MAX,
-                YAW_SIGN,
-                0.0,
-            ),
-        },
-        JointProfile {
-            servo_id: 3,
-            tick_min: SHOULDER_TICK_MIN,
-            tick_max: SHOULDER_TICK_MAX,
-            raw_tick_min: SHOULDER_TICK_MIN,
-            raw_tick_max: SHOULDER_TICK_MAX,
-            sign: SHOULDER_SIGN,
-            drive_sign: SHOULDER_DRIVE_SIGN,
-            zero_offset_rad: zero_offset_from_reference(
-                SHOULDER_ZERO_TICK,
-                SHOULDER_TICK_MIN,
-                SHOULDER_TICK_MAX,
-                SHOULDER_SIGN,
-                PI / 2.0,
-            ),
-        },
-        JointProfile {
-            servo_id: 4,
-            tick_min: ELBOW_TICK_MIN,
-            tick_max: ELBOW_TICK_MAX,
-            raw_tick_min: ELBOW_TICK_MIN,
-            raw_tick_max: ELBOW_TICK_MAX,
-            sign: ELBOW_SIGN,
-            drive_sign: ELBOW_DRIVE_SIGN,
-            zero_offset_rad: zero_offset_from_reference(
-                ELBOW_ZERO_TICK,
-                ELBOW_TICK_MIN,
-                ELBOW_TICK_MAX,
-                ELBOW_SIGN,
-                0.0,
-            ),
-        },
-        JointProfile {
-            servo_id: 5,
-            tick_min: TIP_TICK_MIN,
-            tick_max: TIP_TICK_MAX,
-            raw_tick_min: TIP_TICK_MIN,
-            raw_tick_max: TIP_TICK_MAX,
-            sign: TIP_SIGN,
-            drive_sign: 1,
-            zero_offset_rad: zero_offset_from_reference(
-                TIP_ZERO_TICK,
-                TIP_TICK_MIN,
-                TIP_TICK_MAX,
-                TIP_SIGN,
-                0.0,
-            ),
-        },
-    ]
-}
-
-pub fn angle_to_tick(profile: &JointProfile, angle_rad: f64) -> i32 {
-    let mid_tick = reference_mid_tick(profile);
-    let physical_angle = profile.sign * angle_rad + profile.zero_offset_rad;
-    libm::round(mid_tick + physical_angle * TICK_WRAP as f64 / (2.0 * PI)) as i32
-}
-
-pub fn tick_to_angle(profile: &JointProfile, tick: i32) -> f64 {
-    let mid_tick = reference_mid_tick(profile);
-    let aligned_tick = servo_safety::align_tick_to_reference(tick, mid_tick as i32);
-    let physical_angle = (aligned_tick as f64 - mid_tick) * (2.0 * PI / TICK_WRAP as f64);
-    (physical_angle - profile.zero_offset_rad) / profile.sign
-}
-
-pub fn zero_offset_from_reference(
-    tick: i32,
-    raw_tick_min: i32,
-    raw_tick_max: i32,
-    sign: f64,
-    target_angle_rad: f64,
-) -> f64 {
-    let (lo, hi) = servo_safety::continuous_tick_interval(raw_tick_min, raw_tick_max);
-    let mid_tick = 0.5 * (lo + hi) as f64;
-    let aligned_tick = servo_safety::align_tick_to_reference(tick, mid_tick as i32);
-    let physical_angle = (aligned_tick as f64 - mid_tick) * (2.0 * PI / TICK_WRAP as f64);
-    physical_angle - sign * target_angle_rad
-}
-
-fn reference_mid_tick(profile: &JointProfile) -> f64 {
-    let (lo, hi) =
-        servo_safety::continuous_tick_interval(profile.raw_tick_min, profile.raw_tick_max);
-    0.5 * (lo + hi) as f64
-}
-
-fn validate_joint(joint: usize) -> Result<usize, ControllerError> {
-    if joint < JOINT_COUNT {
-        Ok(joint)
-    } else {
-        Err(ControllerError::InvalidJoint)
     }
 }
 

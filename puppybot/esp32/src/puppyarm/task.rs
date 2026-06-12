@@ -26,6 +26,14 @@ pub type IntentChannel = Channel<CriticalSectionRawMutex, ProtocolEvent, 16>;
 pub type TelemetryChannel = Channel<CriticalSectionRawMutex, PuppyarmTelemetry, 4>;
 
 #[cfg(feature = "esp32")]
+fn publish_telemetry(telemetry: &'static TelemetryChannel, snapshot: PuppyarmTelemetry) {
+    if telemetry.try_send(snapshot).is_err() {
+        let _ = telemetry.try_receive();
+        let _ = telemetry.try_send(snapshot);
+    }
+}
+
+#[cfg(feature = "esp32")]
 #[embassy_executor::task]
 pub async fn robot_task(
     mut servo: ServoController,
@@ -47,13 +55,5 @@ pub async fn robot_task(
         }
 
         Timer::after(CONTROL_PERIOD).await;
-    }
-}
-
-#[cfg(feature = "esp32")]
-fn publish_telemetry(telemetry: &'static TelemetryChannel, snapshot: PuppyarmTelemetry) {
-    if telemetry.try_send(snapshot).is_err() {
-        let _ = telemetry.try_receive();
-        let _ = telemetry.try_send(snapshot);
     }
 }

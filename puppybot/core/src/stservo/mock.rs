@@ -290,6 +290,57 @@ impl SerialBus for FakeSerialBus {
     }
 }
 
+pub fn packet(id: u8, instruction: u8, params: &[u8]) -> Vec<u8> {
+    let mut out = [0u8; FAKE_MAX_PACKET];
+    let len = build_packet(&mut out, id, instruction, params).unwrap();
+    out[..len].to_vec()
+}
+
+pub fn status_packet(id: u8, status: u8, params: &[u8]) -> Vec<u8> {
+    let mut out = vec![0xff, 0xff, id, (params.len() + 2) as u8, status];
+    out.extend_from_slice(params);
+    let crc = checksum(&out);
+    out.push(crc);
+    out
+}
+
+fn from_servo_signed(value: u16) -> i16 {
+    let magnitude = (value & 0x7fff) as i16;
+    if (value & 0x8000) != 0 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+fn noop_waker() -> Waker {
+    unsafe fn clone(_: *const ()) -> RawWaker {
+        raw_waker()
+    }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
+
+    fn raw_waker() -> RawWaker {
+        RawWaker::new(
+            core::ptr::null(),
+            &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
+        )
+    }
+
+    unsafe { Waker::from_raw(raw_waker()) }
+}
+
+pub fn block_on_ready<F: Future>(future: F) -> F::Output {
+    let waker = noop_waker();
+    let mut context = Context::from_waker(&waker);
+    let mut future = core::pin::pin!(future);
+    match Pin::new(&mut future).poll(&mut context) {
+        Poll::Ready(output) => output,
+        Poll::Pending => panic!("test future unexpectedly pending"),
+    }
+}
+
 #[test]
 fn fake_serial_bus_records_real_set_mode_packet() {
     let mut bus = FakeSerialBus::new().with_servo(1, 1234);
@@ -444,55 +495,4 @@ fn read_status_uses_fake_voltage_and_temperature() {
 
     assert_eq!(status.voltage_raw, 74);
     assert_eq!(status.temperature_c, 42);
-}
-
-pub fn packet(id: u8, instruction: u8, params: &[u8]) -> Vec<u8> {
-    let mut out = [0u8; FAKE_MAX_PACKET];
-    let len = build_packet(&mut out, id, instruction, params).unwrap();
-    out[..len].to_vec()
-}
-
-pub fn status_packet(id: u8, status: u8, params: &[u8]) -> Vec<u8> {
-    let mut out = vec![0xff, 0xff, id, (params.len() + 2) as u8, status];
-    out.extend_from_slice(params);
-    let crc = checksum(&out);
-    out.push(crc);
-    out
-}
-
-fn from_servo_signed(value: u16) -> i16 {
-    let magnitude = (value & 0x7fff) as i16;
-    if (value & 0x8000) != 0 {
-        -magnitude
-    } else {
-        magnitude
-    }
-}
-
-pub fn block_on_ready<F: Future>(future: F) -> F::Output {
-    let waker = noop_waker();
-    let mut context = Context::from_waker(&waker);
-    let mut future = core::pin::pin!(future);
-    match Pin::new(&mut future).poll(&mut context) {
-        Poll::Ready(output) => output,
-        Poll::Pending => panic!("test future unexpectedly pending"),
-    }
-}
-
-fn noop_waker() -> Waker {
-    unsafe fn clone(_: *const ()) -> RawWaker {
-        raw_waker()
-    }
-    unsafe fn wake(_: *const ()) {}
-    unsafe fn wake_by_ref(_: *const ()) {}
-    unsafe fn drop(_: *const ()) {}
-
-    fn raw_waker() -> RawWaker {
-        RawWaker::new(
-            core::ptr::null(),
-            &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
-        )
-    }
-
-    unsafe { Waker::from_raw(raw_waker()) }
 }

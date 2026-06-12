@@ -56,6 +56,43 @@ macro_rules! mk_static {
 }
 
 #[cfg(feature = "esp32")]
+#[embassy_executor::task]
+async fn heartbeat(mut status_led: Output<'static>) {
+    loop {
+        status_led.toggle();
+        log::info!("puppybot heartbeat");
+        Timer::after(Duration::from_secs(1)).await;
+    }
+}
+
+#[cfg(feature = "esp32")]
+#[embassy_executor::task]
+async fn wifi_connection(mut controller: WifiController<'static>) {
+    loop {
+        log::info!("connecting Wi-Fi station");
+
+        match controller.connect_async().await {
+            Ok(info) => {
+                log::info!("Wi-Fi connected to {:?}", info);
+                let disconnect = controller.wait_for_disconnect_async().await.ok();
+                log::warn!("Wi-Fi disconnected: {:?}", disconnect);
+            }
+            Err(err) => {
+                log::warn!("Wi-Fi connect failed: {:?}", err);
+            }
+        }
+
+        Timer::after(Duration::from_secs(5)).await;
+    }
+}
+
+#[cfg(feature = "esp32")]
+#[embassy_executor::task]
+async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
+    runner.run().await
+}
+
+#[cfg(feature = "esp32")]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
@@ -145,41 +182,4 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         Timer::after(Duration::from_secs(60)).await;
     }
-}
-
-#[cfg(feature = "esp32")]
-#[embassy_executor::task]
-async fn heartbeat(mut status_led: Output<'static>) {
-    loop {
-        status_led.toggle();
-        log::info!("puppybot heartbeat");
-        Timer::after(Duration::from_secs(1)).await;
-    }
-}
-
-#[cfg(feature = "esp32")]
-#[embassy_executor::task]
-async fn wifi_connection(mut controller: WifiController<'static>) {
-    loop {
-        log::info!("connecting Wi-Fi station");
-
-        match controller.connect_async().await {
-            Ok(info) => {
-                log::info!("Wi-Fi connected to {:?}", info);
-                let disconnect = controller.wait_for_disconnect_async().await.ok();
-                log::warn!("Wi-Fi disconnected: {:?}", disconnect);
-            }
-            Err(err) => {
-                log::warn!("Wi-Fi connect failed: {:?}", err);
-            }
-        }
-
-        Timer::after(Duration::from_secs(5)).await;
-    }
-}
-
-#[cfg(feature = "esp32")]
-#[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
-    runner.run().await
 }

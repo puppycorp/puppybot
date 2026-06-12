@@ -126,6 +126,59 @@ pub struct ProtocolJointTelemetry<'a> {
     pub fault: Option<&'a [u8]>,
 }
 
+fn servo_speed_from_duration(duration_ms: u16) -> u16 {
+    if duration_ms == 0 {
+        return DEFAULT_SERVO_SPEED;
+    }
+
+    ((1_000_000u32 / duration_ms as u32).clamp(1, DEFAULT_SERVO_SPEED as u32)) as u16
+}
+
+fn arm_telemetry_requested(payload: &[u8], config: &RobotConfig) -> bool {
+    let Some(count) = payload.first().copied() else {
+        return false;
+    };
+    let count = (count as usize).min(payload.len().saturating_sub(1));
+    payload[1..1 + count]
+        .iter()
+        .any(|servo_id| config.arm_servo_ids.contains(servo_id))
+}
+
+fn read_u16_le(bytes: &[u8]) -> u16 {
+    u16::from_le_bytes([bytes[0], bytes[1]])
+}
+
+fn read_i32_le(bytes: &[u8]) -> i32 {
+    i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+}
+
+fn read_f32_le(bytes: &[u8]) -> f32 {
+    f32::from_bits(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn deg_to_rad(degrees: f32) -> f64 {
+    degrees as f64 * core::f64::consts::PI / 180.0
+}
+
+pub fn pong_frame() -> Vec<u8> {
+    vec![
+        (PUPPY_PROTOCOL_VERSION & 0xff) as u8,
+        (PUPPY_PROTOCOL_VERSION >> 8) as u8,
+        MSG_TO_SRV_PONG,
+    ]
+}
+
+pub fn config_state_frame(config: &RobotConfig) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(9);
+    frame.push((PUPPY_PROTOCOL_VERSION & 0xff) as u8);
+    frame.push((PUPPY_PROTOCOL_VERSION >> 8) as u8);
+    frame.push(MSG_TO_SRV_CONFIG_STATE);
+    frame.push(CONFIG_VERSION);
+    frame.push(config.steering_servo_id);
+    frame.extend_from_slice(&config.arm_servo_ids);
+    frame
+}
+
 pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> ProtocolOutput {
     if frame.len() < 4 {
         return ProtocolOutput::default();
@@ -380,25 +433,6 @@ pub fn command_frame(cmd: u8, body: &[u8]) -> Vec<u8> {
     frame
 }
 
-pub fn pong_frame() -> Vec<u8> {
-    vec![
-        (PUPPY_PROTOCOL_VERSION & 0xff) as u8,
-        (PUPPY_PROTOCOL_VERSION >> 8) as u8,
-        MSG_TO_SRV_PONG,
-    ]
-}
-
-pub fn config_state_frame(config: &RobotConfig) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(9);
-    frame.push((PUPPY_PROTOCOL_VERSION & 0xff) as u8);
-    frame.push((PUPPY_PROTOCOL_VERSION >> 8) as u8);
-    frame.push(MSG_TO_SRV_CONFIG_STATE);
-    frame.push(CONFIG_VERSION);
-    frame.push(config.steering_servo_id);
-    frame.extend_from_slice(&config.arm_servo_ids);
-    frame
-}
-
 #[allow(dead_code)]
 pub fn arm_state_frame(
     joints: &[ProtocolJointTelemetry<'_>],
@@ -519,40 +553,6 @@ pub fn fault_name_str(fault: SafetyFault) -> &'static str {
         SafetyFault::DeadmanFeedbackStale => "deadman_feedback",
         SafetyFault::DeadmanCommandStale => "deadman_command",
     }
-}
-
-fn servo_speed_from_duration(duration_ms: u16) -> u16 {
-    if duration_ms == 0 {
-        return DEFAULT_SERVO_SPEED;
-    }
-
-    ((1_000_000u32 / duration_ms as u32).clamp(1, DEFAULT_SERVO_SPEED as u32)) as u16
-}
-
-fn arm_telemetry_requested(payload: &[u8], config: &RobotConfig) -> bool {
-    let Some(count) = payload.first().copied() else {
-        return false;
-    };
-    let count = (count as usize).min(payload.len().saturating_sub(1));
-    payload[1..1 + count]
-        .iter()
-        .any(|servo_id| config.arm_servo_ids.contains(servo_id))
-}
-
-fn read_u16_le(bytes: &[u8]) -> u16 {
-    u16::from_le_bytes([bytes[0], bytes[1]])
-}
-
-fn read_i32_le(bytes: &[u8]) -> i32 {
-    i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
-fn read_f32_le(bytes: &[u8]) -> f32 {
-    f32::from_bits(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-}
-
-fn deg_to_rad(degrees: f32) -> f64 {
-    degrees as f64 * core::f64::consts::PI / 180.0
 }
 
 #[cfg(all(test, feature = "runtime"))]

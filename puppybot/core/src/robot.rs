@@ -27,6 +27,24 @@ pub struct Puppybot {
     last_steering_sent: Option<(u8, u16)>,
 }
 
+pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
+    let joints: [ProtocolJointTelemetry<'_>; JOINT_COUNT] =
+        telemetry.joints.map(|joint| ProtocolJointTelemetry {
+            servo_id: joint.servo_id,
+            online: joint.online,
+            has_feedback: joint.has_feedback,
+            limit_reached: joint.limit_reached,
+            tick: joint.tick,
+            target_tick: joint.target_tick,
+            speed: joint.speed,
+            limit_min: joint.limit_min,
+            limit_max: joint.limit_max,
+            angle_deg: joint.angle_deg,
+            fault: joint.fault.map(protocol::fault_name),
+        });
+    protocol::arm_state_frame(&joints, telemetry.coords_mm)
+}
+
 impl Puppybot {
     pub fn new(now_ms: u64) -> Self {
         Self {
@@ -36,14 +54,6 @@ impl Puppybot {
             telemetry_seq: 0,
             last_steering_sent: None,
         }
-    }
-
-    pub fn handle_frame(&mut self, frame: &[u8], now_ms: u64) -> ProtocolOutput {
-        let output = protocol::handle_binary_command(frame, &mut self.protocol);
-        for event in output.events.iter().copied() {
-            self.handle_event(event, now_ms);
-        }
-        output
     }
 
     pub fn handle_event(&mut self, event: ProtocolEvent, now_ms: u64) {
@@ -57,25 +67,12 @@ impl Puppybot {
         }
     }
 
-    pub async fn run_once<B, F>(
-        &mut self,
-        servo: &mut StServo<B>,
-        now_ms: u64,
-        mut receive_event: F,
-    ) where
-        B: SerialBus,
-        B::Error: core::fmt::Debug,
-        F: FnMut() -> Option<ProtocolEvent>,
-    {
-        self.read_servo_feedback(servo, now_ms).await;
-        while let Some(event) = receive_event() {
+    pub fn handle_frame(&mut self, frame: &[u8], now_ms: u64) -> ProtocolOutput {
+        let output = protocol::handle_binary_command(frame, &mut self.protocol);
+        for event in output.events.iter().copied() {
             self.handle_event(event, now_ms);
         }
-
-        self.drive.tick(now_ms);
-        self.apply_steering_output(servo).await;
-        self.apply_arm_outputs(servo, now_ms).await;
-        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+        output
     }
 
     pub fn tick(&mut self, elapsed_ms: u64, now_ms: u64) {
@@ -234,24 +231,27 @@ impl Puppybot {
             );
         }
     }
-}
 
-pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
-    let joints: [ProtocolJointTelemetry<'_>; JOINT_COUNT] =
-        telemetry.joints.map(|joint| ProtocolJointTelemetry {
-            servo_id: joint.servo_id,
-            online: joint.online,
-            has_feedback: joint.has_feedback,
-            limit_reached: joint.limit_reached,
-            tick: joint.tick,
-            target_tick: joint.target_tick,
-            speed: joint.speed,
-            limit_min: joint.limit_min,
-            limit_max: joint.limit_max,
-            angle_deg: joint.angle_deg,
-            fault: joint.fault.map(protocol::fault_name),
-        });
-    protocol::arm_state_frame(&joints, telemetry.coords_mm)
+    pub async fn run_once<B, F>(
+        &mut self,
+        servo: &mut StServo<B>,
+        now_ms: u64,
+        mut receive_event: F,
+    ) where
+        B: SerialBus,
+        B::Error: core::fmt::Debug,
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        self.read_servo_feedback(servo, now_ms).await;
+        while let Some(event) = receive_event() {
+            self.handle_event(event, now_ms);
+        }
+
+        self.drive.tick(now_ms);
+        self.apply_steering_output(servo).await;
+        self.apply_arm_outputs(servo, now_ms).await;
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+    }
 }
 
 impl Default for Puppybot {

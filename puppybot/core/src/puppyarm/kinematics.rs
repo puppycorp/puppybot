@@ -17,6 +17,11 @@ pub struct IkResult {
     pub reachable: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IkError {
+    Unreachable,
+}
+
 pub fn clamp(value: f64, lo: f64, hi: f64) -> f64 {
     value.max(lo).min(hi)
 }
@@ -31,8 +36,29 @@ pub fn wrap_pi(mut angle: f64) -> f64 {
     angle
 }
 
-pub fn ik(x: f64, y: f64, z: f64) -> IkResult {
-    ik_with_tool_pitch(x, y, z, ARM_TOOL_PHI_RAD)
+pub fn solve_tip_angle_down(shoulder: f64, elbow: f64, tool_phi_rad: f64) -> f64 {
+    wrap_pi(shoulder - elbow - tool_phi_rad)
+}
+
+pub fn tooltip_target_to_wrist_target(
+    x: f64,
+    y: f64,
+    z: f64,
+    tool_phi_rad: f64,
+) -> (f64, f64, f64) {
+    let radial_backoff = ARM_L3_MM * libm::cos(tool_phi_rad);
+    let vertical_backoff = ARM_L3_MM * libm::sin(tool_phi_rad);
+    let r_xy = libm::sqrt(x * x + y * y);
+
+    let (wrist_x, wrist_y) = if r_xy < 1.0e-9 || radial_backoff.abs() < 1.0e-9 {
+        (x, y)
+    } else {
+        let ux = x / r_xy;
+        let uy = y / r_xy;
+        (x - radial_backoff * ux, y - radial_backoff * uy)
+    };
+
+    (wrist_x, wrist_y, z - vertical_backoff)
 }
 
 pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult {
@@ -70,6 +96,10 @@ pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult
     }
 }
 
+pub fn ik(x: f64, y: f64, z: f64) -> IkResult {
+    ik_with_tool_pitch(x, y, z, ARM_TOOL_PHI_RAD)
+}
+
 pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
     let link2_pitch = shoulder - elbow;
     let tool_pitch = link2_pitch - wrist;
@@ -84,37 +114,8 @@ pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
     (x, y, z)
 }
 
-pub fn solve_tip_angle_down(shoulder: f64, elbow: f64, tool_phi_rad: f64) -> f64 {
-    wrap_pi(shoulder - elbow - tool_phi_rad)
-}
-
-pub fn tooltip_target_to_wrist_target(
-    x: f64,
-    y: f64,
-    z: f64,
-    tool_phi_rad: f64,
-) -> (f64, f64, f64) {
-    let radial_backoff = ARM_L3_MM * libm::cos(tool_phi_rad);
-    let vertical_backoff = ARM_L3_MM * libm::sin(tool_phi_rad);
-    let r_xy = libm::sqrt(x * x + y * y);
-
-    let (wrist_x, wrist_y) = if r_xy < 1.0e-9 || radial_backoff.abs() < 1.0e-9 {
-        (x, y)
-    } else {
-        let ux = x / r_xy;
-        let uy = y / r_xy;
-        (x - radial_backoff * ux, y - radial_backoff * uy)
-    };
-
-    (wrist_x, wrist_y, z - vertical_backoff)
-}
-
 pub fn angle_distance(a: f64, b: f64) -> f64 {
     wrap_pi(a - b).abs()
-}
-
-pub fn solve_coords_tool_down(x: f64, y: f64, z: f64) -> Result<(f64, f64, f64, f64), IkError> {
-    solve_coords_with_tool_pitch(x, y, z, ARM_TOOL_PHI_RAD)
 }
 
 pub fn solve_coords_with_tool_pitch(
@@ -130,17 +131,16 @@ pub fn solve_coords_with_tool_pitch(
     Ok((result.yaw, result.shoulder, result.elbow, result.wrist))
 }
 
+pub fn solve_coords_tool_down(x: f64, y: f64, z: f64) -> Result<(f64, f64, f64, f64), IkError> {
+    solve_coords_with_tool_pitch(x, y, z, ARM_TOOL_PHI_RAD)
+}
+
 pub fn table_to_shoulder_z(z_table_mm: f64) -> f64 {
     z_table_mm - Z_ORIGIN_MM
 }
 
 pub fn shoulder_to_table_z(z_shoulder_mm: f64) -> f64 {
     z_shoulder_mm + Z_ORIGIN_MM
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IkError {
-    Unreachable,
 }
 
 #[cfg(test)]

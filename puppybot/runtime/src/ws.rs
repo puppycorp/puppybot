@@ -14,30 +14,196 @@ const MAX_HTTP_REQUEST: usize = 2048;
 const MAX_WS_FRAME_SIZE: usize = 2048;
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-pub(crate) fn handle_connection(
-    mut stream: TcpStream,
-    robot: Arc<Mutex<RuntimeRobot>>,
-) -> Result<(), Error> {
-    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
-    stream.set_nodelay(true)?;
+struct WsFrame<'a> {
+    opcode: u8,
+    payload: &'a [u8],
+}
 
-    let mut request = [0u8; MAX_HTTP_REQUEST];
-    let request_len = read_http_request(&mut stream, &mut request)?;
-    let request = &request[..request_len];
+#[derive(Debug)]
+pub(crate) enum Error {
+    BadRequest,
+    Closed,
+    FrameTooLarge,
+    RequestTooLarge,
+    WouldBlock,
+    Io(std::io::Error),
+}
 
-    if is_websocket_request(request) {
-        handle_websocket_upgrade(&mut stream, request)?;
-        websocket_loop(&mut stream, robot)
-    } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
-        stream.write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 47\r\n\r\npuppybot runtime websocket is available on /ws\n",
-        )?;
-        Ok(())
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadRequest => formatter.write_str("bad request"),
+            Self::Closed => formatter.write_str("connection closed"),
+            Self::FrameTooLarge => formatter.write_str("websocket frame too large"),
+            Self::RequestTooLarge => formatter.write_str("http request too large"),
+            Self::WouldBlock => formatter.write_str("operation would block"),
+            Self::Io(err) => write!(formatter, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+fn websocket_accept_key(key: &[u8], out: &mut [u8; 28]) -> Result<(), Error> {
+    let mut hasher = Sha1::new();
+    hasher.update(key);
+    hasher.update(WEBSOCKET_GUID);
+    let digest = hasher.finalize();
+    base64_encode(&digest, out).map_err(|()| Error::FrameTooLarge)?;
+    Ok(())
+}
+
+fn header_value<'a>(request: &'a [u8], name: &[u8]) -> Option<&'a [u8]> {
+    let header_end = find_bytes(request, b"\r\n\r\n")?;
+
+    for line in request[..header_end].split(|byte| *byte == b'\n') {
+        let line = trim_ascii(line.strip_suffix(b"\r").unwrap_or(line));
+        if let Some(colon) = line.iter().position(|byte| *byte == b':')
+            && eq_ignore_ascii_case(trim_ascii(&line[..colon]), name)
+        {
+            return Some(trim_ascii(&line[colon + 1..]));
+        }
+    }
+
+    None
+}
+
+fn is_websocket_request(request: &[u8]) -> bool {
+    request.starts_with(b"GET /ws ")
+        && header_value(request, b"upgrade")
+            .map(|value| eq_ignore_ascii_case(value, b"websocket"))
+            .unwrap_or(false)
+        && header_value(request, b"sec-websocket-key").is_some()
+}
+
+fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), Error> {
+    while !buf.is_empty() {
+        match stream.read(buf) {
+            Ok(0) => return Err(Error::Closed),
+            Ok(read) => {
+                let (_, rest) = buf.split_at_mut(read);
+                buf = rest;
+            }
+            Err(err)
+                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
+            {
+                return Err(Error::WouldBlock);
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(())
+}
+
+fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), Error> {
+    let mut header = [0u8; 10];
+    header[0] = 0x80 | (opcode & 0x0f);
+
+    let header_len = if payload.len() < 126 {
+        header[1] = payload.len() as u8;
+        2
+    } else if payload.len() <= u16::MAX as usize {
+        header[1] = 126;
+        header[2..4].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+        4
     } else {
-        stream.write_all(
-            b"HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 10\r\n\r\nnot found\n",
-        )?;
-        Ok(())
+        header[1] = 127;
+        header[2..10].copy_from_slice(&(payload.len() as u64).to_be_bytes());
+        10
+    };
+
+    stream.write_all(&header[..header_len])?;
+    stream.write_all(payload)?;
+    Ok(())
+}
+
+fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<WsFrame<'a>, Error> {
+    let mut header = [0u8; 2];
+    read_exact(stream, &mut header)?;
+
+    let opcode = header[0] & 0x0f;
+    let masked = (header[1] & 0x80) != 0;
+    let mut len = (header[1] & 0x7f) as usize;
+
+    if len == 126 {
+        let mut extended = [0u8; 2];
+        read_exact(stream, &mut extended)?;
+        len = u16::from_be_bytes(extended) as usize;
+    } else if len == 127 {
+        let mut extended = [0u8; 8];
+        read_exact(stream, &mut extended)?;
+        let raw_len = u64::from_be_bytes(extended);
+        if raw_len > usize::MAX as u64 {
+            return Err(Error::FrameTooLarge);
+        }
+        len = raw_len as usize;
+    }
+
+    if len > payload.len() {
+        return Err(Error::FrameTooLarge);
+    }
+
+    let mut mask = [0u8; 4];
+    if masked {
+        read_exact(stream, &mut mask)?;
+    }
+
+    read_exact(stream, &mut payload[..len])?;
+    if masked {
+        for (idx, byte) in payload[..len].iter_mut().enumerate() {
+            *byte ^= mask[idx % 4];
+        }
+    }
+
+    Ok(WsFrame {
+        opcode,
+        payload: &payload[..len],
+    })
+}
+
+fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<(), Error> {
+    let key = header_value(request, b"sec-websocket-key").ok_or(Error::BadRequest)?;
+    let mut accept = [0u8; 28];
+    websocket_accept_key(key, &mut accept)?;
+
+    stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\n")?;
+    stream.write_all(b"Upgrade: websocket\r\n")?;
+    stream.write_all(b"Connection: Upgrade\r\n")?;
+    stream.write_all(b"Sec-WebSocket-Accept: ")?;
+    stream.write_all(&accept)?;
+    stream.write_all(b"\r\n\r\n")?;
+    Ok(())
+}
+
+fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize, Error> {
+    let mut len = 0;
+
+    loop {
+        if len == request.len() {
+            return Err(Error::RequestTooLarge);
+        }
+
+        match stream.read(&mut request[len..]) {
+            Ok(0) => return Err(Error::Closed),
+            Ok(read) => {
+                len += read;
+                if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
+                    return Ok(len);
+                }
+            }
+            Err(err)
+                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
+            {
+                return Err(Error::WouldBlock);
+            }
+            Err(err) => return Err(err.into()),
+        }
     }
 }
 
@@ -92,195 +258,29 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<RuntimeRobot>>) -> Re
     }
 }
 
-struct WsFrame<'a> {
-    opcode: u8,
-    payload: &'a [u8],
-}
+pub(crate) fn handle_connection(
+    mut stream: TcpStream,
+    robot: Arc<Mutex<RuntimeRobot>>,
+) -> Result<(), Error> {
+    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
+    stream.set_nodelay(true)?;
 
-fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize, Error> {
-    let mut len = 0;
+    let mut request = [0u8; MAX_HTTP_REQUEST];
+    let request_len = read_http_request(&mut stream, &mut request)?;
+    let request = &request[..request_len];
 
-    loop {
-        if len == request.len() {
-            return Err(Error::RequestTooLarge);
-        }
-
-        match stream.read(&mut request[len..]) {
-            Ok(0) => return Err(Error::Closed),
-            Ok(read) => {
-                len += read;
-                if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
-                    return Ok(len);
-                }
-            }
-            Err(err)
-                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
-            {
-                return Err(Error::WouldBlock);
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-}
-
-fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<(), Error> {
-    let key = header_value(request, b"sec-websocket-key").ok_or(Error::BadRequest)?;
-    let mut accept = [0u8; 28];
-    websocket_accept_key(key, &mut accept)?;
-
-    stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\n")?;
-    stream.write_all(b"Upgrade: websocket\r\n")?;
-    stream.write_all(b"Connection: Upgrade\r\n")?;
-    stream.write_all(b"Sec-WebSocket-Accept: ")?;
-    stream.write_all(&accept)?;
-    stream.write_all(b"\r\n\r\n")?;
-    Ok(())
-}
-
-fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<WsFrame<'a>, Error> {
-    let mut header = [0u8; 2];
-    read_exact(stream, &mut header)?;
-
-    let opcode = header[0] & 0x0f;
-    let masked = (header[1] & 0x80) != 0;
-    let mut len = (header[1] & 0x7f) as usize;
-
-    if len == 126 {
-        let mut extended = [0u8; 2];
-        read_exact(stream, &mut extended)?;
-        len = u16::from_be_bytes(extended) as usize;
-    } else if len == 127 {
-        let mut extended = [0u8; 8];
-        read_exact(stream, &mut extended)?;
-        let raw_len = u64::from_be_bytes(extended);
-        if raw_len > usize::MAX as u64 {
-            return Err(Error::FrameTooLarge);
-        }
-        len = raw_len as usize;
-    }
-
-    if len > payload.len() {
-        return Err(Error::FrameTooLarge);
-    }
-
-    let mut mask = [0u8; 4];
-    if masked {
-        read_exact(stream, &mut mask)?;
-    }
-
-    read_exact(stream, &mut payload[..len])?;
-    if masked {
-        for (idx, byte) in payload[..len].iter_mut().enumerate() {
-            *byte ^= mask[idx % 4];
-        }
-    }
-
-    Ok(WsFrame {
-        opcode,
-        payload: &payload[..len],
-    })
-}
-
-fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), Error> {
-    let mut header = [0u8; 10];
-    header[0] = 0x80 | (opcode & 0x0f);
-
-    let header_len = if payload.len() < 126 {
-        header[1] = payload.len() as u8;
-        2
-    } else if payload.len() <= u16::MAX as usize {
-        header[1] = 126;
-        header[2..4].copy_from_slice(&(payload.len() as u16).to_be_bytes());
-        4
+    if is_websocket_request(request) {
+        handle_websocket_upgrade(&mut stream, request)?;
+        websocket_loop(&mut stream, robot)
+    } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
+        stream.write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 47\r\n\r\npuppybot runtime websocket is available on /ws\n",
+        )?;
+        Ok(())
     } else {
-        header[1] = 127;
-        header[2..10].copy_from_slice(&(payload.len() as u64).to_be_bytes());
-        10
-    };
-
-    stream.write_all(&header[..header_len])?;
-    stream.write_all(payload)?;
-    Ok(())
-}
-
-fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), Error> {
-    while !buf.is_empty() {
-        match stream.read(buf) {
-            Ok(0) => return Err(Error::Closed),
-            Ok(read) => {
-                let (_, rest) = buf.split_at_mut(read);
-                buf = rest;
-            }
-            Err(err)
-                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
-            {
-                return Err(Error::WouldBlock);
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-    Ok(())
-}
-
-fn is_websocket_request(request: &[u8]) -> bool {
-    request.starts_with(b"GET /ws ")
-        && header_value(request, b"upgrade")
-            .map(|value| eq_ignore_ascii_case(value, b"websocket"))
-            .unwrap_or(false)
-        && header_value(request, b"sec-websocket-key").is_some()
-}
-
-fn header_value<'a>(request: &'a [u8], name: &[u8]) -> Option<&'a [u8]> {
-    let header_end = find_bytes(request, b"\r\n\r\n")?;
-
-    for line in request[..header_end].split(|byte| *byte == b'\n') {
-        let line = trim_ascii(line.strip_suffix(b"\r").unwrap_or(line));
-        if let Some(colon) = line.iter().position(|byte| *byte == b':')
-            && eq_ignore_ascii_case(trim_ascii(&line[..colon]), name)
-        {
-            return Some(trim_ascii(&line[colon + 1..]));
-        }
-    }
-
-    None
-}
-
-fn websocket_accept_key(key: &[u8], out: &mut [u8; 28]) -> Result<(), Error> {
-    let mut hasher = Sha1::new();
-    hasher.update(key);
-    hasher.update(WEBSOCKET_GUID);
-    let digest = hasher.finalize();
-    base64_encode(&digest, out).map_err(|()| Error::FrameTooLarge)?;
-    Ok(())
-}
-
-#[derive(Debug)]
-pub(crate) enum Error {
-    BadRequest,
-    Closed,
-    FrameTooLarge,
-    RequestTooLarge,
-    WouldBlock,
-    Io(std::io::Error),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
+        stream.write_all(
+            b"HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 10\r\n\r\nnot found\n",
+        )?;
+        Ok(())
     }
 }
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BadRequest => formatter.write_str("bad request"),
-            Self::Closed => formatter.write_str("connection closed"),
-            Self::FrameTooLarge => formatter.write_str("websocket frame too large"),
-            Self::RequestTooLarge => formatter.write_str("http request too large"),
-            Self::WouldBlock => formatter.write_str("operation would block"),
-            Self::Io(err) => write!(formatter, "{err}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}

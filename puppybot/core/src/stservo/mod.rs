@@ -88,6 +88,189 @@ pub struct StServo<B> {
     timeout: Duration,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub id: u8,
+    pub error: u8,
+    pub params: [u8; MAX_PARAMS],
+    pub params_len: usize,
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            error: 0,
+            params: [0u8; MAX_PARAMS],
+            params_len: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParseState {
+    Header0,
+    Header1,
+    Id,
+    Len,
+    Error,
+    Params,
+    Checksum,
+}
+
+fn require_id<E>(servo_id: u8) -> Result<(), Error<E>> {
+    if (MIN_SERVO_ID..=MAX_SERVO_ID).contains(&servo_id) {
+        Ok(())
+    } else {
+        Err(Error::InvalidId)
+    }
+}
+
+fn checksum(packet_without_checksum: &[u8]) -> u8 {
+    let mut sum = 0u8;
+    for byte in packet_without_checksum.iter().skip(2) {
+        sum = sum.wrapping_add(*byte);
+    }
+    !sum
+}
+
+fn low_byte(value: u16) -> u8 {
+    (value & 0xff) as u8
+}
+
+fn high_byte(value: u16) -> u8 {
+    (value >> 8) as u8
+}
+
+fn to_servo_signed(value: i16) -> u16 {
+    if value < 0 {
+        cmp::min((-value) as u16, 0x7fff) | 0x8000
+    } else {
+        cmp::min(value as u16, 0x7fff)
+    }
+}
+
+pub fn angle_to_position(angle_deg: u16) -> u16 {
+    let clamped = angle_deg.min(240) as u32;
+    ((clamped * MAX_POSITION as u32) / 240) as u16
+}
+
+pub fn build_packet(
+    out: &mut [u8],
+    servo_id: u8,
+    instruction: u8,
+    params: &[u8],
+) -> Result<usize, Error<core::convert::Infallible>> {
+    if params.len() > MAX_PACKET_LEN - 6 {
+        return Err(Error::PacketTooLarge);
+    }
+
+    let len = params.len() + 2;
+    let frame_len = len + 4;
+    if out.len() < frame_len {
+        return Err(Error::PacketTooLarge);
+    }
+
+    out[0..2].copy_from_slice(&HEADER);
+    out[2] = servo_id;
+    out[3] = len as u8;
+    out[4] = instruction;
+    out[5..5 + params.len()].copy_from_slice(params);
+    out[frame_len - 1] = checksum(&out[..frame_len - 1]);
+    Ok(frame_len)
+}
+
+async fn read_frame<B>(bus: &mut B, timeout: Duration) -> Result<Frame, Error<B::Error>>
+where
+    B: SerialBus,
+{
+    let deadline = Instant::now() + timeout;
+    let mut state = ParseState::Header0;
+    let mut frame = Frame::default();
+    let mut sum = 0u8;
+    let mut params_needed = 0usize;
+    let mut param_i = 0usize;
+    let mut byte = [0u8; 1];
+
+    loop {
+        if Instant::now() >= deadline {
+            return Err(Error::Timeout);
+        }
+
+        match bus.read_buffered(&mut byte).map_err(Error::Io)? {
+            0 => {
+                Timer::after(Duration::from_millis(1)).await;
+                continue;
+            }
+            _ => {}
+        }
+
+        let b = byte[0];
+        match state {
+            ParseState::Header0 => {
+                if b == HEADER[0] {
+                    state = ParseState::Header1;
+                }
+            }
+            ParseState::Header1 => {
+                state = if b == HEADER[1] {
+                    ParseState::Id
+                } else if b == HEADER[0] {
+                    ParseState::Header1
+                } else {
+                    ParseState::Header0
+                };
+            }
+            ParseState::Id => {
+                if b > 0xfd {
+                    state = ParseState::Header0;
+                    continue;
+                }
+                frame.id = b;
+                sum = b;
+                state = ParseState::Len;
+            }
+            ParseState::Len => {
+                if b < 2 || b as usize > MAX_PACKET_LEN {
+                    state = ParseState::Header0;
+                    continue;
+                }
+                sum = sum.wrapping_add(b);
+                params_needed = (b as usize) - 2;
+                if params_needed > MAX_PARAMS {
+                    return Err(Error::PacketTooLarge);
+                }
+                frame.params_len = params_needed;
+                state = ParseState::Error;
+            }
+            ParseState::Error => {
+                frame.error = b;
+                sum = sum.wrapping_add(b);
+                param_i = 0;
+                state = if params_needed == 0 {
+                    ParseState::Checksum
+                } else {
+                    ParseState::Params
+                };
+            }
+            ParseState::Params => {
+                frame.params[param_i] = b;
+                sum = sum.wrapping_add(b);
+                param_i += 1;
+                if param_i >= params_needed {
+                    state = ParseState::Checksum;
+                }
+            }
+            ParseState::Checksum => {
+                if b != !sum {
+                    return Err(Error::Checksum);
+                }
+                return Ok(frame);
+            }
+        }
+    }
+}
+
 impl<B> StServo<B>
 where
     B: SerialBus,
@@ -318,189 +501,6 @@ where
                 return Ok(());
             }
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Frame {
-    pub id: u8,
-    pub error: u8,
-    pub params: [u8; MAX_PARAMS],
-    pub params_len: usize,
-}
-
-impl Default for Frame {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            error: 0,
-            params: [0u8; MAX_PARAMS],
-            params_len: 0,
-        }
-    }
-}
-
-pub fn angle_to_position(angle_deg: u16) -> u16 {
-    let clamped = angle_deg.min(240) as u32;
-    ((clamped * MAX_POSITION as u32) / 240) as u16
-}
-
-pub fn build_packet(
-    out: &mut [u8],
-    servo_id: u8,
-    instruction: u8,
-    params: &[u8],
-) -> Result<usize, Error<core::convert::Infallible>> {
-    if params.len() > MAX_PACKET_LEN - 6 {
-        return Err(Error::PacketTooLarge);
-    }
-
-    let len = params.len() + 2;
-    let frame_len = len + 4;
-    if out.len() < frame_len {
-        return Err(Error::PacketTooLarge);
-    }
-
-    out[0..2].copy_from_slice(&HEADER);
-    out[2] = servo_id;
-    out[3] = len as u8;
-    out[4] = instruction;
-    out[5..5 + params.len()].copy_from_slice(params);
-    out[frame_len - 1] = checksum(&out[..frame_len - 1]);
-    Ok(frame_len)
-}
-
-async fn read_frame<B>(bus: &mut B, timeout: Duration) -> Result<Frame, Error<B::Error>>
-where
-    B: SerialBus,
-{
-    let deadline = Instant::now() + timeout;
-    let mut state = ParseState::Header0;
-    let mut frame = Frame::default();
-    let mut sum = 0u8;
-    let mut params_needed = 0usize;
-    let mut param_i = 0usize;
-    let mut byte = [0u8; 1];
-
-    loop {
-        if Instant::now() >= deadline {
-            return Err(Error::Timeout);
-        }
-
-        match bus.read_buffered(&mut byte).map_err(Error::Io)? {
-            0 => {
-                Timer::after(Duration::from_millis(1)).await;
-                continue;
-            }
-            _ => {}
-        }
-
-        let b = byte[0];
-        match state {
-            ParseState::Header0 => {
-                if b == HEADER[0] {
-                    state = ParseState::Header1;
-                }
-            }
-            ParseState::Header1 => {
-                state = if b == HEADER[1] {
-                    ParseState::Id
-                } else if b == HEADER[0] {
-                    ParseState::Header1
-                } else {
-                    ParseState::Header0
-                };
-            }
-            ParseState::Id => {
-                if b > 0xfd {
-                    state = ParseState::Header0;
-                    continue;
-                }
-                frame.id = b;
-                sum = b;
-                state = ParseState::Len;
-            }
-            ParseState::Len => {
-                if b < 2 || b as usize > MAX_PACKET_LEN {
-                    state = ParseState::Header0;
-                    continue;
-                }
-                sum = sum.wrapping_add(b);
-                params_needed = (b as usize) - 2;
-                if params_needed > MAX_PARAMS {
-                    return Err(Error::PacketTooLarge);
-                }
-                frame.params_len = params_needed;
-                state = ParseState::Error;
-            }
-            ParseState::Error => {
-                frame.error = b;
-                sum = sum.wrapping_add(b);
-                param_i = 0;
-                state = if params_needed == 0 {
-                    ParseState::Checksum
-                } else {
-                    ParseState::Params
-                };
-            }
-            ParseState::Params => {
-                frame.params[param_i] = b;
-                sum = sum.wrapping_add(b);
-                param_i += 1;
-                if param_i >= params_needed {
-                    state = ParseState::Checksum;
-                }
-            }
-            ParseState::Checksum => {
-                if b != !sum {
-                    return Err(Error::Checksum);
-                }
-                return Ok(frame);
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ParseState {
-    Header0,
-    Header1,
-    Id,
-    Len,
-    Error,
-    Params,
-    Checksum,
-}
-
-fn require_id<E>(servo_id: u8) -> Result<(), Error<E>> {
-    if (MIN_SERVO_ID..=MAX_SERVO_ID).contains(&servo_id) {
-        Ok(())
-    } else {
-        Err(Error::InvalidId)
-    }
-}
-
-fn checksum(packet_without_checksum: &[u8]) -> u8 {
-    let mut sum = 0u8;
-    for byte in packet_without_checksum.iter().skip(2) {
-        sum = sum.wrapping_add(*byte);
-    }
-    !sum
-}
-
-fn low_byte(value: u16) -> u8 {
-    (value & 0xff) as u8
-}
-
-fn high_byte(value: u16) -> u8 {
-    (value >> 8) as u8
-}
-
-fn to_servo_signed(value: i16) -> u16 {
-    if value < 0 {
-        cmp::min((-value) as u16, 0x7fff) | 0x8000
-    } else {
-        cmp::min(value as u16, 0x7fff)
     }
 }
 

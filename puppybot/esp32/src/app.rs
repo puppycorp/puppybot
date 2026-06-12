@@ -22,6 +22,18 @@ impl PuppybotApp {
         }
     }
 
+    fn handle_event(
+        &mut self,
+        event: ProtocolEvent,
+        arm_intents: &'static IntentChannel,
+        now_ms: u64,
+    ) {
+        let _ = now_ms;
+        if arm_intents.try_send(event).is_err() {
+            log::warn!("robot intent queue full; dropping intent: {:?}", event);
+        }
+    }
+
     pub fn handle_frame(
         &mut self,
         frame: &[u8],
@@ -41,18 +53,6 @@ impl PuppybotApp {
     }
 
     pub fn tick(&mut self) {}
-
-    fn handle_event(
-        &mut self,
-        event: ProtocolEvent,
-        arm_intents: &'static IntentChannel,
-        now_ms: u64,
-    ) {
-        let _ = now_ms;
-        if arm_intents.try_send(event).is_err() {
-            log::warn!("robot intent queue full; dropping intent: {:?}", event);
-        }
-    }
 }
 
 pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> alloc::vec::Vec<u8> {

@@ -62,6 +62,10 @@ pub struct DriveController {
     last_command_ms: u64,
 }
 
+fn clamp_percent(value: i8) -> i16 {
+    (value as i16).clamp(-100, 100)
+}
+
 impl DriveController {
     pub fn new(config: DriveConfig, now_ms: u64) -> Self {
         Self {
@@ -154,10 +158,6 @@ impl Default for DriveController {
     fn default() -> Self {
         Self::new(DriveConfig::default(), 0)
     }
-}
-
-fn clamp_percent(value: i8) -> i16 {
-    (value as i16).clamp(-100, 100)
 }
 
 #[cfg(test)]

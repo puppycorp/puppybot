@@ -106,6 +106,12 @@ pub struct PuppyarmSnapshot {
     pub last_error: Option<SafetyFault>,
 }
 
+fn valid_servo_ids(servo_ids: &[u8; JOINT_COUNT]) -> bool {
+    servo_ids
+        .iter()
+        .all(|servo_id| (MIN_SERVO_ID..=MAX_SERVO_ID).contains(servo_id))
+}
+
 impl PuppyArm {
     pub fn new(now_ms: u64) -> Self {
         let mut controller = ArmController::new(now_ms);
@@ -341,12 +347,6 @@ impl PuppyArm {
             let _ = self.controller.mark_speed_sent(index, output.speed, now_ms);
         }
     }
-}
-
-fn valid_servo_ids(servo_ids: &[u8; JOINT_COUNT]) -> bool {
-    servo_ids
-        .iter()
-        .all(|servo_id| (MIN_SERVO_ID..=MAX_SERVO_ID).contains(servo_id))
 }
 
 #[cfg(test)]

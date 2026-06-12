@@ -20,62 +20,41 @@ mod ws;
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
 
-fn main() {
-    init_logger();
-    let servo = stservo::open_serial_from_env();
-
-    let bind = runtime_bind_addr();
-    let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
-    let mdns = listener
-        .local_addr()
-        .ok()
-        .and_then(|addr| mdns::start_advertisement(addr.port()));
-    let robot = Arc::new(Mutex::new(RuntimeRobot::new(servo)));
-
-    log::info!("puppybot runtime listening on ws://{bind}/ws");
-    log::info!("set PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 to bind another address");
-
-    let _mdns = mdns;
-    for incoming in listener.incoming() {
-        match incoming {
-            Ok(stream) => {
-                let robot = Arc::clone(&robot);
-                std::thread::spawn(move || {
-                    if let Err(err) = ws::handle_connection(stream, robot) {
-                        log::warn!("runtime websocket connection ended: {err}");
-                    }
-                });
-            }
-            Err(err) => log::warn!("accept failed: {err:?}"),
-        }
-    }
-}
-
-fn init_logger() {
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .try_init();
-}
-
-fn runtime_bind_addr() -> String {
-    match std::env::var("PUPPYBOT_RUNTIME_ADDR") {
-        Ok(bind) => bind,
-        Err(_) => match std::env::var("PUPPYBOT_HOST_ADDR") {
-            Ok(bind) => {
-                log::warn!("PUPPYBOT_HOST_ADDR is deprecated; use PUPPYBOT_RUNTIME_ADDR");
-                bind
-            }
-            Err(_) => DEFAULT_BIND.to_string(),
-        },
-    }
-}
-
 pub(crate) struct RuntimeRobot {
     robot: Puppybot,
     servo: Option<stservo::RuntimeStServo>,
     started_at: Instant,
     last_tick_at: Instant,
     telemetry_seq: u32,
+}
+
+struct ThreadWaker(thread::Thread);
+
+impl Wake for ThreadWaker {
+    fn wake(self: StdArc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &StdArc<Self>) {
+        self.0.unpark();
+    }
+}
+
+fn block_on<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    let current_thread = thread::current();
+    let waker = Waker::from(StdArc::new(ThreadWaker(current_thread)));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => thread::park(),
+        }
+    }
 }
 
 impl RuntimeRobot {
@@ -155,31 +134,52 @@ impl RuntimeRobot {
     }
 }
 
-fn block_on<F>(future: F) -> F::Output
-where
-    F: Future,
-{
-    let current_thread = thread::current();
-    let waker = Waker::from(StdArc::new(ThreadWaker(current_thread)));
-    let mut context = Context::from_waker(&waker);
-    let mut future = std::pin::pin!(future);
-
-    loop {
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(output) => return output,
-            Poll::Pending => thread::park(),
-        }
+fn runtime_bind_addr() -> String {
+    match std::env::var("PUPPYBOT_RUNTIME_ADDR") {
+        Ok(bind) => bind,
+        Err(_) => match std::env::var("PUPPYBOT_HOST_ADDR") {
+            Ok(bind) => {
+                log::warn!("PUPPYBOT_HOST_ADDR is deprecated; use PUPPYBOT_RUNTIME_ADDR");
+                bind
+            }
+            Err(_) => DEFAULT_BIND.to_string(),
+        },
     }
 }
 
-struct ThreadWaker(thread::Thread);
+fn init_logger() {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .try_init();
+}
 
-impl Wake for ThreadWaker {
-    fn wake(self: StdArc<Self>) {
-        self.0.unpark();
-    }
+fn main() {
+    init_logger();
+    let servo = stservo::open_serial_from_env();
 
-    fn wake_by_ref(self: &StdArc<Self>) {
-        self.0.unpark();
+    let bind = runtime_bind_addr();
+    let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
+    let mdns = listener
+        .local_addr()
+        .ok()
+        .and_then(|addr| mdns::start_advertisement(addr.port()));
+    let robot = Arc::new(Mutex::new(RuntimeRobot::new(servo)));
+
+    log::info!("puppybot runtime listening on ws://{bind}/ws");
+    log::info!("set PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 to bind another address");
+
+    let _mdns = mdns;
+    for incoming in listener.incoming() {
+        match incoming {
+            Ok(stream) => {
+                let robot = Arc::clone(&robot);
+                std::thread::spawn(move || {
+                    if let Err(err) = ws::handle_connection(stream, robot) {
+                        log::warn!("runtime websocket connection ended: {err}");
+                    }
+                });
+            }
+            Err(err) => log::warn!("accept failed: {err:?}"),
+        }
     }
 }

@@ -97,6 +97,12 @@ pub struct PuppyArm {
     queued_initial_wheel_mode: bool,
 }
 
+fn valid_servo_ids(servo_ids: &[u8; JOINT_COUNT]) -> bool {
+    servo_ids
+        .iter()
+        .all(|servo_id| (MIN_SERVO_ID..=MAX_SERVO_ID).contains(servo_id))
+}
+
 impl PuppyArm {
     pub fn new(now: u64) -> Self {
         let controller = ArmController::new(now);
@@ -284,10 +290,4 @@ impl PuppyArm {
             log::warn!("arm intent rejected: {:?}", err);
         }
     }
-}
-
-fn valid_servo_ids(servo_ids: &[u8; JOINT_COUNT]) -> bool {
-    servo_ids
-        .iter()
-        .all(|servo_id| (MIN_SERVO_ID..=MAX_SERVO_ID).contains(servo_id))
 }
