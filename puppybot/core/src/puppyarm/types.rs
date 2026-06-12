@@ -1,0 +1,187 @@
+use super::{kinematics::IkError, servo_safety::SafetyFault};
+
+pub const JOINT_COUNT: usize = 4;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ArmCommand {
+    SetSpeed(i16),
+    Spin {
+        joint: usize,
+        direction: i8,
+    },
+    Stop {
+        joint: usize,
+    },
+    StopAll,
+    GotoTicks([i32; JOINT_COUNT]),
+    GotoAngles([f64; JOINT_COUNT]),
+    GotoCoords {
+        x: f64,
+        y: f64,
+        z: f64,
+    },
+    GotoPose {
+        x: f64,
+        y: f64,
+        z: f64,
+        tool_phi_rad: f64,
+    },
+    Hold,
+    SetJointTick {
+        joint: usize,
+        tick: i32,
+    },
+    SetJointAngle {
+        joint: usize,
+        angle_rad: f64,
+    },
+    SetServoAngle {
+        servo_id: u8,
+        angle_rad: f64,
+        speed: i16,
+    },
+    SetTickLimits {
+        joint: usize,
+        min: i32,
+        max: i32,
+    },
+    SetTickLimitsEnabled {
+        joint: usize,
+        enabled: bool,
+    },
+    ClearFaults {
+        joint: Option<usize>,
+    },
+    SetServoIds([u8; JOINT_COUNT]),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ArmMode {
+    Idle,
+    Jogging { joint: usize, direction: i8 },
+    TrackingTicks { targets: [i32; JOINT_COUNT] },
+    Holding { targets: [i32; JOINT_COUNT] },
+    Fault,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ControllerError {
+    InvalidJoint,
+    InvalidLimit,
+    MissingFeedback,
+    Ik(IkError),
+}
+
+impl From<IkError> for ControllerError {
+    fn from(err: IkError) -> Self {
+        Self::Ik(err)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PuppyarmTelemetry {
+    pub seq: u32,
+    pub joints: [Joint; JOINT_COUNT],
+    pub coords_mm: Option<(f32, f32, f32)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Joint {
+    pub servo_id: u8,
+    pub tick_min: i32,
+    pub tick_max: i32,
+    pub raw_tick_min: i32,
+    pub raw_tick_max: i32,
+    pub sign: f64,
+    pub drive_sign: i8,
+    pub zero_offset_rad: f64,
+    pub online: bool,
+    pub has_feedback: bool,
+    pub limit_reached: bool,
+    pub tick: Option<i32>,
+    pub target_tick: Option<i32>,
+    pub tick_delta: i32,
+    pub limit_enabled: bool,
+    pub speed: i16,
+    pub limit_min: i32,
+    pub limit_max: i32,
+    pub angle_deg: Option<f32>,
+    pub last_feedback_ms: u64,
+    pub temp_c: Option<u8>,
+    pub last_sent_speed: Option<i16>,
+    pub last_speed_cmd_ms: u64,
+    pub stall_since_ms: Option<u64>,
+    pub fault: Option<SafetyFault>,
+}
+
+impl Joint {
+    pub const fn new(servo_id: u8, tick_min: i32, tick_max: i32) -> Self {
+        Self {
+            servo_id,
+            tick_min,
+            tick_max,
+            raw_tick_min: tick_min,
+            raw_tick_max: tick_max,
+            sign: 1.0,
+            drive_sign: 1,
+            zero_offset_rad: 0.0,
+            online: true,
+            has_feedback: false,
+            limit_reached: false,
+            tick: None,
+            target_tick: None,
+            tick_delta: 0,
+            limit_enabled: true,
+            speed: 0,
+            limit_min: tick_min,
+            limit_max: tick_max,
+            angle_deg: None,
+            last_feedback_ms: 0,
+            temp_c: None,
+            last_sent_speed: None,
+            last_speed_cmd_ms: 0,
+            stall_since_ms: None,
+            fault: None,
+        }
+    }
+
+    pub const fn with_drive_sign(mut self, drive_sign: i8) -> Self {
+        self.drive_sign = drive_sign;
+        self
+    }
+
+    pub fn record_feedback(&mut self, tick: i32, now_ms: u64) {
+        let previous = self.tick;
+        self.tick = Some(tick);
+        self.tick_delta = previous.map(|value| tick - value).unwrap_or(0);
+        self.has_feedback = true;
+        self.online = true;
+        self.last_feedback_ms = now_ms;
+    }
+
+    pub fn record_feedback_error(&mut self) {
+        self.online = false;
+        self.tick = None;
+        self.tick_delta = 0;
+    }
+
+    pub fn set_temperature(&mut self, temp_c: Option<u8>) {
+        self.temp_c = temp_c;
+    }
+
+    pub fn clear_fault(&mut self) {
+        self.fault = None;
+        self.stall_since_ms = None;
+    }
+
+    pub fn stop(&mut self) {
+        self.target_tick = None;
+        self.speed = 0;
+    }
+
+    pub fn spin(&mut self, direction: i8, default_speed: i16) {
+        self.clear_fault();
+        self.target_tick = None;
+        self.speed = direction.signum() as i16 * default_speed.abs();
+    }
+}

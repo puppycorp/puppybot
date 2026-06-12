@@ -1,6 +1,6 @@
-pub mod arm;
-pub mod controller;
 pub mod kinematics;
+pub mod puppyarm;
 pub mod servo_safety;
-#[cfg(feature = "runtime")]
-pub mod state_engine;
+#[cfg(test)]
+mod tests;
+pub mod types;

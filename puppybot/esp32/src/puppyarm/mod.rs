@@ -1,6 +1,6 @@
-pub use puppybot_core::puppyarm::{arm, controller, kinematics, servo_safety};
+pub use puppybot_core::puppyarm::{kinematics, puppyarm, servo_safety, types};
 #[cfg(any(feature = "esp32", test))]
 pub mod task;
 
 #[cfg(feature = "esp32")]
-pub use arm::PuppyArm;
+pub use puppyarm::PuppyArm;

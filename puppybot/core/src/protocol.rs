@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::{
     drive::DriveCommand,
-    puppyarm::{controller::ArmCommand, kinematics, servo_safety::SafetyFault},
+    puppyarm::{kinematics, servo_safety::SafetyFault, types::ArmCommand},
 };
 
 pub const PUPPY_PROTOCOL_VERSION: u16 = 1;

@@ -6,8 +6,8 @@ use crate::{
     drive::{DriveController, DriveOutput},
     protocol::{self, ProtocolEvent, ProtocolJointTelemetry, ProtocolOutput, ProtocolState},
     puppyarm::{
-        arm::{PuppyArm, PuppyarmTelemetry},
-        controller::JOINT_COUNT,
+        puppyarm::{PuppyArm, PuppyarmTelemetry},
+        types::JOINT_COUNT,
     },
     stservo::{Mode, SerialBus, StServo},
 };
@@ -266,7 +266,7 @@ mod tests {
     use crate::{
         drive::DriveCommand,
         protocol::{CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_STOP_DRIVE, ProtocolEvent, command_frame},
-        puppyarm::controller::ArmCommand,
+        puppyarm::types::ArmCommand,
         stservo::{
             StServo, angle_to_position,
             mock::{FakeSerialBus, FakeServo, block_on_ready},

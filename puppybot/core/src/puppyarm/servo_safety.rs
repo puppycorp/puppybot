@@ -1,3 +1,5 @@
+use super::types::Joint;
+
 pub const TICK_WRAP: i32 = 4096;
 
 pub const YAW_TICK_MIN: i32 = -1400;
@@ -31,27 +33,6 @@ pub enum SafetyFault {
     Stall,
     DeadmanFeedbackStale,
     DeadmanCommandStale,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct JointSafety {
-    pub servo_id: u8,
-    pub tick_min: i32,
-    pub tick_max: i32,
-    pub drive_sign: i8,
-    pub speed: i16,
-    pub target_tick: Option<i32>,
-    pub tick: Option<i32>,
-    pub tick_delta: i32,
-    pub limit_enabled: bool,
-    pub has_feedback: bool,
-    pub is_online: bool,
-    pub last_feedback_ms: u64,
-    pub temp_c: Option<u8>,
-    pub last_sent_speed: Option<i16>,
-    pub last_speed_cmd_ms: u64,
-    pub stall_since_ms: Option<u64>,
-    pub fault: Option<SafetyFault>,
 }
 
 fn distance_to_interval(value: i32, lo: i32, hi: i32) -> i32 {
@@ -114,7 +95,7 @@ pub fn align_tick_to_interval(tick: i32, lo: i32, hi: i32) -> i32 {
     best
 }
 
-pub fn clip_tick_to_joint_limits(joint: &JointSafety, tick: i32) -> i32 {
+pub fn clip_tick_to_joint_limits(joint: &Joint, tick: i32) -> i32 {
     if !joint.limit_enabled {
         return tick;
     }
@@ -123,7 +104,7 @@ pub fn clip_tick_to_joint_limits(joint: &JointSafety, tick: i32) -> i32 {
     align_tick_to_interval(tick, lo, hi).clamp(lo, hi)
 }
 
-pub fn tick_within_joint_limits(joint: &JointSafety, tick: i32) -> bool {
+pub fn tick_within_joint_limits(joint: &Joint, tick: i32) -> bool {
     if !joint.limit_enabled {
         return true;
     }
@@ -148,21 +129,21 @@ pub fn target_tick_error(target_tick: i32, current_tick: i32) -> i32 {
     naive_error
 }
 
-pub fn target_tick_error_limited(joint: &JointSafety, target_tick: i32, current_tick: i32) -> i32 {
+pub fn target_tick_error_limited(joint: &Joint, target_tick: i32, current_tick: i32) -> i32 {
     let (lo, hi) = continuous_tick_interval(joint.tick_min, joint.tick_max);
     let current = align_tick_to_interval(current_tick, lo, hi);
     let target = align_tick_to_interval(target_tick, lo, hi);
     target - current
 }
 
-pub fn is_outside_limits(joint: &JointSafety) -> bool {
+pub fn is_outside_limits(joint: &Joint) -> bool {
     let Some(tick) = joint.tick else {
         return false;
     };
     !tick_within_joint_limits(joint, tick)
 }
 
-pub fn limit_blocks_for_speed(joint: &JointSafety, speed: i16) -> bool {
+pub fn limit_blocks_for_speed(joint: &Joint, speed: i16) -> bool {
     if !joint.limit_enabled || speed == 0 {
         return false;
     }
@@ -184,7 +165,7 @@ pub fn limit_blocks_for_speed(joint: &JointSafety, speed: i16) -> bool {
     (direction > 0 && tick >= hi) || (direction < 0 && tick <= lo)
 }
 
-fn compute_target_tracking_speed(joint: &mut JointSafety, default_speed: i16) -> i16 {
+fn compute_target_tracking_speed(joint: &mut Joint, default_speed: i16) -> i16 {
     let Some(current_tick) = joint.tick else {
         return 0;
     };
@@ -213,7 +194,7 @@ fn compute_target_tracking_speed(joint: &mut JointSafety, default_speed: i16) ->
     direction * speed_mag * joint.drive_sign as i16
 }
 
-fn compute_requested_speed(joint: &mut JointSafety, default_speed: i16) -> i16 {
+fn compute_requested_speed(joint: &mut Joint, default_speed: i16) -> i16 {
     if joint.target_tick.is_some() {
         return compute_target_tracking_speed(joint, default_speed);
     }
@@ -224,7 +205,7 @@ fn compute_requested_speed(joint: &mut JointSafety, default_speed: i16) -> i16 {
 }
 
 fn safety_fault_reason(
-    joint: &mut JointSafety,
+    joint: &mut Joint,
     requested_speed: i16,
     now_ms: u64,
 ) -> Option<SafetyFault> {
@@ -270,7 +251,7 @@ fn safety_fault_reason(
     None
 }
 
-fn apply_safety_governor(joint: &mut JointSafety, requested_speed: i16, now_ms: u64) -> i16 {
+fn apply_safety_governor(joint: &mut Joint, requested_speed: i16, now_ms: u64) -> i16 {
     if requested_speed == 0 {
         joint.stall_since_ms = None;
         return 0;
@@ -303,7 +284,7 @@ fn apply_safety_governor(joint: &mut JointSafety, requested_speed: i16, now_ms: 
     0
 }
 
-fn apply_limit_slowdown(joint: &JointSafety, requested_speed: i16) -> i16 {
+fn apply_limit_slowdown(joint: &Joint, requested_speed: i16) -> i16 {
     if requested_speed == 0 || !joint.limit_enabled {
         return requested_speed;
     }
@@ -329,7 +310,7 @@ fn apply_limit_slowdown(joint: &JointSafety, requested_speed: i16) -> i16 {
     requested_speed.signum() * scaled
 }
 
-fn slew_limit_speed(joint: &JointSafety, desired_speed: i16, now_ms: u64) -> i16 {
+fn slew_limit_speed(joint: &Joint, desired_speed: i16, now_ms: u64) -> i16 {
     let Some(previous) = joint.last_sent_speed else {
         return desired_speed;
     };
@@ -349,7 +330,7 @@ fn slew_limit_speed(joint: &JointSafety, desired_speed: i16, now_ms: u64) -> i16
     let limited_delta = delta.clamp(-max_delta, max_delta) as i16;
     previous + limited_delta
 }
-fn compute_safe_speed(joint: &mut JointSafety, default_speed: i16, now_ms: u64) -> i16 {
+fn compute_safe_speed(joint: &mut Joint, default_speed: i16, now_ms: u64) -> i16 {
     let requested = compute_requested_speed(joint, default_speed);
     let mut safe_speed = apply_safety_governor(joint, requested, now_ms);
 
@@ -369,75 +350,6 @@ fn compute_safe_speed(joint: &mut JointSafety, default_speed: i16, now_ms: u64) 
     safe_speed
 }
 
-impl JointSafety {
-    pub const fn new(servo_id: u8, tick_min: i32, tick_max: i32) -> Self {
-        Self {
-            servo_id,
-            tick_min,
-            tick_max,
-            drive_sign: 1,
-            speed: 0,
-            target_tick: None,
-            tick: None,
-            tick_delta: 0,
-            limit_enabled: true,
-            has_feedback: false,
-            is_online: true,
-            last_feedback_ms: 0,
-            temp_c: None,
-            last_sent_speed: None,
-            last_speed_cmd_ms: 0,
-            stall_since_ms: None,
-            fault: None,
-        }
-    }
-
-    pub const fn with_drive_sign(mut self, drive_sign: i8) -> Self {
-        self.drive_sign = drive_sign;
-        self
-    }
-
-    pub fn record_feedback(&mut self, tick: i32, now_ms: u64) {
-        let previous = self.tick;
-        self.tick = Some(tick);
-        self.tick_delta = previous.map(|value| tick - value).unwrap_or(0);
-        self.has_feedback = true;
-        self.is_online = true;
-        self.last_feedback_ms = now_ms;
-    }
-
-    pub fn record_feedback_error(&mut self) {
-        self.is_online = false;
-        self.tick = None;
-        self.tick_delta = 0;
-    }
-
-    pub fn set_temperature(&mut self, temp_c: Option<u8>) {
-        self.temp_c = temp_c;
-    }
-
-    pub fn clear_fault(&mut self) {
-        self.fault = None;
-        self.stall_since_ms = None;
-    }
-
-    pub fn stop(&mut self) {
-        self.target_tick = None;
-        self.speed = 0;
-    }
-
-    pub fn spin(&mut self, direction: i8, default_speed: i16) {
-        self.clear_fault();
-        self.target_tick = None;
-        self.speed = direction.signum() as i16 * default_speed.abs();
-    }
-
-    pub fn goto_tick(&mut self, tick: i32) {
-        self.clear_fault();
-        self.target_tick = Some(clip_tick_to_joint_limits(self, tick));
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpeedCommand {
     pub servo_id: u8,
@@ -445,9 +357,9 @@ pub struct SpeedCommand {
     pub should_send: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ServoSafety<const N: usize> {
-    pub joints: [JointSafety; N],
+    pub joints: [Joint; N],
     pub default_speed: i16,
     pub last_cmd_ms: u64,
     pub last_ok_feedback_ms: u64,
@@ -455,7 +367,7 @@ pub struct ServoSafety<const N: usize> {
 }
 
 impl<const N: usize> ServoSafety<N> {
-    pub fn new(mut joints: [JointSafety; N], now_ms: u64) -> Self {
+    pub fn new(mut joints: [Joint; N], now_ms: u64) -> Self {
         for joint in &mut joints {
             joint.last_feedback_ms = now_ms;
             joint.last_speed_cmd_ms = now_ms;
@@ -503,7 +415,8 @@ impl<const N: usize> ServoSafety<N> {
         }
 
         for (joint, tick) in self.joints.iter_mut().zip(ticks.iter()) {
-            joint.goto_tick(*tick);
+            joint.clear_fault();
+            joint.target_tick = Some(clip_tick_to_joint_limits(joint, *tick));
         }
         self.last_cmd_ms = now_ms;
         Ok(())
@@ -602,287 +515,11 @@ impl<const N: usize> ServoSafety<N> {
 pub fn default_arm_safety(now_ms: u64) -> ServoSafety<4> {
     ServoSafety::new(
         [
-            JointSafety::new(1, YAW_TICK_MIN, YAW_TICK_MAX),
-            JointSafety::new(2, SHOULDER_TICK_MIN, SHOULDER_TICK_MAX),
-            JointSafety::new(3, ELBOW_TICK_MIN, ELBOW_TICK_MAX),
-            JointSafety::new(4, TIP_TICK_MIN, TIP_TICK_MAX),
+            Joint::new(1, YAW_TICK_MIN, YAW_TICK_MAX),
+            Joint::new(2, SHOULDER_TICK_MIN, SHOULDER_TICK_MAX),
+            Joint::new(3, ELBOW_TICK_MIN, ELBOW_TICK_MAX),
+            Joint::new(4, TIP_TICK_MIN, TIP_TICK_MAX),
         ],
         now_ms,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    #[allow(unused_imports)]
-    use super::*;
-
-    #[test]
-    fn target_error_prefers_small_wrap_near_deadband() {
-        assert_eq!(target_tick_error(2, 4094), 4);
-    }
-
-    #[test]
-    fn target_error_keeps_large_naive_error_when_wrap_is_not_near_target() {
-        assert_eq!(target_tick_error(100, 3900), -3800);
-    }
-
-    #[test]
-    fn limit_blocks_only_when_moving_farther_out() {
-        let mut joint = JointSafety::new(1, 100, 200);
-        joint.tick = Some(200);
-        assert!(limit_blocks_for_speed(&joint, 50));
-        assert!(!limit_blocks_for_speed(&joint, -50));
-    }
-
-    #[test]
-    fn joint_limit_exceeded_blocks_farther_out_motion() {
-        let mut joint = JointSafety::new(1, 100, 200);
-        joint.tick = Some(250);
-
-        assert!(is_outside_limits(&joint));
-        assert!(limit_blocks_for_speed(&joint, 80));
-    }
-
-    #[test]
-    fn joint_limit_exceeded_allows_return_toward_valid_range() {
-        let mut joint = JointSafety::new(1, 100, 200);
-        joint.tick = Some(250);
-
-        assert!(is_outside_limits(&joint));
-        assert!(!limit_blocks_for_speed(&joint, -80));
-    }
-
-    #[test]
-    fn wrapped_tick_limits_behave_near_zero() {
-        let mut joint = JointSafety::new(1, 4000, 100);
-        joint.tick = Some(100);
-
-        assert!(!is_outside_limits(&joint));
-        assert!(limit_blocks_for_speed(&joint, 80));
-        assert!(!limit_blocks_for_speed(&joint, -80));
-    }
-
-    #[test]
-    fn negative_min_limit_treats_high_modulo_tick_as_inside() {
-        let mut joint = JointSafety::new(1, -500, 1300);
-        joint.tick = Some(3976);
-
-        assert!(!is_outside_limits(&joint));
-        assert!(!limit_blocks_for_speed(&joint, 120));
-        assert!(!limit_blocks_for_speed(&joint, -120));
-    }
-
-    #[test]
-    fn extended_max_limit_allows_motion_back_toward_interval() {
-        let mut joint = JointSafety::new(1, 3300, 4100);
-        joint.tick = Some(88);
-
-        assert!(is_outside_limits(&joint));
-        assert!(limit_blocks_for_speed(&joint, 120));
-        assert!(!limit_blocks_for_speed(&joint, -120));
-    }
-
-    #[test]
-    fn unrelated_joint_limit_does_not_block_yaw_jog() {
-        let mut safety = default_arm_safety(0);
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.record_feedback(3, TIP_TICK_MAX + 4, 0).unwrap();
-        safety.spin(0, 1, 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert!(is_outside_limits(&safety.joints[3]));
-        assert_eq!(commands[0].speed, safety.default_speed);
-    }
-
-    #[test]
-    fn disabled_limits_allow_target_motion() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, 4000, 100)], 0);
-        safety.default_speed = 80;
-        safety.joints[0].limit_enabled = false;
-        safety.record_feedback(0, 2000, 0).unwrap();
-        safety.goto_ticks(&[4050], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 80);
-    }
-
-    #[test]
-    fn goto_ticks_uses_default_speed() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 80;
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.goto_ticks(&[100], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 80);
-    }
-
-    #[test]
-    fn goto_ticks_stops_at_target() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 80;
-        safety.record_feedback(0, 100, 0).unwrap();
-        safety.goto_ticks(&[100], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 0);
-        assert_eq!(safety.joints[0].target_tick, None);
-    }
-
-    #[test]
-    fn goto_ticks_stops_within_deadband() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 80;
-        safety.record_feedback(0, 96, 0).unwrap();
-        safety.goto_ticks(&[100], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 0);
-        assert_eq!(safety.joints[0].target_tick, None);
-    }
-
-    #[test]
-    fn goto_ticks_reduces_speed_when_close() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 80;
-        safety.record_feedback(0, 40, 0).unwrap();
-        safety.goto_ticks(&[100], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 60);
-    }
-
-    #[test]
-    fn stop_cancels_active_target() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.goto_ticks(&[100], 0).unwrap();
-
-        safety.stop_joint(0, 10).unwrap();
-
-        assert_eq!(safety.joints[0].target_tick, None);
-        assert_eq!(safety.joints[0].speed, 0);
-    }
-
-    #[test]
-    fn zero_default_speed_stops_spinning_joint() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 200;
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.spin(0, 1, 0).unwrap();
-        safety.set_default_speed(0, 10);
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 0);
-    }
-
-    #[test]
-    fn zero_default_speed_stops_active_goto_motion() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 200;
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.goto_ticks(&[500], 0).unwrap();
-        safety.set_default_speed(0, 10);
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 0);
-        assert_eq!(safety.joints[0].target_tick, Some(500));
-    }
-
-    #[test]
-    fn target_tracking_speed_scales_with_positive_tick_error() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 200;
-        safety.record_feedback(0, 40, 0).unwrap();
-        safety.goto_ticks(&[80], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 100);
-    }
-
-    #[test]
-    fn target_tracking_speed_scales_with_negative_tick_error() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -1000, 1000)], 0);
-        safety.default_speed = 200;
-        safety.record_feedback(0, 80, 0).unwrap();
-        safety.goto_ticks(&[40], 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, -100);
-    }
-
-    #[test]
-    fn slew_limit_bounds_acceleration() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -2000, 2000)], 0);
-        safety.default_speed = 400;
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.goto_ticks(&[1000], 0).unwrap();
-        safety.mark_speed_sent(0, 0, 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 200);
-    }
-
-    #[test]
-    fn slew_limit_bounds_deceleration() {
-        let mut safety = ServoSafety::new([JointSafety::new(1, -2000, 2000)], 0);
-        safety.default_speed = 400;
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.goto_ticks(&[20], 0).unwrap();
-        safety.mark_speed_sent(0, 400, 0).unwrap();
-
-        let commands = safety.speed_commands(10);
-
-        assert_eq!(commands[0].speed, 100);
-    }
-
-    #[test]
-    fn stale_feedback_forces_zero_speed() {
-        let mut safety = default_arm_safety(0);
-        safety.record_feedback(0, 0, 0).unwrap();
-        safety.spin(0, 1, 0).unwrap();
-        safety
-            .record_feedback(1, 200, JOINT_FEEDBACK_TIMEOUT_MS + 1)
-            .unwrap();
-        let commands = safety.speed_commands(JOINT_FEEDBACK_TIMEOUT_MS + 1);
-        assert_eq!(commands[0].speed, 0);
-        assert_eq!(safety.joints[0].fault, Some(SafetyFault::FeedbackStale));
-    }
-
-    #[test]
-    fn deadman_stops_free_spin() {
-        let mut safety = default_arm_safety(0);
-        safety.record_feedback(0, 100, 0).unwrap();
-        safety.spin(0, 1, 0).unwrap();
-        safety.mark_speed_sent(0, 200, 0).unwrap();
-        safety
-            .record_feedback(0, 100, DEADMAN_CMD_TIMEOUT_MS + 1)
-            .unwrap();
-        let commands = safety.speed_commands(DEADMAN_CMD_TIMEOUT_MS + 1);
-        assert_eq!(commands[0].speed, 0);
-        assert_eq!(safety.last_error, Some(SafetyFault::DeadmanCommandStale));
-    }
-
-    #[test]
-    fn target_approach_slows_down_near_limit() {
-        let mut safety = default_arm_safety(0);
-        safety.record_feedback(0, YAW_TICK_MAX - 20, 0).unwrap();
-        safety
-            .goto_ticks(&[YAW_TICK_MAX, 200, 2300, 600], 0)
-            .unwrap();
-        let commands = safety.speed_commands(10);
-        assert!(commands[0].speed > 0);
-        assert!(commands[0].speed < safety.default_speed);
-    }
 }

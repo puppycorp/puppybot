@@ -11,7 +11,7 @@ use crate::stservo::EspUartBus;
 use crate::stservo::StServo;
 use puppybot_core::{protocol::ProtocolEvent, robot::Puppybot};
 
-pub use puppybot_core::puppyarm::arm::PuppyarmTelemetry;
+pub use puppybot_core::puppyarm::puppyarm::PuppyarmTelemetry;
 
 #[cfg(feature = "esp32")]
 const CONTROL_PERIOD: Duration = Duration::from_millis(20);
