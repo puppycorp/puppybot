@@ -12,11 +12,11 @@ fi
 if [[ -f "$project_dir/.env" ]]; then
     had_wifi_ssid=0
     had_wifi_password=0
-    if [[ -v WIFI_SSID ]]; then
+    if [[ -n "${WIFI_SSID+x}" ]]; then
         had_wifi_ssid=1
         old_wifi_ssid="$WIFI_SSID"
     fi
-    if [[ -v WIFI_PASSWORD ]]; then
+    if [[ -n "${WIFI_PASSWORD+x}" ]]; then
         had_wifi_password=1
         old_wifi_password="$WIFI_PASSWORD"
     fi
@@ -40,7 +40,7 @@ if ! command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
     exit 1
 fi
 
-cd "$project_dir"
+cd "$project_dir/esp32"
 
 case "${1:-release}" in
     release)

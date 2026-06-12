@@ -1,5 +1,7 @@
 use std::{
+    fs,
     io::{self, ErrorKind, Read, Write},
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -9,6 +11,23 @@ const STSERVO_PORT_ENV: &str = "PUPPYBOT_STSERVO_PORT";
 const STSERVO_BAUD_ENV: &str = "PUPPYBOT_STSERVO_BAUD";
 const STSERVO_PROBE_ENV: &str = "PUPPYBOT_STSERVO_PROBE";
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_millis(1);
+const SERIAL_CACHE_FILE: &str = "puppybot-runtime-stservo-port";
+const SUPPORTED_PORT_PATTERNS: &[&str] = &[
+    "/dev/serial/by-id/",
+    "/dev/cu.usbmodem",
+    "/dev/cu.usbserial",
+    "/dev/cu.wchusbserial",
+    "/dev/cu.SLAB_USBtoUART",
+    "FTDI",
+    "CP210",
+    "CP2102",
+    "Silicon_Labs",
+    "CH340",
+    "CH341",
+    "QinHeng",
+    "USB_Serial",
+    "USB2.0-Serial",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeSerialConfig {
@@ -33,9 +52,98 @@ fn is_nonblocking_empty(err: &io::Error) -> bool {
     )
 }
 
+fn default_baud() -> u32 {
+    std::env::var(STSERVO_BAUD_ENV)
+        .ok()
+        .and_then(|value| parse_baud(&value))
+        .unwrap_or(DEFAULT_BAUD)
+}
+
+fn is_supported_port_name(port: &str) -> bool {
+    SUPPORTED_PORT_PATTERNS
+        .iter()
+        .any(|pattern| port.contains(pattern))
+}
+
+fn serial_cache_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".cache"))
+        })
+        .map(|cache| cache.join(SERIAL_CACHE_FILE))
+}
+
+fn read_cached_port() -> Option<String> {
+    let path = serial_cache_path()?;
+    let port = fs::read_to_string(path).ok()?;
+    let port = port.trim();
+    if port.is_empty() || !Path::new(port).exists() {
+        return None;
+    }
+    Some(port.to_string())
+}
+
+fn remember_port(port: &str) {
+    let Some(path) = serial_cache_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            log::warn!("failed to create serial cache directory: {err}");
+            return;
+        }
+    }
+    if let Err(err) = fs::write(path, port) {
+        log::warn!("failed to remember STServo serial port {port}: {err}");
+    }
+}
+
+fn list_supported_ports() -> Vec<String> {
+    match serialport::available_ports() {
+        Ok(ports) => ports
+            .into_iter()
+            .map(|port| port.port_name)
+            .filter(|port| is_supported_port_name(port))
+            .collect(),
+        Err(err) => {
+            log::warn!("failed to list serial ports for STServo auto-detection: {err}");
+            Vec::new()
+        }
+    }
+}
+
+fn auto_detect_port() -> Option<String> {
+    if let Some(port) = read_cached_port() {
+        log::info!("runtime reusing remembered STServo serial port {port}");
+        return Some(port);
+    }
+
+    let ports = list_supported_ports();
+    match ports.as_slice() {
+        [port] => {
+            log::info!("runtime auto-detected STServo serial port {port}");
+            Some(port.clone())
+        }
+        [] => None,
+        _ => {
+            log::warn!(
+                "multiple supported STServo serial ports found; set {STSERVO_PORT_ENV}: {}",
+                ports.join(", ")
+            );
+            None
+        }
+    }
+}
+
 impl RuntimeSerialConfig {
-    pub(crate) fn from_env() -> Option<Self> {
-        let port = std::env::var(STSERVO_PORT_ENV).ok()?;
+    pub(crate) fn from_env_or_auto_detect() -> Option<Self> {
+        let port = match std::env::var(STSERVO_PORT_ENV).ok() {
+            Some(port) => port,
+            None => auto_detect_port()?,
+        };
         let port = port.trim();
         if port.is_empty() {
             return None;
@@ -43,10 +151,7 @@ impl RuntimeSerialConfig {
 
         Some(Self {
             port: port.to_string(),
-            baud: std::env::var(STSERVO_BAUD_ENV)
-                .ok()
-                .and_then(|value| parse_baud(&value))
-                .unwrap_or(DEFAULT_BAUD),
+            baud: default_baud(),
         })
     }
 }
@@ -85,7 +190,7 @@ impl SerialBus for RuntimeSerialBus {
 }
 
 pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
-    let Some(config) = RuntimeSerialConfig::from_env() else {
+    let Some(config) = RuntimeSerialConfig::from_env_or_auto_detect() else {
         log::info!(
             "runtime using simulated PuppyArm state; set {STSERVO_PORT_ENV} to use hardware"
         );
@@ -102,6 +207,7 @@ pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
         match RuntimeSerialBus::open(&config) {
             Ok(bus) => {
                 log::info!("runtime STServo serial bus probe opened successfully");
+                remember_port(&config.port);
                 return Some(StServo::new(bus));
             }
             Err(err) => {
@@ -112,7 +218,10 @@ pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
     }
 
     match RuntimeSerialBus::open(&config) {
-        Ok(bus) => Some(StServo::new(bus)),
+        Ok(bus) => {
+            remember_port(&config.port);
+            Some(StServo::new(bus))
+        }
         Err(err) => {
             log::warn!("runtime STServo serial bus open failed: {err}");
             None
@@ -135,5 +244,20 @@ mod tests {
     fn parse_baud_accepts_positive_values() {
         assert_eq!(parse_baud("1000000"), Some(1_000_000));
         assert_eq!(parse_baud(" 115200 "), Some(115_200));
+    }
+
+    #[test]
+    fn supported_port_name_accepts_known_usb_serial_paths() {
+        assert!(is_supported_port_name(
+            "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
+        ));
+        assert!(is_supported_port_name("/dev/cu.usbmodem5A7C1186261"));
+        assert!(is_supported_port_name("/dev/cu.wchusbserial1420"));
+    }
+
+    #[test]
+    fn supported_port_name_rejects_unrelated_ports() {
+        assert!(!is_supported_port_name("/dev/cu.Bluetooth-Incoming-Port"));
+        assert!(!is_supported_port_name("COM1"));
     }
 }

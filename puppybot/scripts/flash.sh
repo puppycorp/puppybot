@@ -58,6 +58,6 @@ flash_args=(flash --monitor)
 if [[ -n "$serial_port" ]]; then
     flash_args+=(--port "$serial_port")
 fi
-flash_args+=("target/xtensa-esp32-none-elf/$profile/puppybot")
+flash_args+=("esp32/target/xtensa-esp32-none-elf/$profile/puppybot")
 
 espflash "${flash_args[@]}"

@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
-default-members = ["esp32"]
-members = ["core", "esp32", "runtime"]
+default-members = ["runtime"]
+members = ["core", "runtime"]
+exclude = ["esp32"]
 
 [profile.release]
 opt-level = "s"
@@ -13,9 +14,3 @@ codegen-units = 1
 [profile.dev]
 debug = true
 opt-level = "z"
-
-[profile.dev.package.esp-radio]
-opt-level = 3
-
-[profile.release.package.esp-radio]
-opt-level = 3

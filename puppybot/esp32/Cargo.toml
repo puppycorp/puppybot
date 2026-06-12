@@ -56,3 +56,20 @@ esp32 = [
     "esp-rtos/esp32",
     "esp-println/esp32",
 ]
+
+[profile.release]
+opt-level = "s"
+debug = true
+debug-assertions = true
+lto = "fat"
+codegen-units = 1
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[profile.dev.package.esp-radio]
+opt-level = 3
+
+[profile.release.package.esp-radio]
+opt-level = 3

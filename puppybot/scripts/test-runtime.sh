@@ -13,8 +13,6 @@ if command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^stable
 fi
 
 "${cargo_cmd[@]}" test -p puppybot-core \
-    --config 'build.target="x86_64-unknown-linux-gnu"' \
-    --config 'unstable.build-std=[]' \
     --features runtime \
     "$@"
 
@@ -24,10 +22,9 @@ fi
 
 runtime_addr="127.0.0.1:18080"
 runtime_log="$(mktemp)"
-PUPPYBOT_RUNTIME_ADDR="$runtime_addr" "${cargo_cmd[@]}" run -p puppybot-runtime \
-    --config 'build.target="x86_64-unknown-linux-gnu"' \
-    --config 'unstable.build-std=[]' \
-    >"$runtime_log" 2>&1 &
+PUPPYBOT_RUNTIME_ADDR="$runtime_addr" \
+    PUPPYBOT_STSERVO_PORT="${PUPPYBOT_STSERVO_PORT-}" \
+    "${cargo_cmd[@]}" run -p puppybot-runtime >"$runtime_log" 2>&1 &
 runtime_pid="$!"
 cleanup() {
     kill "$runtime_pid" >/dev/null 2>&1 || true

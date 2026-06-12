@@ -59,7 +59,7 @@ if [[ -n "$serial_port" ]]; then
     args+=("--port" "$serial_port")
 fi
 
-elf="target/xtensa-esp32-none-elf/$profile/puppybot"
+elf="esp32/target/xtensa-esp32-none-elf/$profile/puppybot"
 if [[ -f "$elf" ]]; then
     args+=("--elf" "$elf")
 fi
