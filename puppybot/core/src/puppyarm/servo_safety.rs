@@ -330,7 +330,8 @@ fn slew_limit_speed(joint: &Joint, desired_speed: i16, now_ms: u64) -> i16 {
     let limited_delta = delta.clamp(-max_delta, max_delta) as i16;
     previous + limited_delta
 }
-fn compute_safe_speed(joint: &mut Joint, default_speed: i16, now_ms: u64) -> i16 {
+
+pub fn compute_safe_speed(joint: &mut Joint, default_speed: i16, now_ms: u64) -> i16 {
     let requested = compute_requested_speed(joint, default_speed);
     let mut safe_speed = apply_safety_governor(joint, requested, now_ms);
 
@@ -357,169 +358,40 @@ pub struct SpeedCommand {
     pub should_send: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ServoSafety<const N: usize> {
-    pub joints: [Joint; N],
-    pub default_speed: i16,
-    pub last_cmd_ms: u64,
-    pub last_ok_feedback_ms: u64,
-    pub last_error: Option<SafetyFault>,
-}
-
-impl<const N: usize> ServoSafety<N> {
-    pub fn new(mut joints: [Joint; N], now_ms: u64) -> Self {
-        for joint in &mut joints {
-            joint.last_feedback_ms = now_ms;
-            joint.last_speed_cmd_ms = now_ms;
-        }
-
-        Self {
-            joints,
-            default_speed: 200,
-            last_cmd_ms: now_ms,
-            last_ok_feedback_ms: now_ms,
-            last_error: None,
-        }
-    }
-
-    pub fn set_default_speed(&mut self, speed: i16, now_ms: u64) {
-        self.default_speed = speed.abs();
-        self.last_cmd_ms = now_ms;
-    }
-
-    pub fn spin(&mut self, joint_index: usize, direction: i8, now_ms: u64) -> Result<(), ()> {
-        let default_speed = self.default_speed;
-        let joint = self.joints.get_mut(joint_index).ok_or(())?;
-        joint.spin(direction, default_speed);
-        self.last_cmd_ms = now_ms;
-        Ok(())
-    }
-
-    pub fn stop_joint(&mut self, joint_index: usize, now_ms: u64) -> Result<(), ()> {
-        let joint = self.joints.get_mut(joint_index).ok_or(())?;
-        joint.stop();
-        self.last_cmd_ms = now_ms;
-        Ok(())
-    }
-
-    pub fn stop_all(&mut self, now_ms: u64) {
-        for joint in &mut self.joints {
-            joint.stop();
-        }
-        self.last_cmd_ms = now_ms;
-    }
-
-    pub fn goto_ticks(&mut self, ticks: &[i32], now_ms: u64) -> Result<(), ()> {
-        if ticks.len() != self.joints.len() {
-            return Err(());
-        }
-
-        for (joint, tick) in self.joints.iter_mut().zip(ticks.iter()) {
-            joint.clear_fault();
-            joint.target_tick = Some(clip_tick_to_joint_limits(joint, *tick));
-        }
-        self.last_cmd_ms = now_ms;
-        Ok(())
-    }
-
-    pub fn clear_faults(&mut self, joint_index: Option<usize>) -> Result<(), ()> {
-        if let Some(index) = joint_index {
-            self.joints.get_mut(index).ok_or(())?.clear_fault();
-        } else {
-            for joint in &mut self.joints {
-                joint.clear_fault();
-            }
-            self.last_error = None;
-        }
-        Ok(())
-    }
-
-    pub fn record_feedback(
-        &mut self,
-        joint_index: usize,
-        tick: i32,
-        now_ms: u64,
-    ) -> Result<(), ()> {
-        let joint = self.joints.get_mut(joint_index).ok_or(())?;
-        joint.record_feedback(tick, now_ms);
-        self.last_ok_feedback_ms = now_ms;
-        Ok(())
-    }
-
-    pub fn record_feedback_error(&mut self, joint_index: usize) -> Result<(), ()> {
-        self.joints
-            .get_mut(joint_index)
-            .ok_or(())?
-            .record_feedback_error();
-        Ok(())
-    }
-
-    pub fn speed_commands(&mut self, now_ms: u64) -> [SpeedCommand; N] {
-        if let Some(reason) = self.deadman_reason(now_ms) {
-            self.force_stop(reason);
-        }
-
-        core::array::from_fn(|index| {
-            let desired = compute_safe_speed(&mut self.joints[index], self.default_speed, now_ms);
-            let should_send = self.joints[index].last_sent_speed != Some(desired);
-            SpeedCommand {
-                servo_id: self.joints[index].servo_id,
-                speed: desired,
-                should_send,
-            }
-        })
-    }
-
-    pub fn mark_speed_sent(
-        &mut self,
-        joint_index: usize,
-        speed: i16,
-        now_ms: u64,
-    ) -> Result<(), ()> {
-        let joint = self.joints.get_mut(joint_index).ok_or(())?;
-        joint.last_sent_speed = Some(speed);
+pub fn init_joints(joints: &mut [Joint], now_ms: u64) {
+    for joint in joints {
+        joint.last_feedback_ms = now_ms;
         joint.last_speed_cmd_ms = now_ms;
-        Ok(())
-    }
-
-    fn deadman_reason(&self, now_ms: u64) -> Option<SafetyFault> {
-        if now_ms.saturating_sub(self.last_ok_feedback_ms) > DEADMAN_FEEDBACK_TIMEOUT_MS {
-            return Some(SafetyFault::DeadmanFeedbackStale);
-        }
-
-        if self.has_active_free_spin()
-            && now_ms.saturating_sub(self.last_cmd_ms) > DEADMAN_CMD_TIMEOUT_MS
-        {
-            return Some(SafetyFault::DeadmanCommandStale);
-        }
-
-        None
-    }
-
-    fn has_active_free_spin(&self) -> bool {
-        self.joints.iter().any(|joint| {
-            joint.target_tick.is_none()
-                && (joint.speed != 0 || joint.last_sent_speed.unwrap_or(0) != 0)
-        })
-    }
-
-    fn force_stop(&mut self, reason: SafetyFault) {
-        self.last_error = Some(reason);
-        for joint in &mut self.joints {
-            joint.target_tick = None;
-            joint.speed = 0;
-        }
     }
 }
 
-pub fn default_arm_safety(now_ms: u64) -> ServoSafety<4> {
-    ServoSafety::new(
-        [
-            Joint::new(1, YAW_TICK_MIN, YAW_TICK_MAX),
-            Joint::new(2, SHOULDER_TICK_MIN, SHOULDER_TICK_MAX),
-            Joint::new(3, ELBOW_TICK_MIN, ELBOW_TICK_MAX),
-            Joint::new(4, TIP_TICK_MIN, TIP_TICK_MAX),
-        ],
-        now_ms,
-    )
+fn has_active_free_spin(joints: &[Joint]) -> bool {
+    joints.iter().any(|joint| {
+        joint.target_tick.is_none() && (joint.speed != 0 || joint.last_sent_speed.unwrap_or(0) != 0)
+    })
+}
+
+pub fn deadman_reason(
+    joints: &[Joint],
+    last_cmd_ms: u64,
+    last_ok_feedback_ms: u64,
+    now_ms: u64,
+) -> Option<SafetyFault> {
+    if now_ms.saturating_sub(last_ok_feedback_ms) > DEADMAN_FEEDBACK_TIMEOUT_MS {
+        return Some(SafetyFault::DeadmanFeedbackStale);
+    }
+
+    if has_active_free_spin(joints) && now_ms.saturating_sub(last_cmd_ms) > DEADMAN_CMD_TIMEOUT_MS {
+        return Some(SafetyFault::DeadmanCommandStale);
+    }
+
+    None
+}
+
+pub fn force_stop(joints: &mut [Joint], last_error: &mut Option<SafetyFault>, reason: SafetyFault) {
+    *last_error = Some(reason);
+    for joint in joints {
+        joint.target_tick = None;
+        joint.speed = 0;
+    }
 }

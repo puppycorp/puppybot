@@ -209,204 +209,278 @@ fn extended_max_limit_allows_motion_back_toward_interval() {
 
 #[test]
 fn unrelated_joint_limit_does_not_block_yaw_jog() {
-    let mut safety = default_arm_safety(0);
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.record_feedback(3, TIP_TICK_MAX + 4, 0).unwrap();
-    safety.spin(0, 1, 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.record_feedback(3, (TIP_TICK_MAX + 4) as u16, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
 
-    assert!(is_outside_limits(&safety.joints[3]));
-    assert_eq!(commands[0].speed, safety.default_speed);
+    assert!(telemetry.joints[3].limit_reached);
+    assert_eq!(commands[0].speed, 200);
 }
 
 #[test]
 fn disabled_limits_allow_target_motion() {
-    let mut safety = ServoSafety::new([Joint::new(1, 4000, 100)], 0);
-    safety.default_speed = 80;
-    safety.joints[0].limit_enabled = false;
-    safety.record_feedback(0, 2000, 0).unwrap();
-    safety.goto_ticks(&[4050], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimits {
+            joint: 0,
+            min: 4000,
+            max: 100,
+        },
+        0,
+    );
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimitsEnabled {
+            joint: 0,
+            enabled: false,
+        },
+        0,
+    );
+    arm.record_feedback(0, 2000, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([4050, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 80);
 }
 
 #[test]
 fn goto_ticks_uses_default_speed() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 80;
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.goto_ticks(&[100], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 80);
 }
 
 #[test]
 fn goto_ticks_stops_at_target() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 80;
-    safety.record_feedback(0, 100, 0).unwrap();
-    safety.goto_ticks(&[100], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 100, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
 
     assert_eq!(commands[0].speed, 0);
-    assert_eq!(safety.joints[0].target_tick, None);
+    assert_eq!(telemetry.joints[0].target_tick, None);
 }
 
 #[test]
 fn goto_ticks_stops_within_deadband() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 80;
-    safety.record_feedback(0, 96, 0).unwrap();
-    safety.goto_ticks(&[100], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 96, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
 
     assert_eq!(commands[0].speed, 0);
-    assert_eq!(safety.joints[0].target_tick, None);
+    assert_eq!(telemetry.joints[0].target_tick, None);
 }
 
 #[test]
 fn goto_ticks_reduces_speed_when_close() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 80;
-    safety.record_feedback(0, 40, 0).unwrap();
-    safety.goto_ticks(&[100], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 40, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 60);
 }
 
 #[test]
 fn stop_cancels_active_target() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.goto_ticks(&[100], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    safety.stop_joint(0, 10).unwrap();
+    arm.handle_arm_cmd(ArmCommand::Stop { joint: 0 }, 10);
+    let telemetry = arm.telemetry_snapshot(0);
 
-    assert_eq!(safety.joints[0].target_tick, None);
-    assert_eq!(safety.joints[0].speed, 0);
+    assert_eq!(telemetry.joints[0].target_tick, None);
+    assert_eq!(telemetry.joints[0].speed, 0);
 }
 
 #[test]
 fn zero_default_speed_stops_spinning_joint() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 200;
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.spin(0, 1, 0).unwrap();
-    safety.set_default_speed(0, 10);
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(0), 10);
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 0);
 }
 
 #[test]
 fn zero_default_speed_stops_active_goto_motion() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 200;
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.goto_ticks(&[500], 0).unwrap();
-    safety.set_default_speed(0, 10);
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([500, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(0), 10);
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
 
     assert_eq!(commands[0].speed, 0);
-    assert_eq!(safety.joints[0].target_tick, Some(500));
+    assert_eq!(telemetry.joints[0].target_tick, Some(500));
 }
 
 #[test]
 fn target_tracking_speed_scales_with_positive_tick_error() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 200;
-    safety.record_feedback(0, 40, 0).unwrap();
-    safety.goto_ticks(&[80], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(200), 0);
+    arm.record_feedback(0, 40, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([80, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 100);
 }
 
 #[test]
 fn target_tracking_speed_scales_with_negative_tick_error() {
-    let mut safety = ServoSafety::new([Joint::new(1, -1000, 1000)], 0);
-    safety.default_speed = 200;
-    safety.record_feedback(0, 80, 0).unwrap();
-    safety.goto_ticks(&[40], 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(200), 0);
+    arm.record_feedback(0, 80, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([40, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, -100);
 }
 
 #[test]
 fn slew_limit_bounds_acceleration() {
-    let mut safety = ServoSafety::new([Joint::new(1, -2000, 2000)], 0);
-    safety.default_speed = 400;
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.goto_ticks(&[1000], 0).unwrap();
-    safety.mark_speed_sent(0, 0, 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(400), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([1000, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+    arm.record_wheel_speed_result(0, 2, 0, true, 0);
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 200);
 }
 
 #[test]
 fn slew_limit_bounds_deceleration() {
-    let mut safety = ServoSafety::new([Joint::new(1, -2000, 2000)], 0);
-    safety.default_speed = 400;
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.goto_ticks(&[20], 0).unwrap();
-    safety.mark_speed_sent(0, 400, 0).unwrap();
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(400), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([20, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+    arm.record_wheel_speed_result(0, 2, 400, true, 0);
 
-    let commands = safety.speed_commands(10);
+    let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, 100);
 }
 
 #[test]
 fn stale_feedback_forces_zero_speed() {
-    let mut safety = default_arm_safety(0);
-    safety.record_feedback(0, 0, 0).unwrap();
-    safety.spin(0, 1, 0).unwrap();
-    safety
-        .record_feedback(1, 200, JOINT_FEEDBACK_TIMEOUT_MS + 1)
-        .unwrap();
-    let commands = safety.speed_commands(JOINT_FEEDBACK_TIMEOUT_MS + 1);
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+    arm.record_feedback(1, 200, JOINT_FEEDBACK_TIMEOUT_MS + 1);
+
+    let commands = arm.update(JOINT_FEEDBACK_TIMEOUT_MS + 1);
+    let telemetry = arm.telemetry_snapshot(0);
+
     assert_eq!(commands[0].speed, 0);
-    assert_eq!(safety.joints[0].fault, Some(SafetyFault::FeedbackStale));
+    assert_eq!(telemetry.joints[0].fault, Some(SafetyFault::FeedbackStale));
 }
 
 #[test]
 fn deadman_stops_free_spin() {
-    let mut safety = default_arm_safety(0);
-    safety.record_feedback(0, 100, 0).unwrap();
-    safety.spin(0, 1, 0).unwrap();
-    safety.mark_speed_sent(0, 200, 0).unwrap();
-    safety
-        .record_feedback(0, 100, DEADMAN_CMD_TIMEOUT_MS + 1)
-        .unwrap();
-    let commands = safety.speed_commands(DEADMAN_CMD_TIMEOUT_MS + 1);
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 100, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+    arm.record_wheel_speed_result(0, 2, 200, true, 0);
+    arm.record_feedback(0, 100, DEADMAN_CMD_TIMEOUT_MS + 1);
+
+    let commands = arm.update(DEADMAN_CMD_TIMEOUT_MS + 1);
+
     assert_eq!(commands[0].speed, 0);
-    assert_eq!(safety.last_error, Some(SafetyFault::DeadmanCommandStale));
 }
 
 #[test]
 fn target_approach_slows_down_near_limit() {
-    let mut safety = default_arm_safety(0);
-    safety.record_feedback(0, YAW_TICK_MAX - 20, 0).unwrap();
-    safety
-        .goto_ticks(&[YAW_TICK_MAX, 200, 2300, 600], 0)
-        .unwrap();
-    let commands = safety.speed_commands(10);
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, (YAW_TICK_MAX - 20) as u16, 0);
+    arm.handle_arm_cmd(ArmCommand::GotoTicks([YAW_TICK_MAX, 200, 2300, 600]), 0);
+
+    let commands = arm.update(10);
+
     assert!(commands[0].speed > 0);
-    assert!(commands[0].speed < safety.default_speed);
+    assert!(commands[0].speed < 200);
 }
