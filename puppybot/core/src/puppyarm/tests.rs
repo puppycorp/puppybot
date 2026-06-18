@@ -530,6 +530,33 @@ fn stale_feedback_forces_zero_speed() {
 }
 
 #[test]
+fn feedback_read_failure_stops_free_spin() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
+    arm.record_feedback(0, 100, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+
+    let spinning_commands = arm.update(10);
+    arm.record_feedback_error(0);
+    let stopped_commands = arm.update(20);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(spinning_commands[0].speed, 120);
+    assert_eq!(stopped_commands[0].speed, 0);
+    assert_eq!(telemetry.joints[0].speed, 0);
+    assert_eq!(
+        telemetry.joints[0].fault,
+        Some(SafetyFault::FeedbackUnavailable)
+    );
+}
+
+#[test]
 fn deadman_stops_free_spin() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 100, 0);
