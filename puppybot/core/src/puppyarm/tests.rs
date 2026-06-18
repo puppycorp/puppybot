@@ -208,6 +208,31 @@ fn extended_max_limit_allows_motion_back_toward_interval() {
 }
 
 #[test]
+fn goto_ticks_from_wrapped_out_of_bounds_tick_recovers_toward_interval() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(791), 0);
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimits {
+            joint: 0,
+            min: -500,
+            max: 1300,
+        },
+        0,
+    );
+    arm.record_feedback(0, 3452, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([85, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert!(telemetry.joints[0].limit_reached);
+    assert!(commands[0].speed > 0);
+}
+
+#[test]
 fn unrelated_joint_limit_does_not_block_yaw_jog() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 0, 0);
