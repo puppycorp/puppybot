@@ -233,6 +233,32 @@ fn goto_ticks_from_wrapped_out_of_bounds_tick_recovers_toward_interval() {
 }
 
 #[test]
+fn goto_ticks_wrap_boundary_does_not_oscillate_direction() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(200), 0);
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimits {
+            joint: 0,
+            min: -500,
+            max: 1300,
+        },
+        0,
+    );
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([20, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    let speeds = [3595, 3597, 3595, 3597].map(|tick| {
+        arm.record_feedback(0, tick, 0);
+        arm.update(10)[0].speed
+    });
+
+    assert!(speeds.iter().all(|speed| *speed >= 0), "{speeds:?}");
+    assert!(speeds.iter().any(|speed| *speed > 0), "{speeds:?}");
+}
+
+#[test]
 fn unrelated_joint_limit_does_not_block_yaw_jog() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 0, 0);
