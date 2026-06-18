@@ -290,6 +290,30 @@ fn goto_ticks_stops_at_target() {
 }
 
 #[test]
+fn goto_ticks_retargeting_changes_direction_after_reaching_previous_target() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    let first_commands = arm.update(10);
+    arm.record_feedback(0, 100, 20);
+    let reached_commands = arm.update(30);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([40, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        40,
+    );
+    let retargeted_commands = arm.update(50);
+
+    assert!(first_commands[0].speed > 0);
+    assert_eq!(reached_commands[0].speed, 0);
+    assert!(retargeted_commands[0].speed < 0);
+}
+
+#[test]
 fn goto_ticks_stops_within_deadband() {
     let mut arm = PuppyArm::new(0);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
