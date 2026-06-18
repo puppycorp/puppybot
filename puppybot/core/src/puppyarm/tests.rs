@@ -576,6 +576,25 @@ fn deadman_stops_free_spin() {
 }
 
 #[test]
+fn deadman_command_timeout_does_not_cancel_target_tracking() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+    arm.record_feedback(0, 0, DEADMAN_CMD_TIMEOUT_MS + 1);
+
+    let commands = arm.update(DEADMAN_CMD_TIMEOUT_MS + 1);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(commands[0].speed, 80);
+    assert_eq!(telemetry.joints[0].target_tick, Some(100));
+    assert_eq!(telemetry.joints[0].fault, None);
+}
+
+#[test]
 fn target_approach_slows_down_near_limit() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, (YAW_TICK_MAX - 20) as u16, 0);
