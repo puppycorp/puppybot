@@ -357,6 +357,10 @@ impl PuppyArm {
         commands
     }
 
+    pub fn mode(&self) -> ArmMode {
+        self.mode
+    }
+
     pub fn wheel_mode_ready(&self, joint: usize, servo_id: u8) -> bool {
         self.wheel_mode_is_ready(joint, servo_id)
     }

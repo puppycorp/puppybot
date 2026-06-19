@@ -2,7 +2,7 @@ use core::f64::consts::PI;
 
 use super::{
     kinematics::*,
-    puppyarm::{ArmCommand, PuppyArm},
+    puppyarm::{ArmCommand, ArmMode, PuppyArm},
     servo_safety::*,
     types::{JOINT_COUNT, Joint},
 };
@@ -533,6 +533,42 @@ fn overtemperature_fault_stops_motion() {
         telemetry.joints[0].fault,
         Some(SafetyFault::OverTemperature)
     );
+}
+
+#[test]
+fn clear_faults_command_clears_selected_and_all_faults() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.record_feedback(1, 200, 0);
+    arm.record_temperature(0, Some(MAX_TEMP_C + 1));
+    arm.record_temperature(1, Some(MAX_TEMP_C + 1));
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([1000, 300, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    arm.update(10);
+    let faulted = arm.telemetry_snapshot(0);
+    assert_eq!(faulted.joints[0].fault, Some(SafetyFault::OverTemperature));
+    assert_eq!(faulted.joints[1].fault, Some(SafetyFault::OverTemperature));
+
+    arm.handle_arm_cmd(ArmCommand::ClearFaults { joint: Some(0) }, 20);
+    let selected_clear = arm.telemetry_snapshot(0);
+    assert_eq!(selected_clear.joints[0].fault, None);
+    assert_eq!(
+        selected_clear.joints[1].fault,
+        Some(SafetyFault::OverTemperature)
+    );
+
+    arm.update(DEADMAN_FEEDBACK_TIMEOUT_MS + 1);
+    assert_eq!(arm.mode(), ArmMode::Fault);
+
+    arm.handle_arm_cmd(ArmCommand::ClearFaults { joint: None }, 30);
+    let all_clear = arm.telemetry_snapshot(0);
+
+    assert!(all_clear.joints.iter().all(|joint| joint.fault.is_none()));
+    assert_eq!(arm.mode(), ArmMode::Idle);
 }
 
 #[test]
