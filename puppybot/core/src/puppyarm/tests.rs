@@ -413,6 +413,31 @@ fn stop_cancels_active_target() {
 }
 
 #[test]
+fn spin_cancels_active_target() {
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    assert_eq!(arm.telemetry_snapshot(0).joints[0].target_tick, Some(100));
+
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: -1,
+        },
+        10,
+    );
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(telemetry.joints[0].target_tick, None);
+    assert_eq!(commands[0].speed, -200);
+}
+
+#[test]
 fn zero_default_speed_stops_spinning_joint() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 0, 0);
@@ -475,6 +500,50 @@ fn target_tracking_speed_scales_with_negative_tick_error() {
     let commands = arm.update(10);
 
     assert_eq!(commands[0].speed, -100);
+}
+
+#[test]
+fn shoulder_target_tracking_preserves_drive_direction() {
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.record_feedback(1, 530, 0);
+    arm.record_feedback(2, 3565, 0);
+    arm.record_feedback(3, 1783, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 1,
+            angle_rad: PI / 2.0 + 0.25,
+        },
+        0,
+    );
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert!(telemetry.joints[1].target_tick.unwrap() < 530);
+    assert_eq!(commands[1].speed, -200);
+}
+
+#[test]
+fn elbow_target_tracking_preserves_drive_direction() {
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, 0, 0);
+    arm.record_feedback(1, 530, 0);
+    arm.record_feedback(2, 3565, 0);
+    arm.record_feedback(3, 1783, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 2,
+            angle_rad: 0.25,
+        },
+        0,
+    );
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert!(telemetry.joints[2].target_tick.unwrap() < 3565);
+    assert_eq!(commands[2].speed, -200);
 }
 
 #[test]
