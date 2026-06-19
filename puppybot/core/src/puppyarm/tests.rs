@@ -510,6 +510,32 @@ fn slew_limit_bounds_deceleration() {
 }
 
 #[test]
+fn overtemperature_fault_stops_motion() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
+    arm.record_feedback(0, 100, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+    arm.record_temperature(0, Some(MAX_TEMP_C + 1));
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(10);
+
+    assert_eq!(commands[0].speed, 0);
+    assert_eq!(telemetry.joints[0].speed, 0);
+    assert_eq!(telemetry.joints[0].temp_c, Some(MAX_TEMP_C + 1));
+    assert_eq!(
+        telemetry.joints[0].fault,
+        Some(SafetyFault::OverTemperature)
+    );
+}
+
+#[test]
 fn stale_feedback_forces_zero_speed() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 0, 0);

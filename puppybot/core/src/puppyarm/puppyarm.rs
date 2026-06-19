@@ -334,6 +334,14 @@ impl PuppyArm {
         self.mark_wheel_mode_not_ready(joint);
     }
 
+    pub fn record_temperature(&mut self, joint: usize, temp_c: Option<u8>) {
+        if joint >= JOINT_COUNT {
+            return;
+        }
+
+        self.joints[joint].set_temperature(temp_c);
+    }
+
     pub fn take_initialize_wheel_mode(&mut self) -> bool {
         if self.queued_initial_wheel_mode {
             return false;
