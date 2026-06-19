@@ -8,6 +8,11 @@ use super::{
 };
 
 const EPS: f64 = 1.0e-6;
+const ANGLE_EPS_DEG: f32 = 1.0e-4;
+const YAW_REFERENCE_TICK: u16 = 2696;
+const SHOULDER_REFERENCE_TICK: u16 = 530;
+const ELBOW_REFERENCE_TICK: u16 = 3565;
+const TIP_REFERENCE_TICK: u16 = 1783;
 
 fn assert_close(left: f64, right: f64) {
     assert!(
@@ -15,6 +20,23 @@ fn assert_close(left: f64, right: f64) {
         "left={left} right={right} diff={}",
         (left - right).abs()
     );
+}
+
+fn assert_close_f32(left: f32, right: f32) {
+    assert!(
+        (left - right).abs() <= ANGLE_EPS_DEG,
+        "left={left} right={right} diff={}",
+        (left - right).abs()
+    );
+}
+
+fn arm_with_reference_feedback() -> PuppyArm {
+    let mut arm = PuppyArm::new(0);
+    arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
+    arm.record_feedback(1, SHOULDER_REFERENCE_TICK, 0);
+    arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
+    arm.record_feedback(3, TIP_REFERENCE_TICK, 0);
+    arm
 }
 
 #[test]
@@ -81,6 +103,118 @@ fn solve_coords_rejects_unreachable_target() {
     assert_eq!(
         solve_coords_tool_down(ARM_L1_MM + ARM_L2_MM + 500.0, 0.0, 0.0),
         Err(IkError::Unreachable)
+    );
+}
+
+#[test]
+fn tick_to_angle_matches_joint_calibration_reference_points() {
+    let arm = arm_with_reference_feedback();
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_close_f32(telemetry.joints[0].angle_deg.unwrap(), 0.0);
+    assert_close_f32(telemetry.joints[1].angle_deg.unwrap(), 90.0);
+    assert_close_f32(telemetry.joints[2].angle_deg.unwrap(), 0.0);
+    assert_close_f32(telemetry.joints[3].angle_deg.unwrap(), 0.0);
+}
+
+#[test]
+fn angle_to_tick_matches_joint_calibration_reference_points() {
+    let mut arm = arm_with_reference_feedback();
+
+    arm.handle_arm_cmd(ArmCommand::GotoAngles([0.0, PI / 2.0, 0.0, 0.0]), 0);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(telemetry.joints[0].target_tick, Some(YAW_TICK_MIN));
+    assert_eq!(
+        telemetry.joints[1].target_tick,
+        Some(SHOULDER_REFERENCE_TICK as i32)
+    );
+    assert_eq!(
+        telemetry.joints[2].target_tick,
+        Some(ELBOW_REFERENCE_TICK as i32)
+    );
+    assert_eq!(
+        telemetry.joints[3].target_tick,
+        Some(TIP_REFERENCE_TICK as i32)
+    );
+}
+
+#[test]
+fn tip_full_rotation_maps_ninety_degrees_to_plus_1024_ticks() {
+    let mut arm = arm_with_reference_feedback();
+
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 3,
+            angle_rad: PI / 2.0,
+        },
+        0,
+    );
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(
+        telemetry.joints[3].target_tick,
+        Some(TIP_REFERENCE_TICK as i32 + TICK_WRAP / 4)
+    );
+}
+
+#[test]
+fn elbow_angle_sign_flips_around_zero_reference() {
+    let mut arm = arm_with_reference_feedback();
+
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 2,
+            angle_rad: 0.02,
+        },
+        0,
+    );
+    let positive = arm.telemetry_snapshot(0).joints[2].target_tick.unwrap();
+
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 2,
+            angle_rad: -0.02,
+        },
+        10,
+    );
+    let negative = arm.telemetry_snapshot(0).joints[2].target_tick.unwrap();
+
+    assert!(positive < ELBOW_REFERENCE_TICK as i32);
+    assert!(negative > ELBOW_REFERENCE_TICK as i32);
+}
+
+#[test]
+fn yaw_angle_to_tick_uses_full_servo_rotation() {
+    let mut arm = arm_with_reference_feedback();
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimits {
+            joint: 0,
+            min: -100,
+            max: 100,
+        },
+        0,
+    );
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimitsEnabled {
+            joint: 0,
+            enabled: false,
+        },
+        0,
+    );
+
+    arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 0,
+            angle_rad: PI / 2.0,
+        },
+        0,
+    );
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(
+        telemetry.joints[0].target_tick,
+        Some(YAW_TICK_MIN + TICK_WRAP / 4)
     );
 }
 
