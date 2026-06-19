@@ -536,6 +536,27 @@ fn overtemperature_fault_stops_motion() {
 }
 
 #[test]
+fn stall_fault_stops_motion_when_ticks_do_not_change() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(STALL_SPEED_MIN), 0);
+    arm.record_feedback(0, 0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([1000, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        0,
+    );
+
+    let moving_commands = arm.update(10);
+    arm.record_feedback(0, 0, 10 + STALL_TRIP_MS);
+    let stalled_commands = arm.update(10 + STALL_TRIP_MS);
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_eq!(moving_commands[0].speed, STALL_SPEED_MIN);
+    assert_eq!(stalled_commands[0].speed, 0);
+    assert_eq!(telemetry.joints[0].speed, 0);
+    assert_eq!(telemetry.joints[0].fault, Some(SafetyFault::Stall));
+}
+
+#[test]
 fn stale_feedback_forces_zero_speed() {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, 0, 0);
