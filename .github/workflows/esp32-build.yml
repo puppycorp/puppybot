@@ -1,4 +1,4 @@
-name: ESP32 Build
+name: Rust Build
 
 on:
     push:
@@ -9,13 +9,13 @@ on:
         outputs:
             artifact_name:
                 description: ESP32 firmware artifact name
-                value: ${{ jobs.build.outputs.artifact_name }}
+                value: ${{ jobs.esp32.outputs.artifact_name }}
             artifact_file:
                 description: ESP32 firmware artifact filename
-                value: ${{ jobs.build.outputs.artifact_file }}
+                value: ${{ jobs.esp32.outputs.artifact_file }}
 
 jobs:
-    build:
+    esp32:
         runs-on: ubuntu-latest
         outputs:
             artifact_name: ${{ steps.package.outputs.artifact_name }}
@@ -25,38 +25,52 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
-            - name: Cache ESP-IDF
-              uses: actions/cache@v3
-              with:
-                  path: /tmp/esp/idf
-                  key: ${{ runner.os }}-esp-idf-v5.2.5
+            - name: Install ESP32 Rust toolchain
+              working-directory: puppybot
+              run: ./scripts/install.sh
 
-            - name: Install ESP-IDF
-              uses: espressif/install-esp-idf-action@v1
-              with:
-                  version: v5.2.5
-
-            - name: Build ESP32 firmware
-              working-directory: esp32
-              run: idf.py build
+            - name: Build ESP32 Rust firmware
+              working-directory: puppybot
+              run: ./scripts/build.sh release
 
             - name: Package firmware artifact
               id: package
               run: |
                   mkdir -p artifacts/esp32
-                  cp esp32/build/puppybot.bin artifacts/esp32/
-                  cp esp32/build/bootloader/bootloader.bin artifacts/esp32/
-                  cp esp32/build/partition_table/partition-table.bin artifacts/esp32/
-                  cp esp32/build/ota_data_initial.bin artifacts/esp32/
-                  cp esp32/build/flasher_args.json artifacts/esp32/
-                  (cd artifacts/esp32 && zip -r ../puppybot-firmware.zip .)
-                  echo "artifact_name=puppybot-firmware" >> "$GITHUB_OUTPUT"
-                  echo "artifact_file=puppybot-firmware.zip" >> "$GITHUB_OUTPUT"
+                  cp puppybot/esp32/target/xtensa-esp32-none-elf/release/puppybot artifacts/esp32/
+                  (cd artifacts/esp32 && zip -r ../puppybot-esp32-rust.zip .)
+                  echo "artifact_name=puppybot-esp32-rust" >> "$GITHUB_OUTPUT"
+                  echo "artifact_file=puppybot-esp32-rust.zip" >> "$GITHUB_OUTPUT"
 
             - name: Upload firmware artifact
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ steps.package.outputs.artifact_name }}
-                  path: artifacts/puppybot-firmware.zip
+                  path: artifacts/puppybot-esp32-rust.zip
+                  if-no-files-found: error
+                  retention-days: 14
+
+    runtime:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Build runtime
+              working-directory: puppybot
+              run: cargo build --locked -p puppybot-runtime --release
+
+            - name: Package runtime artifact
+              run: |
+                  mkdir -p artifacts/runtime
+                  cp puppybot/target/release/puppybot-runtime artifacts/runtime/
+                  (cd artifacts/runtime && zip -r ../puppybot-runtime.zip .)
+
+            - name: Upload runtime artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: puppybot-runtime
+                  path: artifacts/puppybot-runtime.zip
                   if-no-files-found: error
                   retention-days: 14
