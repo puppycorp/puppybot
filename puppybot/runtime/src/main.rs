@@ -20,6 +20,17 @@ mod ws;
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct RuntimeArgs {
+    servo_device: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RuntimeCli {
+    Run(RuntimeArgs),
+    Help,
+}
+
 pub(crate) struct RuntimeRobot {
     robot: Puppybot,
     servo: Option<stservo::RuntimeStServo>,
@@ -147,6 +158,48 @@ fn runtime_bind_addr() -> String {
     }
 }
 
+fn runtime_usage() -> &'static str {
+    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  -h, --help             Show this help text"
+}
+
+fn parse_runtime_args<I, S>(args: I) -> Result<RuntimeCli, String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut parsed = RuntimeArgs::default();
+    let mut args = args.into_iter().map(Into::into);
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(RuntimeCli::Help),
+            "--servo-device" => {
+                let Some(device) = args.next() else {
+                    return Err("--servo-device requires a path".to_string());
+                };
+                let device = device.trim();
+                if device.is_empty() {
+                    return Err("--servo-device requires a non-empty path".to_string());
+                }
+                parsed.servo_device = Some(device.to_string());
+            }
+            _ => {
+                if let Some(device) = arg.strip_prefix("--servo-device=") {
+                    let device = device.trim();
+                    if device.is_empty() {
+                        return Err("--servo-device requires a non-empty path".to_string());
+                    }
+                    parsed.servo_device = Some(device.to_string());
+                } else {
+                    return Err(format!("unknown option: {arg}"));
+                }
+            }
+        }
+    }
+
+    Ok(RuntimeCli::Run(parsed))
+}
+
 fn init_logger() {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
@@ -155,7 +208,18 @@ fn init_logger() {
 
 fn main() {
     init_logger();
-    let servo = stservo::open_serial_from_env();
+    let args = match parse_runtime_args(std::env::args().skip(1)) {
+        Ok(RuntimeCli::Run(args)) => args,
+        Ok(RuntimeCli::Help) => {
+            println!("{}", runtime_usage());
+            return;
+        }
+        Err(err) => {
+            eprintln!("{err}\n\n{}", runtime_usage());
+            std::process::exit(2);
+        }
+    };
+    let servo = stservo::open_serial(args.servo_device.as_deref());
 
     let bind = runtime_bind_addr();
     let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
@@ -181,5 +245,43 @@ fn main() {
             }
             Err(err) => log::warn!("accept failed: {err:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_args_accept_servo_device_value() {
+        assert_eq!(
+            parse_runtime_args(["--servo-device", "/dev/ttyUSB0"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                servo_device: Some("/dev/ttyUSB0".to_string())
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_servo_device_equals_value() {
+        assert_eq!(
+            parse_runtime_args(["--servo-device=/dev/ttyUSB0"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                servo_device: Some("/dev/ttyUSB0".to_string())
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_reject_missing_servo_device_value() {
+        assert_eq!(
+            parse_runtime_args(["--servo-device"]),
+            Err("--servo-device requires a path".to_string())
+        );
+    }
+
+    #[test]
+    fn runtime_args_return_help() {
+        assert_eq!(parse_runtime_args(["--help"]), Ok(RuntimeCli::Help));
     }
 }

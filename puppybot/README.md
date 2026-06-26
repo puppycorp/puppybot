@@ -77,6 +77,12 @@ byte-level servo bus, and exposes the Android-compatible WebSocket endpoint on
 ./scripts/run-runtime.sh
 ```
 
+To use a hardware STServo bus, pass the serial device:
+
+```sh
+./scripts/run-runtime.sh --servo-device /dev/ttyUSB0
+```
+
 By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
 `ws://<runtime-ip>:8080/ws`. It also advertises
 `PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the

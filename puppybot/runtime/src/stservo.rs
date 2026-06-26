@@ -139,10 +139,13 @@ fn auto_detect_port() -> Option<String> {
 }
 
 impl RuntimeSerialConfig {
-    pub(crate) fn from_env_or_auto_detect() -> Option<Self> {
-        let port = match std::env::var(STSERVO_PORT_ENV).ok() {
-            Some(port) => port,
-            None => auto_detect_port()?,
+    pub(crate) fn from_port_or_env_or_auto_detect(port: Option<&str>) -> Option<Self> {
+        let port = match port {
+            Some(port) => port.to_string(),
+            None => match std::env::var(STSERVO_PORT_ENV).ok() {
+                Some(port) => port,
+                None => auto_detect_port()?,
+            },
         };
         let port = port.trim();
         if port.is_empty() {
@@ -189,10 +192,10 @@ impl SerialBus for RuntimeSerialBus {
     }
 }
 
-pub(crate) fn open_serial_from_env() -> Option<RuntimeStServo> {
-    let Some(config) = RuntimeSerialConfig::from_env_or_auto_detect() else {
+pub(crate) fn open_serial(port: Option<&str>) -> Option<RuntimeStServo> {
+    let Some(config) = RuntimeSerialConfig::from_port_or_env_or_auto_detect(port) else {
         log::info!(
-            "runtime using simulated PuppyArm state; set {STSERVO_PORT_ENV} to use hardware"
+            "runtime using simulated PuppyArm state; set {STSERVO_PORT_ENV} or pass --servo-device to use hardware"
         );
         return None;
     };
@@ -244,6 +247,23 @@ mod tests {
     fn parse_baud_accepts_positive_values() {
         assert_eq!(parse_baud("1000000"), Some(1_000_000));
         assert_eq!(parse_baud(" 115200 "), Some(115_200));
+    }
+
+    #[test]
+    fn serial_config_accepts_explicit_port() {
+        assert_eq!(
+            RuntimeSerialConfig::from_port_or_env_or_auto_detect(Some(" /dev/ttyUSB0 "))
+                .map(|config| config.port),
+            Some("/dev/ttyUSB0".to_string())
+        );
+    }
+
+    #[test]
+    fn serial_config_rejects_empty_explicit_port() {
+        assert_eq!(
+            RuntimeSerialConfig::from_port_or_env_or_auto_detect(Some("  ")),
+            None
+        );
     }
 
     #[test]
