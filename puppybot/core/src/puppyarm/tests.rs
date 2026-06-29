@@ -9,7 +9,7 @@ use super::{
 
 const EPS: f64 = 1.0e-6;
 const ANGLE_EPS_DEG: f32 = 1.0e-4;
-const YAW_REFERENCE_TICK: u16 = 2696;
+const YAW_REFERENCE_TICK: u16 = 2048;
 const SHOULDER_REFERENCE_TICK: u16 = 530;
 const ELBOW_REFERENCE_TICK: u16 = 3565;
 const TIP_REFERENCE_TICK: u16 = 1783;
@@ -124,7 +124,10 @@ fn angle_to_tick_matches_joint_calibration_reference_points() {
     arm.handle_arm_cmd(ArmCommand::GotoAngles([0.0, PI / 2.0, 0.0, 0.0]), 0);
     let telemetry = arm.telemetry_snapshot(0);
 
-    assert_eq!(telemetry.joints[0].target_tick, Some(YAW_TICK_MIN));
+    assert_eq!(
+        telemetry.joints[0].target_tick,
+        Some(YAW_REFERENCE_TICK as i32)
+    );
     assert_eq!(
         telemetry.joints[1].target_tick,
         Some(SHOULDER_REFERENCE_TICK as i32)
@@ -214,8 +217,37 @@ fn yaw_angle_to_tick_uses_full_servo_rotation() {
 
     assert_eq!(
         telemetry.joints[0].target_tick,
-        Some(YAW_TICK_MIN + TICK_WRAP / 4)
+        Some(YAW_REFERENCE_TICK as i32 + TICK_WRAP / 4)
     );
+}
+
+#[test]
+fn yaw_jog_from_st3215_center_allows_both_directions() {
+    let mut arm = PuppyArm::new(0);
+
+    arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+    let positive = arm.update(10)[0].speed;
+
+    arm.handle_arm_cmd(ArmCommand::Stop { joint: 0 }, 20);
+    arm.record_feedback(0, YAW_REFERENCE_TICK, 20);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: -1,
+        },
+        20,
+    );
+    let negative = arm.update(30)[0].speed;
+
+    assert!(positive > 0);
+    assert!(negative < 0);
 }
 
 #[test]
@@ -549,7 +581,7 @@ fn stop_cancels_active_target() {
 #[test]
 fn spin_cancels_active_target() {
     let mut arm = PuppyArm::new(0);
-    arm.record_feedback(0, 0, 0);
+    arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
     arm.handle_arm_cmd(
         ArmCommand::GotoTicks([100, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
         0,
@@ -625,9 +657,9 @@ fn target_tracking_speed_scales_with_positive_tick_error() {
 fn target_tracking_speed_scales_with_negative_tick_error() {
     let mut arm = PuppyArm::new(0);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(200), 0);
-    arm.record_feedback(0, 80, 0);
+    arm.record_feedback(0, 200, 0);
     arm.handle_arm_cmd(
-        ArmCommand::GotoTicks([40, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
+        ArmCommand::GotoTicks([160, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
         0,
     );
 

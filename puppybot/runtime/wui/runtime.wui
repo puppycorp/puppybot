@@ -56,10 +56,10 @@
       <Text value="Arm Jog" color="#f4f7fb" />
       <For each={state.joints} itemAs="joint" key={joint.label}>
         <HStack spacing=8>
-          <Text value={joint.label} color="#91a0b3" minWidth=84 />
-          <Button text={joint.negative.label} onPress="JogNegativeStart" onRelease="JogStop" onRepeat="JogNegativeRefresh" repeatInterval=250 arg={joint.index} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
-          <Button text="Stop" onClick="StopJoint" arg={joint.index} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 />
-          <Button text={joint.positive.label} onPress="JogPositiveStart" onRelease="JogStop" onRepeat="JogPositiveRefresh" repeatInterval=250 arg={joint.index} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
+          <Text value={joint.label} color="#91a0b3" minWidth=132 />
+          <Button text={joint.negative.label} onPress="JogNegativeStart" onRelease="JogStop" onRepeat="JogNegativeRefresh" repeatInterval=250 arg={joint.action_arg} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
+          <Button text="Stop" onClick="StopJoint" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 />
+          <Button text={joint.positive.label} onPress="JogPositiveStart" onRelease="JogStop" onRepeat="JogPositiveRefresh" repeatInterval=250 arg={joint.action_arg} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
           <VStack minWidth=112 backgroundColor={joint.limit.background} border={joint.limit.border} padding=6 spacing=2>
             <Text value={joint.limit.label} color={joint.limit.accent} textAlign="center" />
             <Text value={joint.limit.detail} color="#d4dce8" textAlign="center" breakWords=true />

@@ -17,6 +17,7 @@ const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
 const UI_ARM_SPEED: i16 = 220;
 const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
+const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
 
 #[derive(Clone, Debug, WguiModel)]
 pub(crate) struct RuntimeUiConfig {
@@ -53,6 +54,7 @@ pub(crate) struct RuntimeUiLimit {
 #[derive(Clone, Debug, WguiModel)]
 pub(crate) struct RuntimeUiJoint {
     index: u32,
+    action_arg: u32,
     label: String,
     negative: RuntimeUiJogButton,
     positive: RuntimeUiJogButton,
@@ -156,7 +158,11 @@ fn joint_controls(joints: &[Joint; JOINT_COUNT]) -> Vec<RuntimeUiJoint> {
     (0..JOINT_COUNT)
         .map(|index| RuntimeUiJoint {
             index: index as u32,
-            label: format!("Joint {}", index + 1),
+            action_arg: index as u32 + 1,
+            label: format!(
+                "{} (servo {})",
+                ARM_JOINT_LABELS[index], joints[index].servo_id
+            ),
             negative: jog_button("-"),
             positive: jog_button("+"),
             limit: limit_status(&joints[index]),
@@ -248,12 +254,20 @@ impl RuntimeUiController {
         self.apply_event(label, ProtocolEvent::Arm(command));
     }
 
-    fn joint_exists(joint: u32) -> bool {
-        (joint as usize) < JOINT_COUNT
+    fn joint_arg_to_index(joint_arg: u32) -> Option<usize> {
+        let joint = joint_arg.checked_sub(1)? as usize;
+        if joint < JOINT_COUNT {
+            Some(joint)
+        } else {
+            None
+        }
     }
 
-    fn spin_joint(&mut self, joint: u32, direction: i32) {
-        if !Self::joint_exists(joint) || direction == 0 {
+    fn spin_joint(&mut self, joint_arg: u32, direction: i32) {
+        let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+        if direction == 0 {
             return;
         }
 
@@ -264,26 +278,20 @@ impl RuntimeUiController {
             "hold jog joint negative"
         };
         self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
-        self.arm(
-            label,
-            ArmCommand::Spin {
-                joint: joint as usize,
-                direction,
-            },
-        );
+        self.arm(label, ArmCommand::Spin { joint, direction });
     }
 
-    fn refresh_spin_joint(&mut self, joint: u32, direction: i32) {
-        if !Self::joint_exists(joint) || direction == 0 {
+    fn refresh_spin_joint(&mut self, joint_arg: u32, direction: i32) {
+        let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+        if direction == 0 {
             return;
         }
 
         let direction = if direction > 0 { 1 } else { -1 };
         let mut robot = self.robot.lock().unwrap();
-        robot.handle_event(ProtocolEvent::Arm(ArmCommand::Spin {
-            joint: joint as usize,
-            direction,
-        }));
+        robot.handle_event(ProtocolEvent::Arm(ArmCommand::Spin { joint, direction }));
     }
 
     pub(crate) fn drive_forward(&mut self) {
@@ -306,37 +314,32 @@ impl RuntimeUiController {
         self.apply_event("stop drive", ProtocolEvent::Drive(DriveCommand::Stop));
     }
 
-    pub(crate) fn stop_joint(&mut self, joint: u32) {
-        if !Self::joint_exists(joint) {
+    pub(crate) fn stop_joint(&mut self, joint_arg: u32) {
+        let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
             return;
-        }
+        };
 
-        self.arm(
-            "stop joint",
-            ArmCommand::Stop {
-                joint: joint as usize,
-            },
-        );
+        self.arm("stop joint", ArmCommand::Stop { joint });
     }
 
-    pub(crate) fn jog_stop(&mut self, joint: u32) {
-        self.stop_joint(joint);
+    pub(crate) fn jog_stop(&mut self, joint_arg: u32) {
+        self.stop_joint(joint_arg);
     }
 
-    pub(crate) fn jog_negative_start(&mut self, joint: u32) {
-        self.spin_joint(joint, -1);
+    pub(crate) fn jog_negative_start(&mut self, joint_arg: u32) {
+        self.spin_joint(joint_arg, -1);
     }
 
-    pub(crate) fn jog_positive_start(&mut self, joint: u32) {
-        self.spin_joint(joint, 1);
+    pub(crate) fn jog_positive_start(&mut self, joint_arg: u32) {
+        self.spin_joint(joint_arg, 1);
     }
 
-    pub(crate) fn jog_negative_refresh(&mut self, joint: u32) {
-        self.refresh_spin_joint(joint, -1);
+    pub(crate) fn jog_negative_refresh(&mut self, joint_arg: u32) {
+        self.refresh_spin_joint(joint_arg, -1);
     }
 
-    pub(crate) fn jog_positive_refresh(&mut self, joint: u32) {
-        self.refresh_spin_joint(joint, 1);
+    pub(crate) fn jog_positive_refresh(&mut self, joint_arg: u32) {
+        self.refresh_spin_joint(joint_arg, 1);
     }
 
     pub(crate) fn arm_hold(&mut self) {

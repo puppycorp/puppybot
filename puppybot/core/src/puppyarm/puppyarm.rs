@@ -20,7 +20,7 @@ const ELBOW_SIGN: f64 = -1.0;
 const ELBOW_DRIVE_SIGN: i8 = 1;
 const TIP_SIGN: f64 = 1.0;
 
-const YAW_ZERO_TICK: i32 = YAW_TICK_MIN;
+const YAW_ZERO_TICK: i32 = 2048;
 const SHOULDER_ZERO_TICK: i32 = 530;
 const ELBOW_ZERO_TICK: i32 = 3565;
 const TIP_ZERO_TICK: i32 = 1783;

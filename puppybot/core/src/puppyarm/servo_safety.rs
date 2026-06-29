@@ -2,8 +2,8 @@ use super::types::Joint;
 
 pub const TICK_WRAP: i32 = 4096;
 
-pub const YAW_TICK_MIN: i32 = -1400;
-pub const YAW_TICK_MAX: i32 = 1400;
+pub const YAW_TICK_MIN: i32 = 0;
+pub const YAW_TICK_MAX: i32 = 4095;
 pub const SHOULDER_TICK_MIN: i32 = 100;
 pub const SHOULDER_TICK_MAX: i32 = 1000;
 pub const ELBOW_TICK_MIN: i32 = 2200;
