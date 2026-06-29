@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 extern crate alloc;
+#[cfg(all(test, feature = "runtime"))]
+extern crate std;
 
 use core::future::Future;
 use core::pin::Pin;
@@ -339,6 +341,45 @@ pub fn block_on_ready<F: Future>(future: F) -> F::Output {
         Poll::Ready(output) => output,
         Poll::Pending => panic!("test future unexpectedly pending"),
     }
+}
+
+#[cfg(all(test, feature = "runtime"))]
+fn block_on_thread<F: Future>(future: F) -> F::Output {
+    use std::sync::Arc;
+    use std::task::Wake;
+    use std::thread;
+
+    struct ThreadWaker(thread::Thread);
+
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let current_thread = thread::current();
+    let waker = Waker::from(Arc::new(ThreadWaker(current_thread)));
+    let mut context = Context::from_waker(&waker);
+    let mut future = core::pin::pin!(future);
+
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => thread::park(),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "runtime"))]
+#[test]
+fn embassy_timer_works_with_runtime_waker() {
+    block_on_thread(embassy_time::Timer::after(
+        embassy_time::Duration::from_millis(1),
+    ));
 }
 
 #[test]

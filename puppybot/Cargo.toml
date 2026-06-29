@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 default-members = ["runtime"]
-members = ["core", "runtime"]
+members = ["core", "runtime", "cli"]
 exclude = ["esp32"]
 
 [profile.release]

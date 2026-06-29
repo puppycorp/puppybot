@@ -1,0 +1,78 @@
+<VStack fill=true minHeight=0 backgroundColor="#12161c" padding=18 spacing=14>
+  <HStack spacing=12>
+    <VStack grow=1 spacing=4>
+      <Text value={state.title} color="#f4f7fb" />
+      <Text value={state.subtitle} color="#91a0b3" />
+    </VStack>
+    <VStack width=170 backgroundColor="#18202b" border="1px solid #2b394a" padding=10 spacing=4>
+      <Text value="UI" color="#91a0b3" textAlign="center" />
+      <Text value="online" color="#3fbf6f" textAlign="center" />
+    </VStack>
+  </HStack>
+
+  <HStack spacing=12 wrap=true>
+    <For each={state.status} itemAs="item" key={item.label}>
+      <VStack width=300 minWidth=250 backgroundColor="#18202b" border="1px solid #2b394a" padding=12 spacing=6>
+        <HStack spacing=8>
+          <VStack width=8 height=40 backgroundColor={item.accent} />
+          <VStack grow=1 spacing=2>
+            <Text value={item.label} color="#91a0b3" />
+            <Text value={item.value} color="#f4f7fb" breakWords=true />
+          </VStack>
+        </HStack>
+        <Text value={item.detail} color="#b6c2d2" breakWords=true />
+      </VStack>
+    </For>
+  </HStack>
+
+  <VStack backgroundColor="#18202b" border="1px solid #2b394a" padding=14 spacing=10>
+    <Text value="Endpoints" color="#f4f7fb" />
+    <For each={state.endpoints} itemAs="endpoint" key={endpoint.label}>
+      <HStack spacing=10>
+        <Text value={endpoint.label} color="#91a0b3" minWidth=160 />
+        <Text value={endpoint.value} color="#f4f7fb" grow=1 breakWords=true />
+        <Text value={endpoint.detail} color="#6f7f92" minWidth=190 breakWords=true />
+      </HStack>
+    </For>
+  </VStack>
+
+  <HStack spacing=12 wrap=true>
+    <VStack width=360 minWidth=300 backgroundColor="#18202b" border="1px solid #2b394a" padding=14 spacing=10>
+      <Text value="Drive Control" color="#f4f7fb" />
+      <HStack spacing=8>
+        <Button text="Forward" onClick="DriveForward" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
+      </HStack>
+      <HStack spacing=8>
+        <Button text="Left" onClick="DriveLeft" backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=34 />
+        <Button text="Stop" onClick="StopDrive" backgroundColor="#9f2f2f" border="1px solid #d85b5b" color="#fff4f4" height=34 />
+        <Button text="Right" onClick="DriveRight" backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=34 />
+      </HStack>
+      <HStack spacing=8>
+        <Button text="Back" onClick="DriveBack" backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=34 />
+      </HStack>
+    </VStack>
+
+    <VStack grow=1 minWidth=430 backgroundColor="#18202b" border="1px solid #2b394a" padding=14 spacing=10>
+      <Text value="Arm Jog" color="#f4f7fb" />
+      <For each={state.joints} itemAs="joint" key={joint.label}>
+        <HStack spacing=8>
+          <Text value={joint.label} color="#91a0b3" minWidth=84 />
+          <Button text={joint.negative.label} onPress="JogNegativeStart" onRelease="JogStop" onRepeat="JogNegativeRefresh" repeatInterval=250 arg={joint.index} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
+          <Button text="Stop" onClick="StopJoint" arg={joint.index} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 />
+          <Button text={joint.positive.label} onPress="JogPositiveStart" onRelease="JogStop" onRepeat="JogPositiveRefresh" repeatInterval=250 arg={joint.index} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
+          <VStack minWidth=112 backgroundColor={joint.limit.background} border={joint.limit.border} padding=6 spacing=2>
+            <Text value={joint.limit.label} color={joint.limit.accent} textAlign="center" />
+            <Text value={joint.limit.detail} color="#d4dce8" textAlign="center" breakWords=true />
+          </VStack>
+        </HStack>
+      </For>
+      <HStack spacing=8>
+        <Button text="Hold" onClick="ArmHold" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
+        <Button text="Stop Arm" onClick="ArmStopAll" backgroundColor="#9f2f2f" border="1px solid #d85b5b" color="#fff4f4" height=34 />
+        <Button text="Clear Faults" onClick="ClearArmFaults" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 />
+      </HStack>
+      <Text value="Last command" color="#91a0b3" />
+      <Text value={state.last_command} color="#f4f7fb" breakWords=true />
+    </VStack>
+  </HStack>
+</VStack>

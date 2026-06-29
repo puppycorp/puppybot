@@ -49,7 +49,7 @@ fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
 fn default_joints() -> [Joint; JOINT_COUNT] {
     [
         Joint {
-            servo_id: 2,
+            servo_id: 1,
             tick_min: YAW_TICK_MIN,
             tick_max: YAW_TICK_MAX,
             raw_tick_min: YAW_TICK_MIN,
@@ -82,7 +82,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             fault: None,
         },
         Joint {
-            servo_id: 3,
+            servo_id: 2,
             tick_min: SHOULDER_TICK_MIN,
             tick_max: SHOULDER_TICK_MAX,
             raw_tick_min: SHOULDER_TICK_MIN,
@@ -115,7 +115,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             fault: None,
         },
         Joint {
-            servo_id: 4,
+            servo_id: 3,
             tick_min: ELBOW_TICK_MIN,
             tick_max: ELBOW_TICK_MAX,
             raw_tick_min: ELBOW_TICK_MIN,
@@ -148,7 +148,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             fault: None,
         },
         Joint {
-            servo_id: 5,
+            servo_id: 4,
             tick_min: TIP_TICK_MIN,
             tick_max: TIP_TICK_MAX,
             raw_tick_min: TIP_TICK_MIN,

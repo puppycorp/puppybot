@@ -78,7 +78,7 @@ impl Default for RobotConfig {
     fn default() -> Self {
         Self {
             steering_servo_id: 1,
-            arm_servo_ids: [2, 3, 4, 5],
+            arm_servo_ids: [1, 2, 3, 4],
         }
     }
 }
@@ -423,7 +423,6 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
     output
 }
 
-#[cfg(all(test, feature = "runtime"))]
 pub fn command_frame(cmd: u8, body: &[u8]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(body.len() + 4);
     frame.push((PUPPY_PROTOCOL_VERSION & 0xff) as u8);
@@ -573,7 +572,7 @@ mod tests {
         let mut state = ProtocolState {
             config: RobotConfig {
                 steering_servo_id: 9,
-                arm_servo_ids: [2, 3, 4, 5],
+                arm_servo_ids: [1, 2, 3, 4],
             },
             telemetry_enabled: false,
         };
@@ -588,16 +587,16 @@ mod tests {
         let mut state = ProtocolState::default();
 
         let output = handle_binary_command(
-            &command_frame(CMD_CONFIG_SET, &[1, 9, 2, 3, 4, 5]),
+            &command_frame(CMD_CONFIG_SET, &[1, 9, 1, 2, 3, 4]),
             &mut state,
         );
 
         assert_eq!(state.config.steering_servo_id, 9);
-        assert_eq!(state.config.arm_servo_ids, [2, 3, 4, 5]);
+        assert_eq!(state.config.arm_servo_ids, [1, 2, 3, 4]);
         assert_eq!(
             output.events,
             vec![
-                ProtocolEvent::Arm(ArmCommand::SetServoIds([2, 3, 4, 5])),
+                ProtocolEvent::Arm(ArmCommand::SetServoIds([1, 2, 3, 4])),
                 ProtocolEvent::Drive(DriveCommand::SetSteeringServoId(9)),
             ]
         );

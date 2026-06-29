@@ -65,6 +65,14 @@ fn is_supported_port_name(port: &str) -> bool {
         .any(|pattern| port.contains(pattern))
 }
 
+fn is_ephemeral_virtual_port(port: &str) -> bool {
+    port.starts_with("/dev/pts/")
+}
+
+fn is_cacheable_port(port: &str) -> bool {
+    !is_ephemeral_virtual_port(port)
+}
+
 fn serial_cache_path() -> Option<PathBuf> {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
@@ -83,10 +91,20 @@ fn read_cached_port() -> Option<String> {
     if port.is_empty() || !Path::new(port).exists() {
         return None;
     }
+    if !is_cacheable_port(port) {
+        log::info!(
+            "runtime ignoring remembered ephemeral STServo serial port {port}; pass --servo-device with the current virtual bus path"
+        );
+        return None;
+    }
     Some(port.to_string())
 }
 
 fn remember_port(port: &str) {
+    if !is_cacheable_port(port) {
+        log::info!("runtime not remembering ephemeral STServo serial port {port}");
+        return;
+    }
     let Some(path) = serial_cache_path() else {
         return;
     };
@@ -161,13 +179,22 @@ impl RuntimeSerialConfig {
 
 impl RuntimeSerialBus {
     pub(crate) fn open(config: &RuntimeSerialConfig) -> serialport::Result<Self> {
-        let port = serialport::new(&config.port, config.baud)
+        let mut builder = serialport::new(&config.port, config.baud)
             .timeout(DEFAULT_READ_TIMEOUT)
             .data_bits(serialport::DataBits::Eight)
             .flow_control(serialport::FlowControl::None)
             .parity(serialport::Parity::None)
-            .stop_bits(serialport::StopBits::One)
-            .open()?;
+            .stop_bits(serialport::StopBits::One);
+
+        if is_ephemeral_virtual_port(&config.port) {
+            log::info!(
+                "runtime opening ephemeral STServo serial port {} without exclusive lock",
+                config.port
+            );
+            builder = builder.exclusive(false);
+        }
+
+        let port = builder.open()?;
         Ok(Self { port })
     }
 }
@@ -279,5 +306,20 @@ mod tests {
     fn supported_port_name_rejects_unrelated_ports() {
         assert!(!is_supported_port_name("/dev/cu.Bluetooth-Incoming-Port"));
         assert!(!is_supported_port_name("COM1"));
+    }
+
+    #[test]
+    fn cacheable_port_rejects_ephemeral_virtual_ports() {
+        assert!(!is_cacheable_port("/dev/pts/9"));
+        assert!(!is_cacheable_port("/dev/pts/123"));
+    }
+
+    #[test]
+    fn cacheable_port_accepts_stable_serial_ports() {
+        assert!(is_cacheable_port("/dev/ttyUSB0"));
+        assert!(is_cacheable_port(
+            "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
+        ));
+        assert!(is_cacheable_port("/dev/cu.usbserial1420"));
     }
 }

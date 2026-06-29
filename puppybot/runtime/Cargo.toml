@@ -15,4 +15,7 @@ log = "0.4"
 mdns-sd = "0.20"
 puppybot-core = { path = "../core", default-features = false, features = ["runtime"] }
 serialport = { version = "4.7", default-features = false }
+serde_json = "1"
 sha1 = { version = "0.11.0", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+wgui = { git = "https://github.com/J45k4/wgui.git", rev = "53e8997eba7798207304e4d3bb371e4de0e48c05" }

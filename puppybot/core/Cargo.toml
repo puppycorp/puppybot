@@ -20,4 +20,4 @@ embassy-executor = { version = "0.10.0", features = [
 [features]
 default = ["runtime"]
 host = ["runtime"]
-runtime = ["embassy-time/std"]
+runtime = ["embassy-time/std", "embassy-time/generic-queue-8"]

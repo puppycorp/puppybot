@@ -86,10 +86,37 @@ To use a hardware STServo bus, pass the serial device:
 By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
 `ws://<runtime-ip>:8080/ws`. It also advertises
 `PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the
-bound port. To bind a different address:
+bound port. The local WGUI dashboard listens at `http://127.0.0.1:8081/`.
+The dashboard includes drive controls, arm jog controls, arm hold/stop, and
+fault clearing; these send commands to the same runtime robot instance used by
+the WebSocket endpoint.
+To bind different addresses:
 
 ```sh
-PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8081 ./scripts/run-runtime.sh
+PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8082 ./scripts/run-runtime.sh
+./scripts/run-runtime.sh --ui-bind 127.0.0.1:9090
+```
+
+## CLI
+
+The `puppybot` CLI talks to the runtime WebSocket API. By default it connects to
+`ws://127.0.0.1:8080/ws`.
+
+```sh
+cargo run -p puppybot -- ping
+cargo run -p puppybot -- config get
+cargo run -p puppybot -- arm state
+cargo run -p puppybot -- arm jog --joint 0 --direction 1 --speed 300 --duration-ms 500
+cargo run -p puppybot -- arm stop --joint 0
+cargo run -p puppybot -- arm goto-ticks --speed 300 2048 2048 2048 2048
+```
+
+To test against RobotDreams, start RobotDreams' virtual bus, read its
+`/dev/pts/...` path, and pass that path to the runtime:
+
+```sh
+./scripts/run-runtime.sh --servo-device /dev/pts/15
+cargo run -p puppybot -- arm jog --joint 0 --direction 1 --duration-ms 500
 ```
 
 ## Flash

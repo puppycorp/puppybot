@@ -689,7 +689,7 @@ fn slew_limit_bounds_acceleration() {
         ArmCommand::GotoTicks([1000, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
         0,
     );
-    arm.record_wheel_speed_result(0, 2, 0, true, 0);
+    arm.record_wheel_speed_result(0, 1, 0, true, 0);
 
     let commands = arm.update(10);
 
@@ -705,7 +705,7 @@ fn slew_limit_bounds_deceleration() {
         ArmCommand::GotoTicks([20, SHOULDER_TICK_MIN, ELBOW_TICK_MIN, TIP_TICK_MIN]),
         0,
     );
-    arm.record_wheel_speed_result(0, 2, 400, true, 0);
+    arm.record_wheel_speed_result(0, 1, 400, true, 0);
 
     let commands = arm.update(10);
 

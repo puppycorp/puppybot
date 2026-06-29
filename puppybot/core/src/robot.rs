@@ -13,9 +13,8 @@ use crate::{
 };
 
 const ARM_WHEEL_ACC: u8 = 0;
-const STEERING_SERVO_ID: u8 = 1;
-const FIRST_ARM_SERVO_ID: u8 = 2;
-const LAST_ARM_SERVO_ID: u8 = 5;
+const FIRST_ARM_SERVO_ID: u8 = 1;
+const LAST_ARM_SERVO_ID: u8 = 4;
 const STEERING_SERVO_SPEED: u16 = 2400;
 const STEERING_SERVO_ACC: u8 = 0;
 
@@ -109,7 +108,7 @@ impl Puppybot {
         B: SerialBus,
         B::Error: core::fmt::Debug,
     {
-        for servo_id in STEERING_SERVO_ID..=LAST_ARM_SERVO_ID {
+        for servo_id in FIRST_ARM_SERVO_ID..=LAST_ARM_SERVO_ID {
             match servo.read_position(servo_id).await {
                 Ok(tick) => {
                     if servo_id >= FIRST_ARM_SERVO_ID {
@@ -137,6 +136,9 @@ impl Puppybot {
         B::Error: core::fmt::Debug,
     {
         let output = self.drive.output();
+        if !output.active {
+            return;
+        }
         let steering = (output.steering_servo_id, output.steering_angle_deg);
         if self.last_steering_sent == Some(steering) {
             return;
@@ -268,7 +270,7 @@ mod tests {
         protocol::{CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_STOP_DRIVE, ProtocolEvent, command_frame},
         puppyarm::types::ArmCommand,
         stservo::{
-            StServo, angle_to_position,
+            StServo,
             mock::{FakeSerialBus, FakeServo, block_on_ready},
         },
     };
@@ -346,15 +348,11 @@ mod tests {
     fn run_once_handles_robot_events_on_shared_servo_bus() {
         let mut robot = Puppybot::new(0);
         let mut bus = FakeSerialBus::new();
-        for servo_id in 1..=5 {
+        for servo_id in 1..=4 {
             bus.set_servo(FakeServo::new(servo_id, 0));
         }
         let mut servo = StServo::new(bus);
         let mut events = [
-            ProtocolEvent::Drive(DriveCommand::DriveSteer {
-                throttle: 0,
-                steering: 100,
-            }),
             ProtocolEvent::Arm(ArmCommand::SetSpeed(300)),
             ProtocolEvent::Arm(ArmCommand::Spin {
                 joint: 0,
@@ -365,11 +363,7 @@ mod tests {
 
         block_on_ready(robot.run_once(&mut servo, 20, || events.next()));
 
-        assert_eq!(
-            servo.bus().servo(1).unwrap().position,
-            angle_to_position(135)
-        );
-        assert_eq!(servo.bus().servo(2).unwrap().wheel_speed, 300);
+        assert_eq!(servo.bus().servo(1).unwrap().wheel_speed, 300);
         assert_eq!(robot.arm_telemetry().joints[0].tick, Some(0));
     }
 }

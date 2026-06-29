@@ -1,11 +1,11 @@
 use std::{
     future::Future,
-    net::TcpListener,
+    net::{SocketAddr, TcpListener},
     sync::Arc as StdArc,
     sync::{Arc, Mutex},
     task::{Context, Poll, Wake, Waker},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use embassy_executor as _;
@@ -16,13 +16,16 @@ use puppybot_core::{
 
 mod mdns;
 mod stservo;
+mod ui;
 mod ws;
 
 const DEFAULT_BIND: &str = "0.0.0.0:8080";
+const DEFAULT_UI_BIND: &str = "127.0.0.1:8081";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct RuntimeArgs {
     servo_device: Option<String>,
+    ui_bind: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -105,6 +108,12 @@ impl RuntimeRobot {
         self.telemetry_seq
     }
 
+    pub(crate) fn handle_event(&mut self, event: ProtocolEvent) {
+        let now_ms = self.now_ms();
+        self.robot.handle_event(event, now_ms);
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+    }
+
     pub(crate) fn handle_binary_command(
         &mut self,
         payload: &[u8],
@@ -143,6 +152,22 @@ impl RuntimeRobot {
     pub(crate) fn arm_state_frame(&self) -> Vec<u8> {
         self.robot.arm_state_frame()
     }
+
+    pub(crate) fn arm_telemetry(&self) -> puppybot_core::puppyarm::puppyarm::PuppyarmTelemetry {
+        self.robot.arm_telemetry()
+    }
+}
+
+fn start_robot_tick_loop(robot: Arc<Mutex<RuntimeRobot>>) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        loop {
+            {
+                let mut robot = robot.lock().unwrap();
+                robot.tick();
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    })
 }
 
 fn runtime_bind_addr() -> String {
@@ -158,8 +183,18 @@ fn runtime_bind_addr() -> String {
     }
 }
 
+fn runtime_ui_bind_addr(value: Option<&str>) -> Result<SocketAddr, String> {
+    let bind = match value {
+        Some(value) => value.to_string(),
+        None => std::env::var("PUPPYBOT_RUNTIME_UI_ADDR")
+            .unwrap_or_else(|_| DEFAULT_UI_BIND.to_string()),
+    };
+    bind.parse::<SocketAddr>()
+        .map_err(|err| format!("invalid runtime UI bind address '{bind}': {err}"))
+}
+
 fn runtime_usage() -> &'static str {
-    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  -h, --help             Show this help text"
+    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --ui-bind <ADDR>       Bind the WGUI dashboard, default 127.0.0.1:8081\n  -h, --help             Show this help text"
 }
 
 fn parse_runtime_args<I, S>(args: I) -> Result<RuntimeCli, String>
@@ -183,6 +218,16 @@ where
                 }
                 parsed.servo_device = Some(device.to_string());
             }
+            "--ui-bind" => {
+                let Some(bind) = args.next() else {
+                    return Err("--ui-bind requires host:port".to_string());
+                };
+                let bind = bind.trim();
+                if bind.is_empty() {
+                    return Err("--ui-bind requires a non-empty host:port".to_string());
+                }
+                parsed.ui_bind = Some(bind.to_string());
+            }
             _ => {
                 if let Some(device) = arg.strip_prefix("--servo-device=") {
                     let device = device.trim();
@@ -190,6 +235,12 @@ where
                         return Err("--servo-device requires a non-empty path".to_string());
                     }
                     parsed.servo_device = Some(device.to_string());
+                } else if let Some(bind) = arg.strip_prefix("--ui-bind=") {
+                    let bind = bind.trim();
+                    if bind.is_empty() {
+                        return Err("--ui-bind requires a non-empty host:port".to_string());
+                    }
+                    parsed.ui_bind = Some(bind.to_string());
                 } else {
                     return Err(format!("unknown option: {arg}"));
                 }
@@ -198,6 +249,39 @@ where
     }
 
     Ok(RuntimeCli::Run(parsed))
+}
+
+fn runtime_ui_config(
+    ws_bind: String,
+    ws_url: String,
+    ui_bind: SocketAddr,
+    servo_hardware: bool,
+    servo_device: Option<&str>,
+) -> ui::RuntimeUiConfig {
+    let servo_status = if servo_hardware {
+        "hardware"
+    } else {
+        "simulated"
+    };
+    let servo_detail = match (servo_hardware, servo_device) {
+        (true, Some(device)) => format!("using STServo device {device}"),
+        (true, None) => {
+            "opened from PUPPYBOT_STSERVO_PORT, remembered port, or auto-detect".to_string()
+        }
+        (false, Some(device)) => format!("could not open {device}; using simulated state"),
+        (false, None) => {
+            "no STServo device open; pass --servo-device or set PUPPYBOT_STSERVO_PORT".to_string()
+        }
+    };
+
+    ui::RuntimeUiConfig {
+        ws_bind,
+        ws_url,
+        ui_bind: ui_bind.to_string(),
+        ui_url: ui::local_url(ui_bind, "http", "/"),
+        servo_status: servo_status.to_string(),
+        servo_detail,
+    }
 }
 
 fn init_logger() {
@@ -219,17 +303,41 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let ui_bind = match runtime_ui_bind_addr(args.ui_bind.as_deref()) {
+        Ok(bind) => bind,
+        Err(err) => {
+            eprintln!("{err}\n\n{}", runtime_usage());
+            std::process::exit(2);
+        }
+    };
     let servo = stservo::open_serial(args.servo_device.as_deref());
+    let servo_hardware = servo.is_some();
 
     let bind = runtime_bind_addr();
     let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
+    let ws_url = listener
+        .local_addr()
+        .map(|addr| ui::local_url(addr, "ws", "/ws"))
+        .unwrap_or_else(|_| format!("ws://{bind}/ws"));
+    let logged_ws_url = ws_url.clone();
+    let ui_config = runtime_ui_config(
+        bind.clone(),
+        ws_url,
+        ui_bind,
+        servo_hardware,
+        args.servo_device.as_deref(),
+    );
+    let ui_url = ui_config.ui_url.clone();
     let mdns = listener
         .local_addr()
         .ok()
         .and_then(|addr| mdns::start_advertisement(addr.port()));
     let robot = Arc::new(Mutex::new(RuntimeRobot::new(servo)));
+    let _robot_tick = start_robot_tick_loop(Arc::clone(&robot));
+    let _ui = ui::start_runtime_ui(ui_bind, ui_config, Arc::clone(&robot));
 
-    log::info!("puppybot runtime listening on ws://{bind}/ws");
+    log::info!("puppybot runtime listening on {logged_ws_url}");
+    log::info!("puppybot runtime UI listening on {ui_url}");
     log::info!("set PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 to bind another address");
 
     let _mdns = mdns;
@@ -257,7 +365,8 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--servo-device", "/dev/ttyUSB0"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
-                servo_device: Some("/dev/ttyUSB0".to_string())
+                servo_device: Some("/dev/ttyUSB0".to_string()),
+                ui_bind: None
             }))
         );
     }
@@ -267,7 +376,30 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--servo-device=/dev/ttyUSB0"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
-                servo_device: Some("/dev/ttyUSB0".to_string())
+                servo_device: Some("/dev/ttyUSB0".to_string()),
+                ui_bind: None
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_ui_bind_value() {
+        assert_eq!(
+            parse_runtime_args(["--ui-bind", "127.0.0.1:9000"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                servo_device: None,
+                ui_bind: Some("127.0.0.1:9000".to_string())
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_ui_bind_equals_value() {
+        assert_eq!(
+            parse_runtime_args(["--ui-bind=127.0.0.1:9000"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                servo_device: None,
+                ui_bind: Some("127.0.0.1:9000".to_string())
             }))
         );
     }
@@ -283,5 +415,13 @@ mod tests {
     #[test]
     fn runtime_args_return_help() {
         assert_eq!(parse_runtime_args(["--help"]), Ok(RuntimeCli::Help));
+    }
+
+    #[test]
+    fn runtime_ui_bind_addr_rejects_invalid_value() {
+        assert_eq!(
+            runtime_ui_bind_addr(Some("wat")).unwrap_err(),
+            "invalid runtime UI bind address 'wat': invalid socket address syntax"
+        );
     }
 }
