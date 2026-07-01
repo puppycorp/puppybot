@@ -119,6 +119,39 @@ To test against RobotDreams, start RobotDreams' virtual bus, read its
 cargo run -p puppybot -- arm jog --joint 0 --direction 1 --duration-ms 500
 ```
 
+Scenario brain-process harnesses live in `scenarios/`. For example, the
+ball-to-bin scripted flow starts RobotDreams, connects the Rust runtime to the
+virtual STServo bus, and drives the arm through the same WebSocket API as the
+real robot:
+
+```sh
+python3 scenarios/place_ball_to_bin.py
+```
+
+The ball-to-bin task definition lives next to the harness as
+`scenarios/place_ball_to_bin.robotdreams.json`. The harness loads it through the
+first-class `robotdreams scenario` CLI before starting task progress checks.
+To write machine-readable proof artifacts for a run:
+
+```sh
+python3 scenarios/place_ball_to_bin.py --recording-dir workdir/recordings/place-ball-to-bin-001
+```
+
+This writes `run.json`, `progress.jsonl`, `robot_commands.jsonl`, `sensor.jsonl`,
+`completion.json`, and `validation.json`.
+
+By default, the scenario asks RobotDreams to export the virtual bin pressure
+sensor. For a real external bin pressure sensor, have the sensor writer update a
+file with `true`, `1`, or JSON like `{"pressed": true}` / `{"pressure": 0.82}`:
+
+```sh
+python3 scenarios/place_ball_to_bin.py --bin-pressure-file /tmp/bin-pressure.json
+```
+
+The scenario also posts task observations to RobotDreams and queries semantic
+progress telemetry after each major action so the run log can show whether the
+task is seeking, grasped, carrying, pressure-detected, or complete.
+
 ## Flash
 
 ```sh

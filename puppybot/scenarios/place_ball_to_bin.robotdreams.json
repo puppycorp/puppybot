@@ -1,0 +1,108 @@
+{
+  "id": "puppybot-ball-to-bin",
+  "name": "PuppyBot Ball To Bin",
+  "robotId": "puppyarm",
+  "volumes": [
+    {
+      "id": "bin_drop_zone",
+      "shape": {
+        "type": "box",
+        "center": [0.38, 0.24, -0.28],
+        "size": [0.28, 0.24, 0.28]
+      }
+    },
+    {
+      "id": "bin_success_volume",
+      "shape": {
+        "type": "box",
+        "center": [0.38, 0.08, -0.28],
+        "size": [0.24, 0.2, 0.24]
+      }
+    }
+  ],
+  "steps": [
+    {
+      "id": "attach-ball",
+      "when": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "frameNearObject",
+            "frame": "tool",
+            "object": "ball",
+            "distanceM": 0.03
+          },
+          {
+            "type": "servoAtOrPast",
+            "id": 4,
+            "position": 2600
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "attachObject",
+          "object": "ball",
+          "frame": "tool"
+        }
+      ]
+    },
+    {
+      "id": "release-ball",
+      "when": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "objectAttached",
+            "object": "ball"
+          },
+          {
+            "type": "frameInsideVolume",
+            "frame": "tool",
+            "volume": "bin_drop_zone"
+          },
+          {
+            "type": "servoAtOrBefore",
+            "id": 4,
+            "position": 2100
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "detachObject",
+          "object": "ball"
+        },
+        {
+          "type": "moveObjectToVolumeCenter",
+          "object": "ball",
+          "volume": "bin_success_volume"
+        },
+        {
+          "type": "setPressureSensor",
+          "sensor": "bin_pressure",
+          "pressed": true,
+          "pressure": 1.0
+        }
+      ]
+    }
+  ],
+  "success": {
+    "type": "all",
+    "conditions": [
+      {
+        "type": "objectDetached",
+        "object": "ball"
+      },
+      {
+        "type": "objectInsideVolume",
+        "object": "ball",
+        "volume": "bin_success_volume"
+      },
+      {
+        "type": "pressureSensorPressed",
+        "sensor": "bin_pressure"
+      }
+    ]
+  }
+}
