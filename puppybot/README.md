@@ -87,9 +87,10 @@ By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
 `ws://<runtime-ip>:8080/ws`. It also advertises
 `PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the
 bound port. The local WGUI dashboard listens at `http://127.0.0.1:8081/`.
-The dashboard includes drive controls, arm jog controls, arm hold/stop, and
-fault clearing; these send commands to the same runtime robot instance used by
-the WebSocket endpoint.
+The dashboard includes drive controls, arm jog controls, arm hold/stop, fault
+clearing, and press-and-hold TCP-relative forward/back/left/right jog buttons
+with a base/tool frame toggle; these send commands to the same runtime robot
+instance used by the WebSocket endpoint.
 To bind different addresses:
 
 ```sh
@@ -109,6 +110,21 @@ cargo run -p puppybot -- arm state
 cargo run -p puppybot -- arm jog --joint 0 --direction 1 --speed 300 --duration-ms 500
 cargo run -p puppybot -- arm stop --joint 0
 cargo run -p puppybot -- arm goto-ticks --speed 300 2048 2048 2048 2048
+cargo run -p puppybot -- arm move-tcp --up 20
+cargo run -p puppybot -- arm move-tcp --frame tool --forward 20
+```
+
+`arm move-tcp` moves the tool center point relative to its current pose. The
+default frame is `base`, where `up/down` use table Z, `forward/back` use the
+robot base X axis, and `left/right` use the robot base Y axis. With
+`--frame tool`, `forward/back` follows the gripper approach axis and the current
+tool pitch is preserved.
+
+To validate `move-tcp` end-to-end against RobotDreams' virtual STServo bus and
+PuppyBot runtime telemetry:
+
+```sh
+python3 scenarios/validate_move_tcp.py --report workdir/recordings/move-tcp-validation/report.json
 ```
 
 To test against RobotDreams, start RobotDreams' virtual bus, read its

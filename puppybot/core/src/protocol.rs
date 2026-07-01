@@ -5,7 +5,11 @@ use alloc::vec::Vec;
 
 use crate::{
     drive::DriveCommand,
-    puppyarm::{kinematics, servo_safety::SafetyFault, types::ArmCommand},
+    puppyarm::{
+        kinematics,
+        servo_safety::SafetyFault,
+        types::{ArmCommand, TcpFrame},
+    },
 };
 
 pub const PUPPY_PROTOCOL_VERSION: u16 = 1;
@@ -148,12 +152,24 @@ fn read_u16_le(bytes: &[u8]) -> u16 {
     u16::from_le_bytes([bytes[0], bytes[1]])
 }
 
+fn read_speed_i16(bytes: &[u8]) -> i16 {
+    read_u16_le(bytes).min(i16::MAX as u16) as i16
+}
+
 fn read_i32_le(bytes: &[u8]) -> i32 {
     i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 fn read_f32_le(bytes: &[u8]) -> f32 {
     f32::from_bits(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn read_tcp_frame(value: u8) -> Option<TcpFrame> {
+    match value {
+        0 => Some(TcpFrame::Base),
+        1 => Some(TcpFrame::Tool),
+        _ => None,
+    }
 }
 
 fn deg_to_rad(degrees: f32) -> f64 {
@@ -312,6 +328,28 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                         y: read_f32_le(&body[6..10]) as f64,
                         z: kinematics::table_to_shoulder_z(read_f32_le(&body[10..14]) as f64),
                     }));
+            }
+        }
+        CMD_ARM_MOVE_RELATIVE => {
+            if body.len() >= 15 {
+                if let Some(frame) = read_tcp_frame(body[2]) {
+                    let dx_mm = read_f32_le(&body[3..7]) as f64;
+                    let dy_mm = read_f32_le(&body[7..11]) as f64;
+                    let dz_mm = read_f32_le(&body[11..15]) as f64;
+                    if dx_mm.is_finite() && dy_mm.is_finite() && dz_mm.is_finite() {
+                        output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
+                            read_speed_i16(body),
+                        )));
+                        output
+                            .events
+                            .push(ProtocolEvent::Arm(ArmCommand::MoveTcpRelative {
+                                frame,
+                                dx_mm,
+                                dy_mm,
+                                dz_mm,
+                            }));
+                    }
+                }
             }
         }
         CMD_ARM_HOLD => {
@@ -711,6 +749,95 @@ mod tests {
             }
             other => panic!("unexpected event {other:?}"),
         }
+    }
+
+    #[test]
+    fn arm_move_relative_maps_to_speed_then_relative_intent() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.extend_from_slice(&300u16.to_le_bytes());
+        body.push(1);
+        body.extend_from_slice(&10.0f32.to_le_bytes());
+        body.extend_from_slice(&20.0f32.to_le_bytes());
+        body.extend_from_slice(&30.0f32.to_le_bytes());
+
+        let output =
+            handle_binary_command(&command_frame(CMD_ARM_MOVE_RELATIVE, &body), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![
+                ProtocolEvent::Arm(ArmCommand::SetSpeed(300)),
+                ProtocolEvent::Arm(ArmCommand::MoveTcpRelative {
+                    frame: TcpFrame::Tool,
+                    dx_mm: 10.0,
+                    dy_mm: 20.0,
+                    dz_mm: 30.0,
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn arm_move_relative_rejects_truncated_body() {
+        let mut state = ProtocolState::default();
+        let output = handle_binary_command(
+            &command_frame(CMD_ARM_MOVE_RELATIVE, &[44, 1, 0, 0]),
+            &mut state,
+        );
+
+        assert!(output.events.is_empty());
+    }
+
+    #[test]
+    fn arm_move_relative_rejects_unknown_frame() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.extend_from_slice(&300u16.to_le_bytes());
+        body.push(9);
+        body.extend_from_slice(&10.0f32.to_le_bytes());
+        body.extend_from_slice(&20.0f32.to_le_bytes());
+        body.extend_from_slice(&30.0f32.to_le_bytes());
+
+        let output =
+            handle_binary_command(&command_frame(CMD_ARM_MOVE_RELATIVE, &body), &mut state);
+
+        assert!(output.events.is_empty());
+    }
+
+    #[test]
+    fn arm_move_relative_rejects_non_finite_delta() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.extend_from_slice(&300u16.to_le_bytes());
+        body.push(0);
+        body.extend_from_slice(&f32::NAN.to_le_bytes());
+        body.extend_from_slice(&20.0f32.to_le_bytes());
+        body.extend_from_slice(&30.0f32.to_le_bytes());
+
+        let output =
+            handle_binary_command(&command_frame(CMD_ARM_MOVE_RELATIVE, &body), &mut state);
+
+        assert!(output.events.is_empty());
+    }
+
+    #[test]
+    fn arm_move_relative_clamps_speed_to_i16_max() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.extend_from_slice(&40000u16.to_le_bytes());
+        body.push(0);
+        body.extend_from_slice(&0.0f32.to_le_bytes());
+        body.extend_from_slice(&0.0f32.to_le_bytes());
+        body.extend_from_slice(&1.0f32.to_le_bytes());
+
+        let output =
+            handle_binary_command(&command_frame(CMD_ARM_MOVE_RELATIVE, &body), &mut state);
+
+        assert_eq!(
+            output.events[0],
+            ProtocolEvent::Arm(ArmCommand::SetSpeed(i16::MAX))
+        );
     }
 
     #[test]

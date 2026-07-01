@@ -2,7 +2,7 @@ use core::f64::consts::PI;
 
 use super::{
     kinematics::*,
-    puppyarm::{ArmCommand, ArmMode, PuppyArm},
+    puppyarm::{ArmCommand, ArmMode, PuppyArm, TcpFrame},
     servo_safety::*,
     types::{JOINT_COUNT, Joint},
 };
@@ -37,6 +37,35 @@ fn arm_with_reference_feedback() -> PuppyArm {
     arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
     arm.record_feedback(3, TIP_REFERENCE_TICK, 0);
     arm
+}
+
+fn arm_with_angle_feedback(angles: [f64; JOINT_COUNT]) -> PuppyArm {
+    let mut target_arm = arm_with_reference_feedback();
+    target_arm.handle_arm_cmd(ArmCommand::GotoAngles(angles), 0);
+    let target_state = target_arm.telemetry_snapshot(0);
+
+    let mut feedback_arm = PuppyArm::new(0);
+    for (index, joint) in target_state.joints.iter().enumerate() {
+        feedback_arm.record_feedback(index, joint.target_tick.unwrap() as u16, 0);
+    }
+    feedback_arm
+}
+
+fn target_ticks(arm: &PuppyArm) -> [Option<i32>; JOINT_COUNT] {
+    let telemetry = arm.telemetry_snapshot(0);
+    core::array::from_fn(|index| telemetry.joints[index].target_tick)
+}
+
+fn assert_target_ticks_close(left: [Option<i32>; JOINT_COUNT], right: [Option<i32>; JOINT_COUNT]) {
+    for (left, right) in left.iter().zip(right.iter()) {
+        let left = left.unwrap();
+        let right = right.unwrap();
+        assert!(
+            (left - right).abs() <= 5,
+            "left={left} right={right} diff={}",
+            (left - right).abs()
+        );
+    }
 }
 
 #[test]
@@ -287,6 +316,99 @@ fn goto_coords_rejects_unreachable_target() {
     );
 
     assert!(arm.telemetry_snapshot(0).joints[0].target_tick.is_none());
+}
+
+#[test]
+fn move_tcp_relative_base_matches_absolute_target() {
+    let mut relative = arm_with_reference_feedback();
+    let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
+
+    let mut absolute = arm_with_reference_feedback();
+    absolute.handle_arm_cmd(
+        ArmCommand::GotoPose {
+            x: start.0 as f64 - 10.0,
+            y: start.1 as f64 + 5.0,
+            z: table_to_shoulder_z(start.2 as f64 + 20.0),
+            tool_phi_rad: PI / 2.0,
+        },
+        10,
+    );
+
+    relative.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Base,
+            dx_mm: -10.0,
+            dy_mm: 5.0,
+            dz_mm: 20.0,
+        },
+        10,
+    );
+
+    assert_eq!(target_ticks(&relative), target_ticks(&absolute));
+}
+
+#[test]
+fn move_tcp_relative_tool_forward_uses_current_tool_orientation() {
+    let pose = [0.0, PI / 4.0, PI / 2.0, PI / 4.0];
+    let mut relative = arm_with_angle_feedback(pose);
+    let mut expected = arm_with_angle_feedback(pose);
+
+    relative.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Tool,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+    expected.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Base,
+            dx_mm: 0.0,
+            dy_mm: 0.0,
+            dz_mm: -10.0,
+        },
+        10,
+    );
+
+    assert_target_ticks_close(target_ticks(&relative), target_ticks(&expected));
+}
+
+#[test]
+fn move_tcp_relative_requires_feedback() {
+    let mut arm = PuppyArm::new(0);
+
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Base,
+            dx_mm: 0.0,
+            dy_mm: 0.0,
+            dz_mm: 20.0,
+        },
+        10,
+    );
+
+    assert_eq!(target_ticks(&arm), [None; JOINT_COUNT]);
+}
+
+#[test]
+fn move_tcp_relative_unreachable_target_keeps_existing_targets() {
+    let mut arm = arm_with_reference_feedback();
+    arm.handle_arm_cmd(ArmCommand::GotoTicks([1000, 1001, 1002, 1003]), 0);
+    let before = target_ticks(&arm);
+
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Base,
+            dx_mm: 1000.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    assert_eq!(target_ticks(&arm), before);
 }
 
 #[test]

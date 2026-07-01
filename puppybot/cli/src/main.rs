@@ -3,13 +3,13 @@ mod client;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use client::{ArmState, RuntimeClient, RuntimeFrame};
 use puppybot_core::protocol::{
     CMD_ARM_CLEAR_FAULTS, CMD_ARM_GOTO_ANGLES, CMD_ARM_GOTO_COORDS, CMD_ARM_GOTO_TICKS,
-    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_SET_JOINT_TICK, CMD_ARM_STOP, CMD_ARM_STOP_JOINT,
-    CMD_CONFIG_GET, CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_PING, CMD_SERVO_SET, CMD_STOP_DRIVE,
-    CONFIG_VERSION, RobotConfig,
+    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_MOVE_RELATIVE, CMD_ARM_SET_JOINT_TICK, CMD_ARM_STOP,
+    CMD_ARM_STOP_JOINT, CMD_CONFIG_GET, CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_PING, CMD_SERVO_SET,
+    CMD_STOP_DRIVE, CONFIG_VERSION, RobotConfig,
 };
 
 const DEFAULT_URL: &str = "ws://127.0.0.1:8080/ws";
@@ -64,9 +64,16 @@ enum ArmCommand {
     GotoTicks(GotoTicksArgs),
     GotoAngles(GotoAnglesArgs),
     GotoCoords(GotoCoordsArgs),
+    MoveTcp(MoveTcpArgs),
     SetJointTick(SetJointTickArgs),
     ClearFaults(ClearFaultsArgs),
     ServoSet(ServoSetArgs),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum TcpFrameArg {
+    Base,
+    Tool,
 }
 
 #[derive(Debug, Args)]
@@ -119,6 +126,33 @@ struct GotoCoordsArgs {
     x: f32,
     y: f32,
     z: f32,
+
+    #[arg(long, default_value_t = 300)]
+    speed: u16,
+}
+
+#[derive(Debug, Args)]
+struct MoveTcpArgs {
+    #[arg(long, value_enum, default_value = "base")]
+    frame: TcpFrameArg,
+
+    #[arg(long, default_value_t = 0.0)]
+    up: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    down: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    left: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    right: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    forward: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    back: f32,
 
     #[arg(long, default_value_t = 300)]
     speed: u16,
@@ -179,6 +213,39 @@ fn push_i32_le(out: &mut Vec<u8>, value: i32) {
 
 fn push_f32_le(out: &mut Vec<u8>, value: f32) {
     out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn tcp_frame_id(frame: TcpFrameArg) -> u8 {
+    match frame {
+        TcpFrameArg::Base => 0,
+        TcpFrameArg::Tool => 1,
+    }
+}
+
+fn move_tcp_delta(args: &MoveTcpArgs) -> (f32, f32, f32) {
+    match args.frame {
+        TcpFrameArg::Base => (
+            args.back - args.forward,
+            args.left - args.right,
+            args.up - args.down,
+        ),
+        TcpFrameArg::Tool => (
+            args.forward - args.back,
+            args.left - args.right,
+            args.up - args.down,
+        ),
+    }
+}
+
+fn move_tcp_body(args: &MoveTcpArgs) -> Vec<u8> {
+    let (dx, dy, dz) = move_tcp_delta(args);
+    let mut body = Vec::new();
+    push_u16_le(&mut body, args.speed);
+    body.push(tcp_frame_id(args.frame));
+    push_f32_le(&mut body, dx);
+    push_f32_le(&mut body, dy);
+    push_f32_le(&mut body, dz);
+    body
 }
 
 fn print_config(config: RobotConfig) {
@@ -270,6 +337,56 @@ async fn send_arm_command(
     client.send_command(command, body).await?;
     println!("sent {label}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(frame: TcpFrameArg) -> MoveTcpArgs {
+        MoveTcpArgs {
+            frame,
+            up: 0.0,
+            down: 0.0,
+            left: 0.0,
+            right: 0.0,
+            forward: 0.0,
+            back: 0.0,
+            speed: 300,
+        }
+    }
+
+    #[test]
+    fn base_move_tcp_aliases_map_to_table_delta() {
+        let mut args = args(TcpFrameArg::Base);
+        args.up = 20.0;
+        args.forward = 30.0;
+        args.left = 5.0;
+
+        assert_eq!(move_tcp_delta(&args), (-30.0, 5.0, 20.0));
+    }
+
+    #[test]
+    fn tool_move_tcp_forward_maps_to_tool_x_delta() {
+        let mut args = args(TcpFrameArg::Tool);
+        args.forward = 20.0;
+        args.back = 5.0;
+
+        assert_eq!(move_tcp_delta(&args), (15.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn move_tcp_body_encodes_tool_frame() {
+        let mut args = args(TcpFrameArg::Tool);
+        args.forward = 10.0;
+        let body = move_tcp_body(&args);
+
+        assert_eq!(&body[0..2], &300u16.to_le_bytes());
+        assert_eq!(body[2], 1);
+        assert_eq!(f32::from_le_bytes(body[3..7].try_into().unwrap()), 10.0);
+        assert_eq!(f32::from_le_bytes(body[7..11].try_into().unwrap()), 0.0);
+        assert_eq!(f32::from_le_bytes(body[11..15].try_into().unwrap()), 0.0);
+    }
 }
 
 #[tokio::main]
@@ -371,6 +488,10 @@ async fn main() -> Result<()> {
             push_f32_le(&mut body, args.y);
             push_f32_le(&mut body, args.z);
             send_arm_command(&mut client, CMD_ARM_GOTO_COORDS, &body, "arm goto coords").await?;
+        }
+        Command::Arm(ArmCommand::MoveTcp(args)) => {
+            let body = move_tcp_body(&args);
+            send_arm_command(&mut client, CMD_ARM_MOVE_RELATIVE, &body, "arm move tcp").await?;
         }
         Command::Arm(ArmCommand::SetJointTick(args)) => {
             let mut body = vec![args.joint];

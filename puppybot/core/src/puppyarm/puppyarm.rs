@@ -10,7 +10,7 @@ use super::{
 use crate::stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode};
 
 pub use super::types::{
-    ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, PuppyarmTelemetry,
+    ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, PuppyarmTelemetry, TcpFrame,
 };
 
 const YAW_SIGN: f64 = 1.0;
@@ -520,6 +520,12 @@ impl PuppyArm {
                 z,
                 tool_phi_rad,
             } => self.goto_pose(x, y, z, tool_phi_rad, now),
+            ArmCommand::MoveTcpRelative {
+                frame,
+                dx_mm,
+                dy_mm,
+                dz_mm,
+            } => self.move_tcp_relative(frame, dx_mm, dy_mm, dz_mm, now),
             ArmCommand::Hold => self.hold(now),
             ArmCommand::SetJointTick { joint, tick } => self.set_joint_tick(joint, tick, now),
             ArmCommand::SetJointAngle { joint, angle_rad } => {
@@ -690,6 +696,59 @@ impl PuppyArm {
     ) -> Result<(), ControllerError> {
         let angles = kinematics::solve_coords_with_tool_pitch(x, y, z, tool_phi_rad)?;
         self.goto_angles([angles.0, angles.1, angles.2, angles.3], now)
+    }
+
+    fn move_tcp_relative(
+        &mut self,
+        frame: TcpFrame,
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
+        now: u64,
+    ) -> Result<(), ControllerError> {
+        let angles = self.current_angles()?;
+        let tool_phi = angles[1] - angles[2] - angles[3];
+        let (x, y, z_shoulder) = kinematics::fk(angles[0], angles[1], angles[2], angles[3]);
+        let (dx, dy, dz) = match frame {
+            TcpFrame::Base => (dx_mm, dy_mm, dz_mm),
+            TcpFrame::Tool => Self::tool_delta_to_base_delta(angles, dx_mm, dy_mm, dz_mm),
+        };
+        let z_table = kinematics::shoulder_to_table_z(z_shoulder);
+        self.goto_pose(
+            x + dx,
+            y + dy,
+            kinematics::table_to_shoulder_z(z_table + dz),
+            tool_phi,
+            now,
+        )
+    }
+
+    fn tool_delta_to_base_delta(
+        angles: [f64; JOINT_COUNT],
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
+    ) -> (f64, f64, f64) {
+        let [yaw, shoulder, elbow, wrist] = angles;
+        let tool_phi = shoulder - elbow - wrist;
+        let cos_yaw = libm::cos(yaw);
+        let sin_yaw = libm::sin(yaw);
+        let cos_phi = libm::cos(tool_phi);
+        let sin_phi = libm::sin(tool_phi);
+
+        let forward = (-cos_phi * cos_yaw, cos_phi * sin_yaw, sin_phi);
+        let left = (sin_yaw, cos_yaw, 0.0);
+        let up = (
+            forward.1 * left.2 - forward.2 * left.1,
+            forward.2 * left.0 - forward.0 * left.2,
+            forward.0 * left.1 - forward.1 * left.0,
+        );
+
+        (
+            dx_mm * forward.0 + dy_mm * left.0 + dz_mm * up.0,
+            dx_mm * forward.1 + dy_mm * left.1 + dz_mm * up.1,
+            dx_mm * forward.2 + dy_mm * left.2 + dz_mm * up.2,
+        )
     }
 
     fn hold(&mut self, now: u64) -> Result<(), ControllerError> {

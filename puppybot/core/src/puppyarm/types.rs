@@ -2,6 +2,12 @@ use super::{kinematics::IkError, servo_safety::SafetyFault};
 
 pub const JOINT_COUNT: usize = 4;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TcpFrame {
+    Base,
+    Tool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArmCommand {
     SetSpeed(i16),
@@ -25,6 +31,12 @@ pub enum ArmCommand {
         y: f64,
         z: f64,
         tool_phi_rad: f64,
+    },
+    MoveTcpRelative {
+        frame: TcpFrame,
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
     },
     Hold,
     SetJointTick {

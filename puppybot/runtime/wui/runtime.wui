@@ -66,6 +66,24 @@
           </VStack>
         </HStack>
       </For>
+      <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
+        <Text value="TCP Jog (5 mm)" color="#f4f7fb" />
+        <HStack spacing=8>
+          <Text value="Frame" color="#91a0b3" minWidth=56 />
+          <Button text={state.tcp_base_button.label} onClick="SetTcpFrameBase" backgroundColor={state.tcp_base_button.background} border={state.tcp_base_button.border} color={state.tcp_base_button.color} height=30 width=74 />
+          <Button text={state.tcp_tool_button.label} onClick="SetTcpFrameTool" backgroundColor={state.tcp_tool_button.background} border={state.tcp_tool_button.border} color={state.tcp_tool_button.color} height=30 width=74 />
+          <Text value={state.tcp_frame_label} color="#f4f7fb" minWidth=48 />
+          <Text value={state.tcp_frame_detail} color="#91a0b3" grow=1 breakWords=true />
+        </HStack>
+        <HStack spacing=8>
+          <Button text="Forward" onPress="MoveTcpForwardStart" onRelease="MoveTcpStop" onRepeat="MoveTcpForwardRefresh" repeatInterval=250 backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=32 />
+        </HStack>
+        <HStack spacing=8>
+          <Button text="Left" onPress="MoveTcpLeftStart" onRelease="MoveTcpStop" onRepeat="MoveTcpLeftRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 />
+          <Button text="Back" onPress="MoveTcpBackStart" onRelease="MoveTcpStop" onRepeat="MoveTcpBackRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 />
+          <Button text="Right" onPress="MoveTcpRightStart" onRelease="MoveTcpStop" onRepeat="MoveTcpRightRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 />
+        </HStack>
+      </VStack>
       <HStack spacing=8>
         <Button text="Hold" onClick="ArmHold" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
         <Button text="Stop Arm" onClick="ArmStopAll" backgroundColor="#9f2f2f" border="1px solid #d85b5b" color="#fff4f4" height=34 />

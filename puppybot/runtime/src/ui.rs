@@ -7,7 +7,7 @@ use std::{
 use puppybot_core::{
     drive::DriveCommand,
     protocol::ProtocolEvent,
-    puppyarm::types::{ArmCommand, JOINT_COUNT, Joint},
+    puppyarm::types::{ArmCommand, JOINT_COUNT, Joint, TcpFrame},
 };
 use wgui::{Wgui, WguiModel, wgui_controller};
 
@@ -15,6 +15,7 @@ use crate::RuntimeRobot;
 
 const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
 const UI_ARM_SPEED: i16 = 220;
+const UI_TCP_STEP_MM: f64 = 5.0;
 const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
@@ -43,6 +44,14 @@ pub(crate) struct RuntimeUiJogButton {
 }
 
 #[derive(Clone, Debug, WguiModel)]
+pub(crate) struct RuntimeUiFrameButton {
+    label: String,
+    background: String,
+    border: String,
+    color: String,
+}
+
+#[derive(Clone, Debug, WguiModel)]
 pub(crate) struct RuntimeUiLimit {
     label: String,
     detail: String,
@@ -68,6 +77,10 @@ pub(crate) struct RuntimeUiModel {
     status: Vec<RuntimeUiMetric>,
     endpoints: Vec<RuntimeUiMetric>,
     joints: Vec<RuntimeUiJoint>,
+    tcp_frame_label: String,
+    tcp_frame_detail: String,
+    tcp_base_button: RuntimeUiFrameButton,
+    tcp_tool_button: RuntimeUiFrameButton,
     last_command: String,
 }
 
@@ -75,6 +88,7 @@ pub(crate) struct RuntimeUiModel {
 pub(crate) struct RuntimeUiController {
     config: RuntimeUiConfig,
     robot: Arc<Mutex<RuntimeRobot>>,
+    tcp_frame: TcpFrame,
     last_command: String,
 }
 
@@ -104,6 +118,24 @@ fn metric(label: &str, value: &str, detail: &str, accent: &str) -> RuntimeUiMetr
 fn jog_button(label: &str) -> RuntimeUiJogButton {
     RuntimeUiJogButton {
         label: label.to_string(),
+    }
+}
+
+fn frame_button(label: &str, selected: bool) -> RuntimeUiFrameButton {
+    if selected {
+        RuntimeUiFrameButton {
+            label: label.to_string(),
+            background: "#1e5f9f".to_string(),
+            border: "1px solid #4d8dff".to_string(),
+            color: "#f4f7fb".to_string(),
+        }
+    } else {
+        RuntimeUiFrameButton {
+            label: label.to_string(),
+            background: "#182838".to_string(),
+            border: "1px solid #314154".to_string(),
+            color: "#b6c2d2".to_string(),
+        }
     }
 }
 
@@ -180,6 +212,7 @@ impl RuntimeUiController {
         Self {
             config,
             robot,
+            tcp_frame: TcpFrame::Base,
             last_command: "none".to_string(),
         }
     }
@@ -226,6 +259,10 @@ impl RuntimeUiController {
                 ),
             ],
             joints: joint_controls(&telemetry.joints),
+            tcp_frame_label: self.tcp_frame_label().to_string(),
+            tcp_frame_detail: self.tcp_frame_detail().to_string(),
+            tcp_base_button: frame_button("Base", self.tcp_frame == TcpFrame::Base),
+            tcp_tool_button: frame_button("Tool", self.tcp_frame == TcpFrame::Tool),
             last_command: self.last_command.clone(),
         }
     }
@@ -252,6 +289,45 @@ impl RuntimeUiController {
 
     fn arm(&mut self, label: &str, command: ArmCommand) {
         self.apply_event(label, ProtocolEvent::Arm(command));
+    }
+
+    fn tcp_frame_label(&self) -> &'static str {
+        match self.tcp_frame {
+            TcpFrame::Base => "Base",
+            TcpFrame::Tool => "Tool",
+        }
+    }
+
+    fn tcp_frame_detail(&self) -> &'static str {
+        match self.tcp_frame {
+            TcpFrame::Base => "moves along robot base axes",
+            TcpFrame::Tool => "moves along current TCP/tool axes",
+        }
+    }
+
+    fn set_tcp_frame(&mut self, frame: TcpFrame) {
+        self.tcp_frame = frame;
+        self.last_command = format!(
+            "set tcp jog frame {}",
+            self.tcp_frame_label().to_lowercase()
+        );
+        log::info!(
+            "runtime UI command: set tcp jog frame {}",
+            self.tcp_frame_label().to_lowercase()
+        );
+    }
+
+    fn move_tcp(&mut self, label: &str, dx_mm: f64, dy_mm: f64, dz_mm: f64) {
+        self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        self.arm(
+            label,
+            ArmCommand::MoveTcpRelative {
+                frame: self.tcp_frame,
+                dx_mm,
+                dy_mm,
+                dz_mm,
+            },
+        );
     }
 
     fn joint_arg_to_index(joint_arg: u32) -> Option<usize> {
@@ -340,6 +416,50 @@ impl RuntimeUiController {
 
     pub(crate) fn jog_positive_refresh(&mut self, joint_arg: u32) {
         self.refresh_spin_joint(joint_arg, 1);
+    }
+
+    pub(crate) fn set_tcp_frame_base(&mut self) {
+        self.set_tcp_frame(TcpFrame::Base);
+    }
+
+    pub(crate) fn set_tcp_frame_tool(&mut self) {
+        self.set_tcp_frame(TcpFrame::Tool);
+    }
+
+    pub(crate) fn move_tcp_forward_start(&mut self) {
+        self.move_tcp("move tcp forward", -UI_TCP_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn move_tcp_forward_refresh(&mut self) {
+        self.move_tcp("move tcp forward", -UI_TCP_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn move_tcp_back_start(&mut self) {
+        self.move_tcp("move tcp back", UI_TCP_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn move_tcp_back_refresh(&mut self) {
+        self.move_tcp("move tcp back", UI_TCP_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn move_tcp_left_start(&mut self) {
+        self.move_tcp("move tcp left", 0.0, UI_TCP_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn move_tcp_left_refresh(&mut self) {
+        self.move_tcp("move tcp left", 0.0, UI_TCP_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn move_tcp_right_start(&mut self) {
+        self.move_tcp("move tcp right", 0.0, -UI_TCP_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn move_tcp_right_refresh(&mut self) {
+        self.move_tcp("move tcp right", 0.0, -UI_TCP_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn move_tcp_stop(&mut self) {
+        self.arm("stop tcp jog", ArmCommand::StopAll);
     }
 
     pub(crate) fn arm_hold(&mut self) {

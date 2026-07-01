@@ -27,6 +27,7 @@ Binary server messages use this frame:
 | `0x04` | `STOP_ALL_MOTORS` | empty |
 | `0x0D` | `ARM_JOG` | `joint:u8`, `direction:i8`, `speed:u16le` |
 | `0x0E` | `ARM_STOP_JOINT` | `joint:u8` |
+| `0x17` | `ARM_MOVE_RELATIVE` | `speed:u16le`, `frame:u8`, `dx_mm:f32le`, `dy_mm:f32le`, `dz_mm:f32le` |
 | `0x19` | `CONFIG_GET` | empty |
 | `0x1A` | `CONFIG_SET` | `version:u8`, `steering_servo_id:u8`, `arm_servo_ids:[u8;4]` |
 | `0x1B` | `DRIVE_STEER` | `throttle:i8`, `steering:i8`, each `-100..100` |
@@ -36,6 +37,13 @@ Binary server messages use this frame:
 | `0x1F` | `ARM_STOP` | empty |
 | `0x20` | `SERVO_SET` | `servo_id:u8`, `angle_deg:u16le`, `duration_ms:u16le` |
 | `0x21` | `SUBSCRIBE` | `topic:u8`, `enabled:u8`; topic `0x01` is arm state |
+
+`ARM_MOVE_RELATIVE` moves the arm tool center point from its current pose and
+preserves the current tool pitch. Frame `0x00` is base/table frame; frame `0x01`
+is tool frame. In base frame, `dz_mm` is table-up millimeters. In tool frame,
+`dx_mm` follows the gripper approach axis, `dy_mm` is tool-left, and `dz_mm` is
+the derived tool-up axis. Non-finite deltas are rejected. Speeds above
+`i16::MAX` are clamped for this command before reaching the arm controller.
 
 ## Messages
 
