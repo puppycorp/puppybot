@@ -7,7 +7,10 @@ use std::{
 use puppybot_core::{
     drive::DriveCommand,
     protocol::ProtocolEvent,
-    puppyarm::types::{ArmCommand, JOINT_COUNT, Joint, TcpFrame},
+    puppyarm::{
+        kinematics::{self, IkError},
+        types::{ArmCommand, ControllerError, JOINT_COUNT, Joint, TcpFrame},
+    },
 };
 use wgui::{Wgui, WguiModel, wgui_controller};
 
@@ -16,8 +19,10 @@ use crate::RuntimeRobot;
 const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
 const UI_ARM_SPEED: i16 = 220;
 const UI_TCP_STEP_MM: f64 = 5.0;
+const UI_COORD_STEP_MM: f64 = 5.0;
 const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
+const UI_LIMIT_STEP_TICKS: i32 = 10;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
 
 #[derive(Clone, Debug, WguiModel)]
@@ -36,6 +41,7 @@ pub(crate) struct RuntimeUiMetric {
     value: String,
     detail: String,
     accent: String,
+    save_action: bool,
 }
 
 #[derive(Clone, Debug, WguiModel)]
@@ -55,6 +61,7 @@ pub(crate) struct RuntimeUiFrameButton {
 pub(crate) struct RuntimeUiLimit {
     label: String,
     detail: String,
+    toggle_label: String,
     accent: String,
     background: String,
     border: String,
@@ -72,11 +79,19 @@ pub(crate) struct RuntimeUiJoint {
 
 #[derive(Clone, Debug, WguiModel)]
 pub(crate) struct RuntimeUiModel {
-    title: String,
-    subtitle: String,
     status: Vec<RuntimeUiMetric>,
-    endpoints: Vec<RuntimeUiMetric>,
     joints: Vec<RuntimeUiJoint>,
+    limit_modal_open: bool,
+    limit_modal_title: String,
+    limit_modal_detail: String,
+    limit_modal_min: String,
+    limit_modal_max: String,
+    limit_modal_error: String,
+    coordinate_x: String,
+    coordinate_y: String,
+    coordinate_z: String,
+    coordinate_detail: String,
+    coordinate_error: String,
     tcp_frame_label: String,
     tcp_frame_detail: String,
     tcp_base_button: RuntimeUiFrameButton,
@@ -89,6 +104,14 @@ pub(crate) struct RuntimeUiController {
     config: RuntimeUiConfig,
     robot: Arc<Mutex<RuntimeRobot>>,
     tcp_frame: TcpFrame,
+    limit_editor_joint: Option<usize>,
+    limit_editor_min: String,
+    limit_editor_max: String,
+    limit_editor_error: String,
+    coordinate_x: String,
+    coordinate_y: String,
+    coordinate_z: String,
+    coordinate_error: String,
     last_command: String,
 }
 
@@ -106,12 +129,19 @@ fn ui_host(addr: SocketAddr) -> String {
     }
 }
 
-fn metric(label: &str, value: &str, detail: &str, accent: &str) -> RuntimeUiMetric {
+fn metric(
+    label: &str,
+    value: &str,
+    detail: &str,
+    accent: &str,
+    save_action: bool,
+) -> RuntimeUiMetric {
     RuntimeUiMetric {
         label: label.to_string(),
         value: value.to_string(),
         detail: detail.to_string(),
         accent: accent.to_string(),
+        save_action,
     }
 }
 
@@ -151,6 +181,7 @@ fn limit_status(joint: &Joint) -> RuntimeUiLimit {
         return RuntimeUiLimit {
             label: "Limits off".to_string(),
             detail: limit_detail(joint),
+            toggle_label: "Enable".to_string(),
             accent: "#8ea0b7".to_string(),
             background: "#202936".to_string(),
             border: "1px solid #415066".to_string(),
@@ -161,6 +192,7 @@ fn limit_status(joint: &Joint) -> RuntimeUiLimit {
         return RuntimeUiLimit {
             label: "No feedback".to_string(),
             detail: "waiting for servo position".to_string(),
+            toggle_label: "Disable".to_string(),
             accent: "#8ea0b7".to_string(),
             background: "#202936".to_string(),
             border: "1px solid #415066".to_string(),
@@ -171,6 +203,7 @@ fn limit_status(joint: &Joint) -> RuntimeUiLimit {
         return RuntimeUiLimit {
             label: "LIMIT".to_string(),
             detail: limit_detail(joint),
+            toggle_label: "Disable".to_string(),
             accent: "#ffb8b8".to_string(),
             background: "#7f2525".to_string(),
             border: "1px solid #d85b5b".to_string(),
@@ -180,6 +213,7 @@ fn limit_status(joint: &Joint) -> RuntimeUiLimit {
     RuntimeUiLimit {
         label: "OK".to_string(),
         detail: limit_detail(joint),
+        toggle_label: "Disable".to_string(),
         accent: "#bff0cf".to_string(),
         background: "#1d5034".to_string(),
         border: "1px solid #3fbf6f".to_string(),
@@ -202,6 +236,51 @@ fn joint_controls(joints: &[Joint; JOINT_COUNT]) -> Vec<RuntimeUiJoint> {
         .collect()
 }
 
+fn initial_coordinate_inputs(robot: &Arc<Mutex<RuntimeRobot>>) -> (String, String, String) {
+    let coords = {
+        let robot = robot.lock().unwrap();
+        robot.arm_telemetry().coords_mm
+    };
+    match coords {
+        Some((x, y, z)) => (format!("{x:.1}"), format!("{y:.1}"), format!("{z:.1}")),
+        None => ("200.0".to_string(), "0.0".to_string(), "80.0".to_string()),
+    }
+}
+
+fn coordinate_command(command: ArmCommand) -> bool {
+    matches!(
+        command,
+        ArmCommand::GotoCoords { .. }
+            | ArmCommand::GotoPose { .. }
+            | ArmCommand::MoveTcpRelative { .. }
+    )
+}
+
+fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<String> {
+    match (command, err) {
+        (ArmCommand::GotoCoords { x, y, z }, ControllerError::Ik(IkError::Unreachable)) => {
+            Some(format!(
+                "target unreachable: {x:.1}, {y:.1}, {:.1} mm",
+                kinematics::shoulder_to_table_z(z)
+            ))
+        }
+        (ArmCommand::GotoPose { x, y, z, .. }, ControllerError::Ik(IkError::Unreachable)) => {
+            Some(format!(
+                "target unreachable: {x:.1}, {y:.1}, {:.1} mm",
+                kinematics::shoulder_to_table_z(z)
+            ))
+        }
+        (ArmCommand::MoveTcpRelative { .. }, ControllerError::Ik(IkError::Unreachable)) => {
+            Some("target unreachable from current position".to_string())
+        }
+        (ArmCommand::MoveTcpRelative { .. }, ControllerError::MissingFeedback) => {
+            Some("current position unavailable".to_string())
+        }
+        (_, ControllerError::Ik(IkError::Unreachable)) => Some("target unreachable".to_string()),
+        _ => None,
+    }
+}
+
 pub(crate) fn local_url(addr: SocketAddr, scheme: &str, path: &str) -> String {
     format!("{scheme}://{}:{}{path}", ui_host(addr), addr.port())
 }
@@ -209,29 +288,57 @@ pub(crate) fn local_url(addr: SocketAddr, scheme: &str, path: &str) -> String {
 #[wgui_controller(template = "runtime")]
 impl RuntimeUiController {
     pub(crate) fn new(config: RuntimeUiConfig, robot: Arc<Mutex<RuntimeRobot>>) -> Self {
+        let (coordinate_x, coordinate_y, coordinate_z) = initial_coordinate_inputs(&robot);
         Self {
             config,
             robot,
             tcp_frame: TcpFrame::Base,
+            limit_editor_joint: None,
+            limit_editor_min: String::new(),
+            limit_editor_max: String::new(),
+            limit_editor_error: String::new(),
+            coordinate_x,
+            coordinate_y,
+            coordinate_z,
+            coordinate_error: String::new(),
             last_command: "none".to_string(),
         }
     }
 
     pub(crate) fn state(&self) -> RuntimeUiModel {
-        let telemetry = {
+        let (telemetry, calibration_dirty, config_path) = {
             let robot = self.robot.lock().unwrap();
-            robot.arm_telemetry()
+            let (calibration_dirty, config_path) = robot.calibration_state();
+            (robot.arm_telemetry(), calibration_dirty, config_path)
+        };
+        let (limit_modal_title, limit_modal_detail) = match self.limit_editor_joint {
+            Some(joint) if joint < JOINT_COUNT => {
+                let telemetry_joint = &telemetry.joints[joint];
+                (
+                    format!("{} Limits", ARM_JOINT_LABELS[joint]),
+                    match telemetry_joint.tick {
+                        Some(tick) => {
+                            format!("servo {} current tick {tick}", telemetry_joint.servo_id)
+                        }
+                        None => format!("servo {} waiting for feedback", telemetry_joint.servo_id),
+                    },
+                )
+            }
+            _ => ("Joint Limits".to_string(), "no joint selected".to_string()),
+        };
+        let coordinate_detail = match telemetry.coords_mm {
+            Some((x, y, z)) => format!("current {x:.1}, {y:.1}, {z:.1} mm"),
+            None => "current position unavailable".to_string(),
         };
 
         RuntimeUiModel {
-            title: "Puppybot Runtime".to_string(),
-            subtitle: "Local runtime status and connection details".to_string(),
             status: vec![
                 metric(
                     "Runtime",
                     "running",
                     "process is accepting robot websocket clients",
                     "#3fbf6f",
+                    false,
                 ),
                 metric(
                     "Servo bus",
@@ -242,23 +349,37 @@ impl RuntimeUiController {
                     } else {
                         "#d89b2f"
                     },
-                ),
-            ],
-            endpoints: vec![
-                metric(
-                    "Runtime WebSocket",
-                    &self.config.ws_url,
-                    &self.config.ws_bind,
-                    "#4d8dff",
+                    false,
                 ),
                 metric(
-                    "Runtime UI",
-                    &self.config.ui_url,
-                    &self.config.ui_bind,
-                    "#4d8dff",
+                    "Config",
+                    if calibration_dirty {
+                        "unsaved"
+                    } else {
+                        "saved"
+                    },
+                    &config_path,
+                    if calibration_dirty {
+                        "#d89b2f"
+                    } else {
+                        "#3fbf6f"
+                    },
+                    true,
                 ),
+                metric("UI", "online", "web control connected", "#3fbf6f", false),
             ],
             joints: joint_controls(&telemetry.joints),
+            limit_modal_open: self.limit_editor_joint.is_some(),
+            limit_modal_title,
+            limit_modal_detail,
+            limit_modal_min: self.limit_editor_min.clone(),
+            limit_modal_max: self.limit_editor_max.clone(),
+            limit_modal_error: self.limit_editor_error.clone(),
+            coordinate_x: self.coordinate_x.clone(),
+            coordinate_y: self.coordinate_y.clone(),
+            coordinate_z: self.coordinate_z.clone(),
+            coordinate_detail,
+            coordinate_error: self.coordinate_error.clone(),
             tcp_frame_label: self.tcp_frame_label().to_string(),
             tcp_frame_detail: self.tcp_frame_detail().to_string(),
             tcp_base_button: frame_button("Base", self.tcp_frame == TcpFrame::Base),
@@ -268,27 +389,51 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn title(&self) -> String {
-        self.state().title
+        "PuppyBot Runtime".to_string()
     }
 
-    fn apply_event(&mut self, label: &str, event: ProtocolEvent) {
-        {
+    fn apply_event(&mut self, label: &str, event: ProtocolEvent) -> Result<(), ControllerError> {
+        let result = {
             let mut robot = self.robot.lock().unwrap();
-            robot.handle_event(event);
+            robot.try_handle_event(event)
+        };
+        match result {
+            Ok(()) => {
+                self.last_command = label.to_string();
+                log::info!("runtime UI command: {label}");
+                Ok(())
+            }
+            Err(err) => {
+                self.last_command = format!("{label} rejected: {err:?}");
+                log::warn!("runtime UI command rejected: {label}: {err:?}");
+                Err(err)
+            }
         }
-        self.last_command = label.to_string();
-        log::info!("runtime UI command: {label}");
     }
 
     fn drive(&mut self, label: &str, throttle: i8, steering: i8) {
-        self.apply_event(
+        let _ = self.apply_event(
             label,
             ProtocolEvent::Drive(DriveCommand::DriveSteer { throttle, steering }),
         );
     }
 
-    fn arm(&mut self, label: &str, command: ArmCommand) {
-        self.apply_event(label, ProtocolEvent::Arm(command));
+    fn arm(&mut self, label: &str, command: ArmCommand) -> Result<(), ControllerError> {
+        let result = self.apply_event(label, ProtocolEvent::Arm(command));
+        match result {
+            Ok(()) => {
+                if coordinate_command(command) {
+                    self.coordinate_error.clear();
+                }
+                Ok(())
+            }
+            Err(err) => {
+                if let Some(text) = arm_command_error_text(command, err) {
+                    self.coordinate_error = text;
+                }
+                Err(err)
+            }
+        }
     }
 
     fn tcp_frame_label(&self) -> &'static str {
@@ -318,8 +463,8 @@ impl RuntimeUiController {
     }
 
     fn move_tcp(&mut self, label: &str, dx_mm: f64, dy_mm: f64, dz_mm: f64) {
-        self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
-        self.arm(
+        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm(
             label,
             ArmCommand::MoveTcpRelative {
                 frame: self.tcp_frame,
@@ -353,8 +498,8 @@ impl RuntimeUiController {
         } else {
             "hold jog joint negative"
         };
-        self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
-        self.arm(label, ArmCommand::Spin { joint, direction });
+        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm(label, ArmCommand::Spin { joint, direction });
     }
 
     fn refresh_spin_joint(&mut self, joint_arg: u32, direction: i32) {
@@ -368,6 +513,101 @@ impl RuntimeUiController {
         let direction = if direction > 0 { 1 } else { -1 };
         let mut robot = self.robot.lock().unwrap();
         robot.handle_event(ProtocolEvent::Arm(ArmCommand::Spin { joint, direction }));
+    }
+
+    fn parse_limit_editor(&mut self) -> Option<(usize, i32, i32)> {
+        let Some(joint) = self.limit_editor_joint else {
+            return None;
+        };
+        let min = match self.limit_editor_min.trim().parse::<i32>() {
+            Ok(value) => value,
+            Err(_) => {
+                self.limit_editor_error = "min must be an integer".to_string();
+                return None;
+            }
+        };
+        let max = match self.limit_editor_max.trim().parse::<i32>() {
+            Ok(value) => value,
+            Err(_) => {
+                self.limit_editor_error = "max must be an integer".to_string();
+                return None;
+            }
+        };
+        if min == max {
+            self.limit_editor_error = "min and max must differ".to_string();
+            return None;
+        }
+        Some((joint, min, max))
+    }
+
+    fn nudge_limit_editor(&mut self, min_delta: i32, max_delta: i32) {
+        let Some((_, min, max)) = self.parse_limit_editor() else {
+            return;
+        };
+        self.limit_editor_min = (min + min_delta).to_string();
+        self.limit_editor_max = (max + max_delta).to_string();
+        self.limit_editor_error.clear();
+    }
+
+    fn parse_coordinate(value: &str, label: &str) -> Result<f64, String> {
+        let parsed = value
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| format!("{label} must be a number"))?;
+        if parsed.is_finite() {
+            Ok(parsed)
+        } else {
+            Err(format!("{label} must be finite"))
+        }
+    }
+
+    fn parse_coordinates(&mut self) -> Option<(f64, f64, f64)> {
+        let x = match Self::parse_coordinate(&self.coordinate_x, "x") {
+            Ok(value) => value,
+            Err(err) => {
+                self.coordinate_error = err;
+                return None;
+            }
+        };
+        let y = match Self::parse_coordinate(&self.coordinate_y, "y") {
+            Ok(value) => value,
+            Err(err) => {
+                self.coordinate_error = err;
+                return None;
+            }
+        };
+        let z = match Self::parse_coordinate(&self.coordinate_z, "z") {
+            Ok(value) => value,
+            Err(err) => {
+                self.coordinate_error = err;
+                return None;
+            }
+        };
+        self.coordinate_error.clear();
+        Some((x, y, z))
+    }
+
+    fn move_to_coordinate_target(&mut self, label: &str, x: f64, y: f64, z_table: f64) {
+        self.coordinate_x = format!("{x:.1}");
+        self.coordinate_y = format!("{y:.1}");
+        self.coordinate_z = format!("{z_table:.1}");
+        self.coordinate_error.clear();
+        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm(
+            label,
+            ArmCommand::GotoCoords {
+                x,
+                y,
+                z: kinematics::table_to_shoulder_z(z_table),
+            },
+        );
+    }
+
+    fn nudge_coordinates(&mut self, label: &str, dx: f64, dy: f64, dz_table: f64) {
+        let Some((x, y, z_table)) = self.parse_coordinates() else {
+            return;
+        };
+        self.move_to_coordinate_target(label, x + dx, y + dy, z_table + dz_table);
     }
 
     pub(crate) fn drive_forward(&mut self) {
@@ -387,7 +627,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn stop_drive(&mut self) {
-        self.apply_event("stop drive", ProtocolEvent::Drive(DriveCommand::Stop));
+        let _ = self.apply_event("stop drive", ProtocolEvent::Drive(DriveCommand::Stop));
     }
 
     pub(crate) fn stop_joint(&mut self, joint_arg: u32) {
@@ -395,7 +635,7 @@ impl RuntimeUiController {
             return;
         };
 
-        self.arm("stop joint", ArmCommand::Stop { joint });
+        let _ = self.arm("stop joint", ArmCommand::Stop { joint });
     }
 
     pub(crate) fn jog_stop(&mut self, joint_arg: u32) {
@@ -459,20 +699,261 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn move_tcp_stop(&mut self) {
-        self.arm("stop tcp jog", ArmCommand::StopAll);
+        let _ = self.arm("stop tcp jog", ArmCommand::StopAll);
+    }
+
+    pub(crate) fn edit_coordinate_x(&mut self, value: String) {
+        self.coordinate_x = value;
+        self.coordinate_error.clear();
+    }
+
+    pub(crate) fn edit_coordinate_y(&mut self, value: String) {
+        self.coordinate_y = value;
+        self.coordinate_error.clear();
+    }
+
+    pub(crate) fn edit_coordinate_z(&mut self, value: String) {
+        self.coordinate_z = value;
+        self.coordinate_error.clear();
+    }
+
+    pub(crate) fn set_coordinates_current(&mut self) {
+        let coords = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry().coords_mm
+        };
+        if let Some((x, y, z)) = coords {
+            self.coordinate_x = format!("{x:.1}");
+            self.coordinate_y = format!("{y:.1}");
+            self.coordinate_z = format!("{z:.1}");
+            self.coordinate_error.clear();
+        } else {
+            self.coordinate_error = "current position unavailable".to_string();
+        }
+    }
+
+    pub(crate) fn move_to_coordinates(&mut self) {
+        let Some((x, y, z_table)) = self.parse_coordinates() else {
+            return;
+        };
+        self.move_to_coordinate_target("move to coordinates", x, y, z_table);
+    }
+
+    pub(crate) fn coordinate_forward(&mut self) {
+        self.nudge_coordinates("coordinate forward", -UI_COORD_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn coordinate_forward_start(&mut self) {
+        self.coordinate_forward();
+    }
+
+    pub(crate) fn coordinate_forward_refresh(&mut self) {
+        self.coordinate_forward();
+    }
+
+    pub(crate) fn coordinate_back(&mut self) {
+        self.nudge_coordinates("coordinate back", UI_COORD_STEP_MM, 0.0, 0.0);
+    }
+
+    pub(crate) fn coordinate_back_start(&mut self) {
+        self.coordinate_back();
+    }
+
+    pub(crate) fn coordinate_back_refresh(&mut self) {
+        self.coordinate_back();
+    }
+
+    pub(crate) fn coordinate_left(&mut self) {
+        self.nudge_coordinates("coordinate left", 0.0, UI_COORD_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn coordinate_left_start(&mut self) {
+        self.coordinate_left();
+    }
+
+    pub(crate) fn coordinate_left_refresh(&mut self) {
+        self.coordinate_left();
+    }
+
+    pub(crate) fn coordinate_right(&mut self) {
+        self.nudge_coordinates("coordinate right", 0.0, -UI_COORD_STEP_MM, 0.0);
+    }
+
+    pub(crate) fn coordinate_right_start(&mut self) {
+        self.coordinate_right();
+    }
+
+    pub(crate) fn coordinate_right_refresh(&mut self) {
+        self.coordinate_right();
+    }
+
+    pub(crate) fn coordinate_up(&mut self) {
+        self.nudge_coordinates("coordinate up", 0.0, 0.0, UI_COORD_STEP_MM);
+    }
+
+    pub(crate) fn coordinate_up_start(&mut self) {
+        self.coordinate_up();
+    }
+
+    pub(crate) fn coordinate_up_refresh(&mut self) {
+        self.coordinate_up();
+    }
+
+    pub(crate) fn coordinate_down(&mut self) {
+        self.nudge_coordinates("coordinate down", 0.0, 0.0, -UI_COORD_STEP_MM);
+    }
+
+    pub(crate) fn coordinate_down_start(&mut self) {
+        self.coordinate_down();
+    }
+
+    pub(crate) fn coordinate_down_refresh(&mut self) {
+        self.coordinate_down();
     }
 
     pub(crate) fn arm_hold(&mut self) {
-        self.arm("arm hold", ArmCommand::SetSpeed(UI_ARM_SPEED));
-        self.arm("arm hold", ArmCommand::Hold);
+        let _ = self.arm("arm hold", ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm("arm hold", ArmCommand::Hold);
     }
 
     pub(crate) fn arm_stop_all(&mut self) {
-        self.arm("arm stop all", ArmCommand::StopAll);
+        let _ = self.arm("arm stop all", ArmCommand::StopAll);
     }
 
     pub(crate) fn clear_arm_faults(&mut self) {
-        self.arm("clear arm faults", ArmCommand::ClearFaults { joint: None });
+        let _ = self.arm("clear arm faults", ArmCommand::ClearFaults { joint: None });
+    }
+
+    pub(crate) fn open_limit_editor(&mut self, joint_arg: u32) {
+        let Some(joint_index) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        let joint = &telemetry.joints[joint_index];
+        self.limit_editor_joint = Some(joint_index);
+        self.limit_editor_min = joint.limit_min.to_string();
+        self.limit_editor_max = joint.limit_max.to_string();
+        self.limit_editor_error.clear();
+    }
+
+    pub(crate) fn close_limit_editor(&mut self) {
+        self.limit_editor_joint = None;
+        self.limit_editor_error.clear();
+    }
+
+    pub(crate) fn edit_limit_min(&mut self, value: String) {
+        self.limit_editor_min = value;
+        self.limit_editor_error.clear();
+    }
+
+    pub(crate) fn edit_limit_max(&mut self, value: String) {
+        self.limit_editor_max = value;
+        self.limit_editor_error.clear();
+    }
+
+    pub(crate) fn limit_min_down(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        self.nudge_limit_editor(-UI_LIMIT_STEP_TICKS, 0);
+    }
+
+    pub(crate) fn limit_min_up(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        self.nudge_limit_editor(UI_LIMIT_STEP_TICKS, 0);
+    }
+
+    pub(crate) fn limit_max_down(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        self.nudge_limit_editor(0, -UI_LIMIT_STEP_TICKS);
+    }
+
+    pub(crate) fn limit_max_up(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        self.nudge_limit_editor(0, UI_LIMIT_STEP_TICKS);
+    }
+
+    pub(crate) fn set_limit_min_current(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        let Some(joint) = self.limit_editor_joint else {
+            return;
+        };
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        if let Some(tick) = telemetry.joints[joint].tick {
+            self.limit_editor_min = tick.to_string();
+            self.limit_editor_error.clear();
+        } else {
+            self.limit_editor_error = "no feedback tick for selected joint".to_string();
+        }
+    }
+
+    pub(crate) fn set_limit_max_current(&mut self, joint_arg: u32) {
+        let _ = joint_arg;
+        let Some(joint) = self.limit_editor_joint else {
+            return;
+        };
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        if let Some(tick) = telemetry.joints[joint].tick {
+            self.limit_editor_max = tick.to_string();
+            self.limit_editor_error.clear();
+        } else {
+            self.limit_editor_error = "no feedback tick for selected joint".to_string();
+        }
+    }
+
+    pub(crate) fn toggle_joint_limits(&mut self, joint_arg: u32) {
+        let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+        let enabled = {
+            let robot = self.robot.lock().unwrap();
+            let telemetry = robot.arm_telemetry();
+            !telemetry.joints[joint].limit_enabled
+        };
+        let _ = self.arm(
+            if enabled {
+                "enable joint limits"
+            } else {
+                "disable joint limits"
+            },
+            ArmCommand::SetTickLimitsEnabled { joint, enabled },
+        );
+    }
+
+    pub(crate) fn apply_limit_editor(&mut self) {
+        let Some((joint, min, max)) = self.parse_limit_editor() else {
+            return;
+        };
+        let _ = self.arm(
+            "set joint limits",
+            ArmCommand::SetTickLimits { joint, min, max },
+        );
+        self.limit_editor_joint = None;
+        self.limit_editor_error.clear();
+    }
+
+    pub(crate) fn save_calibration(&mut self) {
+        let result = {
+            let mut robot = self.robot.lock().unwrap();
+            robot.save_calibration()
+        };
+        match result {
+            Ok(path) => {
+                self.last_command = format!("saved calibration to {path}");
+                log::info!("runtime UI command: save calibration to {path}");
+            }
+            Err(err) => {
+                self.last_command = format!("save calibration failed: {err}");
+                log::warn!("runtime UI save calibration failed: {err}");
+            }
+        }
     }
 }
 
@@ -500,4 +981,26 @@ pub(crate) fn start_runtime_ui(
             wgui.run().await;
         });
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreachable_coordinate_error_mentions_target() {
+        let err = arm_command_error_text(
+            ArmCommand::GotoCoords {
+                x: 1000.0,
+                y: 20.0,
+                z: kinematics::table_to_shoulder_z(80.0),
+            },
+            ControllerError::Ik(IkError::Unreachable),
+        );
+
+        assert_eq!(
+            err.as_deref(),
+            Some("target unreachable: 1000.0, 20.0, 80.0 mm")
+        );
+    }
 }

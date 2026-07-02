@@ -1,15 +1,4 @@
 <VStack fill=true minHeight=0 backgroundColor="#12161c" padding=18 spacing=14>
-  <HStack spacing=12>
-    <VStack grow=1 spacing=4>
-      <Text value={state.title} color="#f4f7fb" />
-      <Text value={state.subtitle} color="#91a0b3" />
-    </VStack>
-    <VStack width=170 backgroundColor="#18202b" border="1px solid #2b394a" padding=10 spacing=4>
-      <Text value="UI" color="#91a0b3" textAlign="center" />
-      <Text value="online" color="#3fbf6f" textAlign="center" />
-    </VStack>
-  </HStack>
-
   <HStack spacing=12 wrap=true>
     <For each={state.status} itemAs="item" key={item.label}>
       <VStack width=300 minWidth=250 backgroundColor="#18202b" border="1px solid #2b394a" padding=12 spacing=6>
@@ -21,20 +10,12 @@
           </VStack>
         </HStack>
         <Text value={item.detail} color="#b6c2d2" breakWords=true />
+        <If test={item.save_action}>
+          <Button text="Save Calibration" onClick="SaveCalibration" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=32 />
+        </If>
       </VStack>
     </For>
   </HStack>
-
-  <VStack backgroundColor="#18202b" border="1px solid #2b394a" padding=14 spacing=10>
-    <Text value="Endpoints" color="#f4f7fb" />
-    <For each={state.endpoints} itemAs="endpoint" key={endpoint.label}>
-      <HStack spacing=10>
-        <Text value={endpoint.label} color="#91a0b3" minWidth=160 />
-        <Text value={endpoint.value} color="#f4f7fb" grow=1 breakWords=true />
-        <Text value={endpoint.detail} color="#6f7f92" minWidth=190 breakWords=true />
-      </HStack>
-    </For>
-  </VStack>
 
   <HStack spacing=12 wrap=true>
     <VStack width=360 minWidth=300 backgroundColor="#18202b" border="1px solid #2b394a" padding=14 spacing=10>
@@ -64,6 +45,8 @@
             <Text value={joint.limit.label} color={joint.limit.accent} textAlign="center" />
             <Text value={joint.limit.detail} color="#d4dce8" textAlign="center" breakWords=true />
           </VStack>
+          <Button text="Limits" onClick="OpenLimitEditor" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=80 />
+          <Button text={joint.limit.toggle_label} onClick="ToggleJointLimits" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=80 />
         </HStack>
       </For>
       <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
@@ -84,6 +67,35 @@
           <Button text="Right" onPress="MoveTcpRightStart" onRelease="MoveTcpStop" onRepeat="MoveTcpRightRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 />
         </HStack>
       </VStack>
+      <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
+        <Text value="Coordinate Move (mm)" color="#f4f7fb" />
+        <Text value={state.coordinate_detail} color="#91a0b3" breakWords=true />
+        <HStack spacing=8 wrap=true>
+          <VStack width=96 spacing=4>
+            <Text value="X" color="#91a0b3" />
+            <TextInput value={state.coordinate_x} onTextChanged="EditCoordinateX" placeholder="x" />
+          </VStack>
+          <VStack width=96 spacing=4>
+            <Text value="Y" color="#91a0b3" />
+            <TextInput value={state.coordinate_y} onTextChanged="EditCoordinateY" placeholder="y" />
+          </VStack>
+          <VStack width=96 spacing=4>
+            <Text value="Z" color="#91a0b3" />
+            <TextInput value={state.coordinate_z} onTextChanged="EditCoordinateZ" placeholder="z" />
+          </VStack>
+          <Button text="Current" onClick="SetCoordinatesCurrent" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 width=88 />
+          <Button text="Move" onClick="MoveToCoordinates" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 width=88 />
+        </HStack>
+        <HStack spacing=8 wrap=true>
+          <Button text="Forward" onPress="CoordinateForwardStart" onRelease="MoveTcpStop" onRepeat="CoordinateForwardRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+          <Button text="Back" onPress="CoordinateBackStart" onRelease="MoveTcpStop" onRepeat="CoordinateBackRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+          <Button text="Left" onPress="CoordinateLeftStart" onRelease="MoveTcpStop" onRepeat="CoordinateLeftRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+          <Button text="Right" onPress="CoordinateRightStart" onRelease="MoveTcpStop" onRepeat="CoordinateRightRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+          <Button text="Up" onPress="CoordinateUpStart" onRelease="MoveTcpStop" onRepeat="CoordinateUpRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+          <Button text="Down" onPress="CoordinateDownStart" onRelease="MoveTcpStop" onRepeat="CoordinateDownRefresh" repeatInterval=250 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=82 />
+        </HStack>
+        <Text value={state.coordinate_error} color="#ffb8b8" breakWords=true />
+      </VStack>
       <HStack spacing=8>
         <Button text="Hold" onClick="ArmHold" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
         <Button text="Stop Arm" onClick="ArmStopAll" backgroundColor="#9f2f2f" border="1px solid #d85b5b" color="#fff4f4" height=34 />
@@ -93,4 +105,32 @@
       <Text value={state.last_command} color="#f4f7fb" breakWords=true />
     </VStack>
   </HStack>
+
+  <Modal open={state.limit_modal_open} onClick="CloseLimitEditor">
+    <VStack width=420 maxWidth=420 backgroundColor="#18202b" border="1px solid #415066" padding=16 spacing=12>
+      <Text value={state.limit_modal_title} color="#f4f7fb" textAlign="center" />
+      <Text value={state.limit_modal_detail} color="#91a0b3" textAlign="center" breakWords=true />
+      <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
+        <Text value="Minimum tick" color="#91a0b3" />
+        <HStack spacing=8>
+          <Button text="-" onClick="LimitMinDown" arg=1 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=36 />
+          <TextInput value={state.limit_modal_min} onTextChanged="EditLimitMin" placeholder="min" />
+          <Button text="+" onClick="LimitMinUp" arg=1 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=36 />
+          <Button text="Now" onClick="SetLimitMinCurrent" arg=1 backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=32 width=56 />
+        </HStack>
+        <Text value="Maximum tick" color="#91a0b3" />
+        <HStack spacing=8>
+          <Button text="-" onClick="LimitMaxDown" arg=1 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=36 />
+          <TextInput value={state.limit_modal_max} onTextChanged="EditLimitMax" placeholder="max" />
+          <Button text="+" onClick="LimitMaxUp" arg=1 backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=32 width=36 />
+          <Button text="Now" onClick="SetLimitMaxCurrent" arg=1 backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=32 width=56 />
+        </HStack>
+      </VStack>
+      <Text value={state.limit_modal_error} color="#ffb8b8" textAlign="center" breakWords=true />
+      <HStack spacing=8>
+        <Button text="Cancel" onClick="CloseLimitEditor" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 />
+        <Button text="Set" onClick="ApplyLimitEditor" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
+      </HStack>
+    </VStack>
+  </Modal>
 </VStack>

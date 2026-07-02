@@ -4,7 +4,7 @@ use super::{
     kinematics::*,
     puppyarm::{ArmCommand, ArmMode, PuppyArm, TcpFrame},
     servo_safety::*,
-    types::{JOINT_COUNT, Joint},
+    types::{ControllerError, JOINT_COUNT, Joint},
 };
 
 const EPS: f64 = 1.0e-6;
@@ -315,6 +315,23 @@ fn goto_coords_rejects_unreachable_target() {
         10,
     );
 
+    assert!(arm.telemetry_snapshot(0).joints[0].target_tick.is_none());
+}
+
+#[test]
+fn try_goto_coords_reports_unreachable_target() {
+    let mut arm = PuppyArm::new(0);
+
+    let result = arm.try_handle_arm_cmd(
+        ArmCommand::GotoCoords {
+            x: 1000.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        10,
+    );
+
+    assert_eq!(result, Err(ControllerError::Ik(IkError::Unreachable)));
     assert!(arm.telemetry_snapshot(0).joints[0].target_tick.is_none());
 }
 

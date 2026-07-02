@@ -98,6 +98,95 @@ PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8082 ./scripts/run-runtime.sh
 ./scripts/run-runtime.sh --ui-bind 127.0.0.1:9090
 ```
 
+At startup the runtime looks for a local `puppybot.json` in the current working
+directory. If the file is missing, it uses built-in defaults. To load another
+file, pass `--config` or set `PUPPYBOT_RUNTIME_CONFIG`:
+
+```sh
+./scripts/run-runtime.sh --config ./puppybot.json
+```
+
+The runtime UI can adjust arm joint soft tick limits live. Click
+`Save Calibration` after testing the new limits to write them to the configured
+JSON file. The runtime writes a normalized `puppybot.json` atomically via a temp
+file and rename.
+
+The runtime WebSocket listener also exposes a read-only JSON view for agents and
+scripts:
+
+```sh
+curl http://127.0.0.1:8080/api/config.json
+```
+
+The response includes the active config path, dirty flag, and normalized config.
+
+```json
+{
+  "version": 1,
+  "serial": "PB-DEV-0001",
+  "drive": {
+    "left_motor_id": 1,
+    "right_motor_id": 2,
+    "steering_servo_id": 1,
+    "steering_center_deg": 90,
+    "steering_range_deg": 45,
+    "command_timeout_ms": 500
+  },
+  "arm": {
+    "joints": [
+      {
+        "servo_id": 1,
+        "raw_tick_min": 0,
+        "raw_tick_max": 4095,
+        "soft_tick_min": 0,
+        "soft_tick_max": 4095,
+        "reference_tick": 2048,
+        "reference_angle_deg": 0.0,
+        "angle_sign": 1,
+        "drive_sign": 1,
+        "limit_enabled": true
+      },
+      {
+        "servo_id": 2,
+        "raw_tick_min": 100,
+        "raw_tick_max": 1000,
+        "soft_tick_min": 100,
+        "soft_tick_max": 1000,
+        "reference_tick": 530,
+        "reference_angle_deg": 90.0,
+        "angle_sign": -1,
+        "drive_sign": 1,
+        "limit_enabled": true
+      },
+      {
+        "servo_id": 3,
+        "raw_tick_min": 2200,
+        "raw_tick_max": 3600,
+        "soft_tick_min": 2200,
+        "soft_tick_max": 3600,
+        "reference_tick": 3565,
+        "reference_angle_deg": 0.0,
+        "angle_sign": -1,
+        "drive_sign": 1,
+        "limit_enabled": true
+      },
+      {
+        "servo_id": 4,
+        "raw_tick_min": 500,
+        "raw_tick_max": 3000,
+        "soft_tick_min": 500,
+        "soft_tick_max": 3000,
+        "reference_tick": 1783,
+        "reference_angle_deg": 0.0,
+        "angle_sign": 1,
+        "drive_sign": 1,
+        "limit_enabled": true
+      }
+    ]
+  }
+}
+```
+
 ## CLI
 
 The `puppybot` CLI talks to the runtime WebSocket API. By default it connects to

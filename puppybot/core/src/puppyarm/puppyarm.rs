@@ -7,7 +7,10 @@ use super::{
         SpeedCommand, TICK_WRAP, TIP_TICK_MAX, TIP_TICK_MIN, YAW_TICK_MAX, YAW_TICK_MIN,
     },
 };
-use crate::stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode};
+use crate::{
+    config::{ConfigError, JointCalibration, PuppyArmConfig},
+    stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode},
+};
 
 pub use super::types::{
     ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, PuppyarmTelemetry, TcpFrame,
@@ -183,6 +186,34 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
     ]
 }
 
+fn joint_from_calibration(calibration: JointCalibration) -> Joint {
+    let mut joint = Joint::new(
+        calibration.servo_id,
+        calibration.soft_tick_min,
+        calibration.soft_tick_max,
+    );
+    joint.raw_tick_min = calibration.raw_tick_min;
+    joint.raw_tick_max = calibration.raw_tick_max;
+    joint.sign = calibration.angle_sign as f64;
+    joint.drive_sign = calibration.drive_sign;
+    joint.zero_offset_rad = zero_offset_from_reference(
+        calibration.reference_tick,
+        calibration.raw_tick_min,
+        calibration.raw_tick_max,
+        joint.sign,
+        calibration.reference_angle_rad,
+    );
+    joint.online = false;
+    joint.limit_enabled = calibration.limit_enabled;
+    joint.limit_min = calibration.soft_tick_min;
+    joint.limit_max = calibration.soft_tick_max;
+    joint
+}
+
+fn configured_joints(config: &PuppyArmConfig) -> [Joint; JOINT_COUNT] {
+    core::array::from_fn(|index| joint_from_calibration(config.joints[index]))
+}
+
 fn angle_to_tick(joint: &Joint, angle_rad: f64) -> i32 {
     let mid_tick = reference_mid_tick(joint);
     let physical_angle = joint.sign * angle_rad + joint.zero_offset_rad;
@@ -230,6 +261,17 @@ fn default_arm_state(now_ms: u64) -> ([Joint; JOINT_COUNT], ArmMode) {
     (joints, ArmMode::Idle)
 }
 
+fn configured_arm_state(
+    config: &PuppyArmConfig,
+    now_ms: u64,
+) -> Result<([Joint; JOINT_COUNT], ArmMode), ConfigError> {
+    config.validate()?;
+    let mut joints = configured_joints(config);
+    servo_safety::init_joints(&mut joints, now_ms);
+
+    Ok((joints, ArmMode::Idle))
+}
+
 pub struct PuppyArm {
     joints: [Joint; JOINT_COUNT],
     default_speed: i16,
@@ -264,6 +306,22 @@ impl PuppyArm {
             wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; JOINT_COUNT],
             queued_initial_wheel_mode: false,
         }
+    }
+
+    pub fn new_with_config(config: &PuppyArmConfig, now: u64) -> Result<Self, ConfigError> {
+        let (joints, mode) = configured_arm_state(config, now)?;
+        Ok(Self {
+            joints,
+            default_speed: 200,
+            last_cmd_ms: now,
+            last_ok_feedback_ms: now,
+            last_error: None,
+            mode,
+            wheel_servo_ids: core::array::from_fn(|index| joints[index].servo_id),
+            wheel_mode_ready: [false; JOINT_COUNT],
+            wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; JOINT_COUNT],
+            queued_initial_wheel_mode: false,
+        })
     }
 
     fn sync_wheel_servo_ids(&mut self) {
@@ -323,6 +381,10 @@ impl PuppyArm {
         if !was_online {
             self.mark_wheel_mode_not_ready(joint);
         }
+    }
+
+    pub fn joint_servo_id(&self, joint: usize) -> Option<u8> {
+        self.joints.get(joint).map(|joint| joint.servo_id)
     }
 
     pub fn record_feedback_error(&mut self, joint: usize) {
@@ -457,13 +519,22 @@ impl PuppyArm {
     }
 
     pub fn handle_arm_cmd(&mut self, command: ArmCommand, now: u64) {
+        if let Err(err) = self.try_handle_arm_cmd(command, now) {
+            log::warn!("arm intent rejected: {:?}", err);
+        }
+    }
+
+    pub fn try_handle_arm_cmd(
+        &mut self,
+        command: ArmCommand,
+        now: u64,
+    ) -> Result<(), ControllerError> {
         if let ArmCommand::SetServoIds(_) = command {
             let ArmCommand::SetServoIds(servo_ids) = command else {
                 unreachable!();
             };
             if !valid_servo_ids(&servo_ids) {
-                log::warn!("arm intent rejected: SetServoIds");
-                return;
+                return Err(ControllerError::InvalidServoIds);
             }
             if self
                 .handle_command(ArmCommand::SetServoIds(servo_ids), now)
@@ -472,14 +543,12 @@ impl PuppyArm {
                 self.sync_wheel_servo_ids();
                 self.mark_all_wheel_modes_not_ready();
                 self.queued_initial_wheel_mode = false;
+                Ok(())
             } else {
-                log::warn!("arm intent rejected: SetServoIds");
+                Err(ControllerError::InvalidServoIds)
             }
-            return;
-        }
-
-        if let Err(err) = self.handle_command(command, now) {
-            log::warn!("arm intent rejected: {:?}", err);
+        } else {
+            self.handle_command(command, now)
         }
     }
 

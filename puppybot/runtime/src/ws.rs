@@ -82,6 +82,16 @@ fn is_websocket_request(request: &[u8]) -> bool {
         && header_value(request, b"sec-websocket-key").is_some()
 }
 
+fn request_target(request: &[u8]) -> Option<&[u8]> {
+    let line_end = find_bytes(request, b"\r\n")?;
+    let request_line = &request[..line_end];
+    let mut parts = request_line.split(|byte| *byte == b' ');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(b"GET"), Some(target), Some(_)) => Some(target),
+        _ => None,
+    }
+}
+
 fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), Error> {
     while !buf.is_empty() {
         match stream.read(buf) {
@@ -207,6 +217,26 @@ fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize
     }
 }
 
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+) -> Result<(), Error> {
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    Ok(())
+}
+
+fn config_json_body(robot: &Arc<Mutex<RuntimeRobot>>) -> Result<String, String> {
+    let mut robot = robot.lock().unwrap();
+    robot.config_json()
+}
+
 fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<RuntimeRobot>>) -> Result<(), Error> {
     let mut payload = [0u8; MAX_WS_FRAME_SIZE];
     let mut telemetry_enabled = false;
@@ -272,15 +302,64 @@ pub(crate) fn handle_connection(
     if is_websocket_request(request) {
         handle_websocket_upgrade(&mut stream, request)?;
         websocket_loop(&mut stream, robot)
-    } else if request.starts_with(b"GET / ") || request.starts_with(b"GET / HTTP/") {
-        stream.write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 47\r\n\r\npuppybot runtime websocket is available on /ws\n",
-        )?;
-        Ok(())
+    } else if request_target(request) == Some(b"/api/config.json") {
+        let body = config_json_body(&robot);
+        match body {
+            Ok(body) => {
+                write_http_response(&mut stream, "200 OK", "application/json", body.as_bytes())
+            }
+            Err(err) => {
+                let body = format!("{{\"error\":{}}}\n", serde_json::json!(err));
+                write_http_response(
+                    &mut stream,
+                    "500 Internal Server Error",
+                    "application/json",
+                    body.as_bytes(),
+                )
+            }
+        }
+    } else if request_target(request) == Some(b"/") {
+        write_http_response(
+            &mut stream,
+            "200 OK",
+            "text/plain",
+            b"puppybot runtime websocket is available on /ws\nconfig is available on /api/config.json\n",
+        )
     } else {
-        stream.write_all(
-            b"HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 10\r\n\r\nnot found\n",
-        )?;
-        Ok(())
+        write_http_response(&mut stream, "404 Not Found", "text/plain", b"not found\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use puppybot_core::config::PuppybotConfigV1;
+
+    #[test]
+    fn request_target_reads_get_path() {
+        let request = b"GET /api/config.json HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+        assert_eq!(
+            request_target(request),
+            Some(b"/api/config.json".as_slice())
+        );
+    }
+
+    #[test]
+    fn config_json_body_returns_active_config() {
+        let robot = Arc::new(Mutex::new(RuntimeRobot::new(
+            None,
+            PathBuf::from("puppybot.json"),
+            PuppybotConfigV1::default(),
+        )));
+
+        let body = config_json_body(&robot).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(value["path"], "puppybot.json");
+        assert_eq!(value["dirty"], false);
+        assert_eq!(value["config"]["serial"], "PB-DEV-0001");
     }
 }

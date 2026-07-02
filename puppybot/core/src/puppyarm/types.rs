@@ -79,6 +79,7 @@ pub enum ArmMode {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ControllerError {
     InvalidJoint,
+    InvalidServoIds,
     InvalidLimit,
     MissingFeedback,
     Ik(IkError),

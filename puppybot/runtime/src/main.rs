@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     net::{SocketAddr, TcpListener},
+    path::PathBuf,
     sync::Arc as StdArc,
     sync::{Arc, Mutex},
     task::{Context, Poll, Wake, Waker},
@@ -10,10 +11,13 @@ use std::{
 
 use embassy_executor as _;
 use puppybot_core::{
+    config::PuppybotConfigV1,
     protocol::{self, ProtocolEvent},
+    puppyarm::types::ControllerError,
     robot::Puppybot,
 };
 
+mod config;
 mod mdns;
 mod stservo;
 mod ui;
@@ -24,6 +28,7 @@ const DEFAULT_UI_BIND: &str = "127.0.0.1:8081";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct RuntimeArgs {
+    config: Option<String>,
     servo_device: Option<String>,
     ui_bind: Option<String>,
 }
@@ -37,6 +42,9 @@ enum RuntimeCli {
 pub(crate) struct RuntimeRobot {
     robot: Puppybot,
     servo: Option<stservo::RuntimeStServo>,
+    config_path: PathBuf,
+    active_config: PuppybotConfigV1,
+    calibration_dirty: bool,
     started_at: Instant,
     last_tick_at: Instant,
     telemetry_seq: u32,
@@ -72,11 +80,19 @@ where
 }
 
 impl RuntimeRobot {
-    fn new(servo: Option<stservo::RuntimeStServo>) -> Self {
+    fn new(
+        servo: Option<stservo::RuntimeStServo>,
+        config_path: PathBuf,
+        config: PuppybotConfigV1,
+    ) -> Self {
         let started_at = Instant::now();
+        let robot = Puppybot::new_with_config(&config, 0).expect("validated runtime config");
         Self {
-            robot: Puppybot::new(0),
+            robot,
             servo,
+            config_path,
+            active_config: config,
+            calibration_dirty: false,
             started_at,
             last_tick_at: started_at,
             telemetry_seq: 0,
@@ -109,9 +125,17 @@ impl RuntimeRobot {
     }
 
     pub(crate) fn handle_event(&mut self, event: ProtocolEvent) {
+        if let Err(err) = self.try_handle_event(event) {
+            log::warn!("runtime event rejected: {:?}", err);
+        }
+    }
+
+    pub(crate) fn try_handle_event(&mut self, event: ProtocolEvent) -> Result<(), ControllerError> {
         let now_ms = self.now_ms();
-        self.robot.handle_event(event, now_ms);
+        self.robot.try_handle_event(event, now_ms)?;
+        self.sync_arm_calibration_from_robot();
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+        Ok(())
     }
 
     pub(crate) fn handle_binary_command(
@@ -137,6 +161,7 @@ impl RuntimeRobot {
 
         self.robot.set_telemetry_enabled(*telemetry_enabled);
         let output = self.robot.handle_frame(payload, self.now_ms());
+        self.sync_arm_calibration_from_robot();
         *telemetry_enabled = self.robot.telemetry_enabled();
 
         if output
@@ -155,6 +180,56 @@ impl RuntimeRobot {
 
     pub(crate) fn arm_telemetry(&self) -> puppybot_core::puppyarm::puppyarm::PuppyarmTelemetry {
         self.robot.arm_telemetry()
+    }
+
+    pub(crate) fn calibration_state(&self) -> (bool, String) {
+        (
+            self.calibration_dirty,
+            self.config_path.display().to_string(),
+        )
+    }
+
+    pub(crate) fn save_calibration(&mut self) -> Result<String, String> {
+        self.sync_arm_calibration_from_robot();
+        config::save_runtime_config(&self.config_path, &self.active_config)?;
+        self.calibration_dirty = false;
+        Ok(self.config_path.display().to_string())
+    }
+
+    pub(crate) fn config_json(&mut self) -> Result<String, String> {
+        self.sync_arm_calibration_from_robot();
+        config::runtime_config_state_json(
+            &self.config_path.display().to_string(),
+            self.calibration_dirty,
+            &self.active_config,
+        )
+    }
+
+    fn sync_arm_calibration_from_robot(&mut self) {
+        let telemetry = self.robot.arm_telemetry();
+        let mut changed = false;
+        for (index, joint) in telemetry.joints.iter().enumerate() {
+            let config_joint = &mut self.active_config.arm.joints[index];
+            if config_joint.servo_id != joint.servo_id {
+                config_joint.servo_id = joint.servo_id;
+                changed = true;
+            }
+            if config_joint.soft_tick_min != joint.limit_min {
+                config_joint.soft_tick_min = joint.limit_min;
+                changed = true;
+            }
+            if config_joint.soft_tick_max != joint.limit_max {
+                config_joint.soft_tick_max = joint.limit_max;
+                changed = true;
+            }
+            if config_joint.limit_enabled != joint.limit_enabled {
+                config_joint.limit_enabled = joint.limit_enabled;
+                changed = true;
+            }
+        }
+        if changed {
+            self.calibration_dirty = true;
+        }
     }
 }
 
@@ -194,7 +269,7 @@ fn runtime_ui_bind_addr(value: Option<&str>) -> Result<SocketAddr, String> {
 }
 
 fn runtime_usage() -> &'static str {
-    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --ui-bind <ADDR>       Bind the WGUI dashboard, default 127.0.0.1:8081\n  -h, --help             Show this help text"
+    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --config <PATH>        Load runtime config JSON, default ./puppybot.json\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --ui-bind <ADDR>       Bind the WGUI dashboard, default 127.0.0.1:8081\n  -h, --help             Show this help text"
 }
 
 fn parse_runtime_args<I, S>(args: I) -> Result<RuntimeCli, String>
@@ -208,6 +283,16 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(RuntimeCli::Help),
+            "--config" => {
+                let Some(path) = args.next() else {
+                    return Err("--config requires a path".to_string());
+                };
+                let path = path.trim();
+                if path.is_empty() {
+                    return Err("--config requires a non-empty path".to_string());
+                }
+                parsed.config = Some(path.to_string());
+            }
             "--servo-device" => {
                 let Some(device) = args.next() else {
                     return Err("--servo-device requires a path".to_string());
@@ -229,7 +314,13 @@ where
                 parsed.ui_bind = Some(bind.to_string());
             }
             _ => {
-                if let Some(device) = arg.strip_prefix("--servo-device=") {
+                if let Some(path) = arg.strip_prefix("--config=") {
+                    let path = path.trim();
+                    if path.is_empty() {
+                        return Err("--config requires a non-empty path".to_string());
+                    }
+                    parsed.config = Some(path.to_string());
+                } else if let Some(device) = arg.strip_prefix("--servo-device=") {
                     let device = device.trim();
                     if device.is_empty() {
                         return Err("--servo-device requires a non-empty path".to_string());
@@ -312,6 +403,22 @@ fn main() {
     };
     let servo = stservo::open_serial(args.servo_device.as_deref());
     let servo_hardware = servo.is_some();
+    let config_path = config::runtime_config_path(args.config.as_deref());
+    let runtime_config = match config::load_runtime_config(&config_path) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(2);
+        }
+    };
+    if runtime_config.is_some() {
+        log::info!("loaded runtime config from {}", config_path.display());
+    } else {
+        log::info!(
+            "runtime config {} not found; using built-in defaults",
+            config_path.display()
+        );
+    }
 
     let bind = runtime_bind_addr();
     let listener = TcpListener::bind(&bind).expect("failed to bind runtime websocket server");
@@ -332,7 +439,12 @@ fn main() {
         .local_addr()
         .ok()
         .and_then(|addr| mdns::start_advertisement(addr.port()));
-    let robot = Arc::new(Mutex::new(RuntimeRobot::new(servo)));
+    let robot_config = runtime_config.unwrap_or_default();
+    let robot = Arc::new(Mutex::new(RuntimeRobot::new(
+        servo,
+        config_path,
+        robot_config,
+    )));
     let _robot_tick = start_robot_tick_loop(Arc::clone(&robot));
     let _ui = ui::start_runtime_ui(ui_bind, ui_config, Arc::clone(&robot));
 
@@ -359,12 +471,14 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puppybot_core::puppyarm::types::ArmCommand;
 
     #[test]
     fn runtime_args_accept_servo_device_value() {
         assert_eq!(
             parse_runtime_args(["--servo-device", "/dev/ttyUSB0"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
                 servo_device: Some("/dev/ttyUSB0".to_string()),
                 ui_bind: None
             }))
@@ -376,6 +490,7 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--servo-device=/dev/ttyUSB0"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
                 servo_device: Some("/dev/ttyUSB0".to_string()),
                 ui_bind: None
             }))
@@ -387,6 +502,7 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--ui-bind", "127.0.0.1:9000"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
                 servo_device: None,
                 ui_bind: Some("127.0.0.1:9000".to_string())
             }))
@@ -398,8 +514,33 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--ui-bind=127.0.0.1:9000"]),
             Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
                 servo_device: None,
                 ui_bind: Some("127.0.0.1:9000".to_string())
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_config_value() {
+        assert_eq!(
+            parse_runtime_args(["--config", "puppybot.json"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                config: Some("puppybot.json".to_string()),
+                servo_device: None,
+                ui_bind: None
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_config_equals_value() {
+        assert_eq!(
+            parse_runtime_args(["--config=puppybot.json"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                config: Some("puppybot.json".to_string()),
+                servo_device: None,
+                ui_bind: None
             }))
         );
     }
@@ -409,6 +550,14 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--servo-device"]),
             Err("--servo-device requires a path".to_string())
+        );
+    }
+
+    #[test]
+    fn runtime_args_reject_missing_config_value() {
+        assert_eq!(
+            parse_runtime_args(["--config"]),
+            Err("--config requires a path".to_string())
         );
     }
 
@@ -423,5 +572,32 @@ mod tests {
             runtime_ui_bind_addr(Some("wat")).unwrap_err(),
             "invalid runtime UI bind address 'wat': invalid socket address syntax"
         );
+    }
+
+    #[test]
+    fn runtime_robot_saves_adjusted_joint_limits() {
+        let path = std::env::temp_dir().join(format!(
+            "runtime-robot-save-calibration-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let mut robot = RuntimeRobot::new(None, path.clone(), PuppybotConfigV1::default());
+        robot.handle_event(ProtocolEvent::Arm(ArmCommand::SetTickLimits {
+            joint: 0,
+            min: 10,
+            max: 120,
+        }));
+
+        assert!(robot.calibration_state().0);
+
+        robot.save_calibration().unwrap();
+
+        let saved = config::load_runtime_config(&path).unwrap().unwrap();
+        assert_eq!(saved.arm.joints[0].soft_tick_min, 10);
+        assert_eq!(saved.arm.joints[0].soft_tick_max, 120);
+        assert!(!robot.calibration_state().0);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

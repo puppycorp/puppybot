@@ -11,3 +11,18 @@ body {
 * {
   box-sizing: border-box;
 }
+
+[data-modal="overlay"] {
+  position: fixed !important;
+  inset: 0 !important;
+  display: flex;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 32px !important;
+  z-index: 1000 !important;
+}
+
+[data-modal="overlay"] > * {
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}

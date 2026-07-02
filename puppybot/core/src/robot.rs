@@ -3,18 +3,19 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use crate::{
+    config::{ConfigError, PuppybotConfigV1},
     drive::{DriveController, DriveOutput},
-    protocol::{self, ProtocolEvent, ProtocolJointTelemetry, ProtocolOutput, ProtocolState},
+    protocol::{
+        self, ProtocolEvent, ProtocolJointTelemetry, ProtocolOutput, ProtocolState, RobotConfig,
+    },
     puppyarm::{
         puppyarm::{PuppyArm, PuppyarmTelemetry},
-        types::JOINT_COUNT,
+        types::{ControllerError, JOINT_COUNT},
     },
     stservo::{Mode, SerialBus, StServo},
 };
 
 const ARM_WHEEL_ACC: u8 = 0;
-const FIRST_ARM_SERVO_ID: u8 = 1;
-const LAST_ARM_SERVO_ID: u8 = 4;
 const STEERING_SERVO_SPEED: u16 = 2400;
 const STEERING_SERVO_ACC: u8 = 0;
 
@@ -55,15 +56,43 @@ impl Puppybot {
         }
     }
 
+    pub fn new_with_config(config: &PuppybotConfigV1, now_ms: u64) -> Result<Self, ConfigError> {
+        config.validate()?;
+        Ok(Self {
+            arm: PuppyArm::new_with_config(&config.arm, now_ms)?,
+            drive: DriveController::new(config.drive, now_ms),
+            protocol: ProtocolState {
+                config: RobotConfig {
+                    steering_servo_id: config.drive.steering_servo_id,
+                    arm_servo_ids: config.arm.servo_ids(),
+                },
+                telemetry_enabled: false,
+            },
+            telemetry_seq: 0,
+            last_steering_sent: None,
+        })
+    }
+
     pub fn handle_event(&mut self, event: ProtocolEvent, now_ms: u64) {
+        if let Err(err) = self.try_handle_event(event, now_ms) {
+            log::warn!("robot event rejected: {:?}", err);
+        }
+    }
+
+    pub fn try_handle_event(
+        &mut self,
+        event: ProtocolEvent,
+        now_ms: u64,
+    ) -> Result<(), ControllerError> {
         match event {
             ProtocolEvent::Arm(command) => {
-                self.arm.handle_arm_cmd(command, now_ms);
+                self.arm.try_handle_arm_cmd(command, now_ms)?;
             }
             ProtocolEvent::Drive(command) => {
                 self.drive.handle_command(command, now_ms);
             }
         }
+        Ok(())
     }
 
     pub fn handle_frame(&mut self, frame: &[u8], now_ms: u64) -> ProtocolOutput {
@@ -108,23 +137,17 @@ impl Puppybot {
         B: SerialBus,
         B::Error: core::fmt::Debug,
     {
-        for servo_id in FIRST_ARM_SERVO_ID..=LAST_ARM_SERVO_ID {
+        for joint in 0..JOINT_COUNT {
+            let Some(servo_id) = self.arm.joint_servo_id(joint) else {
+                continue;
+            };
             match servo.read_position(servo_id).await {
                 Ok(tick) => {
-                    if servo_id >= FIRST_ARM_SERVO_ID {
-                        self.arm.record_feedback(
-                            (servo_id - FIRST_ARM_SERVO_ID) as usize,
-                            tick,
-                            now_ms,
-                        );
-                    }
+                    self.arm.record_feedback(joint, tick, now_ms);
                 }
                 Err(err) => {
                     log::warn!("read position failed for servo {}: {:?}", servo_id, err);
-                    if servo_id >= FIRST_ARM_SERVO_ID {
-                        self.arm
-                            .record_feedback_error((servo_id - FIRST_ARM_SERVO_ID) as usize);
-                    }
+                    self.arm.record_feedback_error(joint);
                 }
             }
         }
@@ -266,6 +289,9 @@ impl Default for Puppybot {
 mod tests {
     use super::*;
     use crate::{
+        config::{
+            JointCalibration, PUPPYBOT_CONFIG_VERSION, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
+        },
         drive::DriveCommand,
         protocol::{CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_STOP_DRIVE, ProtocolEvent, command_frame},
         puppyarm::types::ArmCommand,
@@ -274,6 +300,38 @@ mod tests {
             mock::{FakeSerialBus, FakeServo, block_on_ready},
         },
     };
+
+    fn serial(value: &str) -> [u8; SERIAL_LEN] {
+        let mut serial = [0; SERIAL_LEN];
+        serial[..value.len()].copy_from_slice(value.as_bytes());
+        serial
+    }
+
+    fn joint(servo_id: u8) -> JointCalibration {
+        JointCalibration {
+            servo_id,
+            raw_tick_min: 0,
+            raw_tick_max: 4095,
+            soft_tick_min: 0,
+            soft_tick_max: 4095,
+            reference_tick: 2048,
+            reference_angle_rad: 0.0,
+            angle_sign: 1,
+            drive_sign: 1,
+            limit_enabled: true,
+        }
+    }
+
+    fn config_with_arm_servo_ids(ids: [u8; JOINT_COUNT]) -> PuppybotConfigV1 {
+        PuppybotConfigV1 {
+            version: PUPPYBOT_CONFIG_VERSION,
+            serial: serial("PB-DEV-0001"),
+            drive: Default::default(),
+            arm: PuppyArmConfig {
+                joints: [joint(ids[0]), joint(ids[1]), joint(ids[2]), joint(ids[3])],
+            },
+        }
+    }
 
     #[test]
     fn handle_frame_updates_drive_output() {
@@ -365,5 +423,25 @@ mod tests {
 
         assert_eq!(servo.bus().servo(1).unwrap().wheel_speed, 300);
         assert_eq!(robot.arm_telemetry().joints[0].tick, Some(0));
+    }
+
+    #[test]
+    fn run_once_reads_feedback_from_configured_arm_servo_ids() {
+        let config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut servo = StServo::new(bus);
+
+        block_on_ready(robot.run_once(&mut servo, 20, || None));
+
+        let telemetry = robot.arm_telemetry();
+        assert_eq!(telemetry.joints[0].servo_id, 11);
+        assert_eq!(telemetry.joints[0].tick, Some(101));
+        assert_eq!(telemetry.joints[1].tick, Some(202));
+        assert_eq!(telemetry.joints[2].tick, Some(303));
+        assert_eq!(telemetry.joints[3].tick, Some(404));
     }
 }
