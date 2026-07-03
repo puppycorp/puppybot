@@ -73,6 +73,7 @@ enum ArmCommand {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum TcpFrameArg {
     Base,
+    YawFlat,
     Tool,
 }
 
@@ -219,17 +220,13 @@ fn tcp_frame_id(frame: TcpFrameArg) -> u8 {
     match frame {
         TcpFrameArg::Base => 0,
         TcpFrameArg::Tool => 1,
+        TcpFrameArg::YawFlat => 2,
     }
 }
 
 fn move_tcp_delta(args: &MoveTcpArgs) -> (f32, f32, f32) {
     match args.frame {
-        TcpFrameArg::Base => (
-            args.back - args.forward,
-            args.left - args.right,
-            args.up - args.down,
-        ),
-        TcpFrameArg::Tool => (
+        TcpFrameArg::Base | TcpFrameArg::YawFlat | TcpFrameArg::Tool => (
             args.forward - args.back,
             args.left - args.right,
             args.up - args.down,
@@ -260,11 +257,15 @@ fn print_config(config: RobotConfig) {
 }
 
 fn print_arm_state(state: ArmState) {
-    println!("servo\tonline\tfeedback\ttick\ttarget\tspeed\tlimits\tangle\tfault");
+    println!("servo\tonline\tfeedback\ttick\ttarget\ttarget_angle\tspeed\tlimits\tangle\tfault");
     for joint in state.joints {
         let target = joint
             .target_tick
             .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let target_angle = joint
+            .target_angle_deg
+            .map(|value| format!("{value:.2}"))
             .unwrap_or_else(|| "-".to_string());
         let fault = joint.fault.unwrap_or_else(|| {
             if joint.has_fault {
@@ -277,12 +278,13 @@ fn print_arm_state(state: ArmState) {
         let feedback = if joint.has_feedback { "yes" } else { "no" };
         let limit = if joint.limit_reached { "!" } else { "" };
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}..{}{}\t{:.2}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}..{}{}\t{:.2}\t{}",
             joint.servo_id,
             online,
             feedback,
             joint.tick,
             target,
+            target_angle,
             joint.speed,
             joint.limit_min,
             joint.limit_max,
@@ -293,6 +295,9 @@ fn print_arm_state(state: ArmState) {
     }
     if let Some([x, y, z]) = state.coords_mm {
         println!("coords_mm={x:.1},{y:.1},{z:.1}");
+    }
+    if let Some([x, y, z]) = state.target_coords_mm {
+        println!("target_coords_mm={x:.1},{y:.1},{z:.1}");
     }
 }
 
@@ -363,7 +368,17 @@ mod tests {
         args.forward = 30.0;
         args.left = 5.0;
 
-        assert_eq!(move_tcp_delta(&args), (-30.0, 5.0, 20.0));
+        assert_eq!(move_tcp_delta(&args), (30.0, 5.0, 20.0));
+    }
+
+    #[test]
+    fn yaw_flat_move_tcp_aliases_map_to_body_delta() {
+        let mut args = args(TcpFrameArg::YawFlat);
+        args.up = 20.0;
+        args.forward = 30.0;
+        args.left = 5.0;
+
+        assert_eq!(move_tcp_delta(&args), (30.0, 5.0, 20.0));
     }
 
     #[test]
@@ -383,6 +398,19 @@ mod tests {
 
         assert_eq!(&body[0..2], &300u16.to_le_bytes());
         assert_eq!(body[2], 1);
+        assert_eq!(f32::from_le_bytes(body[3..7].try_into().unwrap()), 10.0);
+        assert_eq!(f32::from_le_bytes(body[7..11].try_into().unwrap()), 0.0);
+        assert_eq!(f32::from_le_bytes(body[11..15].try_into().unwrap()), 0.0);
+    }
+
+    #[test]
+    fn move_tcp_body_encodes_yaw_flat_frame() {
+        let mut args = args(TcpFrameArg::YawFlat);
+        args.forward = 10.0;
+        let body = move_tcp_body(&args);
+
+        assert_eq!(&body[0..2], &300u16.to_le_bytes());
+        assert_eq!(body[2], 2);
         assert_eq!(f32::from_le_bytes(body[3..7].try_into().unwrap()), 10.0);
         assert_eq!(f32::from_le_bytes(body[7..11].try_into().unwrap()), 0.0);
         assert_eq!(f32::from_le_bytes(body[11..15].try_into().unwrap()), 0.0);

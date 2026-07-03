@@ -5,6 +5,7 @@ pub const JOINT_COUNT: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TcpFrame {
     Base,
+    YawFlat,
     Tool,
 }
 
@@ -101,6 +102,7 @@ pub struct PuppyarmTelemetry {
     pub seq: u32,
     pub joints: [Joint; JOINT_COUNT],
     pub coords_mm: Option<(f32, f32, f32)>,
+    pub target_coords_mm: Option<(f32, f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -120,6 +122,7 @@ pub struct Joint {
     pub limit_reached: bool,
     pub tick: Option<i32>,
     pub target_tick: Option<i32>,
+    pub target_angle_deg: Option<f32>,
     pub tick_delta: i32,
     pub limit_enabled: bool,
     pub speed: i16,
@@ -152,6 +155,7 @@ impl Joint {
             limit_reached: false,
             tick: None,
             target_tick: None,
+            target_angle_deg: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,

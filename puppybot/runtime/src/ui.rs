@@ -25,6 +25,7 @@ const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
 const UI_LIMIT_STEP_TICKS: i32 = 10;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
+const DEFAULT_GOTO_ANGLE_DEG: f64 = 90.0;
 
 #[derive(Clone, Debug, WguiModel)]
 pub(crate) struct RuntimeUiConfig {
@@ -302,6 +303,22 @@ fn initial_goto_angle_inputs(robot: &Arc<Mutex<RuntimeRobot>>) -> [String; JOINT
     })
 }
 
+fn target_angle_inputs(joints: &[Joint; JOINT_COUNT]) -> Option<[String; JOINT_COUNT]> {
+    let mut angles = [0.0; JOINT_COUNT];
+    for (index, joint) in joints.iter().enumerate() {
+        angles[index] = joint.target_angle_deg?;
+    }
+    Some(std::array::from_fn(|index| format!("{:.1}", angles[index])))
+}
+
+fn coordinate_inputs(coords_mm: (f32, f32, f32)) -> (String, String, String) {
+    (
+        format!("{:.1}", coords_mm.0),
+        format!("{:.1}", coords_mm.1),
+        format!("{:.1}", coords_mm.2),
+    )
+}
+
 fn coordinate_command(command: ArmCommand) -> bool {
     matches!(
         command,
@@ -556,6 +573,7 @@ impl RuntimeUiController {
     fn tcp_frame_label(&self) -> &'static str {
         match self.tcp_frame {
             TcpFrame::Base => "Base",
+            TcpFrame::YawFlat => "Yaw-flat",
             TcpFrame::Tool => "Tool",
         }
     }
@@ -563,6 +581,7 @@ impl RuntimeUiController {
     fn tcp_frame_detail(&self) -> &'static str {
         match self.tcp_frame {
             TcpFrame::Base => "moves along robot base axes",
+            TcpFrame::YawFlat => "moves along current yaw in the horizontal plane",
             TcpFrame::Tool => "moves along current TCP/tool axes",
         }
     }
@@ -774,7 +793,7 @@ impl RuntimeUiController {
         self.coordinate_z = format!("{z_table:.1}");
         self.coordinate_error.clear();
         let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
-        let _ = self.arm(
+        let result = self.arm(
             label,
             ArmCommand::GotoCoords {
                 x,
@@ -782,13 +801,26 @@ impl RuntimeUiController {
                 z: kinematics::table_to_shoulder_z(z_table),
             },
         );
+        if result.is_ok() {
+            self.sync_goto_angles_from_targets();
+        }
     }
 
-    fn nudge_coordinates(&mut self, label: &str, dx: f64, dy: f64, dz_table: f64) {
-        let Some((x, y, z_table)) = self.parse_coordinates() else {
-            return;
-        };
-        self.move_to_coordinate_target(label, x + dx, y + dy, z_table + dz_table);
+    fn nudge_coordinates_relative(&mut self, label: &str, dx: f64, dy: f64, dz_table: f64) {
+        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let result = self.arm(
+            label,
+            ArmCommand::MoveTcpRelative {
+                frame: TcpFrame::YawFlat,
+                dx_mm: dx,
+                dy_mm: dy,
+                dz_mm: dz_table,
+            },
+        );
+        if result.is_ok() {
+            self.sync_coordinates_from_target();
+            self.sync_goto_angles_from_targets();
+        }
     }
 
     fn move_to_goto_angles(&mut self, label: &str) {
@@ -796,7 +828,47 @@ impl RuntimeUiController {
             return;
         };
         let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
-        let _ = self.arm(label, ArmCommand::GotoAngles(angles_rad));
+        let result = self.arm(label, ArmCommand::GotoAngles(angles_rad));
+        if result.is_ok() {
+            self.sync_coordinates_from_target();
+        }
+    }
+
+    fn move_to_default_goto_angles(&mut self) {
+        self.goto_angle_yaw = format!("{DEFAULT_GOTO_ANGLE_DEG:.1}");
+        self.goto_angle_shoulder = format!("{DEFAULT_GOTO_ANGLE_DEG:.1}");
+        self.goto_angle_elbow = format!("{DEFAULT_GOTO_ANGLE_DEG:.1}");
+        self.goto_angle_wrist = format!("{DEFAULT_GOTO_ANGLE_DEG:.1}");
+        self.goto_angle_error.clear();
+        self.move_to_goto_angles("move to default target angles");
+    }
+
+    fn sync_goto_angles_from_targets(&mut self) {
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        if let Some(angles) = target_angle_inputs(&telemetry.joints) {
+            self.goto_angle_yaw = angles[0].clone();
+            self.goto_angle_shoulder = angles[1].clone();
+            self.goto_angle_elbow = angles[2].clone();
+            self.goto_angle_wrist = angles[3].clone();
+            self.goto_angle_error.clear();
+        }
+    }
+
+    fn sync_coordinates_from_target(&mut self) {
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        if let Some(coords_mm) = telemetry.target_coords_mm {
+            let (x, y, z) = coordinate_inputs(coords_mm);
+            self.coordinate_x = x;
+            self.coordinate_y = y;
+            self.coordinate_z = z;
+            self.coordinate_error.clear();
+        }
     }
 
     pub(crate) fn drive_forward(&mut self) {
@@ -988,6 +1060,14 @@ impl RuntimeUiController {
         self.move_to_goto_angles("move to target angles");
     }
 
+    pub(crate) fn goto_default_angles_start(&mut self) {
+        self.move_to_default_goto_angles();
+    }
+
+    pub(crate) fn goto_default_angles_refresh(&mut self) {
+        self.move_to_default_goto_angles();
+    }
+
     pub(crate) fn goto_angles_stop(&mut self) {
         let _ = self.arm("stop target angles", ArmCommand::StopAll);
     }
@@ -1078,7 +1158,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_forward(&mut self) {
-        self.nudge_coordinates("coordinate forward", UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates_relative("coordinate forward", UI_COORD_STEP_MM, 0.0, 0.0);
     }
 
     pub(crate) fn coordinate_forward_start(&mut self) {
@@ -1090,7 +1170,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_back(&mut self) {
-        self.nudge_coordinates("coordinate back", -UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates_relative("coordinate back", -UI_COORD_STEP_MM, 0.0, 0.0);
     }
 
     pub(crate) fn coordinate_back_start(&mut self) {
@@ -1102,7 +1182,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_left(&mut self) {
-        self.nudge_coordinates("coordinate left", 0.0, UI_COORD_STEP_MM, 0.0);
+        self.nudge_coordinates_relative("coordinate left", 0.0, UI_COORD_STEP_MM, 0.0);
     }
 
     pub(crate) fn coordinate_left_start(&mut self) {
@@ -1114,7 +1194,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_right(&mut self) {
-        self.nudge_coordinates("coordinate right", 0.0, -UI_COORD_STEP_MM, 0.0);
+        self.nudge_coordinates_relative("coordinate right", 0.0, -UI_COORD_STEP_MM, 0.0);
     }
 
     pub(crate) fn coordinate_right_start(&mut self) {
@@ -1126,7 +1206,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_up(&mut self) {
-        self.nudge_coordinates("coordinate up", 0.0, 0.0, UI_COORD_STEP_MM);
+        self.nudge_coordinates_relative("coordinate up", 0.0, 0.0, UI_COORD_STEP_MM);
     }
 
     pub(crate) fn coordinate_up_start(&mut self) {
@@ -1138,7 +1218,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_down(&mut self) {
-        self.nudge_coordinates("coordinate down", 0.0, 0.0, -UI_COORD_STEP_MM);
+        self.nudge_coordinates_relative("coordinate down", 0.0, 0.0, -UI_COORD_STEP_MM);
     }
 
     pub(crate) fn coordinate_down_start(&mut self) {
@@ -1347,6 +1427,23 @@ mod tests {
         RuntimeUiController::new(test_ui_config(), robot)
     }
 
+    fn goto_angle_inputs(controller: &RuntimeUiController) -> [String; JOINT_COUNT] {
+        [
+            controller.goto_angle_yaw.clone(),
+            controller.goto_angle_shoulder.clone(),
+            controller.goto_angle_elbow.clone(),
+            controller.goto_angle_wrist.clone(),
+        ]
+    }
+
+    fn current_coordinate_inputs(controller: &RuntimeUiController) -> (String, String, String) {
+        (
+            controller.coordinate_x.clone(),
+            controller.coordinate_y.clone(),
+            controller.coordinate_z.clone(),
+        )
+    }
+
     #[test]
     fn unreachable_coordinate_error_mentions_target() {
         let err = arm_command_error_text(
@@ -1371,7 +1468,7 @@ mod tests {
     }
 
     #[test]
-    fn coordinate_forward_increases_x_target() {
+    fn coordinate_forward_reports_missing_feedback_without_using_inputs() {
         let mut controller = test_controller();
         controller.edit_coordinate_x("100.0".to_string());
         controller.edit_coordinate_y("0.0".to_string());
@@ -1379,13 +1476,19 @@ mod tests {
 
         controller.coordinate_forward();
 
-        assert_eq!(controller.coordinate_x, "105.0");
-        assert_eq!(controller.coordinate_y, "0.0");
-        assert_eq!(controller.coordinate_z, "80.0");
+        assert_eq!(controller.coordinate_error, "current position unavailable");
+        assert_eq!(
+            controller.last_command,
+            "coordinate forward rejected: MissingFeedback"
+        );
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            ("100.0".to_string(), "0.0".to_string(), "80.0".to_string())
+        );
     }
 
     #[test]
-    fn coordinate_back_decreases_x_target() {
+    fn coordinate_back_reports_missing_feedback_without_using_inputs() {
         let mut controller = test_controller();
         controller.edit_coordinate_x("100.0".to_string());
         controller.edit_coordinate_y("0.0".to_string());
@@ -1393,9 +1496,115 @@ mod tests {
 
         controller.coordinate_back();
 
-        assert_eq!(controller.coordinate_x, "95.0");
-        assert_eq!(controller.coordinate_y, "0.0");
-        assert_eq!(controller.coordinate_z, "80.0");
+        assert_eq!(controller.coordinate_error, "current position unavailable");
+        assert_eq!(
+            controller.last_command,
+            "coordinate back rejected: MissingFeedback"
+        );
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            ("100.0".to_string(), "0.0".to_string(), "80.0".to_string())
+        );
+    }
+
+    #[test]
+    fn coordinate_left_reports_missing_feedback_without_using_inputs() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("100.0".to_string());
+        controller.edit_coordinate_y("0.0".to_string());
+        controller.edit_coordinate_z("80.0".to_string());
+
+        controller.coordinate_left();
+
+        assert_eq!(controller.coordinate_error, "current position unavailable");
+        assert_eq!(
+            controller.last_command,
+            "coordinate left rejected: MissingFeedback"
+        );
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            ("100.0".to_string(), "0.0".to_string(), "80.0".to_string())
+        );
+    }
+
+    #[test]
+    fn coordinate_up_reports_missing_feedback_without_using_inputs() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("100.0".to_string());
+        controller.edit_coordinate_y("0.0".to_string());
+        controller.edit_coordinate_z("80.0".to_string());
+
+        controller.coordinate_up();
+
+        assert_eq!(controller.coordinate_error, "current position unavailable");
+        assert_eq!(
+            controller.last_command,
+            "coordinate up rejected: MissingFeedback"
+        );
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            ("100.0".to_string(), "0.0".to_string(), "80.0".to_string())
+        );
+    }
+
+    #[test]
+    fn coordinate_move_updates_goto_angle_inputs_from_target_telemetry() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("91.0".to_string());
+        controller.edit_goto_angle_shoulder("92.0".to_string());
+        controller.edit_goto_angle_elbow("93.0".to_string());
+        controller.edit_goto_angle_wrist("94.0".to_string());
+        controller.edit_coordinate_x("-200.0".to_string());
+        controller.edit_coordinate_y("0.0".to_string());
+        controller.edit_coordinate_z("75.0".to_string());
+
+        controller.move_to_coordinates();
+
+        let telemetry = controller.robot.lock().unwrap().arm_telemetry();
+        assert_eq!(
+            goto_angle_inputs(&controller),
+            target_angle_inputs(&telemetry.joints).unwrap()
+        );
+        assert_ne!(
+            goto_angle_inputs(&controller),
+            [
+                "91.0".to_string(),
+                "92.0".to_string(),
+                "93.0".to_string(),
+                "94.0".to_string(),
+            ]
+        );
+        assert_eq!(controller.coordinate_error, "");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn rejected_coordinate_move_leaves_goto_angle_inputs_unchanged() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("11.0".to_string());
+        controller.edit_goto_angle_shoulder("12.0".to_string());
+        controller.edit_goto_angle_elbow("13.0".to_string());
+        controller.edit_goto_angle_wrist("14.0".to_string());
+        controller.edit_coordinate_x("1000.0".to_string());
+        controller.edit_coordinate_y("20.0".to_string());
+        controller.edit_coordinate_z("80.0".to_string());
+
+        controller.move_to_coordinates();
+
+        assert_eq!(
+            goto_angle_inputs(&controller),
+            [
+                "11.0".to_string(),
+                "12.0".to_string(),
+                "13.0".to_string(),
+                "14.0".to_string(),
+            ]
+        );
+        assert_eq!(
+            controller.coordinate_error,
+            "target unreachable: 1000.0, 20.0, 80.0 mm"
+        );
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
     }
 
     #[test]
@@ -1454,6 +1663,33 @@ mod tests {
     }
 
     #[test]
+    fn goto_angles_start_updates_coordinate_inputs_from_target_coords() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("1.0".to_string());
+        controller.edit_coordinate_y("2.0".to_string());
+        controller.edit_coordinate_z("3.0".to_string());
+        controller.edit_goto_angle_yaw("10".to_string());
+        controller.edit_goto_angle_shoulder("70".to_string());
+        controller.edit_goto_angle_elbow("25".to_string());
+        controller.edit_goto_angle_wrist("-15".to_string());
+
+        controller.goto_angles_start();
+
+        let telemetry = controller.robot.lock().unwrap().arm_telemetry();
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            coordinate_inputs(telemetry.target_coords_mm.unwrap())
+        );
+        assert_ne!(
+            current_coordinate_inputs(&controller),
+            ("1.0".to_string(), "2.0".to_string(), "3.0".to_string())
+        );
+        assert_eq!(controller.goto_angle_error, "");
+        assert_eq!(controller.coordinate_error, "");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
     fn goto_angles_refresh_uses_motion_command_path() {
         let mut controller = test_controller();
         controller.edit_goto_angle_yaw("1".to_string());
@@ -1464,6 +1700,103 @@ mod tests {
         controller.goto_angles_refresh();
 
         assert_eq!(controller.last_command, "move to target angles");
+    }
+
+    #[test]
+    fn goto_angles_refresh_updates_coordinate_inputs_from_target_coords() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("10.0".to_string());
+        controller.edit_coordinate_y("20.0".to_string());
+        controller.edit_coordinate_z("30.0".to_string());
+        controller.edit_goto_angle_yaw("-5".to_string());
+        controller.edit_goto_angle_shoulder("80".to_string());
+        controller.edit_goto_angle_elbow("15".to_string());
+        controller.edit_goto_angle_wrist("5".to_string());
+
+        controller.goto_angles_refresh();
+
+        let telemetry = controller.robot.lock().unwrap().arm_telemetry();
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            coordinate_inputs(telemetry.target_coords_mm.unwrap())
+        );
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn goto_default_angles_start_moves_to_ninety_degree_targets() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("10.0".to_string());
+        controller.edit_coordinate_y("20.0".to_string());
+        controller.edit_coordinate_z("30.0".to_string());
+        controller.edit_goto_angle_yaw("1".to_string());
+        controller.edit_goto_angle_shoulder("2".to_string());
+        controller.edit_goto_angle_elbow("3".to_string());
+        controller.edit_goto_angle_wrist("4".to_string());
+
+        controller.goto_default_angles_start();
+
+        assert_eq!(
+            goto_angle_inputs(&controller),
+            [
+                "90.0".to_string(),
+                "90.0".to_string(),
+                "90.0".to_string(),
+                "90.0".to_string(),
+            ]
+        );
+        assert_eq!(controller.last_command, "move to default target angles");
+        let telemetry = controller.robot.lock().unwrap().arm_telemetry();
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            coordinate_inputs(telemetry.target_coords_mm.unwrap())
+        );
+        assert_eq!(controller.goto_angle_error, "");
+        assert_eq!(controller.coordinate_error, "");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn goto_default_angles_refresh_repeats_default_motion() {
+        let mut controller = test_controller();
+
+        controller.goto_default_angles_refresh();
+
+        assert_eq!(controller.last_command, "move to default target angles");
+        assert_eq!(
+            goto_angle_inputs(&controller),
+            [
+                "90.0".to_string(),
+                "90.0".to_string(),
+                "90.0".to_string(),
+                "90.0".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_goto_angles_leave_coordinate_inputs_unchanged() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("10.0".to_string());
+        controller.edit_coordinate_y("20.0".to_string());
+        controller.edit_coordinate_z("30.0".to_string());
+        controller.edit_goto_angle_yaw("0".to_string());
+        controller.edit_goto_angle_shoulder("not-a-number".to_string());
+        controller.edit_goto_angle_elbow("0".to_string());
+        controller.edit_goto_angle_wrist("0".to_string());
+
+        controller.goto_angles_start();
+
+        assert_eq!(
+            current_coordinate_inputs(&controller),
+            ("10.0".to_string(), "20.0".to_string(), "30.0".to_string())
+        );
+        assert_eq!(
+            controller.goto_angle_error,
+            "shoulder angle must be a number"
+        );
+        assert_eq!(controller.last_command, "none");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
     }
 
     #[test]

@@ -40,9 +40,10 @@ pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
             limit_min: joint.limit_min,
             limit_max: joint.limit_max,
             angle_deg: joint.angle_deg,
+            target_angle_deg: joint.target_angle_deg,
             fault: joint.fault.map(protocol::fault_name),
         });
-    protocol::arm_state_frame(&joints, telemetry.coords_mm)
+    protocol::arm_state_frame(&joints, telemetry.coords_mm, telemetry.target_coords_mm)
 }
 
 impl Puppybot {

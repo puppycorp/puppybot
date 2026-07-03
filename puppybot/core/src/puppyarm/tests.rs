@@ -8,7 +8,9 @@ use super::{
 };
 
 const EPS: f64 = 1.0e-6;
+const COORD_EPS_MM: f32 = 1.0;
 const ANGLE_EPS_DEG: f32 = 1.0e-4;
+const TARGET_ANGLE_EPS_DEG: f32 = 0.1;
 const YAW_REFERENCE_TICK: u16 = 2048;
 const SHOULDER_REFERENCE_TICK: u16 = 530;
 const ELBOW_REFERENCE_TICK: u16 = 3565;
@@ -28,6 +30,18 @@ fn assert_close_f32(left: f32, right: f32) {
         "left={left} right={right} diff={}",
         (left - right).abs()
     );
+}
+
+fn assert_close_f32_eps(left: f32, right: f32, epsilon: f32) {
+    assert!(
+        (left - right).abs() <= epsilon,
+        "left={left} right={right} diff={}",
+        (left - right).abs()
+    );
+}
+
+fn assert_close_mm(left: f32, right: f32) {
+    assert_close_f32_eps(left, right, COORD_EPS_MM);
 }
 
 fn arm_with_reference_feedback() -> PuppyArm {
@@ -74,9 +88,9 @@ fn assert_target_ticks_close(left: [Option<i32>; JOINT_COUNT], right: [Option<i3
 }
 
 #[test]
-fn fk_straight_forward_pose_maps_to_negative_x_extent() {
+fn fk_straight_forward_pose_maps_to_positive_x_extent() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
-    assert_close(x, -432.0);
+    assert_close(x, 432.0);
     assert_close(y, 0.0);
     assert_close(z, 0.0);
 }
@@ -84,16 +98,16 @@ fn fk_straight_forward_pose_maps_to_negative_x_extent() {
 #[test]
 fn fk_tip_down_pose_adds_tool_height_in_z() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, PI / 2.0);
-    assert_close(x, -302.0);
+    assert_close(x, 302.0);
     assert_close(y, 0.0);
     assert_close(z, -130.0);
 }
 
 #[test]
-fn ik_straight_reach_along_x_uses_roboband_yaw_convention() {
+fn ik_straight_reach_along_positive_x_uses_zero_yaw() {
     let result = ik(ARM_L1_MM + ARM_L2_MM, 0.0, -ARM_L3_MM);
     assert!(result.reachable);
-    assert_close(result.yaw, PI);
+    assert_close(result.yaw, 0.0);
     assert_close(result.shoulder, 0.0);
     assert_close(result.elbow, 0.0);
 }
@@ -149,6 +163,54 @@ fn tick_to_angle_matches_joint_calibration_reference_points() {
     assert_close_f32(telemetry.joints[1].angle_deg.unwrap(), 90.0);
     assert_close_f32(telemetry.joints[2].angle_deg.unwrap(), 0.0);
     assert_close_f32(telemetry.joints[3].angle_deg.unwrap(), 0.0);
+}
+
+#[test]
+fn goto_ticks_telemetry_exposes_target_angles() {
+    let mut arm = PuppyArm::new(0);
+
+    arm.handle_arm_cmd(
+        ArmCommand::GotoTicks([
+            i32::from(YAW_REFERENCE_TICK),
+            i32::from(SHOULDER_REFERENCE_TICK),
+            i32::from(ELBOW_REFERENCE_TICK),
+            i32::from(TIP_REFERENCE_TICK),
+        ]),
+        10,
+    );
+    let telemetry = arm.telemetry_snapshot(0);
+
+    assert_close_f32(telemetry.joints[0].target_angle_deg.unwrap(), 0.0);
+    assert_close_f32(telemetry.joints[1].target_angle_deg.unwrap(), 90.0);
+    assert_close_f32(telemetry.joints[2].target_angle_deg.unwrap(), 0.0);
+    assert_close_f32(telemetry.joints[3].target_angle_deg.unwrap(), 0.0);
+    assert!(telemetry.target_coords_mm.is_some());
+}
+
+#[test]
+fn goto_angles_telemetry_exposes_target_angles_and_coords() {
+    let mut arm = PuppyArm::new(0);
+    let target_angles_deg = [10.0_f32, 70.0, 25.0, -15.0];
+
+    arm.handle_arm_cmd(
+        ArmCommand::GotoAngles([
+            (target_angles_deg[0] as f64).to_radians(),
+            (target_angles_deg[1] as f64).to_radians(),
+            (target_angles_deg[2] as f64).to_radians(),
+            (target_angles_deg[3] as f64).to_radians(),
+        ]),
+        10,
+    );
+    let telemetry = arm.telemetry_snapshot(0);
+
+    for (joint, expected) in telemetry.joints.iter().zip(target_angles_deg) {
+        assert_close_f32_eps(
+            joint.target_angle_deg.unwrap(),
+            expected,
+            TARGET_ANGLE_EPS_DEG,
+        );
+    }
+    assert!(telemetry.target_coords_mm.is_some());
 }
 
 #[test]
@@ -444,7 +506,7 @@ fn goto_coords_searches_wrist_pitch_to_stay_inside_joint_limits() {
 
     let result = arm.try_handle_arm_cmd(
         ArmCommand::GotoCoords {
-            x: -200.0,
+            x: 200.0,
             y: 0.0,
             z: 75.0,
         },
@@ -457,6 +519,13 @@ fn goto_coords_searches_wrist_pitch_to_stay_inside_joint_limits() {
         telemetry.joints[0].target_tick,
         Some(YAW_REFERENCE_TICK as i32)
     );
+    assert!(
+        telemetry
+            .joints
+            .iter()
+            .all(|joint| joint.target_angle_deg.is_some())
+    );
+    assert!(telemetry.target_coords_mm.is_some());
     assert!(telemetry.joints[3].target_tick.unwrap() <= TIP_TICK_MAX);
 }
 
@@ -567,6 +636,154 @@ fn move_tcp_relative_base_matches_absolute_target() {
 }
 
 #[test]
+fn yaw_flat_forward_at_zero_yaw_moves_positive_x_and_preserves_z() {
+    let mut arm = arm_with_angle_feedback([
+        0.0,
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ]);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
+    assert_close_mm(target.0, start.0 + 10.0);
+    assert_close_mm(target.1, start.1);
+    assert_close_mm(target.2, start.2);
+}
+
+#[test]
+fn yaw_flat_forward_at_ninety_yaw_moves_positive_y_and_preserves_z() {
+    let mut arm = arm_with_angle_feedback([
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ]);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
+    assert_close_mm(target.0, start.0);
+    assert_close_mm(target.1, start.1 + 10.0);
+    assert_close_mm(target.2, start.2);
+}
+
+#[test]
+fn yaw_flat_left_at_zero_yaw_moves_positive_y_and_preserves_z() {
+    let mut arm = arm_with_angle_feedback([
+        0.0,
+        50.0_f64.to_radians(),
+        40.0_f64.to_radians(),
+        100.0_f64.to_radians(),
+    ]);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 0.0,
+            dy_mm: 10.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
+    assert_close_mm(target.0, start.0);
+    assert_close_mm(target.1, start.1 + 10.0);
+    assert_close_mm(target.2, start.2);
+}
+
+#[test]
+fn yaw_flat_xy_relative_moves_preserve_target_z() {
+    let poses = [
+        [
+            0.0_f64.to_radians(),
+            50.0_f64.to_radians(),
+            40.0_f64.to_radians(),
+            100.0_f64.to_radians(),
+        ],
+        [
+            45.0_f64.to_radians(),
+            55.0_f64.to_radians(),
+            35.0_f64.to_radians(),
+            110.0_f64.to_radians(),
+        ],
+        [
+            (-60.0_f64).to_radians(),
+            60.0_f64.to_radians(),
+            45.0_f64.to_radians(),
+            105.0_f64.to_radians(),
+        ],
+    ];
+    let xy_deltas = [
+        (10.0, 0.0),
+        (-10.0, 0.0),
+        (0.0, 10.0),
+        (0.0, -10.0),
+        (25.0, 0.0),
+        (-25.0, 0.0),
+        (0.0, 25.0),
+        (0.0, -25.0),
+        (50.0, 0.0),
+        (-50.0, 0.0),
+        (7.0, 7.0),
+        (-7.0, 7.0),
+        (7.0, -7.0),
+        (25.0, 25.0),
+        (-25.0, 25.0),
+        (25.0, -25.0),
+    ];
+
+    let mut checked_moves = 0;
+    for pose in poses {
+        let start = arm_with_angle_feedback(pose).telemetry_snapshot(0);
+        let start_z = start.coords_mm.unwrap().2;
+
+        for (dx_mm, dy_mm) in xy_deltas {
+            let mut arm = arm_with_angle_feedback(pose);
+            let result = arm.try_handle_arm_cmd(
+                ArmCommand::MoveTcpRelative {
+                    frame: TcpFrame::YawFlat,
+                    dx_mm,
+                    dy_mm,
+                    dz_mm: 0.0,
+                },
+                10,
+            );
+
+            if result == Err(ControllerError::Ik(IkError::Unreachable)) {
+                continue;
+            }
+            assert_eq!(result, Ok(()), "pose={pose:?} dx={dx_mm} dy={dy_mm}");
+            let target_z = arm.telemetry_snapshot(0).target_coords_mm.unwrap().2;
+            assert_close_mm(target_z, start_z);
+            checked_moves += 1;
+        }
+    }
+    assert!(checked_moves >= 16, "checked_moves={checked_moves}");
+}
+
+#[test]
 fn move_tcp_relative_tool_forward_uses_current_tool_orientation() {
     let pose = [
         0.0,
@@ -633,6 +850,43 @@ fn move_tcp_relative_unreachable_target_keeps_existing_targets() {
     );
 
     assert_eq!(target_ticks(&arm), before);
+}
+
+#[test]
+fn yaw_flat_unreachable_xy_move_keeps_existing_target_and_z() {
+    let mut arm = arm_with_angle_feedback([
+        0.0,
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ]);
+    arm.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        0,
+    );
+    let before = arm.telemetry_snapshot(0);
+    let before_ticks = target_ticks(&arm);
+    let before_target_z = before.target_coords_mm.unwrap().2;
+
+    let result = arm.try_handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 1000.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+    let after = arm.telemetry_snapshot(0);
+
+    assert_eq!(result, Err(ControllerError::Ik(IkError::Unreachable)));
+    assert_eq!(target_ticks(&arm), before_ticks);
+    assert_close_mm(after.target_coords_mm.unwrap().2, before_target_z);
 }
 
 #[test]

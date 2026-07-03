@@ -65,7 +65,7 @@ pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult
     let (yaw, r_xy) = if x * x + y * y < NEAR_ZERO_XY {
         (0.0, 0.0)
     } else {
-        (libm::atan2(y, -x), libm::sqrt(x * x + y * y))
+        (libm::atan2(y, x), libm::sqrt(x * x + y * y))
     };
 
     let (wrist_x, wrist_y, zw) = tooltip_target_to_wrist_target(x, y, z, tool_phi_rad);
@@ -106,7 +106,7 @@ pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
     let r = ARM_L1_MM * libm::cos(shoulder)
         + ARM_L2_MM * libm::cos(link2_pitch)
         + ARM_L3_MM * libm::cos(tool_pitch);
-    let x = -r * libm::cos(yaw);
+    let x = r * libm::cos(yaw);
     let y = r * libm::sin(yaw);
     let z = ARM_L1_MM * libm::sin(shoulder)
         + ARM_L2_MM * libm::sin(link2_pitch)

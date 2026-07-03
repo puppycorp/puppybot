@@ -55,6 +55,7 @@ pub const SUBSCRIPTION_TOPIC_ARM_STATE: u8 = 1;
 
 const DEFAULT_SERVO_SPEED: u16 = 2400;
 const MOTOR_TYPE_DC: u8 = 0;
+const ARM_STATE_TARGET_EXTENSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RobotConfig {
@@ -127,6 +128,7 @@ pub struct ProtocolJointTelemetry<'a> {
     pub limit_min: i32,
     pub limit_max: i32,
     pub angle_deg: Option<f32>,
+    pub target_angle_deg: Option<f32>,
     pub fault: Option<&'a [u8]>,
 }
 
@@ -168,6 +170,7 @@ fn read_tcp_frame(value: u8) -> Option<TcpFrame> {
     match value {
         0 => Some(TcpFrame::Base),
         1 => Some(TcpFrame::Tool),
+        2 => Some(TcpFrame::YawFlat),
         _ => None,
     }
 }
@@ -474,6 +477,7 @@ pub fn command_frame(cmd: u8, body: &[u8]) -> Vec<u8> {
 pub fn arm_state_frame(
     joints: &[ProtocolJointTelemetry<'_>],
     coords_mm: Option<(f32, f32, f32)>,
+    target_coords_mm: Option<(f32, f32, f32)>,
 ) -> Vec<u8> {
     let mut frame = Vec::with_capacity(256);
     frame.push((PUPPY_PROTOCOL_VERSION & 0xff) as u8);
@@ -513,6 +517,34 @@ pub fn arm_state_frame(
     }
 
     match coords_mm {
+        Some((x, y, z)) => {
+            frame.push(0x01);
+            frame.extend_from_slice(&x.to_le_bytes());
+            frame.extend_from_slice(&y.to_le_bytes());
+            frame.extend_from_slice(&z.to_le_bytes());
+        }
+        None => {
+            frame.push(0x00);
+            frame.extend_from_slice(&0.0f32.to_le_bytes());
+            frame.extend_from_slice(&0.0f32.to_le_bytes());
+            frame.extend_from_slice(&0.0f32.to_le_bytes());
+        }
+    }
+
+    frame.push(ARM_STATE_TARGET_EXTENSION);
+    for joint in joints {
+        match joint.target_angle_deg {
+            Some(target_angle_deg) => {
+                frame.push(0x01);
+                frame.extend_from_slice(&target_angle_deg.to_le_bytes());
+            }
+            None => {
+                frame.push(0x00);
+                frame.extend_from_slice(&0.0f32.to_le_bytes());
+            }
+        }
+    }
+    match target_coords_mm {
         Some((x, y, z)) => {
             frame.push(0x01);
             frame.extend_from_slice(&x.to_le_bytes());
@@ -756,7 +788,7 @@ mod tests {
         let mut state = ProtocolState::default();
         let mut body = Vec::new();
         body.extend_from_slice(&300u16.to_le_bytes());
-        body.push(1);
+        body.push(2);
         body.extend_from_slice(&10.0f32.to_le_bytes());
         body.extend_from_slice(&20.0f32.to_le_bytes());
         body.extend_from_slice(&30.0f32.to_le_bytes());
@@ -769,7 +801,7 @@ mod tests {
             vec![
                 ProtocolEvent::Arm(ArmCommand::SetSpeed(300)),
                 ProtocolEvent::Arm(ArmCommand::MoveTcpRelative {
-                    frame: TcpFrame::Tool,
+                    frame: TcpFrame::YawFlat,
                     dx_mm: 10.0,
                     dy_mm: 20.0,
                     dz_mm: 30.0,
@@ -926,10 +958,11 @@ mod tests {
             limit_min: -500,
             limit_max: 1300,
             angle_deg: Some(12.5),
+            target_angle_deg: Some(45.0),
             fault: Some(b"stall"),
         }];
 
-        let frame = arm_state_frame(&joints, Some((1.0, 2.0, 3.0)));
+        let frame = arm_state_frame(&joints, Some((1.0, 2.0, 3.0)), Some((4.0, 5.0, 6.0)));
 
         assert_eq!(frame[0], 1);
         assert_eq!(frame[1], 0);
@@ -952,6 +985,17 @@ mod tests {
         assert_eq!(
             f32::from_le_bytes([frame[35], frame[36], frame[37], frame[38]]),
             1.0
+        );
+        assert_eq!(frame[47], ARM_STATE_TARGET_EXTENSION);
+        assert_eq!(frame[48], 1);
+        assert_eq!(
+            f32::from_le_bytes([frame[49], frame[50], frame[51], frame[52]]),
+            45.0
+        );
+        assert_eq!(frame[53], 1);
+        assert_eq!(
+            f32::from_le_bytes([frame[54], frame[55], frame[56], frame[57]]),
+            4.0
         );
     }
 }

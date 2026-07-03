@@ -72,6 +72,7 @@
             <TextInput value={state.goto_angle_wrist} onTextChanged="EditGotoAngleWrist" placeholder="wrist" />
           </VStack>
           <Button text="Current" onClick="SetGotoAnglesCurrent" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 width=88 />
+          <Button text="Default" onPress="GotoDefaultAnglesStart" onRelease="GotoAnglesStop" onRepeat="GotoDefaultAnglesRefresh" repeatInterval=250 backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 width=88 />
           <Button text="Move Angles" onPress="GotoAnglesStart" onRelease="GotoAnglesStop" onRepeat="GotoAnglesRefresh" repeatInterval=250 backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 width=116 />
         </HStack>
         <Text value={state.goto_angle_error} color="#ffb8b8" breakWords=true />

@@ -8,6 +8,8 @@ use puppybot_core::protocol::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+const ARM_STATE_TARGET_EXTENSION: u8 = 1;
+
 pub(crate) struct RuntimeClient {
     ws: tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
@@ -27,6 +29,7 @@ pub(crate) enum RuntimeFrame {
 pub(crate) struct ArmState {
     pub(crate) joints: Vec<JointState>,
     pub(crate) coords_mm: Option<[f32; 3]>,
+    pub(crate) target_coords_mm: Option<[f32; 3]>,
 }
 
 #[derive(Debug)]
@@ -42,6 +45,7 @@ pub(crate) struct JointState {
     pub(crate) limit_min: i32,
     pub(crate) limit_max: i32,
     pub(crate) angle_deg: f32,
+    pub(crate) target_angle_deg: Option<f32>,
     pub(crate) fault: Option<String>,
 }
 
@@ -118,6 +122,7 @@ fn decode_arm_state(payload: &[u8]) -> Result<ArmState> {
             limit_min,
             limit_max,
             angle_deg,
+            target_angle_deg: None,
             fault,
         });
     }
@@ -131,8 +136,39 @@ fn decode_arm_state(payload: &[u8]) -> Result<ArmState> {
         ]),
         None => None,
     };
+    if payload.get(offset).is_some() {
+        offset += 13;
+    }
 
-    Ok(ArmState { joints, coords_mm })
+    let mut target_coords_mm = None;
+    if payload.get(offset).copied() == Some(ARM_STATE_TARGET_EXTENSION) {
+        offset += 1;
+        for joint in &mut joints {
+            let has_target_angle = *payload
+                .get(offset)
+                .context("short arm state target angle flag")?
+                != 0;
+            offset += 1;
+            let target_angle_deg = read_f32_le(payload, offset)?;
+            offset += 4;
+            joint.target_angle_deg = has_target_angle.then_some(target_angle_deg);
+        }
+        target_coords_mm = match payload.get(offset).copied() {
+            Some(0) => None,
+            Some(_) => Some([
+                read_f32_le(payload, offset + 1)?,
+                read_f32_le(payload, offset + 5)?,
+                read_f32_le(payload, offset + 9)?,
+            ]),
+            None => None,
+        };
+    }
+
+    Ok(ArmState {
+        joints,
+        coords_mm,
+        target_coords_mm,
+    })
 }
 
 fn decode_binary(payload: Vec<u8>) -> Result<RuntimeFrame> {

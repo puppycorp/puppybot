@@ -43,6 +43,26 @@ fn current_targets(joints: &[Joint; JOINT_COUNT]) -> Option<[i32; JOINT_COUNT]> 
     Some(targets)
 }
 
+fn target_angles(joints: &[Joint; JOINT_COUNT]) -> Option<[f64; JOINT_COUNT]> {
+    let mut angles = [0.0; JOINT_COUNT];
+    for (index, joint) in joints.iter().enumerate() {
+        let angle = tick_to_angle(joint, joint.target_tick?);
+        if !angle.is_finite() {
+            return None;
+        }
+        angles[index] = angle;
+    }
+    Some(angles)
+}
+
+fn table_coords(coords: (f64, f64, f64)) -> (f32, f32, f32) {
+    (
+        coords.0 as f32,
+        coords.1 as f32,
+        super::kinematics::shoulder_to_table_z(coords.2) as f32,
+    )
+}
+
 fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
     for (index, joint) in joints.iter().enumerate() {
         if joint.target_tick.is_none() && joint.speed != 0 {
@@ -76,6 +96,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             limit_reached: false,
             tick: None,
             target_tick: None,
+            target_angle_deg: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
@@ -111,6 +132,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             limit_reached: false,
             tick: None,
             target_tick: None,
+            target_angle_deg: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
@@ -146,6 +168,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             limit_reached: false,
             tick: None,
             target_tick: None,
+            target_angle_deg: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
@@ -181,6 +204,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             limit_reached: false,
             tick: None,
             target_tick: None,
+            target_angle_deg: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
@@ -505,13 +529,10 @@ impl PuppyArm {
     }
 
     pub fn telemetry_snapshot(&self, seq: u32) -> PuppyarmTelemetry {
-        let coords_mm = self.current_coords().ok().map(|(x, y, z)| {
-            (
-                x as f32,
-                y as f32,
-                super::kinematics::shoulder_to_table_z(z) as f32,
-            )
-        });
+        let coords_mm = self.current_coords().ok().map(table_coords);
+        let target_angles = target_angles(&self.joints);
+        let target_coords_mm = target_angles
+            .map(|angles| table_coords(kinematics::fk(angles[0], angles[1], angles[2], angles[3])));
 
         PuppyarmTelemetry {
             seq,
@@ -525,9 +546,12 @@ impl PuppyArm {
                     .joint_angle(index)
                     .ok()
                     .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32);
+                joint.target_angle_deg =
+                    target_angles.map(|angles| (angles[index] * RAD_TO_DEG) as f32);
                 joint
             }),
             coords_mm,
+            target_coords_mm,
         }
     }
 
@@ -897,6 +921,7 @@ impl PuppyArm {
         let (x, y, z_shoulder) = kinematics::fk(angles[0], angles[1], angles[2], angles[3]);
         let (dx, dy, dz) = match frame {
             TcpFrame::Base => (dx_mm, dy_mm, dz_mm),
+            TcpFrame::YawFlat => Self::yaw_flat_delta_to_base_delta(angles, dx_mm, dy_mm, dz_mm),
             TcpFrame::Tool => Self::tool_delta_to_base_delta(angles, dx_mm, dy_mm, dz_mm),
         };
         let z_table = kinematics::shoulder_to_table_z(z_shoulder);
@@ -906,6 +931,22 @@ impl PuppyArm {
             kinematics::table_to_shoulder_z(z_table + dz),
             tool_phi,
             now,
+        )
+    }
+
+    fn yaw_flat_delta_to_base_delta(
+        angles: [f64; JOINT_COUNT],
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
+    ) -> (f64, f64, f64) {
+        let yaw = angles[0];
+        let cos_yaw = libm::cos(yaw);
+        let sin_yaw = libm::sin(yaw);
+        (
+            dx_mm * cos_yaw - dy_mm * sin_yaw,
+            dx_mm * sin_yaw + dy_mm * cos_yaw,
+            dz_mm,
         )
     }
 
@@ -922,8 +963,8 @@ impl PuppyArm {
         let cos_phi = libm::cos(tool_phi);
         let sin_phi = libm::sin(tool_phi);
 
-        let forward = (-cos_phi * cos_yaw, cos_phi * sin_yaw, sin_phi);
-        let left = (sin_yaw, cos_yaw, 0.0);
+        let forward = (cos_phi * cos_yaw, cos_phi * sin_yaw, sin_phi);
+        let left = (-sin_yaw, cos_yaw, 0.0);
         let up = (
             forward.1 * left.2 - forward.2 * left.1,
             forward.2 * left.0 - forward.0 * left.2,
