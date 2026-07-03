@@ -859,19 +859,6 @@ impl PuppyArm {
         y: f64,
         z: f64,
     ) -> Result<[f64; JOINT_COUNT], ControllerError> {
-        if let Ok(current_angles) = self.current_angles() {
-            let current_tool_phi =
-                kinematics::wrap_pi(current_angles[1] - current_angles[2] - current_angles[3]);
-            if let Ok((yaw, shoulder, elbow, wrist)) =
-                kinematics::solve_coords_with_tool_pitch(x, y, z, current_tool_phi)
-            {
-                let angles = [yaw, shoulder, elbow, wrist];
-                if self.angles_within_joint_limits(angles) {
-                    return Ok(angles);
-                }
-            }
-        }
-
         let result = kinematics::ik(x, y, z);
         if !result.reachable {
             return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
@@ -925,13 +912,11 @@ impl PuppyArm {
             TcpFrame::Tool => Self::tool_delta_to_base_delta(angles, dx_mm, dy_mm, dz_mm),
         };
         let z_table = kinematics::shoulder_to_table_z(z_shoulder);
-        self.goto_pose(
-            x + dx,
-            y + dy,
-            kinematics::table_to_shoulder_z(z_table + dz),
-            tool_phi,
-            now,
-        )
+        let target_z = kinematics::table_to_shoulder_z(z_table + dz);
+        match frame {
+            TcpFrame::Base | TcpFrame::YawFlat => self.goto_coords(x + dx, y + dy, target_z, now),
+            TcpFrame::Tool => self.goto_pose(x + dx, y + dy, target_z, tool_phi, now),
+        }
     }
 
     fn yaw_flat_delta_to_base_delta(

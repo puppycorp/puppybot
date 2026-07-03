@@ -1,0 +1,9 @@
+[package]
+name = "puppybot-robotdreams-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[dev-dependencies]
+puppybot-core = { path = "../../puppybot/core", default-features = false, features = ["runtime"] }
+robotdreams-core = { path = "../../../RobotDreams/core" }

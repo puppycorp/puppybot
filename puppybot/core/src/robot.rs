@@ -16,6 +16,7 @@ use crate::{
 };
 
 const ARM_WHEEL_ACC: u8 = 0;
+const PUPPYBOT_SYSTEM_TICK_MS: u64 = 20;
 const STEERING_SERVO_SPEED: u16 = 2400;
 const STEERING_SERVO_ACC: u8 = 0;
 
@@ -25,6 +26,12 @@ pub struct Puppybot {
     protocol: ProtocolState,
     telemetry_seq: u32,
     last_steering_sent: Option<(u8, u16)>,
+}
+
+pub struct PuppyBotSystem<B> {
+    robot: Puppybot,
+    servo: StServo<B>,
+    now_ms: u64,
 }
 
 pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
@@ -44,6 +51,75 @@ pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
             fault: joint.fault.map(protocol::fault_name),
         });
     protocol::arm_state_frame(&joints, telemetry.coords_mm, telemetry.target_coords_mm)
+}
+
+impl<B> PuppyBotSystem<B> {
+    pub fn with_servo(robot: Puppybot, servo: StServo<B>) -> Self {
+        Self {
+            robot,
+            servo,
+            now_ms: 0,
+        }
+    }
+
+    pub fn robot(&self) -> &Puppybot {
+        &self.robot
+    }
+
+    pub fn robot_mut(&mut self) -> &mut Puppybot {
+        &mut self.robot
+    }
+
+    pub fn servo(&self) -> &StServo<B> {
+        &self.servo
+    }
+
+    pub fn servo_mut(&mut self) -> &mut StServo<B> {
+        &mut self.servo
+    }
+
+    pub fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    pub fn set_now_ms(&mut self, now_ms: u64) {
+        self.now_ms = now_ms;
+    }
+}
+
+impl<B> PuppyBotSystem<B>
+where
+    B: SerialBus,
+{
+    pub fn new(robot: Puppybot, bus: B) -> Self {
+        Self::with_servo(robot, StServo::new(bus))
+    }
+}
+
+impl<B> PuppyBotSystem<B>
+where
+    B: SerialBus,
+    B::Error: core::fmt::Debug,
+{
+    pub async fn run_once_at<F>(&mut self, now_ms: u64, receive_event: F)
+    where
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        self.now_ms = now_ms;
+        self.robot
+            .run_once(&mut self.servo, self.now_ms, receive_event)
+            .await;
+    }
+
+    pub async fn run_once<F>(&mut self, receive_event: F)
+    where
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        self.robot
+            .run_once(&mut self.servo, self.now_ms, receive_event)
+            .await;
+        self.now_ms = self.now_ms.wrapping_add(PUPPYBOT_SYSTEM_TICK_MS);
+    }
 }
 
 impl Puppybot {
@@ -399,6 +475,54 @@ mod tests {
         robot.handle_frame(&command_frame(CMD_STOP_DRIVE, &[]), 20);
 
         assert!(!robot.drive_output().active);
+    }
+
+    #[test]
+    fn system_new_wraps_bus_and_run_once_reads_feedback() {
+        let config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        let robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut system = PuppyBotSystem::new(robot, bus);
+
+        block_on_ready(system.run_once(|| None));
+
+        let telemetry = system.robot().arm_telemetry();
+        assert_eq!(telemetry.joints[0].servo_id, 11);
+        assert_eq!(telemetry.joints[0].tick, Some(101));
+        assert_eq!(telemetry.joints[1].tick, Some(202));
+        assert_eq!(telemetry.joints[2].tick, Some(303));
+        assert_eq!(telemetry.joints[3].tick, Some(404));
+    }
+
+    #[test]
+    fn system_with_servo_preserves_wrapped_bus_access() {
+        let robot = Puppybot::new(0);
+        let servo = StServo::new(FakeSerialBus::new().with_servo(1, 1234));
+        let mut system = PuppyBotSystem::with_servo(robot, servo);
+
+        assert_eq!(system.servo().bus().servo(1).unwrap().position, 1234);
+
+        system.servo_mut().bus_mut().set_position(1, 2048);
+
+        assert_eq!(system.servo().bus().servo(1).unwrap().position, 2048);
+    }
+
+    #[test]
+    fn system_run_once_advances_time_deterministically() {
+        let mut bus = FakeSerialBus::new();
+        for servo_id in 1..=4 {
+            bus.set_servo(FakeServo::new(servo_id, 0));
+        }
+        let mut system = PuppyBotSystem::new(Puppybot::new(0), bus);
+
+        assert_eq!(system.now_ms(), 0);
+
+        block_on_ready(system.run_once(|| None));
+
+        assert_eq!(system.now_ms(), PUPPYBOT_SYSTEM_TICK_MS);
     }
 
     #[test]

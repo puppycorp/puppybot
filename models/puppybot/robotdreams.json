@@ -1,0 +1,75 @@
+{
+  "format": "robotdreams.model.v1",
+  "name": "puppybot",
+  "description": "Full PuppyBot rover base plus arm model profile owned by the PuppyBot project.",
+  "scene": {
+    "units": "m",
+    "gravity": [0.0, 0.0, -9.81]
+  },
+  "robot": {
+    "model": {
+      "type": "urdf",
+      "path": "final2/urdf/final2.urdf"
+    },
+    "base": {
+      "translation": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0]
+    }
+  },
+  "jointNames": {
+    "revolute_2_3": "yaw",
+    "revolute_1_1": "shoulder",
+    "revolute_1_2": "elbow",
+    "revolute_1": "wrist"
+  },
+  "tcp": {
+    "link": "part_1_4",
+    "offset": [0.0, 0.0, 0.0]
+  },
+  "frameMapping": {
+    "core": {
+      "forwardAxis": "x",
+      "leftAxis": "y",
+      "upAxis": "z"
+    },
+    "model": {
+      "forwardAxis": "x",
+      "leftAxis": "z",
+      "upAxis": "y"
+    }
+  },
+  "motorProfiles": {
+    "ST3215": {
+      "protocol": "feetech-sts",
+      "positionTicks": 4096,
+      "centerTick": 2048,
+      "defaultBaud": 1000000
+    }
+  },
+  "servoBus": {
+    "type": "virtual",
+    "profile": "ST3215",
+    "servos": [
+      {
+        "id": 1,
+        "joint": "revolute_2_3"
+      },
+      {
+        "id": 2,
+        "joint": "revolute_1_1"
+      },
+      {
+        "id": 3,
+        "joint": "revolute_1_2"
+      },
+      {
+        "id": 4,
+        "joint": "revolute_1"
+      }
+    ]
+  },
+  "calibration": {
+    "source": "placeholder",
+    "notes": "Arm servo mappings follow the full PuppyBot URDF TCP ancestor chain: yaw, shoulder, elbow, wrist."
+  }
+}

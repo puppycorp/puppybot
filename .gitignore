@@ -40,6 +40,7 @@ design/*.lck
 
 workdir
 build
+tests/robotdreams/target/
 managed_components
 .env
 

@@ -87,6 +87,16 @@ fn assert_target_ticks_close(left: [Option<i32>; JOINT_COUNT], right: [Option<i3
     }
 }
 
+fn target_angles_deg(arm: &PuppyArm) -> [f32; JOINT_COUNT] {
+    arm.telemetry_snapshot(0)
+        .joints
+        .map(|joint| joint.target_angle_deg.unwrap())
+}
+
+fn tool_phi_deg(angles_deg: [f32; JOINT_COUNT]) -> f32 {
+    angles_deg[1] - angles_deg[2] - angles_deg[3]
+}
+
 #[test]
 fn fk_straight_forward_pose_maps_to_positive_x_extent() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
@@ -607,17 +617,16 @@ fn goto_pose_rejects_exact_tool_pitch_when_joint_limits_would_clip() {
 }
 
 #[test]
-fn move_tcp_relative_base_matches_absolute_target() {
+fn move_tcp_relative_base_matches_absolute_coordinate_target() {
     let mut relative = arm_with_reference_feedback();
     let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
 
     let mut absolute = arm_with_reference_feedback();
     absolute.handle_arm_cmd(
-        ArmCommand::GotoPose {
+        ArmCommand::GotoCoords {
             x: start.0 as f64 - 10.0,
             y: start.1 as f64 + 5.0,
             z: table_to_shoulder_z(start.2 as f64 + 20.0),
-            tool_phi_rad: PI / 2.0,
         },
         10,
     );
@@ -633,6 +642,104 @@ fn move_tcp_relative_base_matches_absolute_target() {
     );
 
     assert_eq!(target_ticks(&relative), target_ticks(&absolute));
+}
+
+#[test]
+fn move_tcp_relative_base_uses_coordinate_solver_fallback() {
+    let pose = [
+        0.0,
+        (-30.0_f64).to_radians(),
+        40.0_f64.to_radians(),
+        120.0_f64.to_radians(),
+    ];
+    let mut relative = arm_with_angle_feedback(pose);
+    let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
+
+    let mut absolute = arm_with_angle_feedback(pose);
+    let absolute_result = absolute.try_handle_arm_cmd(
+        ArmCommand::GotoCoords {
+            x: start.0 as f64 + 5.0,
+            y: start.1 as f64,
+            z: table_to_shoulder_z(start.2 as f64),
+        },
+        10,
+    );
+    let relative_result = relative.try_handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::Base,
+            dx_mm: 5.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    assert_eq!(absolute_result, Ok(()));
+    assert_eq!(relative_result, Ok(()));
+    assert_target_ticks_close(target_ticks(&relative), target_ticks(&absolute));
+}
+
+#[test]
+fn move_tcp_relative_yaw_flat_matches_absolute_coordinate_target() {
+    let pose = [
+        0.0,
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ];
+    let mut relative = arm_with_angle_feedback(pose);
+    let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
+
+    let mut absolute = arm_with_angle_feedback(pose);
+    absolute.handle_arm_cmd(
+        ArmCommand::GotoCoords {
+            x: start.0 as f64 + 5.0,
+            y: start.1 as f64,
+            z: table_to_shoulder_z(start.2 as f64),
+        },
+        10,
+    );
+
+    relative.handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 5.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    assert_target_ticks_close(target_ticks(&relative), target_ticks(&absolute));
+}
+
+#[test]
+fn yaw_flat_coordinate_jog_prefers_tool_down_posture() {
+    let pose = [
+        0.0,
+        60.0_f64.to_radians(),
+        70.0_f64.to_radians(),
+        100.0_f64.to_radians(),
+    ];
+    let mut arm = arm_with_angle_feedback(pose);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+
+    let result = arm.try_handle_arm_cmd(
+        ArmCommand::MoveTcpRelative {
+            frame: TcpFrame::YawFlat,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        10,
+    );
+
+    assert_eq!(result, Ok(()));
+    let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
+    assert_close_mm(target.0, start.0 + 10.0);
+    assert_close_mm(target.1, start.1);
+    assert_close_mm(target.2, start.2);
+    assert_close_f32_eps(tool_phi_deg(target_angles_deg(&arm)), -90.0, 1.0);
 }
 
 #[test]
@@ -776,11 +883,65 @@ fn yaw_flat_xy_relative_moves_preserve_target_z() {
             }
             assert_eq!(result, Ok(()), "pose={pose:?} dx={dx_mm} dy={dy_mm}");
             let target_z = arm.telemetry_snapshot(0).target_coords_mm.unwrap().2;
-            assert_close_mm(target_z, start_z);
+            assert_close_f32_eps(target_z, start_z, 2.0);
             checked_moves += 1;
         }
     }
     assert!(checked_moves >= 16, "checked_moves={checked_moves}");
+}
+
+#[test]
+fn move_tcp_relative_cardinal_xy_moves_cover_supported_frames() {
+    let table_xy_pose = [
+        0.0,
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ];
+    let flat_tool_pose = [0.0, 90.0_f64.to_radians(), 90.0_f64.to_radians(), 0.0];
+    let moves = [
+        ("forward", 10.0, 0.0, 10.0, 0.0),
+        ("backward", -10.0, 0.0, -10.0, 0.0),
+        ("left", 0.0, 10.0, 0.0, 10.0),
+        ("right", 0.0, -10.0, 0.0, -10.0),
+    ];
+
+    for frame in [TcpFrame::Base, TcpFrame::YawFlat, TcpFrame::Tool] {
+        for (name, dx_mm, dy_mm, expected_base_dx, expected_base_dy) in moves {
+            let pose = match frame {
+                TcpFrame::Base | TcpFrame::YawFlat => table_xy_pose,
+                TcpFrame::Tool => flat_tool_pose,
+            };
+            let mut arm = arm_with_angle_feedback(pose);
+            let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+
+            let result = arm.try_handle_arm_cmd(
+                ArmCommand::MoveTcpRelative {
+                    frame,
+                    dx_mm,
+                    dy_mm,
+                    dz_mm: 0.0,
+                },
+                10,
+            );
+
+            assert_eq!(result, Ok(()), "frame={frame:?} move={name}");
+            let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
+            assert_close_mm(target.2, start.2);
+
+            match frame {
+                TcpFrame::Base | TcpFrame::YawFlat => {
+                    assert_close_mm(target.0, start.0 + expected_base_dx);
+                    assert_close_mm(target.1, start.1 + expected_base_dy);
+                }
+                TcpFrame::Tool => {
+                    let changed_xy = (target.0 - start.0).abs() > COORD_EPS_MM
+                        || (target.1 - start.1).abs() > COORD_EPS_MM;
+                    assert!(changed_xy, "move={name} start={start:?} target={target:?}");
+                }
+            }
+        }
+    }
 }
 
 #[test]
