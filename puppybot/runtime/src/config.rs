@@ -5,10 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+use puppybot_core::config::PUPPYBOT_CONFIG_VERSION;
 use puppybot_core::{
-    config::{
-        JointCalibration, PUPPYBOT_CONFIG_VERSION, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
-    },
+    config::{JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN},
     drive::DriveConfig,
     puppyarm::types::JOINT_COUNT,
 };
@@ -101,10 +101,8 @@ fn config_json(config: &PuppybotConfigV1) -> Value {
 fn joint_json(joint: &JointCalibration) -> Value {
     serde_json::json!({
         "servo_id": joint.servo_id,
-        "raw_tick_min": joint.raw_tick_min,
-        "raw_tick_max": joint.raw_tick_max,
-        "soft_tick_min": joint.soft_tick_min,
-        "soft_tick_max": joint.soft_tick_max,
+        "tick_min": joint.tick_min,
+        "tick_max": joint.tick_max,
         "reference_tick": joint.reference_tick,
         "reference_angle_deg": joint.reference_angle_rad.to_degrees(),
         "angle_sign": joint.angle_sign,
@@ -207,6 +205,38 @@ fn i32_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<i32, S
     i32::try_from(value).map_err(|_| format!("{name} is outside i32 range"))
 }
 
+fn optional_i32_field(
+    root: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<Option<i32>, String> {
+    let Some(value) = root.get(name) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_i64()
+        .ok_or_else(|| format!("{name} must be an integer"))?;
+    i32::try_from(value)
+        .map(Some)
+        .map_err(|_| format!("{name} is outside i32 range"))
+}
+
+fn compatible_i32_field(
+    root: &serde_json::Map<String, Value>,
+    name: &str,
+    legacy_name: &str,
+) -> Result<i32, String> {
+    match (
+        optional_i32_field(root, name)?,
+        optional_i32_field(root, legacy_name)?,
+    ) {
+        (Some(value), Some(legacy_value)) if value != legacy_value => {
+            Err(format!("{name} conflicts with legacy field {legacy_name}"))
+        }
+        (Some(value), _) | (None, Some(value)) => Ok(value),
+        (None, None) => Err(format!("missing required field {name}")),
+    }
+}
+
 fn i8_sign_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<i8, String> {
     match i32_field(root, name)? {
         -1 => Ok(-1),
@@ -218,10 +248,8 @@ fn i8_sign_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<i8
 fn joint(servo_id: u8) -> JointCalibration {
     JointCalibration {
         servo_id,
-        raw_tick_min: 0,
-        raw_tick_max: 4095,
-        soft_tick_min: 0,
-        soft_tick_max: 4095,
+        tick_min: 0,
+        tick_max: 4095,
         reference_tick: 2048,
         reference_angle_rad: 0.0,
         angle_sign: 1,
@@ -233,12 +261,12 @@ fn joint(servo_id: u8) -> JointCalibration {
 fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> {
     let name = format!("arm.joints[{index}]");
     let joint = object(value, &name)?;
+    let tick_min = compatible_i32_field(joint, "tick_min", "soft_tick_min")?;
+    let tick_max = compatible_i32_field(joint, "tick_max", "soft_tick_max")?;
     Ok(JointCalibration {
         servo_id: u8_field(joint, "servo_id")?,
-        raw_tick_min: i32_field(joint, "raw_tick_min")?,
-        raw_tick_max: i32_field(joint, "raw_tick_max")?,
-        soft_tick_min: i32_field(joint, "soft_tick_min")?,
-        soft_tick_max: i32_field(joint, "soft_tick_max")?,
+        tick_min,
+        tick_max,
         reference_tick: i32_field(joint, "reference_tick")?,
         reference_angle_rad: f64_field(joint, "reference_angle_deg")?.to_radians(),
         angle_sign: i8_sign_field(joint, "angle_sign")?,
@@ -311,10 +339,8 @@ mod tests {
                 "joints": [
                     {
                         "servo_id": 11,
-                        "raw_tick_min": 0,
-                        "raw_tick_max": 4095,
-                        "soft_tick_min": 0,
-                        "soft_tick_max": 4095,
+                        "tick_min": 0,
+                        "tick_max": 4095,
                         "reference_tick": 2048,
                         "reference_angle_deg": 0.0,
                         "angle_sign": 1,
@@ -323,10 +349,8 @@ mod tests {
                     },
                     {
                         "servo_id": 12,
-                        "raw_tick_min": 100,
-                        "raw_tick_max": 1000,
-                        "soft_tick_min": 100,
-                        "soft_tick_max": 1000,
+                        "tick_min": 100,
+                        "tick_max": 1000,
                         "reference_tick": 530,
                         "reference_angle_deg": 90.0,
                         "angle_sign": -1,
@@ -335,10 +359,8 @@ mod tests {
                     },
                     {
                         "servo_id": 13,
-                        "raw_tick_min": 2200,
-                        "raw_tick_max": 3600,
-                        "soft_tick_min": 2200,
-                        "soft_tick_max": 3600,
+                        "tick_min": 2200,
+                        "tick_max": 3600,
                         "reference_tick": 3565,
                         "reference_angle_deg": 0.0,
                         "angle_sign": -1,
@@ -347,10 +369,8 @@ mod tests {
                     },
                     {
                         "servo_id": 14,
-                        "raw_tick_min": 500,
-                        "raw_tick_max": 3000,
-                        "soft_tick_min": 500,
-                        "soft_tick_max": 3000,
+                        "tick_min": 500,
+                        "tick_max": 3000,
                         "reference_tick": 1783,
                         "reference_angle_deg": 0.0,
                         "angle_sign": 1,
@@ -369,6 +389,34 @@ mod tests {
         assert_eq!(config.version, PUPPYBOT_CONFIG_VERSION);
         assert_eq!(config.drive.steering_servo_id, 9);
         assert_eq!(config.arm.servo_ids(), [11, 12, 13, 14]);
+        assert_eq!(config.arm.joints[1].tick_min, 100);
+        assert_eq!(config.arm.joints[1].tick_max, 1000);
+    }
+
+    #[test]
+    fn parse_legacy_soft_tick_limits() {
+        let json = valid_json()
+            .replace("\"tick_min\": 100", "\"soft_tick_min\": 123")
+            .replace("\"tick_max\": 1000", "\"soft_tick_max\": 987");
+
+        let config = parse_config_json(&json).unwrap();
+
+        assert_eq!(config.arm.joints[1].tick_min, 123);
+        assert_eq!(config.arm.joints[1].tick_max, 987);
+    }
+
+    #[test]
+    fn reject_conflicting_legacy_soft_tick_limits() {
+        let json = valid_json().replace(
+            "\"tick_min\": 100",
+            "\"tick_min\": 100, \"soft_tick_min\": 123",
+        );
+
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("conflicts with legacy field")
+        );
     }
 
     #[test]
@@ -411,8 +459,8 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let mut config = parse_config_json(valid_json()).unwrap();
-        config.arm.joints[1].soft_tick_min = 123;
-        config.arm.joints[1].soft_tick_max = 987;
+        config.arm.joints[1].tick_min = 123;
+        config.arm.joints[1].tick_max = 987;
         config.arm.joints[1].limit_enabled = false;
 
         save_runtime_config(&path, &config).unwrap();
@@ -420,7 +468,9 @@ mod tests {
         let saved = std::fs::read_to_string(&path).unwrap();
         let parsed = parse_config_json(&saved).unwrap();
         assert_eq!(parsed, config);
-        assert!(saved.contains("\"soft_tick_min\": 123"));
+        assert!(saved.contains("\"tick_min\": 123"));
+        assert!(!saved.contains("soft_tick"));
+        assert!(!saved.contains("raw_tick"));
         assert!(saved.ends_with('\n'));
 
         let _ = std::fs::remove_file(&path);

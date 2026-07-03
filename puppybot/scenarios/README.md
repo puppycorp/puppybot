@@ -72,3 +72,138 @@ The directory contains:
 `validation.json` is intentionally conservative: it can mark the run usable as a
 deterministic E2E test while still marking `usableAsMotionProof` false until
 RobotDreams-derived motion/video evidence is available.
+
+## Move-TCP Actor Validation
+
+`validate_move_tcp.py` is the first narrow arm-control validation slice. It does
+not post RobotDreams scenario observations or treat PuppyBot's own command
+success as proof. PuppyBot is driven through the public runtime CLI/WebSocket
+path, and final `validation.json` fails unless a RobotDreams trace captured
+during the same run contains virtual-bus command and servo snapshot evidence.
+
+In terminal 1, start RobotDreams trace recording from `projects/RobotDreams`
+and leave it running while the actor runs. The ready file exposes the virtual
+STServo bus PTY:
+
+```sh
+cargo run -p robotdreams -- \
+  --project examples/scenes/puppybot-bin-ball/project.json \
+  simulation record \
+  --trace-only \
+  --seconds 60 \
+  --trace-out /tmp/move-tcp.trace.jsonl \
+  --ready-file /tmp/move-tcp-ready.json
+```
+
+In terminal 2, run the PuppyBot actor from `projects/PuppyBot/puppybot` against
+that PTY and pass the trace back for the final comparator:
+
+```sh
+python3 scenarios/validate_move_tcp.py \
+  --servo-device "$(jq -r .virtualBusPath /tmp/move-tcp-ready.json)" \
+  --robotdreams-trace /tmp/move-tcp.trace.jsonl \
+  --recording-dir workdir/recordings/move-tcp-001
+```
+
+The run directory contains:
+
+- `run.json`
+- `actor_summary.json`
+- `judge_inputs.json`
+- `puppybot.commands.jsonl`
+- `puppybot.state.jsonl`
+
+## Combined Arm Simulator Validation
+
+`validate_arm_sim_suite.py` runs the PuppyBot actor and final comparator in one
+script while RobotDreams records the simulator from the outside. It still keeps
+the proof boundary explicit: PuppyBot is driven only through the public
+CLI/WebSocket/runtime path, while pass/fail also requires RobotDreams trace and
+`recording assert` evidence from the virtual STServo bus and scene transforms.
+
+Start RobotDreams recording from `projects/RobotDreams`:
+
+```sh
+cargo run -p robotdreams -- \
+  simulation record \
+  --project puppybot-bin-and-ball \
+  --trace-only \
+  --seconds 100 \
+  --trace-out /tmp/arm-sim-suite.trace.jsonl \
+  --ready-file /tmp/arm-sim-suite-ready.json
+```
+
+Then run the suite from `projects/PuppyBot/puppybot`:
+
+```sh
+python3 scenarios/validate_arm_sim_suite.py \
+  --servo-device "$(jq -r .virtualBusPath /tmp/arm-sim-suite-ready.json)" \
+  --robotdreams-trace /tmp/arm-sim-suite.trace.jsonl \
+  --robotdreams-ready /tmp/arm-sim-suite-ready.json \
+  --recording-dir workdir/recordings/arm-sim-suite-001
+```
+
+The default suite validates:
+
+- `arm goto-ticks`
+- `arm goto-angles`
+- `arm goto-coords`
+- `arm move-tcp` on base Z, X, and Y axes
+- unreachable `arm goto-coords` rejection
+
+The run directory contains:
+
+- `run.json`
+- `summary.json`
+- `validation.json`
+- `actor_summary.json`
+- `robotdreams_evidence.json`
+- `robotdreams-assert.json`
+- `puppybot.commands.jsonl`
+- `puppybot.state.jsonl`
+- `robotdreams.trace.jsonl`
+- `robotdreams_evidence.json`
+- `summary.json`
+- `validation.json`
+
+## Arm Control Public API Actor
+
+`arm_control_actor.py` expands the PuppyBot actor side beyond the first
+move-tcp slice. It drives only public PuppyBot runtime CLI/WebSocket commands
+and records actor evidence for:
+
+- `arm goto-ticks`
+- `arm goto-angles`
+- `arm goto-coords`
+- `arm move-tcp` in base and tool directions
+- `arm hold`, timed `arm jog`, and `arm stop`
+
+It does not inspect RobotDreams traces or claim an independent simulator pass.
+Hand its `judge_inputs.json`, `puppybot.commands.jsonl`, and
+`puppybot.state.jsonl` to the RobotDreams judge.
+
+With RobotDreams recording already running and a ready file available:
+
+```sh
+python3 scenarios/arm_control_actor.py \
+  --servo-device "$(jq -r .virtualBusPath /tmp/move-tcp-ready.json)" \
+  --recording-dir workdir/recordings/arm-control-public-api-001
+```
+
+Run one narrower case by repeating `--case`:
+
+```sh
+python3 scenarios/arm_control_actor.py \
+  --case goto-coords \
+  --case move-tcp \
+  --servo-device "$(jq -r .virtualBusPath /tmp/move-tcp-ready.json)" \
+  --recording-dir workdir/recordings/arm-control-coords-tcp-001
+```
+
+The run directory contains:
+
+- `run.json`
+- `actor_summary.json`
+- `judge_inputs.json`
+- `puppybot.commands.jsonl`
+- `puppybot.state.jsonl`

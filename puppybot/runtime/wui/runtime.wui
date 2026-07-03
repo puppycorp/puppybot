@@ -38,6 +38,9 @@
       <For each={state.joints} itemAs="joint" key={joint.label}>
         <HStack spacing=8>
           <Text value={joint.label} color="#91a0b3" minWidth=132 />
+          <Text value={joint.angle} color="#d4dce8" minWidth=72 textAlign="right" />
+          <Button text={joint.calibrate.label} onClick="OpenJointCalibration" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=86 />
+          <Button text="Zero" onPress="SetJointZeroStart" onRelease="SetJointZeroStop" onRepeat="SetJointZeroRefresh" repeatInterval=250 arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=64 />
           <Button text={joint.negative.label} onPress="JogNegativeStart" onRelease="JogStop" onRepeat="JogNegativeRefresh" repeatInterval=250 arg={joint.action_arg} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
           <Button text="Stop" onClick="StopJoint" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 />
           <Button text={joint.positive.label} onPress="JogPositiveStart" onRelease="JogStop" onRepeat="JogPositiveRefresh" repeatInterval=250 arg={joint.action_arg} backgroundColor="#182838" border="1px solid #314154" color="#f4f7fb" height=30 width=42 />
@@ -49,6 +52,30 @@
           <Button text={joint.limit.toggle_label} onClick="ToggleJointLimits" arg={joint.action_arg} backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=80 />
         </HStack>
       </For>
+      <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
+        <Text value="Joint Target (deg)" color="#f4f7fb" />
+        <HStack spacing=8 wrap=true>
+          <VStack width=86 spacing=4>
+            <Text value="Yaw" color="#91a0b3" />
+            <TextInput value={state.goto_angle_yaw} onTextChanged="EditGotoAngleYaw" placeholder="yaw" />
+          </VStack>
+          <VStack width=86 spacing=4>
+            <Text value="Shoulder" color="#91a0b3" />
+            <TextInput value={state.goto_angle_shoulder} onTextChanged="EditGotoAngleShoulder" placeholder="shoulder" />
+          </VStack>
+          <VStack width=86 spacing=4>
+            <Text value="Elbow" color="#91a0b3" />
+            <TextInput value={state.goto_angle_elbow} onTextChanged="EditGotoAngleElbow" placeholder="elbow" />
+          </VStack>
+          <VStack width=86 spacing=4>
+            <Text value="Wrist" color="#91a0b3" />
+            <TextInput value={state.goto_angle_wrist} onTextChanged="EditGotoAngleWrist" placeholder="wrist" />
+          </VStack>
+          <Button text="Current" onClick="SetGotoAnglesCurrent" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 width=88 />
+          <Button text="Move Angles" onPress="GotoAnglesStart" onRelease="GotoAnglesStop" onRepeat="GotoAnglesRefresh" repeatInterval=250 backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 width=116 />
+        </HStack>
+        <Text value={state.goto_angle_error} color="#ffb8b8" breakWords=true />
+      </VStack>
       <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
         <Text value="TCP Jog (5 mm)" color="#f4f7fb" />
         <HStack spacing=8>
@@ -130,6 +157,22 @@
       <HStack spacing=8>
         <Button text="Cancel" onClick="CloseLimitEditor" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 />
         <Button text="Set" onClick="ApplyLimitEditor" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
+      </HStack>
+    </VStack>
+  </Modal>
+
+  <Modal open={state.calibration_modal_open} onClick="CloseJointCalibration">
+    <VStack width=420 maxWidth=420 backgroundColor="#18202b" border="1px solid #415066" padding=16 spacing=12>
+      <Text value={state.calibration_modal_title} color="#f4f7fb" textAlign="center" />
+      <Text value={state.calibration_modal_detail} color="#91a0b3" textAlign="center" breakWords=true />
+      <VStack backgroundColor="#121923" border="1px solid #263548" padding=10 spacing=8>
+        <Text value="Reference angle (deg)" color="#91a0b3" />
+        <TextInput value={state.calibration_modal_angle} onTextChanged="EditJointReferenceAngle" placeholder="angle" />
+      </VStack>
+      <Text value={state.calibration_modal_error} color="#ffb8b8" textAlign="center" breakWords=true />
+      <HStack spacing=8>
+        <Button text="Cancel" onClick="CloseJointCalibration" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 />
+        <Button text="Apply" onClick="ApplyJointCalibration" backgroundColor="#1e5f9f" border="1px solid #4d8dff" color="#f4f7fb" height=34 />
       </HStack>
     </VStack>
   </Modal>

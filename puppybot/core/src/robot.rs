@@ -310,10 +310,8 @@ mod tests {
     fn joint(servo_id: u8) -> JointCalibration {
         JointCalibration {
             servo_id,
-            raw_tick_min: 0,
-            raw_tick_max: 4095,
-            soft_tick_min: 0,
-            soft_tick_max: 4095,
+            tick_min: 0,
+            tick_max: 4095,
             reference_tick: 2048,
             reference_angle_rad: 0.0,
             angle_sign: 1,

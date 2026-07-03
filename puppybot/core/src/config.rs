@@ -2,8 +2,8 @@ use crate::{
     drive::DriveConfig,
     puppyarm::{
         servo_safety::{
-            ELBOW_TICK_MAX, ELBOW_TICK_MIN, SHOULDER_TICK_MAX, SHOULDER_TICK_MIN, TIP_TICK_MAX,
-            TIP_TICK_MIN, YAW_TICK_MAX, YAW_TICK_MIN,
+            ELBOW_TICK_MAX, ELBOW_TICK_MIN, SHOULDER_TICK_MAX, SHOULDER_TICK_MIN, TICK_WRAP,
+            TIP_TICK_MAX, TIP_TICK_MIN, YAW_TICK_MAX, YAW_TICK_MIN,
         },
         types::JOINT_COUNT,
     },
@@ -29,10 +29,8 @@ pub struct PuppyArmConfig {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct JointCalibration {
     pub servo_id: u8,
-    pub raw_tick_min: i32,
-    pub raw_tick_max: i32,
-    pub soft_tick_min: i32,
-    pub soft_tick_max: i32,
+    pub tick_min: i32,
+    pub tick_max: i32,
     pub reference_tick: i32,
     pub reference_angle_rad: f64,
     pub angle_sign: i8,
@@ -70,10 +68,8 @@ fn default_joint(
 ) -> JointCalibration {
     JointCalibration {
         servo_id,
-        raw_tick_min: tick_min,
-        raw_tick_max: tick_max,
-        soft_tick_min: tick_min,
-        soft_tick_max: tick_max,
+        tick_min,
+        tick_max,
         reference_tick,
         reference_angle_rad,
         angle_sign,
@@ -165,7 +161,10 @@ impl JointCalibration {
         if !(MIN_SERVO_ID..=MAX_SERVO_ID).contains(&self.servo_id) {
             return Err(ConfigError::InvalidServoId);
         }
-        if self.raw_tick_min == self.raw_tick_max || self.soft_tick_min == self.soft_tick_max {
+        if self.tick_min == self.tick_max
+            || !(0..TICK_WRAP).contains(&self.tick_min)
+            || !(0..TICK_WRAP).contains(&self.tick_max)
+        {
             return Err(ConfigError::InvalidTickRange);
         }
         if self.angle_sign != -1 && self.angle_sign != 1 {
@@ -231,10 +230,8 @@ mod tests {
     fn joint(servo_id: u8) -> JointCalibration {
         JointCalibration {
             servo_id,
-            raw_tick_min: 0,
-            raw_tick_max: 4095,
-            soft_tick_min: 0,
-            soft_tick_max: 4095,
+            tick_min: 0,
+            tick_max: 4095,
             reference_tick: 2048,
             reference_angle_rad: 0.0,
             angle_sign: 1,
@@ -257,6 +254,37 @@ mod tests {
     #[test]
     fn valid_config_passes_validation() {
         assert_eq!(config().validate(), Ok(()));
+    }
+
+    #[test]
+    fn equal_joint_tick_limits_are_rejected() {
+        let mut config = config();
+        config.arm.joints[0].tick_min = 100;
+        config.arm.joints[0].tick_max = 100;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidTickRange));
+    }
+
+    #[test]
+    fn joint_tick_limits_must_be_inside_servo_range() {
+        let mut low = config();
+        low.arm.joints[0].tick_min = -1;
+
+        assert_eq!(low.validate(), Err(ConfigError::InvalidTickRange));
+
+        let mut high = config();
+        high.arm.joints[0].tick_max = TICK_WRAP;
+
+        assert_eq!(high.validate(), Err(ConfigError::InvalidTickRange));
+    }
+
+    #[test]
+    fn wrapped_joint_tick_limits_are_allowed() {
+        let mut config = config();
+        config.arm.joints[0].tick_min = 3500;
+        config.arm.joints[0].tick_max = 300;
+
+        assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]

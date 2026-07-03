@@ -9,6 +9,7 @@ use puppybot_core::{
     protocol::ProtocolEvent,
     puppyarm::{
         kinematics::{self, IkError},
+        servo_safety::TICK_WRAP,
         types::{ArmCommand, ControllerError, JOINT_COUNT, Joint, TcpFrame},
     },
 };
@@ -72,6 +73,8 @@ pub(crate) struct RuntimeUiJoint {
     index: u32,
     action_arg: u32,
     label: String,
+    angle: String,
+    calibrate: RuntimeUiJogButton,
     negative: RuntimeUiJogButton,
     positive: RuntimeUiJogButton,
     limit: RuntimeUiLimit,
@@ -87,6 +90,16 @@ pub(crate) struct RuntimeUiModel {
     limit_modal_min: String,
     limit_modal_max: String,
     limit_modal_error: String,
+    calibration_modal_open: bool,
+    calibration_modal_title: String,
+    calibration_modal_detail: String,
+    calibration_modal_angle: String,
+    calibration_modal_error: String,
+    goto_angle_yaw: String,
+    goto_angle_shoulder: String,
+    goto_angle_elbow: String,
+    goto_angle_wrist: String,
+    goto_angle_error: String,
     coordinate_x: String,
     coordinate_y: String,
     coordinate_z: String,
@@ -108,6 +121,14 @@ pub(crate) struct RuntimeUiController {
     limit_editor_min: String,
     limit_editor_max: String,
     limit_editor_error: String,
+    calibration_editor_joint: Option<usize>,
+    calibration_editor_angle: String,
+    calibration_editor_error: String,
+    goto_angle_yaw: String,
+    goto_angle_shoulder: String,
+    goto_angle_elbow: String,
+    goto_angle_wrist: String,
+    goto_angle_error: String,
     coordinate_x: String,
     coordinate_y: String,
     coordinate_z: String,
@@ -220,6 +241,25 @@ fn limit_status(joint: &Joint) -> RuntimeUiLimit {
     }
 }
 
+fn angle_detail(joint: &Joint) -> String {
+    match joint.angle_deg {
+        Some(angle) => format!("{angle:.1} deg"),
+        None => "-- deg".to_string(),
+    }
+}
+
+fn joint_reference_tick_error(joint: &Joint) -> Option<String> {
+    let tick = joint.tick?;
+    if !(0..TICK_WRAP).contains(&tick) {
+        Some(format!(
+            "current tick {tick} is outside servo range 0..{}",
+            TICK_WRAP - 1
+        ))
+    } else {
+        None
+    }
+}
+
 fn joint_controls(joints: &[Joint; JOINT_COUNT]) -> Vec<RuntimeUiJoint> {
     (0..JOINT_COUNT)
         .map(|index| RuntimeUiJoint {
@@ -229,6 +269,8 @@ fn joint_controls(joints: &[Joint; JOINT_COUNT]) -> Vec<RuntimeUiJoint> {
                 "{} (servo {})",
                 ARM_JOINT_LABELS[index], joints[index].servo_id
             ),
+            angle: angle_detail(&joints[index]),
+            calibrate: jog_button("Calibrate"),
             negative: jog_button("-"),
             positive: jog_button("+"),
             limit: limit_status(&joints[index]),
@@ -247,6 +289,19 @@ fn initial_coordinate_inputs(robot: &Arc<Mutex<RuntimeRobot>>) -> (String, Strin
     }
 }
 
+fn initial_goto_angle_inputs(robot: &Arc<Mutex<RuntimeRobot>>) -> [String; JOINT_COUNT] {
+    let telemetry = {
+        let robot = robot.lock().unwrap();
+        robot.arm_telemetry()
+    };
+    std::array::from_fn(|index| {
+        telemetry.joints[index]
+            .angle_deg
+            .map(|angle| format!("{angle:.1}"))
+            .unwrap_or_else(|| "0.0".to_string())
+    })
+}
+
 fn coordinate_command(command: ArmCommand) -> bool {
     matches!(
         command,
@@ -254,6 +309,18 @@ fn coordinate_command(command: ArmCommand) -> bool {
             | ArmCommand::GotoPose { .. }
             | ArmCommand::MoveTcpRelative { .. }
     )
+}
+
+fn goto_angles_command(command: ArmCommand) -> bool {
+    matches!(command, ArmCommand::GotoAngles(_))
+}
+
+fn tcp_forward_delta_mm() -> (f64, f64, f64) {
+    (UI_TCP_STEP_MM, 0.0, 0.0)
+}
+
+fn tcp_back_delta_mm() -> (f64, f64, f64) {
+    (-UI_TCP_STEP_MM, 0.0, 0.0)
 }
 
 fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<String> {
@@ -276,6 +343,9 @@ fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<S
         (ArmCommand::MoveTcpRelative { .. }, ControllerError::MissingFeedback) => {
             Some("current position unavailable".to_string())
         }
+        (ArmCommand::GotoAngles(_), ControllerError::MissingFeedback) => {
+            Some("current joint feedback unavailable".to_string())
+        }
         (_, ControllerError::Ik(IkError::Unreachable)) => Some("target unreachable".to_string()),
         _ => None,
     }
@@ -289,6 +359,7 @@ pub(crate) fn local_url(addr: SocketAddr, scheme: &str, path: &str) -> String {
 impl RuntimeUiController {
     pub(crate) fn new(config: RuntimeUiConfig, robot: Arc<Mutex<RuntimeRobot>>) -> Self {
         let (coordinate_x, coordinate_y, coordinate_z) = initial_coordinate_inputs(&robot);
+        let goto_angles = initial_goto_angle_inputs(&robot);
         Self {
             config,
             robot,
@@ -297,6 +368,14 @@ impl RuntimeUiController {
             limit_editor_min: String::new(),
             limit_editor_max: String::new(),
             limit_editor_error: String::new(),
+            calibration_editor_joint: None,
+            calibration_editor_angle: String::new(),
+            calibration_editor_error: String::new(),
+            goto_angle_yaw: goto_angles[0].clone(),
+            goto_angle_shoulder: goto_angles[1].clone(),
+            goto_angle_elbow: goto_angles[2].clone(),
+            goto_angle_wrist: goto_angles[3].clone(),
+            goto_angle_error: String::new(),
             coordinate_x,
             coordinate_y,
             coordinate_z,
@@ -325,6 +404,27 @@ impl RuntimeUiController {
                 )
             }
             _ => ("Joint Limits".to_string(), "no joint selected".to_string()),
+        };
+        let (calibration_modal_title, calibration_modal_detail) = match self
+            .calibration_editor_joint
+        {
+            Some(joint) if joint < JOINT_COUNT => {
+                let telemetry_joint = &telemetry.joints[joint];
+                (
+                    format!("{} Calibration", ARM_JOINT_LABELS[joint]),
+                    match telemetry_joint.tick {
+                        Some(tick) => format!(
+                            "servo {} current tick {tick}; set what angle this pose represents",
+                            telemetry_joint.servo_id
+                        ),
+                        None => format!("servo {} waiting for feedback", telemetry_joint.servo_id),
+                    },
+                )
+            }
+            _ => (
+                "Joint Calibration".to_string(),
+                "no joint selected".to_string(),
+            ),
         };
         let coordinate_detail = match telemetry.coords_mm {
             Some((x, y, z)) => format!("current {x:.1}, {y:.1}, {z:.1} mm"),
@@ -375,6 +475,16 @@ impl RuntimeUiController {
             limit_modal_min: self.limit_editor_min.clone(),
             limit_modal_max: self.limit_editor_max.clone(),
             limit_modal_error: self.limit_editor_error.clone(),
+            calibration_modal_open: self.calibration_editor_joint.is_some(),
+            calibration_modal_title,
+            calibration_modal_detail,
+            calibration_modal_angle: self.calibration_editor_angle.clone(),
+            calibration_modal_error: self.calibration_editor_error.clone(),
+            goto_angle_yaw: self.goto_angle_yaw.clone(),
+            goto_angle_shoulder: self.goto_angle_shoulder.clone(),
+            goto_angle_elbow: self.goto_angle_elbow.clone(),
+            goto_angle_wrist: self.goto_angle_wrist.clone(),
+            goto_angle_error: self.goto_angle_error.clone(),
             coordinate_x: self.coordinate_x.clone(),
             coordinate_y: self.coordinate_y.clone(),
             coordinate_z: self.coordinate_z.clone(),
@@ -425,11 +535,18 @@ impl RuntimeUiController {
                 if coordinate_command(command) {
                     self.coordinate_error.clear();
                 }
+                if goto_angles_command(command) {
+                    self.goto_angle_error.clear();
+                }
                 Ok(())
             }
             Err(err) => {
                 if let Some(text) = arm_command_error_text(command, err) {
-                    self.coordinate_error = text;
+                    if goto_angles_command(command) {
+                        self.goto_angle_error = text;
+                    } else {
+                        self.coordinate_error = text;
+                    }
                 }
                 Err(err)
             }
@@ -540,6 +657,70 @@ impl RuntimeUiController {
         Some((joint, min, max))
     }
 
+    fn parse_calibration_editor(&mut self) -> Option<(usize, f64)> {
+        let Some(joint) = self.calibration_editor_joint else {
+            return None;
+        };
+        let angle_deg = match self.calibration_editor_angle.trim().parse::<f64>() {
+            Ok(value) if value.is_finite() => value,
+            _ => {
+                self.calibration_editor_error = "angle must be a finite number".to_string();
+                return None;
+            }
+        };
+        Some((joint, angle_deg))
+    }
+
+    fn parse_goto_angle(value: &str, label: &str) -> Result<f64, String> {
+        let parsed = value
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| format!("{label} angle must be a number"))?;
+        if parsed.is_finite() {
+            Ok(parsed)
+        } else {
+            Err(format!("{label} angle must be finite"))
+        }
+    }
+
+    fn parse_goto_angles(&mut self) -> Option<[f64; JOINT_COUNT]> {
+        let yaw = match Self::parse_goto_angle(&self.goto_angle_yaw, "yaw") {
+            Ok(value) => value,
+            Err(err) => {
+                self.goto_angle_error = err;
+                return None;
+            }
+        };
+        let shoulder = match Self::parse_goto_angle(&self.goto_angle_shoulder, "shoulder") {
+            Ok(value) => value,
+            Err(err) => {
+                self.goto_angle_error = err;
+                return None;
+            }
+        };
+        let elbow = match Self::parse_goto_angle(&self.goto_angle_elbow, "elbow") {
+            Ok(value) => value,
+            Err(err) => {
+                self.goto_angle_error = err;
+                return None;
+            }
+        };
+        let wrist = match Self::parse_goto_angle(&self.goto_angle_wrist, "wrist") {
+            Ok(value) => value,
+            Err(err) => {
+                self.goto_angle_error = err;
+                return None;
+            }
+        };
+        self.goto_angle_error.clear();
+        Some([
+            yaw.to_radians(),
+            shoulder.to_radians(),
+            elbow.to_radians(),
+            wrist.to_radians(),
+        ])
+    }
+
     fn nudge_limit_editor(&mut self, min_delta: i32, max_delta: i32) {
         let Some((_, min, max)) = self.parse_limit_editor() else {
             return;
@@ -610,6 +791,14 @@ impl RuntimeUiController {
         self.move_to_coordinate_target(label, x + dx, y + dy, z_table + dz_table);
     }
 
+    fn move_to_goto_angles(&mut self, label: &str) {
+        let Some(angles_rad) = self.parse_goto_angles() else {
+            return;
+        };
+        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm(label, ArmCommand::GotoAngles(angles_rad));
+    }
+
     pub(crate) fn drive_forward(&mut self) {
         self.drive("drive forward", UI_DRIVE_SPEED, 0);
     }
@@ -658,6 +847,151 @@ impl RuntimeUiController {
         self.refresh_spin_joint(joint_arg, 1);
     }
 
+    pub(crate) fn open_joint_calibration(&mut self, joint_arg: u32) {
+        let Some(joint_index) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        let joint = &telemetry.joints[joint_index];
+        self.calibration_editor_joint = Some(joint_index);
+        self.calibration_editor_angle = joint
+            .angle_deg
+            .map(|angle| format!("{angle:.1}"))
+            .unwrap_or_else(|| "0.0".to_string());
+        self.calibration_editor_error.clear();
+    }
+
+    pub(crate) fn close_joint_calibration(&mut self) {
+        self.calibration_editor_joint = None;
+        self.calibration_editor_error.clear();
+    }
+
+    pub(crate) fn edit_joint_reference_angle(&mut self, value: String) {
+        self.calibration_editor_angle = value;
+        self.calibration_editor_error.clear();
+    }
+
+    pub(crate) fn apply_joint_calibration(&mut self) {
+        let Some((joint, angle_deg)) = self.parse_calibration_editor() else {
+            return;
+        };
+        let tick = {
+            let robot = self.robot.lock().unwrap();
+            let telemetry = robot.arm_telemetry();
+            if let Some(err) = joint_reference_tick_error(&telemetry.joints[joint]) {
+                self.calibration_editor_error = err;
+                return;
+            }
+            telemetry.joints[joint].tick
+        };
+        let Some(tick) = tick else {
+            self.calibration_editor_error = "current tick unavailable".to_string();
+            return;
+        };
+
+        let result = self.arm(
+            &format!(
+                "calibrate {} reference angle",
+                ARM_JOINT_LABELS[joint].to_lowercase()
+            ),
+            ArmCommand::SetJointReference {
+                joint,
+                tick,
+                angle_rad: angle_deg.to_radians(),
+            },
+        );
+        if result.is_ok() {
+            self.calibration_editor_joint = None;
+            self.calibration_editor_error.clear();
+        }
+    }
+
+    pub(crate) fn set_joint_zero_start(&mut self, joint_arg: u32) {
+        let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
+            return;
+        };
+
+        let label = format!("move {} to zero", ARM_JOINT_LABELS[joint].to_lowercase());
+        let _ = self.arm(&label, ArmCommand::SetSpeed(UI_ARM_SPEED));
+        let _ = self.arm(
+            &label,
+            ArmCommand::SetJointAngle {
+                joint,
+                angle_rad: 0.0,
+            },
+        );
+    }
+
+    pub(crate) fn set_joint_zero_refresh(&mut self, joint_arg: u32) {
+        self.set_joint_zero_start(joint_arg);
+    }
+
+    pub(crate) fn set_joint_zero_stop(&mut self, joint_arg: u32) {
+        self.stop_joint(joint_arg);
+    }
+
+    pub(crate) fn set_joint_zero(&mut self, joint_arg: u32) {
+        self.set_joint_zero_start(joint_arg);
+    }
+
+    pub(crate) fn edit_goto_angle_yaw(&mut self, value: String) {
+        self.goto_angle_yaw = value;
+        self.goto_angle_error.clear();
+    }
+
+    pub(crate) fn edit_goto_angle_shoulder(&mut self, value: String) {
+        self.goto_angle_shoulder = value;
+        self.goto_angle_error.clear();
+    }
+
+    pub(crate) fn edit_goto_angle_elbow(&mut self, value: String) {
+        self.goto_angle_elbow = value;
+        self.goto_angle_error.clear();
+    }
+
+    pub(crate) fn edit_goto_angle_wrist(&mut self, value: String) {
+        self.goto_angle_wrist = value;
+        self.goto_angle_error.clear();
+    }
+
+    pub(crate) fn set_goto_angles_current(&mut self) {
+        let telemetry = {
+            let robot = self.robot.lock().unwrap();
+            robot.arm_telemetry()
+        };
+        let mut angles = [0.0; JOINT_COUNT];
+        for (index, joint) in telemetry.joints.iter().enumerate() {
+            let Some(angle) = joint.angle_deg else {
+                self.goto_angle_error = format!(
+                    "current {} angle unavailable",
+                    ARM_JOINT_LABELS[index].to_lowercase()
+                );
+                return;
+            };
+            angles[index] = angle;
+        }
+        self.goto_angle_yaw = format!("{:.1}", angles[0]);
+        self.goto_angle_shoulder = format!("{:.1}", angles[1]);
+        self.goto_angle_elbow = format!("{:.1}", angles[2]);
+        self.goto_angle_wrist = format!("{:.1}", angles[3]);
+        self.goto_angle_error.clear();
+    }
+
+    pub(crate) fn goto_angles_start(&mut self) {
+        self.move_to_goto_angles("move to target angles");
+    }
+
+    pub(crate) fn goto_angles_refresh(&mut self) {
+        self.move_to_goto_angles("move to target angles");
+    }
+
+    pub(crate) fn goto_angles_stop(&mut self) {
+        let _ = self.arm("stop target angles", ArmCommand::StopAll);
+    }
+
     pub(crate) fn set_tcp_frame_base(&mut self) {
         self.set_tcp_frame(TcpFrame::Base);
     }
@@ -667,19 +1001,23 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn move_tcp_forward_start(&mut self) {
-        self.move_tcp("move tcp forward", -UI_TCP_STEP_MM, 0.0, 0.0);
+        let (dx, dy, dz) = tcp_forward_delta_mm();
+        self.move_tcp("move tcp forward", dx, dy, dz);
     }
 
     pub(crate) fn move_tcp_forward_refresh(&mut self) {
-        self.move_tcp("move tcp forward", -UI_TCP_STEP_MM, 0.0, 0.0);
+        let (dx, dy, dz) = tcp_forward_delta_mm();
+        self.move_tcp("move tcp forward", dx, dy, dz);
     }
 
     pub(crate) fn move_tcp_back_start(&mut self) {
-        self.move_tcp("move tcp back", UI_TCP_STEP_MM, 0.0, 0.0);
+        let (dx, dy, dz) = tcp_back_delta_mm();
+        self.move_tcp("move tcp back", dx, dy, dz);
     }
 
     pub(crate) fn move_tcp_back_refresh(&mut self) {
-        self.move_tcp("move tcp back", UI_TCP_STEP_MM, 0.0, 0.0);
+        let (dx, dy, dz) = tcp_back_delta_mm();
+        self.move_tcp("move tcp back", dx, dy, dz);
     }
 
     pub(crate) fn move_tcp_left_start(&mut self) {
@@ -740,7 +1078,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_forward(&mut self) {
-        self.nudge_coordinates("coordinate forward", -UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates("coordinate forward", UI_COORD_STEP_MM, 0.0, 0.0);
     }
 
     pub(crate) fn coordinate_forward_start(&mut self) {
@@ -752,7 +1090,7 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_back(&mut self) {
-        self.nudge_coordinates("coordinate back", UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates("coordinate back", -UI_COORD_STEP_MM, 0.0, 0.0);
     }
 
     pub(crate) fn coordinate_back_start(&mut self) {
@@ -985,7 +1323,29 @@ pub(crate) fn start_runtime_ui(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+
+    fn test_ui_config() -> RuntimeUiConfig {
+        RuntimeUiConfig {
+            ws_bind: "127.0.0.1:0".to_string(),
+            ws_url: "ws://127.0.0.1:0/ws".to_string(),
+            ui_bind: "127.0.0.1:0".to_string(),
+            ui_url: "http://127.0.0.1:0".to_string(),
+            servo_status: "simulated".to_string(),
+            servo_detail: "test".to_string(),
+        }
+    }
+
+    fn test_controller() -> RuntimeUiController {
+        let robot = Arc::new(Mutex::new(RuntimeRobot::new(
+            None,
+            PathBuf::from("/tmp/puppybot-runtime-ui-test.json"),
+            Default::default(),
+        )));
+        RuntimeUiController::new(test_ui_config(), robot)
+    }
 
     #[test]
     fn unreachable_coordinate_error_mentions_target() {
@@ -1001,6 +1361,185 @@ mod tests {
         assert_eq!(
             err.as_deref(),
             Some("target unreachable: 1000.0, 20.0, 80.0 mm")
+        );
+    }
+
+    #[test]
+    fn tcp_forward_and_back_use_positive_and_negative_x_deltas() {
+        assert_eq!(tcp_forward_delta_mm(), (UI_TCP_STEP_MM, 0.0, 0.0));
+        assert_eq!(tcp_back_delta_mm(), (-UI_TCP_STEP_MM, 0.0, 0.0));
+    }
+
+    #[test]
+    fn coordinate_forward_increases_x_target() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("100.0".to_string());
+        controller.edit_coordinate_y("0.0".to_string());
+        controller.edit_coordinate_z("80.0".to_string());
+
+        controller.coordinate_forward();
+
+        assert_eq!(controller.coordinate_x, "105.0");
+        assert_eq!(controller.coordinate_y, "0.0");
+        assert_eq!(controller.coordinate_z, "80.0");
+    }
+
+    #[test]
+    fn coordinate_back_decreases_x_target() {
+        let mut controller = test_controller();
+        controller.edit_coordinate_x("100.0".to_string());
+        controller.edit_coordinate_y("0.0".to_string());
+        controller.edit_coordinate_z("80.0".to_string());
+
+        controller.coordinate_back();
+
+        assert_eq!(controller.coordinate_x, "95.0");
+        assert_eq!(controller.coordinate_y, "0.0");
+        assert_eq!(controller.coordinate_z, "80.0");
+    }
+
+    #[test]
+    fn parse_goto_angles_accepts_finite_degrees() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("10".to_string());
+        controller.edit_goto_angle_shoulder("-20.5".to_string());
+        controller.edit_goto_angle_elbow("30".to_string());
+        controller.edit_goto_angle_wrist("0".to_string());
+
+        let angles = controller.parse_goto_angles().unwrap();
+
+        assert_eq!(
+            angles,
+            [
+                10.0_f64.to_radians(),
+                (-20.5_f64).to_radians(),
+                30.0_f64.to_radians(),
+                0.0,
+            ]
+        );
+        assert_eq!(controller.goto_angle_error, "");
+    }
+
+    #[test]
+    fn goto_angles_start_rejects_invalid_input_without_motion() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("0".to_string());
+        controller.edit_goto_angle_shoulder("not-a-number".to_string());
+        controller.edit_goto_angle_elbow("0".to_string());
+        controller.edit_goto_angle_wrist("0".to_string());
+
+        controller.goto_angles_start();
+
+        assert_eq!(
+            controller.goto_angle_error,
+            "shoulder angle must be a number"
+        );
+        assert_eq!(controller.last_command, "none");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn goto_angles_start_uses_motion_command_path_without_dirtying_calibration() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("10".to_string());
+        controller.edit_goto_angle_shoulder("20".to_string());
+        controller.edit_goto_angle_elbow("-30".to_string());
+        controller.edit_goto_angle_wrist("40".to_string());
+
+        controller.goto_angles_start();
+
+        assert_eq!(controller.last_command, "move to target angles");
+        assert_eq!(controller.goto_angle_error, "");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn goto_angles_refresh_uses_motion_command_path() {
+        let mut controller = test_controller();
+        controller.edit_goto_angle_yaw("1".to_string());
+        controller.edit_goto_angle_shoulder("2".to_string());
+        controller.edit_goto_angle_elbow("3".to_string());
+        controller.edit_goto_angle_wrist("4".to_string());
+
+        controller.goto_angles_refresh();
+
+        assert_eq!(controller.last_command, "move to target angles");
+    }
+
+    #[test]
+    fn goto_angles_stop_stops_all_without_dirtying_calibration() {
+        let mut controller = test_controller();
+
+        controller.goto_angles_stop();
+
+        assert_eq!(controller.last_command, "stop target angles");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn apply_joint_calibration_without_feedback_reports_unavailable_tick() {
+        let mut controller = test_controller();
+
+        controller.open_joint_calibration(1);
+        controller.edit_joint_reference_angle("0".to_string());
+        controller.apply_joint_calibration();
+
+        assert_eq!(
+            controller.calibration_editor_error,
+            "current tick unavailable"
+        );
+    }
+
+    #[test]
+    fn set_joint_zero_start_without_feedback_uses_motion_command_path() {
+        let mut controller = test_controller();
+
+        controller.set_joint_zero_start(1);
+
+        assert_eq!(
+            controller.last_command,
+            "move yaw to zero rejected: MissingFeedback"
+        );
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn set_joint_zero_stop_stops_selected_joint_without_dirtying_calibration() {
+        let mut controller = test_controller();
+
+        controller.set_joint_zero_stop(2);
+
+        assert_eq!(controller.last_command, "stop joint");
+        assert!(!controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn set_joint_zero_ignores_invalid_args_without_changing_last_command() {
+        let mut controller = test_controller();
+
+        controller.set_joint_zero_start(0);
+        controller.set_joint_zero_stop(0);
+        controller.set_joint_zero_refresh(0);
+
+        assert_eq!(controller.last_command, "none");
+    }
+
+    #[test]
+    fn joint_reference_tick_error_allows_ticks_outside_movement_range() {
+        let mut joint = Joint::new(2, 100, 1000);
+        joint.tick = Some(2048);
+
+        assert_eq!(joint_reference_tick_error(&joint), None);
+    }
+
+    #[test]
+    fn joint_reference_tick_error_mentions_servo_range() {
+        let mut joint = Joint::new(2, 100, 1000);
+        joint.tick = Some(4096);
+
+        assert_eq!(
+            joint_reference_tick_error(&joint),
+            Some("current tick 4096 is outside servo range 0..4095".to_string())
         );
     }
 }
