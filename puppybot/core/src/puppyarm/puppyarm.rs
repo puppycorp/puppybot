@@ -31,6 +31,9 @@ const TIP_ZERO_TICK: i32 = 1783;
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
 const RAD_TO_DEG: f64 = 180.0 / core::f64::consts::PI;
+const CARTESIAN_TOOL_PHI_SEARCH_STEPS: usize = 181;
+const CARTESIAN_CURRENT_POSITION_TOLERANCE_MM: f64 = 1.0;
+const SHOULDER_Z_TABLE_FLOOR_MM: f64 = -kinematics::Z_ORIGIN_MM;
 
 fn current_targets(joints: &[Joint; JOINT_COUNT]) -> Option<[i32; JOINT_COUNT]> {
     let mut targets = [0; JOINT_COUNT];
@@ -55,14 +58,16 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             servo_id: 1,
             tick_min: YAW_TICK_MIN,
             tick_max: YAW_TICK_MAX,
-            raw_tick_min: YAW_TICK_MIN,
-            raw_tick_max: YAW_TICK_MAX,
+            raw_tick_min: 0,
+            raw_tick_max: TICK_WRAP - 1,
             sign: YAW_SIGN,
             drive_sign: 1,
+            reference_tick: YAW_ZERO_TICK,
+            reference_angle_rad: 0.0,
             zero_offset_rad: zero_offset_from_reference(
                 YAW_ZERO_TICK,
-                YAW_TICK_MIN,
-                YAW_TICK_MAX,
+                0,
+                TICK_WRAP - 1,
                 YAW_SIGN,
                 0.0,
             ),
@@ -88,14 +93,16 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             servo_id: 2,
             tick_min: SHOULDER_TICK_MIN,
             tick_max: SHOULDER_TICK_MAX,
-            raw_tick_min: SHOULDER_TICK_MIN,
-            raw_tick_max: SHOULDER_TICK_MAX,
+            raw_tick_min: 0,
+            raw_tick_max: TICK_WRAP - 1,
             sign: SHOULDER_SIGN,
             drive_sign: SHOULDER_DRIVE_SIGN,
+            reference_tick: SHOULDER_ZERO_TICK,
+            reference_angle_rad: PI / 2.0,
             zero_offset_rad: zero_offset_from_reference(
                 SHOULDER_ZERO_TICK,
-                SHOULDER_TICK_MIN,
-                SHOULDER_TICK_MAX,
+                0,
+                TICK_WRAP - 1,
                 SHOULDER_SIGN,
                 PI / 2.0,
             ),
@@ -121,14 +128,16 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             servo_id: 3,
             tick_min: ELBOW_TICK_MIN,
             tick_max: ELBOW_TICK_MAX,
-            raw_tick_min: ELBOW_TICK_MIN,
-            raw_tick_max: ELBOW_TICK_MAX,
+            raw_tick_min: 0,
+            raw_tick_max: TICK_WRAP - 1,
             sign: ELBOW_SIGN,
             drive_sign: ELBOW_DRIVE_SIGN,
+            reference_tick: ELBOW_ZERO_TICK,
+            reference_angle_rad: 0.0,
             zero_offset_rad: zero_offset_from_reference(
                 ELBOW_ZERO_TICK,
-                ELBOW_TICK_MIN,
-                ELBOW_TICK_MAX,
+                0,
+                TICK_WRAP - 1,
                 ELBOW_SIGN,
                 0.0,
             ),
@@ -154,14 +163,16 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             servo_id: 4,
             tick_min: TIP_TICK_MIN,
             tick_max: TIP_TICK_MAX,
-            raw_tick_min: TIP_TICK_MIN,
-            raw_tick_max: TIP_TICK_MAX,
+            raw_tick_min: 0,
+            raw_tick_max: TICK_WRAP - 1,
             sign: TIP_SIGN,
             drive_sign: 1,
+            reference_tick: TIP_ZERO_TICK,
+            reference_angle_rad: 0.0,
             zero_offset_rad: zero_offset_from_reference(
                 TIP_ZERO_TICK,
-                TIP_TICK_MIN,
-                TIP_TICK_MAX,
+                0,
+                TICK_WRAP - 1,
                 TIP_SIGN,
                 0.0,
             ),
@@ -189,24 +200,26 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
 fn joint_from_calibration(calibration: JointCalibration) -> Joint {
     let mut joint = Joint::new(
         calibration.servo_id,
-        calibration.soft_tick_min,
-        calibration.soft_tick_max,
+        calibration.tick_min,
+        calibration.tick_max,
     );
-    joint.raw_tick_min = calibration.raw_tick_min;
-    joint.raw_tick_max = calibration.raw_tick_max;
+    joint.raw_tick_min = 0;
+    joint.raw_tick_max = TICK_WRAP - 1;
     joint.sign = calibration.angle_sign as f64;
     joint.drive_sign = calibration.drive_sign;
+    joint.reference_tick = calibration.reference_tick;
+    joint.reference_angle_rad = calibration.reference_angle_rad;
     joint.zero_offset_rad = zero_offset_from_reference(
         calibration.reference_tick,
-        calibration.raw_tick_min,
-        calibration.raw_tick_max,
+        joint.raw_tick_min,
+        joint.raw_tick_max,
         joint.sign,
         calibration.reference_angle_rad,
     );
     joint.online = false;
     joint.limit_enabled = calibration.limit_enabled;
-    joint.limit_min = calibration.soft_tick_min;
-    joint.limit_max = calibration.soft_tick_max;
+    joint.limit_min = calibration.tick_min;
+    joint.limit_max = calibration.tick_max;
     joint
 }
 
@@ -600,6 +613,11 @@ impl PuppyArm {
             ArmCommand::SetJointAngle { joint, angle_rad } => {
                 self.set_joint_angle(joint, angle_rad, now)
             }
+            ArmCommand::SetJointReference {
+                joint,
+                tick,
+                angle_rad,
+            } => self.set_joint_reference(joint, tick, angle_rad, now),
             ArmCommand::SetServoAngle {
                 servo_id,
                 angle_rad,
@@ -746,13 +764,27 @@ impl PuppyArm {
     }
 
     fn goto_angles(&mut self, angles: [f64; JOINT_COUNT], now: u64) -> Result<(), ControllerError> {
-        let ticks = core::array::from_fn(|index| angle_to_tick(&self.joints[index], angles[index]));
+        let ticks = self.angles_to_ticks(angles);
         self.goto_ticks(ticks, now)
     }
 
     fn goto_coords(&mut self, x: f64, y: f64, z: f64, now: u64) -> Result<(), ControllerError> {
-        let angles = kinematics::solve_coords_tool_down(x, y, z)?;
-        self.goto_angles([angles.0, angles.1, angles.2, angles.3], now)
+        if z < SHOULDER_Z_TABLE_FLOOR_MM {
+            return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
+        }
+        if let Ok((current_x, current_y, current_z)) = self.current_coords() {
+            let distance_mm = libm::sqrt(
+                (x - current_x) * (x - current_x)
+                    + (y - current_y) * (y - current_y)
+                    + (z - current_z) * (z - current_z),
+            );
+            if distance_mm <= CARTESIAN_CURRENT_POSITION_TOLERANCE_MM {
+                return self.goto_checked_angles(self.current_angles()?, now);
+            }
+        }
+
+        let angles = self.solve_coords_with_wrist_search(x, y, z)?;
+        self.goto_checked_angles(angles, now)
     }
 
     fn goto_pose(
@@ -763,8 +795,93 @@ impl PuppyArm {
         tool_phi_rad: f64,
         now: u64,
     ) -> Result<(), ControllerError> {
+        if z < SHOULDER_Z_TABLE_FLOOR_MM {
+            return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
+        }
         let angles = kinematics::solve_coords_with_tool_pitch(x, y, z, tool_phi_rad)?;
-        self.goto_angles([angles.0, angles.1, angles.2, angles.3], now)
+        self.goto_checked_angles([angles.0, angles.1, angles.2, angles.3], now)
+    }
+
+    fn angles_to_ticks(&self, angles: [f64; JOINT_COUNT]) -> [i32; JOINT_COUNT] {
+        core::array::from_fn(|index| angle_to_tick(&self.joints[index], angles[index]))
+    }
+
+    fn ticks_within_joint_limits(&self, ticks: &[i32; JOINT_COUNT]) -> bool {
+        self.joints
+            .iter()
+            .zip(ticks.iter())
+            .all(|(joint, tick)| servo_safety::tick_within_joint_limits(joint, *tick))
+    }
+
+    fn angles_within_joint_limits(&self, angles: [f64; JOINT_COUNT]) -> bool {
+        self.ticks_within_joint_limits(&self.angles_to_ticks(angles))
+    }
+
+    fn goto_checked_angles(
+        &mut self,
+        angles: [f64; JOINT_COUNT],
+        now: u64,
+    ) -> Result<(), ControllerError> {
+        let ticks = self.angles_to_ticks(angles);
+        if !self.ticks_within_joint_limits(&ticks) {
+            return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
+        }
+        self.goto_ticks(ticks, now)
+    }
+
+    fn solve_coords_with_wrist_search(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+    ) -> Result<[f64; JOINT_COUNT], ControllerError> {
+        if let Ok(current_angles) = self.current_angles() {
+            let current_tool_phi =
+                kinematics::wrap_pi(current_angles[1] - current_angles[2] - current_angles[3]);
+            if let Ok((yaw, shoulder, elbow, wrist)) =
+                kinematics::solve_coords_with_tool_pitch(x, y, z, current_tool_phi)
+            {
+                let angles = [yaw, shoulder, elbow, wrist];
+                if self.angles_within_joint_limits(angles) {
+                    return Ok(angles);
+                }
+            }
+        }
+
+        let result = kinematics::ik(x, y, z);
+        if !result.reachable {
+            return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
+        }
+
+        let base = [result.yaw, result.shoulder, result.elbow];
+        let tool_down = Self::coords_candidate_angles(base, kinematics::ARM_TOOL_PHI_RAD);
+        if self.angles_within_joint_limits(tool_down) {
+            return Ok(tool_down);
+        }
+
+        let step = 2.0 * PI / CARTESIAN_TOOL_PHI_SEARCH_STEPS as f64;
+        for offset in 1..=CARTESIAN_TOOL_PHI_SEARCH_STEPS / 2 + 1 {
+            let offset = offset as f64 * step;
+            for direction in [-1.0, 1.0] {
+                let tool_phi_rad =
+                    kinematics::wrap_pi(kinematics::ARM_TOOL_PHI_RAD + direction * offset);
+                let angles = Self::coords_candidate_angles(base, tool_phi_rad);
+                if self.angles_within_joint_limits(angles) {
+                    return Ok(angles);
+                }
+            }
+        }
+
+        Err(ControllerError::Ik(kinematics::IkError::Unreachable))
+    }
+
+    fn coords_candidate_angles(base: [f64; 3], tool_phi_rad: f64) -> [f64; JOINT_COUNT] {
+        [
+            base[0],
+            base[1],
+            base[2],
+            kinematics::wrap_pi(base[1] - base[2] - tool_phi_rad),
+        ]
     }
 
     fn move_tcp_relative(
@@ -863,6 +980,34 @@ impl PuppyArm {
         }
         ticks[joint] = angle_to_tick(&self.joints[joint], angle_rad);
         self.goto_ticks(ticks, now)
+    }
+
+    fn set_joint_reference(
+        &mut self,
+        joint: usize,
+        tick: i32,
+        angle_rad: f64,
+        now: u64,
+    ) -> Result<(), ControllerError> {
+        let joint = validate_joint(joint)?;
+        if !angle_rad.is_finite() {
+            return Err(ControllerError::InvalidLimit);
+        }
+
+        let raw_tick_min = self.joints[joint].raw_tick_min;
+        let raw_tick_max = self.joints[joint].raw_tick_max;
+        let sign = self.joints[joint].sign;
+        if !(0..TICK_WRAP).contains(&tick) {
+            return Err(ControllerError::InvalidLimit);
+        }
+
+        self.stop_all(now);
+        self.mode = ArmMode::Idle;
+        self.joints[joint].reference_tick = tick;
+        self.joints[joint].reference_angle_rad = angle_rad;
+        self.joints[joint].zero_offset_rad =
+            zero_offset_from_reference(tick, raw_tick_min, raw_tick_max, sign, angle_rad);
+        Ok(())
     }
 
     fn set_servo_angle(

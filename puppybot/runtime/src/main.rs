@@ -13,7 +13,7 @@ use embassy_executor as _;
 use puppybot_core::{
     config::PuppybotConfigV1,
     protocol::{self, ProtocolEvent},
-    puppyarm::types::ControllerError,
+    puppyarm::types::{ArmCommand, ControllerError},
     robot::Puppybot,
 };
 
@@ -131,9 +131,20 @@ impl RuntimeRobot {
     }
 
     pub(crate) fn try_handle_event(&mut self, event: ProtocolEvent) -> Result<(), ControllerError> {
+        let reference_calibration = match event {
+            ProtocolEvent::Arm(ArmCommand::SetJointReference {
+                joint,
+                tick,
+                angle_rad,
+            }) => Some((joint, tick, angle_rad)),
+            _ => None,
+        };
         let now_ms = self.now_ms();
         self.robot.try_handle_event(event, now_ms)?;
         self.sync_arm_calibration_from_robot();
+        if let Some((joint, tick, angle_rad)) = reference_calibration {
+            self.sync_joint_reference_calibration(joint, tick, angle_rad)?;
+        }
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
         Ok(())
     }
@@ -214,22 +225,49 @@ impl RuntimeRobot {
                 config_joint.servo_id = joint.servo_id;
                 changed = true;
             }
-            if config_joint.soft_tick_min != joint.limit_min {
-                config_joint.soft_tick_min = joint.limit_min;
+            if config_joint.tick_min != joint.limit_min {
+                config_joint.tick_min = joint.limit_min;
                 changed = true;
             }
-            if config_joint.soft_tick_max != joint.limit_max {
-                config_joint.soft_tick_max = joint.limit_max;
+            if config_joint.tick_max != joint.limit_max {
+                config_joint.tick_max = joint.limit_max;
                 changed = true;
             }
             if config_joint.limit_enabled != joint.limit_enabled {
                 config_joint.limit_enabled = joint.limit_enabled;
                 changed = true;
             }
+            if config_joint.reference_tick != joint.reference_tick {
+                config_joint.reference_tick = joint.reference_tick;
+                changed = true;
+            }
+            if config_joint.reference_angle_rad != joint.reference_angle_rad {
+                config_joint.reference_angle_rad = joint.reference_angle_rad;
+                changed = true;
+            }
         }
         if changed {
             self.calibration_dirty = true;
         }
+    }
+
+    fn sync_joint_reference_calibration(
+        &mut self,
+        joint: usize,
+        tick: i32,
+        angle_rad: f64,
+    ) -> Result<(), ControllerError> {
+        if joint >= self.active_config.arm.joints.len() {
+            return Err(ControllerError::InvalidJoint);
+        }
+
+        let config_joint = &mut self.active_config.arm.joints[joint];
+        if config_joint.reference_tick != tick || config_joint.reference_angle_rad != angle_rad {
+            config_joint.reference_tick = tick;
+            config_joint.reference_angle_rad = angle_rad;
+            self.calibration_dirty = true;
+        }
+        Ok(())
     }
 }
 
@@ -594,8 +632,37 @@ mod tests {
         robot.save_calibration().unwrap();
 
         let saved = config::load_runtime_config(&path).unwrap().unwrap();
-        assert_eq!(saved.arm.joints[0].soft_tick_min, 10);
-        assert_eq!(saved.arm.joints[0].soft_tick_max, 120);
+        assert_eq!(saved.arm.joints[0].tick_min, 10);
+        assert_eq!(saved.arm.joints[0].tick_max, 120);
+        assert!(!robot.calibration_state().0);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn runtime_robot_saves_joint_reference_calibration() {
+        let path = std::env::temp_dir().join(format!(
+            "runtime-robot-save-joint-reference-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let reference_angle_rad = 12.5_f64.to_radians();
+        let mut robot = RuntimeRobot::new(None, path.clone(), PuppybotConfigV1::default());
+        let result = robot.try_handle_event(ProtocolEvent::Arm(ArmCommand::SetJointReference {
+            joint: 1,
+            tick: 700,
+            angle_rad: reference_angle_rad,
+        }));
+
+        assert_eq!(result, Ok(()));
+        assert!(robot.calibration_state().0);
+
+        robot.save_calibration().unwrap();
+
+        let saved = config::load_runtime_config(&path).unwrap().unwrap();
+        assert_eq!(saved.arm.joints[1].reference_tick, 700);
+        assert_eq!(saved.arm.joints[1].reference_angle_rad, reference_angle_rad);
         assert!(!robot.calibration_state().0);
 
         let _ = std::fs::remove_file(&path);
