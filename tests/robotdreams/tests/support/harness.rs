@@ -1,60 +1,166 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use puppybot_core::config::{
     JointCalibration, PUPPYBOT_CONFIG_VERSION, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
 };
 use puppybot_core::protocol::ProtocolEvent;
-use puppybot_core::puppyarm::types::{ArmCommand, JOINT_COUNT};
+use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT};
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
-use puppybot_core::stservo::mock::{FakeSerialBus, FakeServo, block_on_ready};
+use puppybot_core::stservo::SerialBus;
+use puppybot_core::stservo::mock::block_on_ready;
 use robotdreams_core::RobotDreams;
 use robotdreams_core::project::{
     DeviceConfig, ProjectConfig, ServoDeviceConfig, load_model_profile,
     project_config_from_manifest,
 };
 
-pub const MODEL_UP_TOLERANCE_M: f64 = 0.010;
+pub const MODEL_UP_TOLERANCE_M: f64 = 0.0015;
 
 const SERVO_FULL_ROTATION_TICKS: f64 = 4096.0;
-const SIMULATION_STEP_TICKS: i32 = 32;
+const SIMULATION_STEP_SECONDS: f32 = 0.02;
+
+struct RobotDreamsSerialBusState {
+    dreams: RobotDreams,
+    bus_id: String,
+    read_buf: VecDeque<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RobotDreamsSerialBusError {
+    Protocol,
+}
+
+#[derive(Clone)]
+struct RobotDreamsSerialBus {
+    state: Rc<RefCell<RobotDreamsSerialBusState>>,
+}
+
+impl RobotDreamsSerialBus {
+    fn new(state: Rc<RefCell<RobotDreamsSerialBusState>>) -> Self {
+        Self { state }
+    }
+}
+
+impl SerialBus for RobotDreamsSerialBus {
+    type Error = RobotDreamsSerialBusError;
+
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, Self::Error> {
+        let mut state = self.state.borrow_mut();
+        let bus_id = state.bus_id.clone();
+        let response = state
+            .dreams
+            .handle_virtual_bus_frame(&bus_id, bytes)
+            .map_err(|_| RobotDreamsSerialBusError::Protocol)?;
+        if let Some(response) = response {
+            state.read_buf.extend(response);
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn read_buffered(&mut self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
+        let mut state = self.state.borrow_mut();
+        let len = bytes.len().min(state.read_buf.len());
+        for byte in bytes.iter_mut().take(len) {
+            *byte = state
+                .read_buf
+                .pop_front()
+                .expect("read buffer length should match pop count");
+        }
+        Ok(len)
+    }
+}
 
 pub struct PuppybotRobotDreamsHarness {
-    project: ProjectConfig,
-    system: PuppyBotSystem<FakeSerialBus>,
-    dreams: RobotDreams,
+    state: Rc<RefCell<RobotDreamsSerialBusState>>,
+    system: PuppyBotSystem<RobotDreamsSerialBus>,
+    cycle: u64,
 }
 
 impl PuppybotRobotDreamsHarness {
     pub fn with_arm_pose(angles_rad: [f64; JOINT_COUNT]) -> Self {
         let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
         let config = simulation_config_from_robotdreams_project(&project);
-        let bus = fake_bus_with_pose(&config, angles_rad);
+        let mut dreams =
+            RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+        let bus_id = dreams
+            .first_virtual_bus_id()
+            .expect("PuppyBot RobotDreams project should define a virtual bus")
+            .to_string();
+        for (joint, angle_rad) in config.arm.joints.iter().zip(angles_rad) {
+            let tick = tick_for_joint_angle(joint, angle_rad);
+            assert!(
+                dreams.set_virtual_servo_target(&bus_id, joint.servo_id, tick as i16),
+                "initialize RobotDreams virtual servo {}",
+                joint.servo_id
+            );
+        }
+        dreams.advance_seconds(3.0);
+
+        let state = Rc::new(RefCell::new(RobotDreamsSerialBusState {
+            dreams,
+            bus_id,
+            read_buf: VecDeque::new(),
+        }));
+        let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
         let system = PuppyBotSystem::new(
             Puppybot::new_with_config(&config, 0).expect("simulation PuppyBot config"),
             bus,
         );
-        let dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
-        let mut harness = Self {
-            project,
+        Self {
+            state,
             system,
-            dreams,
-        };
-        harness.apply_bus_to_robotdreams();
-        harness
+            cycle: 0,
+        }
     }
 
     pub fn run_arm_command(&mut self, command: ArmCommand, cycles: usize) {
+        let _ = self.run_arm_command_sampled(command, cycles, 0);
+    }
+
+    pub fn run_arm_command_sampled(
+        &mut self,
+        command: ArmCommand,
+        cycles: usize,
+        sample_every_cycles: usize,
+    ) -> Vec<[f64; 3]> {
         let mut event = Some(ProtocolEvent::Arm(command));
+        let mut samples = Vec::new();
         for cycle in 0..cycles {
-            block_on_ready(self.system.run_once_at(cycle as u64 * 20, || event.take()));
-            step_fake_bus_motion(self.system.servo_mut().bus_mut());
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || event.take()));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            if sample_every_cycles > 0 && (cycle + 1) % sample_every_cycles == 0 {
+                samples.push(self.tcp_position());
+            }
         }
-        self.apply_bus_to_robotdreams();
+        self.advance_robotdreams();
+        samples
+    }
+
+    pub fn try_run_arm_command_sampled(
+        &mut self,
+        command: ArmCommand,
+        cycles: usize,
+        sample_every_cycles: usize,
+    ) -> Result<Vec<[f64; 3]>, ControllerError> {
+        self.prime_feedback();
+        self.system
+            .robot_mut()
+            .try_handle_event(ProtocolEvent::Arm(command), self.cycle * 20)?;
+        Ok(self.run_cycles_sampled(cycles, sample_every_cycles))
     }
 
     pub fn tcp_position(&self) -> [f64; 3] {
-        self.dreams
+        self.state
+            .borrow()
+            .dreams
             .robot_state("puppybot")
             .expect("puppybot robot state")
             .tcp
@@ -63,8 +169,31 @@ impl PuppybotRobotDreamsHarness {
             .position
     }
 
-    fn apply_bus_to_robotdreams(&mut self) {
-        apply_fake_bus_to_robotdreams(&mut self.dreams, &self.project, self.system.servo().bus());
+    fn prime_feedback(&mut self) {
+        block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
+        self.cycle = self.cycle.wrapping_add(1);
+        self.advance_robotdreams();
+    }
+
+    fn run_cycles_sampled(&mut self, cycles: usize, sample_every_cycles: usize) -> Vec<[f64; 3]> {
+        let mut samples = Vec::new();
+        for cycle in 0..cycles {
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            if sample_every_cycles > 0 && (cycle + 1) % sample_every_cycles == 0 {
+                samples.push(self.tcp_position());
+            }
+        }
+        self.advance_robotdreams();
+        samples
+    }
+
+    fn advance_robotdreams(&mut self) {
+        self.state
+            .borrow_mut()
+            .dreams
+            .advance_seconds(SIMULATION_STEP_SECONDS);
     }
 }
 
@@ -135,18 +264,6 @@ fn tick_for_joint_angle(joint: &JointCalibration, angle_rad: f64) -> u16 {
         + sign * (angle_rad - joint.reference_angle_rad) * SERVO_FULL_ROTATION_TICKS
             / std::f64::consts::TAU;
     tick.round().rem_euclid(SERVO_FULL_ROTATION_TICKS) as u16
-}
-
-fn servo_ticks_to_robotdreams_radians(tick: u16, servo: &ServoDeviceConfig) -> f64 {
-    let direction = if servo.calibration.direction < 0 {
-        -1.0
-    } else {
-        1.0
-    };
-    direction
-        * f64::from(i32::from(tick) - i32::from(servo.calibration.zero_offset))
-        * std::f64::consts::TAU
-        / SERVO_FULL_ROTATION_TICKS
 }
 
 fn semantic_joint_index(name: &str) -> Option<usize> {
@@ -235,59 +352,5 @@ fn simulation_config_from_robotdreams_project(project: &ProjectConfig) -> Puppyb
         drive: Default::default(),
         arm: PuppyArmConfig { joints },
         coordinate: Default::default(),
-    }
-}
-
-fn fake_bus_with_pose(config: &PuppybotConfigV1, angles_rad: [f64; JOINT_COUNT]) -> FakeSerialBus {
-    let mut bus = FakeSerialBus::new();
-    for (joint, angle_rad) in config.arm.joints.iter().zip(angles_rad) {
-        bus.set_servo(FakeServo::new(
-            joint.servo_id,
-            tick_for_joint_angle(joint, angle_rad),
-        ));
-    }
-    bus
-}
-
-fn step_fake_bus_motion(bus: &mut FakeSerialBus) {
-    for servo_id in 1..=4 {
-        let Some(servo) = bus.servo(servo_id) else {
-            continue;
-        };
-        if servo.wheel_speed == 0 {
-            continue;
-        }
-        let direction = i32::from(servo.wheel_speed.signum());
-        let next = (i32::from(servo.position) + direction * SIMULATION_STEP_TICKS).rem_euclid(4096);
-        bus.set_position(servo_id, next as u16);
-    }
-}
-
-fn apply_fake_bus_to_robotdreams(
-    dreams: &mut RobotDreams,
-    project: &ProjectConfig,
-    bus: &FakeSerialBus,
-) {
-    for hardware_bus in &project.hardware.buses {
-        for device in &hardware_bus.devices {
-            let DeviceConfig::Servo(servo) = device else {
-                continue;
-            };
-            let Some(drives) = &servo.drives else {
-                continue;
-            };
-            let Some(fake_servo) = u8::try_from(servo.id)
-                .ok()
-                .and_then(|servo_id| bus.servo(servo_id))
-            else {
-                continue;
-            };
-            dreams
-                .set_joint_angle(
-                    &drives.target,
-                    servo_ticks_to_robotdreams_radians(fake_servo.position, servo),
-                )
-                .expect("apply virtual servo position to RobotDreams joint");
-        }
     }
 }
