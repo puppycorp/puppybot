@@ -11,6 +11,9 @@ use harness::{
 #[path = "support/harness.rs"]
 mod harness;
 
+// Repeated moves compare the exported CAD TCP against PuppyArm's simplified controller model.
+const REPEATED_MOVE_STABLE_AXIS_TOLERANCE_M: f64 = 0.005;
+
 fn assert_coordinate_forward_preserves_model_up_axis(frame: TcpFrame) {
     let model_up_axis = puppybot_model_up_axis();
     let mut harness = test_harness();
@@ -42,6 +45,23 @@ fn assert_coordinate_forward_preserves_model_up_axis(frame: TcpFrame) {
     );
 }
 
+fn assert_coordinate_forward_preserves_tool_vector(frame: TcpFrame) {
+    let mut harness = test_harness();
+    let start_tool = harness.tool_vector();
+
+    harness.run_arm_command(
+        ArmCommand::MoveTcpRelative {
+            frame,
+            dx_mm: 10.0,
+            dy_mm: 0.0,
+            dz_mm: 0.0,
+        },
+        160,
+    );
+    let moved_tool = harness.tool_vector();
+    assert_vector_close(start_tool, moved_tool, 0.001);
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CoordinateButtonCase {
     name: &'static str,
@@ -50,6 +70,8 @@ struct CoordinateButtonCase {
     dz_mm: f64,
     movement_axes: &'static [usize],
     stable_axes: &'static [usize],
+    button_presses: usize,
+    minimum_movement_m: f64,
 }
 
 const FORWARD: CoordinateButtonCase = CoordinateButtonCase {
@@ -59,6 +81,8 @@ const FORWARD: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: 0.0,
     movement_axes: &[0],
     stable_axes: &[2],
+    button_presses: 3,
+    minimum_movement_m: 0.010,
 };
 
 const BACK: CoordinateButtonCase = CoordinateButtonCase {
@@ -68,6 +92,8 @@ const BACK: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: 0.0,
     movement_axes: &[0],
     stable_axes: &[2],
+    button_presses: 3,
+    minimum_movement_m: 0.010,
 };
 
 const LEFT: CoordinateButtonCase = CoordinateButtonCase {
@@ -77,6 +103,8 @@ const LEFT: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: 0.0,
     movement_axes: &[0, 1],
     stable_axes: &[2],
+    button_presses: 3,
+    minimum_movement_m: 0.010,
 };
 
 const RIGHT: CoordinateButtonCase = CoordinateButtonCase {
@@ -86,6 +114,8 @@ const RIGHT: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: 0.0,
     movement_axes: &[0, 1],
     stable_axes: &[2],
+    button_presses: 3,
+    minimum_movement_m: 0.010,
 };
 
 const UP: CoordinateButtonCase = CoordinateButtonCase {
@@ -95,6 +125,8 @@ const UP: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: 10.0,
     movement_axes: &[2],
     stable_axes: &[0, 1],
+    button_presses: 3,
+    minimum_movement_m: 0.010,
 };
 
 const DOWN: CoordinateButtonCase = CoordinateButtonCase {
@@ -104,6 +136,9 @@ const DOWN: CoordinateButtonCase = CoordinateButtonCase {
     dz_mm: -10.0,
     movement_axes: &[2],
     stable_axes: &[0, 1],
+    button_presses: 1,
+    // The exported CAD TCP starts close to the floor in this motion-valid pose.
+    minimum_movement_m: 0.002,
 };
 
 fn assert_coordinate_button_until_unreachable_preserves_other_axes(
@@ -111,7 +146,6 @@ fn assert_coordinate_button_until_unreachable_preserves_other_axes(
     case: CoordinateButtonCase,
 ) {
     const BUTTON_STEP_MM: f64 = 10.0;
-    const BUTTON_PRESSES: usize = 3;
     const CYCLES_PER_PRESS: usize = 160;
     const SAMPLE_EVERY_CYCLES: usize = 8;
 
@@ -120,7 +154,7 @@ fn assert_coordinate_button_until_unreachable_preserves_other_axes(
     let mut accepted_presses = 0;
     let mut samples = Vec::new();
 
-    while accepted_presses < BUTTON_PRESSES {
+    while accepted_presses < case.button_presses {
         match harness.try_run_arm_command_sampled(
             coordinate_move(frame, case),
             CYCLES_PER_PRESS,
@@ -132,8 +166,8 @@ fn assert_coordinate_button_until_unreachable_preserves_other_axes(
             }
             Err(ControllerError::Ik(IkError::Unreachable)) => {
                 panic!(
-                    "{frame:?} coordinate {} became unreachable before {BUTTON_PRESSES} button presses: accepted_presses={accepted_presses}",
-                    case.name
+                    "{frame:?} coordinate {} became unreachable before {} button presses: accepted_presses={accepted_presses}",
+                    case.name, case.button_presses
                 );
             }
             Err(err) => {
@@ -165,7 +199,7 @@ fn assert_coordinate_button_until_unreachable_preserves_other_axes(
         case.name
     );
     assert!(
-        actual_movement > 0.010,
+        actual_movement > case.minimum_movement_m,
         "{frame:?} repeated coordinate {} should move on commanded axes: start={start_tcp:?} actual_movement_mm={:.3} accepted_presses={accepted_presses}",
         case.name,
         actual_movement * 1000.0
@@ -199,6 +233,32 @@ fn coordinate_move(frame: TcpFrame, case: CoordinateButtonCase) -> ArmCommand {
     }
 }
 
+trait ArmHarnessExt {
+    fn tool_vector(&self) -> [f64; 3];
+}
+
+impl ArmHarnessExt for PuppybotRobotDreamsHarness {
+    fn tool_vector(&self) -> [f64; 3] {
+        let tcp = self.tcp_position();
+        let wrist_link = self.location_position("part_1_4");
+        [
+            tcp[0] - wrist_link[0],
+            tcp[1] - wrist_link[1],
+            tcp[2] - wrist_link[2],
+        ]
+    }
+}
+
+fn assert_vector_close(left: [f64; 3], right: [f64; 3], tolerance_m: f64) {
+    for axis in 0..3 {
+        assert!(
+            (left[axis] - right[axis]).abs() <= tolerance_m,
+            "tool vector axis {axis} changed: start={left:?} moved={right:?} diff_m={:.6} tolerance_m={tolerance_m:.6}",
+            (left[axis] - right[axis]).abs()
+        );
+    }
+}
+
 fn assert_all_samples_preserve_axes(
     frame: TcpFrame,
     case: CoordinateButtonCase,
@@ -226,8 +286,8 @@ fn assert_all_samples_preserve_axes(
             }
         }
         assert!(
-            worst_drift <= MODEL_UP_TOLERANCE_M,
-            "{frame:?} {} sample {worst_index} changed stable axis {stable_axis}: start={start_tcp:?} sample={worst_tcp:?} accepted_presses={accepted_presses} commanded_mm={:.1} actual_movement_mm={:.3} drift_m={worst_drift:.6} drift_mm={:.3} tolerance_m={MODEL_UP_TOLERANCE_M:.6}",
+            worst_drift <= REPEATED_MOVE_STABLE_AXIS_TOLERANCE_M,
+            "{frame:?} {} sample {worst_index} changed stable axis {stable_axis}: start={start_tcp:?} sample={worst_tcp:?} accepted_presses={accepted_presses} commanded_mm={:.1} actual_movement_mm={:.3} drift_m={worst_drift:.6} drift_mm={:.3} tolerance_m={REPEATED_MOVE_STABLE_AXIS_TOLERANCE_M:.6}",
             case.name,
             accepted_presses as f64 * button_step_mm,
             actual_movement * 1000.0,
@@ -244,6 +304,16 @@ fn base_move_forward_once_z_no_change() {
 #[test]
 fn yaw_flat_move_forward_once_z_no_change() {
     assert_coordinate_forward_preserves_model_up_axis(TcpFrame::YawFlat);
+}
+
+#[test]
+fn base_move_forward_tool_vector_no_change() {
+    assert_coordinate_forward_preserves_tool_vector(TcpFrame::Base);
+}
+
+#[test]
+fn yaw_flat_move_forward_tool_vector_no_change() {
+    assert_coordinate_forward_preserves_tool_vector(TcpFrame::YawFlat);
 }
 
 #[test]

@@ -618,6 +618,7 @@ version = "0.1.0"
 dependencies = [
  "puppybot-core",
  "robotdreams-core",
+ "serde_json",
 ]
 
 [[package]]

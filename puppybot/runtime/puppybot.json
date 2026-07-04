@@ -6,7 +6,7 @@
         "drive_sign": 1,
         "limit_enabled": true,
         "reference_angle_deg": 90.0,
-        "reference_tick": 4024,
+        "reference_tick": 885,
         "servo_id": 1,
         "tick_max": 4095,
         "tick_min": 0
@@ -16,7 +16,7 @@
         "drive_sign": 1,
         "limit_enabled": false,
         "reference_angle_deg": 90.0,
-        "reference_tick": 3015,
+        "reference_tick": 1003,
         "servo_id": 2,
         "tick_max": 3966,
         "tick_min": 2000
@@ -26,7 +26,7 @@
         "drive_sign": 1,
         "limit_enabled": false,
         "reference_angle_deg": 90.0,
-        "reference_tick": 3080,
+        "reference_tick": 1552,
         "servo_id": 3,
         "tick_max": 3600,
         "tick_min": 560
@@ -36,7 +36,7 @@
         "drive_sign": 1,
         "limit_enabled": false,
         "reference_angle_deg": 90.0,
-        "reference_tick": 4009,
+        "reference_tick": 365,
         "servo_id": 4,
         "tick_max": 2400,
         "tick_min": 3800
@@ -44,7 +44,7 @@
     ]
   },
   "coordinate": {
-    "base_yaw_offset_deg": 0.0,
+    "base_yaw_offset_deg": 90.0,
     "forward_sign": 1,
     "left_sign": -1
   },

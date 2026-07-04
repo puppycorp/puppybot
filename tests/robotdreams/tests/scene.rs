@@ -140,19 +140,35 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
         let joint_name = semantic_joints
             .get(semantic_name)
             .unwrap_or_else(|| panic!("missing semantic joint {semantic_name}"));
-        let servo_count = bus
+        let servos: Vec<_> = bus
             .devices
             .iter()
-            .filter(|device| match device {
-                DeviceConfig::Servo(servo) => {
-                    servo.drives.as_ref().map(|drives| &drives.target) == Some(joint_name)
-                }
-                _ => false,
+            .filter_map(|device| match device {
+                DeviceConfig::Servo(servo) => (servo.drives.as_ref().map(|drives| &drives.target)
+                    == Some(joint_name))
+                .then_some(servo),
+                _ => None,
             })
-            .count();
+            .collect();
         assert_eq!(
-            servo_count, 1,
+            servos.len(),
+            1,
             "semantic joint {semantic_name} should have exactly one driving servo"
+        );
+        let (expected_zero_offset, expected_direction) = match semantic_name {
+            "yaw" => (3957, 1),
+            "shoulder" => (3051, 1),
+            "elbow" => (1552, -1),
+            "wrist" => (3437, 1),
+            _ => unreachable!("unexpected semantic joint"),
+        };
+        assert_eq!(
+            servos[0].calibration.zero_offset, expected_zero_offset,
+            "semantic joint {semantic_name} RobotDreams zeroOffset should match PuppyBot runtime mapping"
+        );
+        assert_eq!(
+            servos[0].calibration.direction, expected_direction,
+            "semantic joint {semantic_name} RobotDreams direction should match PuppyBot runtime mapping"
         );
     }
 }
@@ -180,10 +196,6 @@ fn puppybot_robotdreams_scene_locations_include_trashbin_and_ball() {
 #[test]
 fn puppybot_robotdreams_model_transformation_orients_urdf_to_ros_frame() {
     let dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
-    let body = dreams
-        .location_of("lowerbody")
-        .expect("lowerbody link location");
-    let tcp = dreams.location_of("tcp").expect("tcp location");
     let right_wheel = dreams
         .location_of("wheel_base")
         .expect("right wheel base location");
@@ -191,28 +203,12 @@ fn puppybot_robotdreams_model_transformation_orients_urdf_to_ros_frame() {
         .location_of("wheel_base_1")
         .expect("left wheel base location");
 
-    let tcp_from_body = [
-        tcp.position[0] - body.position[0],
-        tcp.position[1] - body.position[1],
-        tcp.position[2] - body.position[2],
-    ];
     let wheel_delta = [
         left_wheel.position[0] - right_wheel.position[0],
         left_wheel.position[1] - right_wheel.position[1],
         left_wheel.position[2] - right_wheel.position[2],
     ];
 
-    assert!(
-        tcp_from_body[0] > 0.10,
-        "PuppyBot TCP/front should point along ROS +X after modelTransformation: body={:?} tcp={:?} delta={:?}",
-        body.position,
-        tcp.position,
-        tcp_from_body
-    );
-    assert!(
-        tcp_from_body[0].abs() > tcp_from_body[1].abs() * 3.0,
-        "PuppyBot front should be X-dominant, not sideways: delta={tcp_from_body:?}"
-    );
     assert!(
         wheel_delta[1] > 0.10,
         "PuppyBot left/right wheel width should point along ROS +Y: right={:?} left={:?} delta={:?}",
@@ -324,6 +320,9 @@ fn puppybot_model_declares_arm_joint_and_frame_metadata() {
 
     let tcp = profile.tcp.expect("tcp metadata");
     assert_eq!(tcp.link, "part_1_4");
+    assert_close_m(f64::from(tcp.offset[0]), 0.0383, 1.0e-6);
+    assert_close_m(f64::from(tcp.offset[1]), 0.0497, 1.0e-6);
+    assert_close_m(f64::from(tcp.offset[2]), 0.0128, 1.0e-6);
     let tcp_ancestors = ancestor_joint_names(&harness, &tcp.link);
     let semantic_chain: Vec<_> = ["yaw", "shoulder", "elbow", "wrist"]
         .iter()

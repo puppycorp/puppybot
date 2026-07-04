@@ -691,6 +691,56 @@ fn move_tcp_relative_base_matches_absolute_coordinate_target() {
 }
 
 #[test]
+fn move_tcp_relative_base_repeated_command_extends_active_target() {
+    let pose = [
+        0.0,
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+        90.0_f64.to_radians(),
+    ];
+    let mut relative = arm_with_angle_feedback(pose);
+    let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
+
+    relative
+        .try_handle_arm_cmd(
+            ArmCommand::MoveTcpRelative {
+                frame: TcpFrame::Base,
+                dx_mm: 5.0,
+                dy_mm: 0.0,
+                dz_mm: 0.0,
+            },
+            10,
+        )
+        .unwrap();
+    relative
+        .try_handle_arm_cmd(
+            ArmCommand::MoveTcpRelative {
+                frame: TcpFrame::Base,
+                dx_mm: 5.0,
+                dy_mm: 0.0,
+                dz_mm: 0.0,
+            },
+            20,
+        )
+        .unwrap();
+
+    let mut absolute = arm_with_angle_feedback(pose);
+    absolute
+        .try_handle_arm_cmd(
+            ArmCommand::GotoPose {
+                x: start.0 as f64 + 10.0,
+                y: start.1 as f64,
+                z: table_to_shoulder_z(start.2 as f64),
+                tool_phi_rad: -PI / 2.0,
+            },
+            10,
+        )
+        .unwrap();
+
+    assert_target_ticks_close(target_ticks(&relative), target_ticks(&absolute));
+}
+
+#[test]
 fn move_tcp_relative_base_rejects_instead_of_changing_tool_pitch() {
     let pose = [
         0.0,

@@ -765,6 +765,10 @@ impl PuppyArm {
         Ok(out)
     }
 
+    fn target_or_current_angles(&self) -> Result<[f64; JOINT_COUNT], ControllerError> {
+        target_angles(&self.joints).map_or_else(|| self.current_angles(), Ok)
+    }
+
     fn joint_angle(&self, joint: usize) -> Result<f64, ControllerError> {
         let joint = validate_joint(joint)?;
         let tick = self.joints[joint]
@@ -904,7 +908,7 @@ impl PuppyArm {
         dz_mm: f64,
         now: u64,
     ) -> Result<(), ControllerError> {
-        let angles = self.current_angles()?;
+        let angles = self.target_or_current_angles()?;
         let tool_phi = angles[1] - angles[2] - angles[3];
         let (x, y, z_shoulder) = kinematics::fk(angles[0], angles[1], angles[2], angles[3]);
         let (dx, dy, dz) = match frame {
