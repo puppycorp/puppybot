@@ -9,7 +9,11 @@
   "robot": {
     "model": {
       "type": "urdf",
-      "path": "final2/urdf/final2.urdf"
+      "path": "final2/urdf/final2.urdf",
+      "modelTransformation": {
+        "translation": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 1.5707964]
+      }
     },
     "base": {
       "translation": [0.0, 0.0, 0.0],
@@ -34,8 +38,8 @@
     },
     "model": {
       "forwardAxis": "x",
-      "leftAxis": "z",
-      "upAxis": "y"
+      "leftAxis": "y",
+      "upAxis": "z"
     }
   },
   "motorProfiles": {

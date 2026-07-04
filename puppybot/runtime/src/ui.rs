@@ -95,6 +95,7 @@ pub(crate) struct RuntimeUiModel {
     calibration_modal_title: String,
     calibration_modal_detail: String,
     calibration_modal_angle: String,
+    calibration_modal_sign: String,
     calibration_modal_error: String,
     goto_angle_yaw: String,
     goto_angle_shoulder: String,
@@ -105,6 +106,11 @@ pub(crate) struct RuntimeUiModel {
     coordinate_y: String,
     coordinate_z: String,
     coordinate_detail: String,
+    coordinate_calibration_detail: String,
+    coordinate_frame_label: String,
+    coordinate_frame_detail: String,
+    coordinate_base_button: RuntimeUiFrameButton,
+    coordinate_yaw_flat_button: RuntimeUiFrameButton,
     coordinate_error: String,
     tcp_frame_label: String,
     tcp_frame_detail: String,
@@ -118,6 +124,7 @@ pub(crate) struct RuntimeUiController {
     config: RuntimeUiConfig,
     robot: Arc<Mutex<RuntimeRobot>>,
     tcp_frame: TcpFrame,
+    coordinate_frame: TcpFrame,
     limit_editor_joint: Option<usize>,
     limit_editor_min: String,
     limit_editor_max: String,
@@ -188,6 +195,22 @@ fn frame_button(label: &str, selected: bool) -> RuntimeUiFrameButton {
             border: "1px solid #314154".to_string(),
             color: "#b6c2d2".to_string(),
         }
+    }
+}
+
+fn frame_label(frame: TcpFrame) -> &'static str {
+    match frame {
+        TcpFrame::Base => "Base",
+        TcpFrame::YawFlat => "Yaw-flat",
+        TcpFrame::Tool => "Tool",
+    }
+}
+
+fn frame_detail(frame: TcpFrame) -> &'static str {
+    match frame {
+        TcpFrame::Base => "moves along robot base axes",
+        TcpFrame::YawFlat => "moves along current yaw in the horizontal plane",
+        TcpFrame::Tool => "moves along current TCP/tool axes",
     }
 }
 
@@ -319,6 +342,12 @@ fn coordinate_inputs(coords_mm: (f32, f32, f32)) -> (String, String, String) {
     )
 }
 
+fn rotate_xy_deg(x: f64, y: f64, degrees: f64) -> (f64, f64) {
+    let radians = degrees.to_radians();
+    let (sin, cos) = radians.sin_cos();
+    (x * cos - y * sin, x * sin + y * cos)
+}
+
 fn coordinate_command(command: ArmCommand) -> bool {
     matches!(
         command,
@@ -326,6 +355,14 @@ fn coordinate_command(command: ArmCommand) -> bool {
             | ArmCommand::GotoPose { .. }
             | ArmCommand::MoveTcpRelative { .. }
     )
+}
+
+fn angle_sign_label(sign: Option<i8>) -> String {
+    match sign {
+        Some(sign) if sign < 0 => "Angle sign: -1".to_string(),
+        Some(_) => "Angle sign: +1".to_string(),
+        None => "Angle sign: unavailable".to_string(),
+    }
 }
 
 fn goto_angles_command(command: ArmCommand) -> bool {
@@ -381,6 +418,7 @@ impl RuntimeUiController {
             config,
             robot,
             tcp_frame: TcpFrame::Base,
+            coordinate_frame: TcpFrame::YawFlat,
             limit_editor_joint: None,
             limit_editor_min: String::new(),
             limit_editor_max: String::new(),
@@ -402,10 +440,18 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn state(&self) -> RuntimeUiModel {
-        let (telemetry, calibration_dirty, config_path) = {
+        let (telemetry, calibration_dirty, config_path, calibration_modal_sign) = {
             let robot = self.robot.lock().unwrap();
             let (calibration_dirty, config_path) = robot.calibration_state();
-            (robot.arm_telemetry(), calibration_dirty, config_path)
+            let sign = self
+                .calibration_editor_joint
+                .and_then(|joint| robot.joint_angle_sign(joint));
+            (
+                robot.arm_telemetry(),
+                calibration_dirty,
+                config_path,
+                angle_sign_label(sign),
+            )
         };
         let (limit_modal_title, limit_modal_detail) = match self.limit_editor_joint {
             Some(joint) if joint < JOINT_COUNT => {
@@ -447,6 +493,16 @@ impl RuntimeUiController {
             Some((x, y, z)) => format!("current {x:.1}, {y:.1}, {z:.1} mm"),
             None => "current position unavailable".to_string(),
         };
+        let coordinate_calibration = {
+            let robot = self.robot.lock().unwrap();
+            robot.coordinate_calibration()
+        };
+        let coordinate_calibration_detail = format!(
+            "forward sign {}, left sign {}, base rotation {:.0} deg",
+            coordinate_calibration.forward_sign,
+            coordinate_calibration.left_sign,
+            coordinate_calibration.base_yaw_offset_deg
+        );
 
         RuntimeUiModel {
             status: vec![
@@ -496,6 +552,7 @@ impl RuntimeUiController {
             calibration_modal_title,
             calibration_modal_detail,
             calibration_modal_angle: self.calibration_editor_angle.clone(),
+            calibration_modal_sign,
             calibration_modal_error: self.calibration_editor_error.clone(),
             goto_angle_yaw: self.goto_angle_yaw.clone(),
             goto_angle_shoulder: self.goto_angle_shoulder.clone(),
@@ -506,6 +563,14 @@ impl RuntimeUiController {
             coordinate_y: self.coordinate_y.clone(),
             coordinate_z: self.coordinate_z.clone(),
             coordinate_detail,
+            coordinate_calibration_detail,
+            coordinate_frame_label: self.coordinate_frame_label().to_string(),
+            coordinate_frame_detail: self.coordinate_frame_detail().to_string(),
+            coordinate_base_button: frame_button("Base", self.coordinate_frame == TcpFrame::Base),
+            coordinate_yaw_flat_button: frame_button(
+                "Yaw-flat",
+                self.coordinate_frame == TcpFrame::YawFlat,
+            ),
             coordinate_error: self.coordinate_error.clone(),
             tcp_frame_label: self.tcp_frame_label().to_string(),
             tcp_frame_detail: self.tcp_frame_detail().to_string(),
@@ -571,19 +636,34 @@ impl RuntimeUiController {
     }
 
     fn tcp_frame_label(&self) -> &'static str {
-        match self.tcp_frame {
-            TcpFrame::Base => "Base",
-            TcpFrame::YawFlat => "Yaw-flat",
-            TcpFrame::Tool => "Tool",
-        }
+        frame_label(self.tcp_frame)
+    }
+
+    fn coordinate_frame_label(&self) -> &'static str {
+        frame_label(self.coordinate_frame)
     }
 
     fn tcp_frame_detail(&self) -> &'static str {
-        match self.tcp_frame {
-            TcpFrame::Base => "moves along robot base axes",
-            TcpFrame::YawFlat => "moves along current yaw in the horizontal plane",
-            TcpFrame::Tool => "moves along current TCP/tool axes",
+        frame_detail(self.tcp_frame)
+    }
+
+    fn coordinate_frame_detail(&self) -> &'static str {
+        frame_detail(self.coordinate_frame)
+    }
+
+    fn set_coordinate_frame(&mut self, frame: TcpFrame) {
+        if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
+            return;
         }
+        self.coordinate_frame = frame;
+        self.last_command = format!(
+            "set coordinate frame {}",
+            self.coordinate_frame_label().to_lowercase()
+        );
+        log::info!(
+            "runtime UI command: set coordinate frame {}",
+            self.coordinate_frame_label().to_lowercase()
+        );
     }
 
     fn set_tcp_frame(&mut self, frame: TcpFrame) {
@@ -807,11 +887,12 @@ impl RuntimeUiController {
     }
 
     fn nudge_coordinates_relative(&mut self, label: &str, dx: f64, dy: f64, dz_table: f64) {
+        let (dx, dy) = rotate_xy_deg(dx, dy, self.coordinate_base_yaw_offset_deg());
         let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
         let result = self.arm(
             label,
             ArmCommand::MoveTcpRelative {
-                frame: TcpFrame::YawFlat,
+                frame: self.coordinate_frame,
                 dx_mm: dx,
                 dy_mm: dy,
                 dz_mm: dz_table,
@@ -821,6 +902,21 @@ impl RuntimeUiController {
             self.sync_coordinates_from_target();
             self.sync_goto_angles_from_targets();
         }
+    }
+
+    fn coordinate_forward_sign(&self) -> f64 {
+        let robot = self.robot.lock().unwrap();
+        f64::from(robot.coordinate_calibration().forward_sign)
+    }
+
+    fn coordinate_left_sign(&self) -> f64 {
+        let robot = self.robot.lock().unwrap();
+        f64::from(robot.coordinate_calibration().left_sign)
+    }
+
+    fn coordinate_base_yaw_offset_deg(&self) -> f64 {
+        let robot = self.robot.lock().unwrap();
+        robot.coordinate_calibration().base_yaw_offset_deg
     }
 
     fn move_to_goto_angles(&mut self, label: &str) {
@@ -978,6 +1074,34 @@ impl RuntimeUiController {
         if result.is_ok() {
             self.calibration_editor_joint = None;
             self.calibration_editor_error.clear();
+        }
+    }
+
+    pub(crate) fn flip_joint_angle_sign(&mut self) {
+        let Some(joint) = self.calibration_editor_joint else {
+            return;
+        };
+        if joint >= JOINT_COUNT {
+            self.calibration_editor_error = "invalid joint".to_string();
+            return;
+        }
+
+        let label = ARM_JOINT_LABELS[joint].to_lowercase();
+        let result = {
+            let mut robot = self.robot.lock().unwrap();
+            robot.flip_joint_angle_sign(joint)
+        };
+        match result {
+            Ok(sign) => {
+                self.calibration_editor_error.clear();
+                self.last_command = format!("flipped {label} angle sign to {sign}");
+                log::info!("runtime UI command: flipped {label} angle sign to {sign}");
+            }
+            Err(err) => {
+                self.calibration_editor_error = err.clone();
+                self.last_command = format!("flip {label} angle sign failed: {err}");
+                log::warn!("runtime UI flip {label} angle sign failed: {err}");
+            }
         }
     }
 
@@ -1157,8 +1281,21 @@ impl RuntimeUiController {
         self.move_to_coordinate_target("move to coordinates", x, y, z_table);
     }
 
+    pub(crate) fn set_coordinate_frame_base(&mut self) {
+        self.set_coordinate_frame(TcpFrame::Base);
+    }
+
+    pub(crate) fn set_coordinate_frame_yaw_flat(&mut self) {
+        self.set_coordinate_frame(TcpFrame::YawFlat);
+    }
+
     pub(crate) fn coordinate_forward(&mut self) {
-        self.nudge_coordinates_relative("coordinate forward", UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates_relative(
+            "coordinate forward",
+            UI_COORD_STEP_MM * self.coordinate_forward_sign(),
+            0.0,
+            0.0,
+        );
     }
 
     pub(crate) fn coordinate_forward_start(&mut self) {
@@ -1170,7 +1307,12 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_back(&mut self) {
-        self.nudge_coordinates_relative("coordinate back", -UI_COORD_STEP_MM, 0.0, 0.0);
+        self.nudge_coordinates_relative(
+            "coordinate back",
+            -UI_COORD_STEP_MM * self.coordinate_forward_sign(),
+            0.0,
+            0.0,
+        );
     }
 
     pub(crate) fn coordinate_back_start(&mut self) {
@@ -1182,7 +1324,12 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_left(&mut self) {
-        self.nudge_coordinates_relative("coordinate left", 0.0, UI_COORD_STEP_MM, 0.0);
+        self.nudge_coordinates_relative(
+            "coordinate left",
+            0.0,
+            UI_COORD_STEP_MM * self.coordinate_left_sign(),
+            0.0,
+        );
     }
 
     pub(crate) fn coordinate_left_start(&mut self) {
@@ -1194,7 +1341,12 @@ impl RuntimeUiController {
     }
 
     pub(crate) fn coordinate_right(&mut self) {
-        self.nudge_coordinates_relative("coordinate right", 0.0, -UI_COORD_STEP_MM, 0.0);
+        self.nudge_coordinates_relative(
+            "coordinate right",
+            0.0,
+            -UI_COORD_STEP_MM * self.coordinate_left_sign(),
+            0.0,
+        );
     }
 
     pub(crate) fn coordinate_right_start(&mut self) {
@@ -1227,6 +1379,33 @@ impl RuntimeUiController {
 
     pub(crate) fn coordinate_down_refresh(&mut self) {
         self.coordinate_down();
+    }
+
+    pub(crate) fn flip_coordinate_forward_axis(&mut self) {
+        let sign = {
+            let mut robot = self.robot.lock().unwrap();
+            robot.flip_coordinate_forward_sign()
+        };
+        self.last_command = format!("flipped coordinate forward sign to {sign}");
+        log::info!("runtime UI command: flipped coordinate forward sign to {sign}");
+    }
+
+    pub(crate) fn flip_coordinate_left_axis(&mut self) {
+        let sign = {
+            let mut robot = self.robot.lock().unwrap();
+            robot.flip_coordinate_left_sign()
+        };
+        self.last_command = format!("flipped coordinate left sign to {sign}");
+        log::info!("runtime UI command: flipped coordinate left sign to {sign}");
+    }
+
+    pub(crate) fn rotate_coordinate_base_frame(&mut self) {
+        let offset = {
+            let mut robot = self.robot.lock().unwrap();
+            robot.rotate_coordinate_base_yaw_offset_deg()
+        };
+        self.last_command = format!("rotated coordinate base frame to {offset:.0} deg");
+        log::info!("runtime UI command: rotated coordinate base frame to {offset:.0} deg");
     }
 
     pub(crate) fn arm_hold(&mut self) {
@@ -1465,6 +1644,89 @@ mod tests {
     fn tcp_forward_and_back_use_positive_and_negative_x_deltas() {
         assert_eq!(tcp_forward_delta_mm(), (UI_TCP_STEP_MM, 0.0, 0.0));
         assert_eq!(tcp_back_delta_mm(), (-UI_TCP_STEP_MM, 0.0, 0.0));
+    }
+
+    #[test]
+    fn coordinate_rotation_rotates_xy_by_degrees() {
+        let (x, y) = rotate_xy_deg(10.0, 0.0, 90.0);
+
+        assert!(x.abs() < 1.0e-9);
+        assert!((y - 10.0).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn coordinate_frame_switch_is_independent_from_tcp_jog_frame() {
+        let mut controller = test_controller();
+
+        assert_eq!(controller.coordinate_frame, TcpFrame::YawFlat);
+        assert_eq!(controller.tcp_frame, TcpFrame::Base);
+        assert_eq!(controller.state().coordinate_frame_label, "Yaw-flat");
+
+        controller.set_coordinate_frame_base();
+
+        assert_eq!(controller.coordinate_frame, TcpFrame::Base);
+        assert_eq!(controller.tcp_frame, TcpFrame::Base);
+        assert_eq!(controller.last_command, "set coordinate frame base");
+        let state = controller.state();
+        assert_eq!(state.coordinate_frame_label, "Base");
+        assert_eq!(state.coordinate_base_button.background, "#1e5f9f");
+        assert_eq!(state.coordinate_yaw_flat_button.background, "#182838");
+
+        controller.set_coordinate_frame_yaw_flat();
+
+        assert_eq!(controller.coordinate_frame, TcpFrame::YawFlat);
+        assert_eq!(controller.tcp_frame, TcpFrame::Base);
+        assert_eq!(controller.last_command, "set coordinate frame yaw-flat");
+    }
+
+    #[test]
+    fn rotate_coordinate_base_frame_updates_calibration_detail() {
+        let mut controller = test_controller();
+
+        assert!(
+            controller
+                .state()
+                .coordinate_calibration_detail
+                .contains("base rotation 0 deg")
+        );
+
+        controller.rotate_coordinate_base_frame();
+
+        assert_eq!(
+            controller.last_command,
+            "rotated coordinate base frame to 90 deg"
+        );
+        assert!(
+            controller
+                .state()
+                .coordinate_calibration_detail
+                .contains("base rotation 90 deg")
+        );
+        assert!(controller.robot.lock().unwrap().calibration_state().0);
+
+        controller.rotate_coordinate_base_frame();
+        assert!(
+            controller
+                .state()
+                .coordinate_calibration_detail
+                .contains("base rotation 180 deg")
+        );
+
+        controller.rotate_coordinate_base_frame();
+        assert!(
+            controller
+                .state()
+                .coordinate_calibration_detail
+                .contains("base rotation 270 deg")
+        );
+
+        controller.rotate_coordinate_base_frame();
+        assert!(
+            controller
+                .state()
+                .coordinate_calibration_detail
+                .contains("base rotation 0 deg")
+        );
     }
 
     #[test]
@@ -1821,6 +2083,35 @@ mod tests {
             controller.calibration_editor_error,
             "current tick unavailable"
         );
+    }
+
+    #[test]
+    fn flip_joint_angle_sign_marks_calibration_dirty_and_keeps_modal_open() {
+        let mut controller = test_controller();
+
+        controller.open_joint_calibration(4);
+        controller.flip_joint_angle_sign();
+
+        assert_eq!(controller.last_command, "flipped wrist angle sign to -1");
+        assert_eq!(controller.calibration_editor_error, "");
+        assert_eq!(controller.calibration_editor_joint, Some(3));
+        assert_eq!(
+            controller.robot.lock().unwrap().joint_angle_sign(3),
+            Some(-1)
+        );
+        assert!(controller.robot.lock().unwrap().calibration_state().0);
+    }
+
+    #[test]
+    fn calibration_state_reports_current_joint_angle_sign() {
+        let mut controller = test_controller();
+
+        controller.open_joint_calibration(4);
+        assert_eq!(controller.state().calibration_modal_sign, "Angle sign: +1");
+
+        controller.flip_joint_angle_sign();
+
+        assert_eq!(controller.state().calibration_modal_sign, "Angle sign: -1");
     }
 
     #[test]

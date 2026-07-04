@@ -6,6 +6,7 @@ use super::{
     servo_safety::*,
     types::{ControllerError, JOINT_COUNT, Joint},
 };
+use crate::config::PuppyArmConfig;
 
 const EPS: f64 = 1.0e-6;
 const COORD_EPS_MM: f32 = 1.0;
@@ -221,6 +222,51 @@ fn goto_angles_telemetry_exposes_target_angles_and_coords() {
         );
     }
     assert!(telemetry.target_coords_mm.is_some());
+}
+
+#[test]
+fn telemetry_wraps_equivalent_joint_angles_for_display() {
+    let mut config = PuppyArmConfig::default();
+    config.joints[3].angle_sign = -1;
+    config.joints[3].reference_tick = 1978;
+    config.joints[3].reference_angle_rad = (-46.8_f64).to_radians();
+    config.joints[3].limit_enabled = false;
+
+    let mut target_arm = PuppyArm::new_with_config(&config, 0).unwrap();
+    target_arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
+    target_arm.record_feedback(1, SHOULDER_REFERENCE_TICK, 0);
+    target_arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
+    target_arm.record_feedback(3, 1978, 0);
+
+    target_arm.handle_arm_cmd(
+        ArmCommand::SetJointAngle {
+            joint: 3,
+            angle_rad: (-271.0_f64).to_radians(),
+        },
+        10,
+    );
+
+    let target_telemetry = target_arm.telemetry_snapshot(0);
+    let wrist_target_tick = target_telemetry.joints[3].target_tick.unwrap() as u16;
+    assert_close_f32_eps(
+        target_telemetry.joints[3].target_angle_deg.unwrap(),
+        89.0,
+        TARGET_ANGLE_EPS_DEG,
+    );
+
+    let mut feedback_arm = PuppyArm::new_with_config(&config, 0).unwrap();
+    feedback_arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
+    feedback_arm.record_feedback(1, SHOULDER_REFERENCE_TICK, 0);
+    feedback_arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
+    feedback_arm.record_feedback(3, wrist_target_tick, 0);
+
+    assert_close_f32_eps(
+        feedback_arm.telemetry_snapshot(0).joints[3]
+            .angle_deg
+            .unwrap(),
+        89.0,
+        TARGET_ANGLE_EPS_DEG,
+    );
 }
 
 #[test]
@@ -645,7 +691,7 @@ fn move_tcp_relative_base_matches_absolute_coordinate_target() {
 }
 
 #[test]
-fn move_tcp_relative_base_uses_coordinate_solver_fallback() {
+fn move_tcp_relative_base_rejects_instead_of_changing_tool_pitch() {
     let pose = [
         0.0,
         (-30.0_f64).to_radians(),
@@ -653,17 +699,7 @@ fn move_tcp_relative_base_uses_coordinate_solver_fallback() {
         120.0_f64.to_radians(),
     ];
     let mut relative = arm_with_angle_feedback(pose);
-    let start = relative.telemetry_snapshot(0).coords_mm.unwrap();
-
-    let mut absolute = arm_with_angle_feedback(pose);
-    let absolute_result = absolute.try_handle_arm_cmd(
-        ArmCommand::GotoCoords {
-            x: start.0 as f64 + 5.0,
-            y: start.1 as f64,
-            z: table_to_shoulder_z(start.2 as f64),
-        },
-        10,
-    );
+    let before = target_ticks(&relative);
     let relative_result = relative.try_handle_arm_cmd(
         ArmCommand::MoveTcpRelative {
             frame: TcpFrame::Base,
@@ -674,9 +710,11 @@ fn move_tcp_relative_base_uses_coordinate_solver_fallback() {
         10,
     );
 
-    assert_eq!(absolute_result, Ok(()));
-    assert_eq!(relative_result, Ok(()));
-    assert_target_ticks_close(target_ticks(&relative), target_ticks(&absolute));
+    assert_eq!(
+        relative_result,
+        Err(ControllerError::Ik(IkError::Unreachable))
+    );
+    assert_eq!(target_ticks(&relative), before);
 }
 
 #[test]
@@ -714,7 +752,7 @@ fn move_tcp_relative_yaw_flat_matches_absolute_coordinate_target() {
 }
 
 #[test]
-fn yaw_flat_coordinate_jog_prefers_tool_down_posture() {
+fn yaw_flat_coordinate_jog_preserves_reachable_current_tool_pitch() {
     let pose = [
         0.0,
         60.0_f64.to_radians(),
@@ -739,7 +777,7 @@ fn yaw_flat_coordinate_jog_prefers_tool_down_posture() {
     assert_close_mm(target.0, start.0 + 10.0);
     assert_close_mm(target.1, start.1);
     assert_close_mm(target.2, start.2);
-    assert_close_f32_eps(tool_phi_deg(target_angles_deg(&arm)), -90.0, 1.0);
+    assert_close_f32_eps(tool_phi_deg(target_angles_deg(&arm)), -110.0, 1.0);
 }
 
 #[test]
@@ -1074,8 +1112,35 @@ fn target_error_prefers_small_wrap_near_deadband() {
 }
 
 #[test]
-fn target_error_keeps_large_naive_error_when_wrap_is_not_near_target() {
-    assert_eq!(target_tick_error(100, 3900), -3800);
+fn target_error_prefers_short_wrap_when_substantially_shorter() {
+    assert_eq!(target_tick_error(100, 3900), 296);
+}
+
+#[test]
+fn default_wrist_target_uses_short_wrap_with_flipped_calibration() {
+    let mut config = PuppyArmConfig::default();
+    config.joints[3].angle_sign = -1;
+    config.joints[3].reference_tick = 1978;
+    config.joints[3].reference_angle_rad = (-46.8_f64).to_radians();
+    config.joints[3].limit_enabled = false;
+
+    let mut arm = PuppyArm::new_with_config(&config, 0).unwrap();
+    arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
+    arm.record_feedback(1, SHOULDER_REFERENCE_TICK, 0);
+    arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
+    arm.record_feedback(3, 3579, 0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(220), 0);
+    arm.handle_arm_cmd(
+        ArmCommand::GotoAngles([
+            90.0_f64.to_radians(),
+            90.0_f64.to_radians(),
+            90.0_f64.to_radians(),
+            90.0_f64.to_radians(),
+        ]),
+        0,
+    );
+
+    assert!(arm.update(10)[3].speed > 0);
 }
 
 #[test]

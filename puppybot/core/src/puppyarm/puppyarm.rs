@@ -63,6 +63,10 @@ fn table_coords(coords: (f64, f64, f64)) -> (f32, f32, f32) {
     )
 }
 
+fn telemetry_angle_deg(angle_rad: f64) -> f32 {
+    (kinematics::wrap_pi(angle_rad) * RAD_TO_DEG) as f32
+}
+
 fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
     for (index, joint) in joints.iter().enumerate() {
         if joint.target_tick.is_none() && joint.speed != 0 {
@@ -542,12 +546,9 @@ impl PuppyArm {
                 joint.limit_reached = servo_safety::is_outside_limits(&joint);
                 joint.limit_min = joint.tick_min;
                 joint.limit_max = joint.tick_max;
-                joint.angle_deg = self
-                    .joint_angle(index)
-                    .ok()
-                    .map(|angle_rad| (angle_rad * RAD_TO_DEG) as f32);
+                joint.angle_deg = self.joint_angle(index).ok().map(telemetry_angle_deg);
                 joint.target_angle_deg =
-                    target_angles.map(|angles| (angles[index] * RAD_TO_DEG) as f32);
+                    target_angles.map(|angles| telemetry_angle_deg(angles[index]));
                 joint
             }),
             coords_mm,
@@ -914,7 +915,9 @@ impl PuppyArm {
         let z_table = kinematics::shoulder_to_table_z(z_shoulder);
         let target_z = kinematics::table_to_shoulder_z(z_table + dz);
         match frame {
-            TcpFrame::Base | TcpFrame::YawFlat => self.goto_coords(x + dx, y + dy, target_z, now),
+            TcpFrame::Base | TcpFrame::YawFlat => {
+                self.goto_pose(x + dx, y + dy, target_z, tool_phi, now)
+            }
             TcpFrame::Tool => self.goto_pose(x + dx, y + dy, target_z, tool_phi, now),
         }
     }

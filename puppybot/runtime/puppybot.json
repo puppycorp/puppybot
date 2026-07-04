@@ -5,8 +5,8 @@
         "angle_sign": 1,
         "drive_sign": 1,
         "limit_enabled": true,
-        "reference_angle_deg": 0.0,
-        "reference_tick": 2048,
+        "reference_angle_deg": 90.0,
+        "reference_tick": 4024,
         "servo_id": 1,
         "tick_max": 4095,
         "tick_min": 0
@@ -14,34 +14,39 @@
       {
         "angle_sign": -1,
         "drive_sign": 1,
-        "limit_enabled": true,
+        "limit_enabled": false,
         "reference_angle_deg": 90.0,
-        "reference_tick": 2011,
+        "reference_tick": 3015,
         "servo_id": 2,
-        "tick_max": 3000,
-        "tick_min": 1000
-      },
-      {
-        "angle_sign": -1,
-        "drive_sign": 1,
-        "limit_enabled": true,
-        "reference_angle_deg": 0.0,
-        "reference_tick": 500,
-        "servo_id": 3,
-        "tick_max": 2500,
-        "tick_min": 3500
+        "tick_max": 3966,
+        "tick_min": 2000
       },
       {
         "angle_sign": 1,
         "drive_sign": 1,
-        "limit_enabled": true,
-        "reference_angle_deg": 0.0,
-        "reference_tick": 2510,
+        "limit_enabled": false,
+        "reference_angle_deg": 90.0,
+        "reference_tick": 3080,
+        "servo_id": 3,
+        "tick_max": 3600,
+        "tick_min": 560
+      },
+      {
+        "angle_sign": -1,
+        "drive_sign": 1,
+        "limit_enabled": false,
+        "reference_angle_deg": 90.0,
+        "reference_tick": 4009,
         "servo_id": 4,
-        "tick_max": 300,
-        "tick_min": 1700
+        "tick_max": 2400,
+        "tick_min": 3800
       }
     ]
+  },
+  "coordinate": {
+    "base_yaw_offset_deg": 0.0,
+    "forward_sign": 1,
+    "left_sign": -1
   },
   "drive": {
     "command_timeout_ms": 500,

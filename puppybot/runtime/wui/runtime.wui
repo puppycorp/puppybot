@@ -99,6 +99,19 @@
         <Text value="Coordinate Move (mm)" color="#f4f7fb" />
         <Text value={state.coordinate_detail} color="#91a0b3" breakWords=true />
         <HStack spacing=8 wrap=true>
+          <Text value="Frame" color="#91a0b3" minWidth=56 />
+          <Button text={state.coordinate_base_button.label} onClick="SetCoordinateFrameBase" backgroundColor={state.coordinate_base_button.background} border={state.coordinate_base_button.border} color={state.coordinate_base_button.color} height=30 width=74 />
+          <Button text={state.coordinate_yaw_flat_button.label} onClick="SetCoordinateFrameYawFlat" backgroundColor={state.coordinate_yaw_flat_button.background} border={state.coordinate_yaw_flat_button.border} color={state.coordinate_yaw_flat_button.color} height=30 width=96 />
+          <Text value={state.coordinate_frame_label} color="#f4f7fb" minWidth=66 />
+          <Text value={state.coordinate_frame_detail} color="#91a0b3" grow=1 breakWords=true />
+        </HStack>
+        <HStack spacing=8 wrap=true>
+          <Text value={state.coordinate_calibration_detail} color="#91a0b3" grow=1 breakWords=true />
+          <Button text="Flip F/B" onClick="FlipCoordinateForwardAxis" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=88 />
+          <Button text="Flip L/R" onClick="FlipCoordinateLeftAxis" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=88 />
+          <Button text="Rotate 90" onClick="RotateCoordinateBaseFrame" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=30 width=104 />
+        </HStack>
+        <HStack spacing=8 wrap=true>
           <VStack width=96 spacing=4>
             <Text value="X" color="#91a0b3" />
             <TextInput value={state.coordinate_x} onTextChanged="EditCoordinateX" placeholder="x" />
@@ -170,6 +183,10 @@
         <Text value="Reference angle (deg)" color="#91a0b3" />
         <TextInput value={state.calibration_modal_angle} onTextChanged="EditJointReferenceAngle" placeholder="angle" />
       </VStack>
+      <HStack spacing=8>
+        <Text value={state.calibration_modal_sign} color="#91a0b3" breakWords=true />
+        <Button text="Flip" onClick="FlipJointAngleSign" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 width=72 />
+      </HStack>
       <Text value={state.calibration_modal_error} color="#ffb8b8" textAlign="center" breakWords=true />
       <HStack spacing=8>
         <Button text="Cancel" onClick="CloseJointCalibration" backgroundColor="#29323f" border="1px solid #415066" color="#f4f7fb" height=34 />

@@ -19,11 +19,19 @@ pub struct PuppybotConfigV1 {
     pub serial: [u8; SERIAL_LEN],
     pub drive: DriveConfig,
     pub arm: PuppyArmConfig,
+    pub coordinate: CoordinateCalibration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PuppyArmConfig {
     pub joints: [JointCalibration; JOINT_COUNT],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoordinateCalibration {
+    pub forward_sign: i8,
+    pub left_sign: i8,
+    pub base_yaw_offset_deg: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +57,7 @@ pub enum ConfigError {
     InvalidTickRange,
     InvalidSign,
     InvalidReferenceAngle,
+    InvalidCoordinateRotation,
 }
 
 fn default_serial() -> [u8; SERIAL_LEN] {
@@ -90,6 +99,7 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidTickRange => formatter.write_str("invalid tick range"),
             Self::InvalidSign => formatter.write_str("invalid joint sign"),
             Self::InvalidReferenceAngle => formatter.write_str("invalid reference angle"),
+            Self::InvalidCoordinateRotation => formatter.write_str("invalid coordinate rotation"),
         }
     }
 }
@@ -101,6 +111,17 @@ impl Default for PuppybotConfigV1 {
             serial: default_serial(),
             drive: DriveConfig::default(),
             arm: PuppyArmConfig::default(),
+            coordinate: CoordinateCalibration::default(),
+        }
+    }
+}
+
+impl Default for CoordinateCalibration {
+    fn default() -> Self {
+        Self {
+            forward_sign: 1,
+            left_sign: 1,
+            base_yaw_offset_deg: 0.0,
         }
     }
 }
@@ -133,7 +154,8 @@ impl PuppybotConfigV1 {
         }
         validate_serial(&self.serial)?;
         validate_drive(&self.drive)?;
-        self.arm.validate()
+        self.arm.validate()?;
+        self.coordinate.validate()
     }
 }
 
@@ -153,6 +175,21 @@ impl PuppyArmConfig {
 
     pub fn servo_ids(&self) -> [u8; JOINT_COUNT] {
         core::array::from_fn(|index| self.joints[index].servo_id)
+    }
+}
+
+impl CoordinateCalibration {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.forward_sign != -1 && self.forward_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if self.left_sign != -1 && self.left_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if !self.base_yaw_offset_deg.is_finite() {
+            return Err(ConfigError::InvalidCoordinateRotation);
+        }
+        Ok(())
     }
 }
 
@@ -248,6 +285,7 @@ mod tests {
             arm: PuppyArmConfig {
                 joints: [joint(1), joint(2), joint(3), joint(4)],
             },
+            coordinate: CoordinateCalibration::default(),
         }
     }
 
@@ -317,5 +355,24 @@ mod tests {
         config.arm.joints[0].angle_sign = 0;
 
         assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+    }
+
+    #[test]
+    fn coordinate_signs_are_validated() {
+        let mut config = config();
+        config.coordinate.forward_sign = 0;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+    }
+
+    #[test]
+    fn coordinate_rotation_must_be_finite() {
+        let mut config = config();
+        config.coordinate.base_yaw_offset_deg = f64::NAN;
+
+        assert_eq!(
+            config.validate(),
+            Err(ConfigError::InvalidCoordinateRotation)
+        );
     }
 }

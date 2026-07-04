@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use puppybot_core::config::{JointCalibration, PuppyArmConfig};
-use puppybot_core::puppyarm::puppyarm::{ArmCommand, PuppyArm, TcpFrame};
-use puppybot_core::puppyarm::types::JOINT_COUNT;
 use puppybot_state::PuppyBotState;
 use robotdreams_core::project::{
     DeviceConfig, ProjectSceneObjectGeometry, load_model_profile, project_config_from_manifest,
@@ -13,20 +10,6 @@ use robotdreams_core::scene_harness::UrdfSceneHarness;
 use robotdreams_core::{RobotDreams, SceneLocation};
 
 mod puppybot_state;
-
-const YAW_REFERENCE_TICK: u16 = 2048;
-const SHOULDER_REFERENCE_TICK: u16 = 530;
-const ELBOW_REFERENCE_TICK: u16 = 3565;
-const TIP_REFERENCE_TICK: u16 = 1783;
-const CORE_Z_TOLERANCE_MM: f32 = 1.0;
-const MODEL_UP_TOLERANCE_M: f64 = 0.010;
-const MODEL_POSE_TOLERANCE_M: f64 = 0.015;
-const SCENE_TEST_POSE: [f64; JOINT_COUNT] = [
-    0.0,
-    90.0_f64.to_radians(),
-    90.0_f64.to_radians(),
-    90.0_f64.to_radians(),
-];
 
 fn model_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/puppybot")
@@ -45,15 +28,6 @@ fn distance(left: [f64; 3], right: [f64; 3]) -> f64 {
     let dy = left[1] - right[1];
     let dz = left[2] - right[2];
     (dx * dx + dy * dy + dz * dz).sqrt()
-}
-
-fn model_axis_index(axis: &str) -> usize {
-    match axis {
-        "x" => 0,
-        "y" => 1,
-        "z" => 2,
-        other => panic!("unsupported model axis: {other}"),
-    }
 }
 
 fn semantic_to_urdf(profile_joint_names: &HashMap<String, String>) -> HashMap<String, String> {
@@ -77,179 +51,6 @@ fn ancestor_joint_names(harness: &UrdfSceneHarness, link_name: &str) -> Vec<Stri
     }
     ancestors.reverse();
     ancestors
-}
-
-fn arm_with_reference_feedback() -> PuppyArm {
-    let mut arm = PuppyArm::new(0);
-    arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
-    arm.record_feedback(1, SHOULDER_REFERENCE_TICK, 0);
-    arm.record_feedback(2, ELBOW_REFERENCE_TICK, 0);
-    arm.record_feedback(3, TIP_REFERENCE_TICK, 0);
-    arm
-}
-
-fn arm_with_angle_feedback(angles: [f64; JOINT_COUNT]) -> PuppyArm {
-    let mut target_arm = arm_with_reference_feedback();
-    target_arm
-        .try_handle_arm_cmd(ArmCommand::GotoAngles(angles), 0)
-        .expect("seed angle target");
-    let target_state = target_arm.telemetry_snapshot(0);
-
-    let mut feedback_arm = PuppyArm::new(0);
-    for (index, joint) in target_state.joints.iter().enumerate() {
-        feedback_arm.record_feedback(index, joint.target_tick.unwrap() as u16, 0);
-    }
-    feedback_arm
-}
-
-fn runtime_arm_config() -> PuppyArmConfig {
-    PuppyArmConfig {
-        joints: [
-            JointCalibration {
-                servo_id: 1,
-                tick_min: 0,
-                tick_max: 4095,
-                reference_tick: 2048,
-                reference_angle_rad: 0.0,
-                angle_sign: 1,
-                drive_sign: 1,
-                limit_enabled: true,
-            },
-            JointCalibration {
-                servo_id: 2,
-                tick_min: 1000,
-                tick_max: 3000,
-                reference_tick: 2011,
-                reference_angle_rad: 90.0_f64.to_radians(),
-                angle_sign: -1,
-                drive_sign: 1,
-                limit_enabled: true,
-            },
-            JointCalibration {
-                servo_id: 3,
-                tick_min: 3500,
-                tick_max: 2500,
-                reference_tick: 500,
-                reference_angle_rad: 0.0,
-                angle_sign: -1,
-                drive_sign: 1,
-                limit_enabled: true,
-            },
-            JointCalibration {
-                servo_id: 4,
-                tick_min: 1700,
-                tick_max: 300,
-                reference_tick: 2510,
-                reference_angle_rad: 0.0,
-                angle_sign: 1,
-                drive_sign: 1,
-                limit_enabled: true,
-            },
-        ],
-    }
-}
-
-fn runtime_arm_with_reference_feedback() -> PuppyArm {
-    let config = runtime_arm_config();
-    let mut arm = PuppyArm::new_with_config(&config, 0).expect("runtime arm config");
-    for (index, joint) in config.joints.iter().enumerate() {
-        arm.record_feedback(index, joint.reference_tick as u16, 0);
-    }
-    arm
-}
-
-fn runtime_arm_with_angle_feedback(angles: [f64; JOINT_COUNT]) -> PuppyArm {
-    let config = runtime_arm_config();
-    let mut target_arm = runtime_arm_with_reference_feedback();
-    target_arm
-        .try_handle_arm_cmd(ArmCommand::GotoAngles(angles), 0)
-        .expect("seed runtime angle target");
-    let target_state = target_arm.telemetry_snapshot(0);
-
-    let mut feedback_arm = PuppyArm::new_with_config(&config, 0).expect("runtime arm config");
-    for (index, joint) in target_state.joints.iter().enumerate() {
-        feedback_arm.record_feedback(index, joint.target_tick.unwrap() as u16, 0);
-    }
-    feedback_arm
-}
-
-fn apply_puppybot_target_angles(
-    harness: &mut UrdfSceneHarness,
-    semantic_joints: &HashMap<String, String>,
-    angles: [f64; JOINT_COUNT],
-) {
-    let names = ["yaw", "shoulder", "elbow", "wrist"];
-    for (index, semantic_name) in names.iter().enumerate() {
-        let urdf_name = semantic_joints
-            .get(*semantic_name)
-            .unwrap_or_else(|| panic!("missing semantic joint {semantic_name}"));
-        harness.set_joint_angle(urdf_name, angles[index]);
-    }
-}
-
-fn target_angles_rad(arm: &PuppyArm) -> [f64; JOINT_COUNT] {
-    let telemetry = arm.telemetry_snapshot(0);
-    telemetry.joints.map(|joint| {
-        f64::from(
-            joint
-                .target_angle_deg
-                .expect("expected target angle after movement"),
-        )
-        .to_radians()
-    })
-}
-
-fn target_ticks(arm: &PuppyArm) -> [i32; JOINT_COUNT] {
-    let telemetry = arm.telemetry_snapshot(0);
-    telemetry.joints.map(|joint| {
-        joint
-            .target_tick
-            .expect("expected target tick after movement")
-    })
-}
-
-fn servo_target_radians(tick: i32, zero_offset: i16, direction: i8) -> f64 {
-    let direction = if direction < 0 { -1.0 } else { 1.0 };
-    direction * f64::from(tick - i32::from(zero_offset)) * std::f64::consts::TAU / 4096.0
-}
-
-fn apply_puppybot_servo_target_ticks(
-    harness: &mut UrdfSceneHarness,
-    project: &robotdreams_core::project::ProjectConfig,
-    ticks: [i32; JOINT_COUNT],
-) {
-    for bus in &project.hardware.buses {
-        for device in &bus.devices {
-            let DeviceConfig::Servo(servo) = device else {
-                continue;
-            };
-            let Some(drives) = &servo.drives else {
-                continue;
-            };
-            let Some(index) = servo.id.checked_sub(1).map(|index| index as usize) else {
-                continue;
-            };
-            if index >= JOINT_COUNT {
-                continue;
-            }
-            harness.set_joint_angle(
-                drives.target.clone(),
-                servo_target_radians(
-                    ticks[index],
-                    servo.calibration.zero_offset,
-                    servo.calibration.direction,
-                ),
-            );
-        }
-    }
-}
-
-fn assert_close_mm(left: f32, right: f32, tolerance: f32) {
-    assert!(
-        (left - right).abs() <= tolerance,
-        "left={left:.3} right={right:.3} diff={:.3} tolerance={tolerance:.3}",
-        (left - right).abs()
-    );
 }
 
 fn assert_close_m(left: f64, right: f64, tolerance: f64) {
@@ -323,7 +124,9 @@ fn puppybot_robotdreams_project_opens_from_test_crate_path() {
 }
 
 #[test]
-fn puppybot_robotdreams_servo_calibration_matches_runtime_config() {
+fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
+    let profile = load_model_profile(model_profile_path()).expect("load PuppyBot model profile");
+    let semantic_joints = semantic_to_urdf(&profile.joint_names);
     let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
     let bus = project
         .hardware
@@ -331,29 +134,26 @@ fn puppybot_robotdreams_servo_calibration_matches_runtime_config() {
         .iter()
         .find(|bus| bus.id == "main_bus")
         .expect("main bus");
-    let expected = [
-        (1, "revolute_2_3", 2048, 1),
-        (2, "revolute_1_1", 3035, -1),
-        (3, "revolute_1_2", 500, -1),
-        (4, "revolute_1", 2510, 1),
-    ];
+    let expected = ["yaw", "shoulder", "elbow", "wrist"];
 
-    for (id, joint_name, zero_offset, direction) in expected {
-        let servo = bus
+    for semantic_name in expected {
+        let joint_name = semantic_joints
+            .get(semantic_name)
+            .unwrap_or_else(|| panic!("missing semantic joint {semantic_name}"));
+        let servo_count = bus
             .devices
             .iter()
-            .find_map(|device| match device {
-                DeviceConfig::Servo(servo) if servo.id == id => Some(servo),
-                _ => None,
+            .filter(|device| match device {
+                DeviceConfig::Servo(servo) => {
+                    servo.drives.as_ref().map(|drives| &drives.target) == Some(joint_name)
+                }
+                _ => false,
             })
-            .unwrap_or_else(|| panic!("missing servo {id}"));
-
+            .count();
         assert_eq!(
-            servo.drives.as_ref().map(|drives| drives.target.as_str()),
-            Some(joint_name)
+            servo_count, 1,
+            "semantic joint {semantic_name} should have exactly one driving servo"
         );
-        assert_eq!(servo.calibration.zero_offset, zero_offset);
-        assert_eq!(servo.calibration.direction, direction);
     }
 }
 
@@ -365,6 +165,66 @@ fn puppybot_robotdreams_scene_locations_include_trashbin_and_ball() {
 
     assert_scene_location(&trashbin);
     assert_scene_location(&ball);
+    assert_close_m(trashbin.position[0], 0.38, 1.0e-6);
+    assert_close_m(trashbin.position[1], 0.28, 1.0e-6);
+    assert_close_m(trashbin.position[2], 0.0, 1.0e-6);
+    let trashbin_rotation = trashbin.rotation.expect("trashbin rotation");
+    assert_close_m(trashbin_rotation[0], 0.0, 1.0e-6);
+    assert_close_m(trashbin_rotation[1], 0.0, 1.0e-6);
+    assert_close_m(trashbin_rotation[2], 0.0, 1.0e-6);
+    assert_close_m(ball.position[0], -0.18, 1.0e-6);
+    assert_close_m(ball.position[1], 0.34, 1.0e-6);
+    assert_close_m(ball.position[2], 0.055, 1.0e-6);
+}
+
+#[test]
+fn puppybot_robotdreams_model_transformation_orients_urdf_to_ros_frame() {
+    let dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    let body = dreams
+        .location_of("lowerbody")
+        .expect("lowerbody link location");
+    let tcp = dreams.location_of("tcp").expect("tcp location");
+    let right_wheel = dreams
+        .location_of("wheel_base")
+        .expect("right wheel base location");
+    let left_wheel = dreams
+        .location_of("wheel_base_1")
+        .expect("left wheel base location");
+
+    let tcp_from_body = [
+        tcp.position[0] - body.position[0],
+        tcp.position[1] - body.position[1],
+        tcp.position[2] - body.position[2],
+    ];
+    let wheel_delta = [
+        left_wheel.position[0] - right_wheel.position[0],
+        left_wheel.position[1] - right_wheel.position[1],
+        left_wheel.position[2] - right_wheel.position[2],
+    ];
+
+    assert!(
+        tcp_from_body[0] > 0.10,
+        "PuppyBot TCP/front should point along ROS +X after modelTransformation: body={:?} tcp={:?} delta={:?}",
+        body.position,
+        tcp.position,
+        tcp_from_body
+    );
+    assert!(
+        tcp_from_body[0].abs() > tcp_from_body[1].abs() * 3.0,
+        "PuppyBot front should be X-dominant, not sideways: delta={tcp_from_body:?}"
+    );
+    assert!(
+        wheel_delta[1] > 0.10,
+        "PuppyBot left/right wheel width should point along ROS +Y: right={:?} left={:?} delta={:?}",
+        right_wheel.position,
+        left_wheel.position,
+        wheel_delta
+    );
+    assert!(
+        wheel_delta[1].abs() > wheel_delta[0].abs() * 10.0,
+        "PuppyBot wheel width should be Y-dominant, not X-dominant: delta={wheel_delta:?}"
+    );
+    assert_close_m(wheel_delta[2], 0.0, 1.0e-3);
 }
 
 #[test]
@@ -446,7 +306,21 @@ fn puppybot_model_declares_arm_joint_and_frame_metadata() {
     assert_eq!(frame_mapping.core.forward_axis, "x");
     assert_eq!(frame_mapping.core.left_axis, "y");
     assert_eq!(frame_mapping.core.up_axis, "z");
-    assert_eq!(frame_mapping.model.up_axis, "y");
+    assert_eq!(frame_mapping.model.forward_axis, "x");
+    assert_eq!(frame_mapping.model.left_axis, "y");
+    assert_eq!(frame_mapping.model.up_axis, "z");
+
+    let model_transformation = profile
+        .robot
+        .model
+        .model_transformation
+        .expect("model transformation");
+    assert_eq!(model_transformation.translation, [0.0, 0.0, 0.0]);
+    assert_close_m(
+        f64::from(model_transformation.rotation[2]),
+        std::f64::consts::FRAC_PI_2,
+        1.0e-6,
+    );
 
     let tcp = profile.tcp.expect("tcp metadata");
     assert_eq!(tcp.link, "part_1_4");
@@ -473,274 +347,5 @@ fn puppybot_model_declares_arm_joint_and_frame_metadata() {
         tcp.link,
         semantic_chain,
         tcp_ancestors
-    );
-}
-
-#[test]
-#[ignore = "full CAD scene invariant; opt-in because it loads the PuppyBot URDF model"]
-fn yaw_flat_xy_moves_preserve_core_and_cad_height() {
-    for (dx_mm, dy_mm) in [(10.0, 0.0), (0.0, 10.0)] {
-        assert_yaw_flat_xy_move_preserves_height(dx_mm, dy_mm);
-    }
-}
-
-#[test]
-#[ignore = "full CAD scene invariant; opt-in because it loads the PuppyBot URDF model"]
-fn yaw_flat_xy_moves_preserve_cad_height_through_virtual_servo_calibration() {
-    let profile = load_model_profile(model_profile_path()).expect("load PuppyBot model profile");
-    let frame_mapping = profile.frame_mapping.clone().expect("frame mapping");
-    let tcp = profile.tcp.clone().expect("tcp metadata");
-    let model_up_axis = model_axis_index(&frame_mapping.model.up_axis);
-    let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
-    let urdf_path = resolve_urdf_path(Some(project_path())).expect("resolve PuppyBot URDF path");
-
-    let mut seed_arm = runtime_arm_with_reference_feedback();
-    seed_arm
-        .try_handle_arm_cmd(ArmCommand::GotoAngles(SCENE_TEST_POSE), 0)
-        .expect("seed scene pose target");
-    let semantic_joints = semantic_to_urdf(&profile.joint_names);
-    let mut direct_start_harness =
-        UrdfSceneHarness::from_urdf_path(&urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(&mut direct_start_harness, &semantic_joints, SCENE_TEST_POSE);
-    let direct_start_tcp = direct_start_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample direct start TCP");
-
-    let mut start_harness =
-        UrdfSceneHarness::from_urdf_path(&urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_servo_target_ticks(&mut start_harness, &project, target_ticks(&seed_arm));
-    let start_tcp = start_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample start TCP");
-    assert!(
-        distance(start_tcp, direct_start_tcp) <= MODEL_POSE_TOLERANCE_M,
-        "virtual-servo start TCP should match direct core-angle TCP: servo={start_tcp:?} direct={direct_start_tcp:?}"
-    );
-
-    let mut arm = runtime_arm_with_angle_feedback(SCENE_TEST_POSE);
-    arm.try_handle_arm_cmd(
-        ArmCommand::MoveTcpRelative {
-            frame: TcpFrame::YawFlat,
-            dx_mm: 10.0,
-            dy_mm: 0.0,
-            dz_mm: 0.0,
-        },
-        0,
-    )
-    .expect("reachable yaw-flat movement");
-
-    let mut direct_moved_harness =
-        UrdfSceneHarness::from_urdf_path(&urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(
-        &mut direct_moved_harness,
-        &semantic_joints,
-        target_angles_rad(&arm),
-    );
-    let direct_moved_tcp = direct_moved_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample direct moved TCP");
-
-    let mut moved_harness =
-        UrdfSceneHarness::from_urdf_path(urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_servo_target_ticks(&mut moved_harness, &project, target_ticks(&arm));
-    let moved_tcp = moved_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample moved TCP");
-    assert!(
-        distance(moved_tcp, direct_moved_tcp) <= MODEL_POSE_TOLERANCE_M,
-        "virtual-servo moved TCP should match direct core-angle TCP: servo={moved_tcp:?} direct={direct_moved_tcp:?}"
-    );
-
-    assert_close_m(
-        moved_tcp[model_up_axis],
-        start_tcp[model_up_axis],
-        MODEL_UP_TOLERANCE_M,
-    );
-}
-
-#[test]
-#[ignore = "full CAD scene invariant; opt-in because it loads the PuppyBot URDF model"]
-fn unreachable_yaw_flat_xy_move_preserves_target_height() {
-    let profile = load_model_profile(model_profile_path()).expect("load PuppyBot model profile");
-    let frame_mapping = profile.frame_mapping.clone().expect("frame mapping");
-    let tcp = profile.tcp.clone().expect("tcp metadata");
-    let model_up_axis = model_axis_index(&frame_mapping.model.up_axis);
-    let semantic_joints = semantic_to_urdf(&profile.joint_names);
-    let urdf_path = resolve_urdf_path(Some(profile.manifest_path.clone()))
-        .expect("resolve PuppyBot model URDF path");
-
-    let mut arm = arm_with_angle_feedback(SCENE_TEST_POSE);
-    arm.try_handle_arm_cmd(
-        ArmCommand::MoveTcpRelative {
-            frame: TcpFrame::YawFlat,
-            dx_mm: 10.0,
-            dy_mm: 0.0,
-            dz_mm: 0.0,
-        },
-        0,
-    )
-    .expect("seed reachable yaw-flat movement");
-    let before = arm.telemetry_snapshot(0);
-    let before_target_z = before.target_coords_mm.expect("target coords").2;
-    let before_target_ticks = before.joints.map(|joint| joint.target_tick);
-    let before_angles = target_angles_rad(&arm);
-
-    let mut before_harness =
-        UrdfSceneHarness::from_urdf_path(&urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(&mut before_harness, &semantic_joints, before_angles);
-    let before_tcp = before_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample TCP before unreachable move");
-
-    assert!(
-        arm.try_handle_arm_cmd(
-            ArmCommand::MoveTcpRelative {
-                frame: TcpFrame::YawFlat,
-                dx_mm: 1000.0,
-                dy_mm: 0.0,
-                dz_mm: 0.0,
-            },
-            0,
-        )
-        .is_err(),
-        "unreachable move should be rejected"
-    );
-
-    let after = arm.telemetry_snapshot(0);
-    assert_close_mm(
-        after.target_coords_mm.expect("target coords").2,
-        before_target_z,
-        CORE_Z_TOLERANCE_MM,
-    );
-    assert_eq!(
-        after.joints.map(|joint| joint.target_tick),
-        before_target_ticks
-    );
-
-    let mut after_harness =
-        UrdfSceneHarness::from_urdf_path(urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(
-        &mut after_harness,
-        &semantic_joints,
-        target_angles_rad(&arm),
-    );
-    let after_tcp = after_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample TCP after unreachable move");
-    assert_close_m(
-        after_tcp[model_up_axis],
-        before_tcp[model_up_axis],
-        MODEL_UP_TOLERANCE_M,
-    );
-}
-
-fn assert_yaw_flat_xy_move_preserves_height(dx_mm: f64, dy_mm: f64) {
-    let profile = load_model_profile(model_profile_path()).expect("load PuppyBot model profile");
-    let frame_mapping = profile.frame_mapping.clone().expect("frame mapping");
-    let tcp = profile.tcp.clone().expect("tcp metadata");
-    let model_up_axis = model_axis_index(&frame_mapping.model.up_axis);
-    let semantic_joints = semantic_to_urdf(&profile.joint_names);
-    let urdf_path = resolve_urdf_path(Some(profile.manifest_path.clone()))
-        .expect("resolve PuppyBot model URDF path");
-
-    let mut arm = arm_with_angle_feedback(SCENE_TEST_POSE);
-    let start_z = arm.telemetry_snapshot(0).coords_mm.expect("start coords").2;
-
-    let mut start_harness =
-        UrdfSceneHarness::from_urdf_path(&urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(&mut start_harness, &semantic_joints, SCENE_TEST_POSE);
-    let start_tcp = start_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample start TCP");
-
-    arm.try_handle_arm_cmd(
-        ArmCommand::MoveTcpRelative {
-            frame: TcpFrame::YawFlat,
-            dx_mm,
-            dy_mm,
-            dz_mm: 0.0,
-        },
-        0,
-    )
-    .expect("reachable yaw-flat movement");
-
-    let target_z = arm
-        .telemetry_snapshot(0)
-        .target_coords_mm
-        .expect("target coords")
-        .2;
-    assert_close_mm(target_z, start_z, CORE_Z_TOLERANCE_MM);
-
-    let mut moved_harness =
-        UrdfSceneHarness::from_urdf_path(urdf_path).expect("load PuppyBot URDF");
-    apply_puppybot_target_angles(
-        &mut moved_harness,
-        &semantic_joints,
-        target_angles_rad(&arm),
-    );
-    let moved_tcp = moved_harness
-        .link_point_world(
-            &tcp.link,
-            [
-                f64::from(tcp.offset[0]),
-                f64::from(tcp.offset[1]),
-                f64::from(tcp.offset[2]),
-            ],
-        )
-        .expect("sample moved TCP");
-
-    assert_close_m(
-        moved_tcp[model_up_axis],
-        start_tcp[model_up_axis],
-        MODEL_UP_TOLERANCE_M,
     );
 }

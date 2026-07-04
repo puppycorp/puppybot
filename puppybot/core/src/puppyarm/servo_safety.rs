@@ -122,7 +122,9 @@ pub fn target_tick_error(target_tick: i32, current_tick: i32) -> i32 {
 
     let half_wrap = TICK_WRAP / 2;
     let wrapped_error = positive_mod(target_tick - current_tick + half_wrap, TICK_WRAP) - half_wrap;
-    if wrapped_error.abs() <= TARGET_TICK_DEADBAND {
+    if wrapped_error.abs() <= TARGET_TICK_DEADBAND
+        || wrapped_error.abs() + TARGET_TICK_DEADBAND < naive_error.abs()
+    {
         return wrapped_error;
     }
 

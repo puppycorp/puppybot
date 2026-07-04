@@ -29,8 +29,8 @@
         "type": "floor",
         "icon": "PLN",
         "shape": "box",
-        "size": [5.0, 0.02, 5.0],
-        "position": [0.0, -0.011, 0.0],
+        "size": [5.0, 5.0, 0.02],
+        "position": [0.0, 0.0, -0.011],
         "color": "#162331",
         "includeInFit": false
       },
@@ -40,8 +40,8 @@
         "type": "container",
         "icon": "BIN",
         "asset": "../../RobotDreams/examples/trashbin.gltf",
-        "position": [0.38, 0.0, -0.28],
-        "rotation": [-1.5707964, 0.0, 0.0]
+        "position": [0.38, 0.28, 0.0],
+        "rotation": [0.0, 0.0, 0.0]
       },
       {
         "id": "ball",
@@ -50,7 +50,7 @@
         "icon": "SPH",
         "shape": "sphere",
         "radius": 0.055,
-        "position": [-0.18, 0.055, -0.34],
+        "position": [-0.18, 0.34, 0.055],
         "color": "#d6b24a"
       }
     ],

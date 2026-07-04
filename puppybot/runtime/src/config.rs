@@ -8,7 +8,9 @@ use std::{
 #[cfg(test)]
 use puppybot_core::config::PUPPYBOT_CONFIG_VERSION;
 use puppybot_core::{
-    config::{JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN},
+    config::{
+        CoordinateCalibration, JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
+    },
     drive::DriveConfig,
     puppyarm::types::JOINT_COUNT,
 };
@@ -95,6 +97,11 @@ fn config_json(config: &PuppybotConfigV1) -> Value {
         "arm": {
             "joints": config.arm.joints.iter().map(joint_json).collect::<Vec<_>>(),
         },
+        "coordinate": {
+            "forward_sign": config.coordinate.forward_sign,
+            "left_sign": config.coordinate.left_sign,
+            "base_yaw_offset_deg": config.coordinate.base_yaw_offset_deg,
+        },
     })
 }
 
@@ -119,6 +126,7 @@ fn parse_config_json(contents: &str) -> Result<PuppybotConfigV1, String> {
         serial: serial_field(root, "serial")?,
         drive: drive_field(root, "drive")?,
         arm: arm_field(root, "arm")?,
+        coordinate: coordinate_field(root, "coordinate")?,
     };
     config.validate().map_err(|err| err.to_string())?;
     Ok(config)
@@ -170,6 +178,22 @@ fn bool_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<bool,
         .ok_or_else(|| format!("{name} must be a boolean"))
 }
 
+fn coordinate_field(
+    root: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<CoordinateCalibration, String> {
+    let Some(value) = root.get(name) else {
+        return Ok(CoordinateCalibration::default());
+    };
+    let coordinate = object(value, name)?;
+    Ok(CoordinateCalibration {
+        forward_sign: i8_sign_field(coordinate, "forward_sign")?,
+        left_sign: i8_sign_field(coordinate, "left_sign")?,
+        base_yaw_offset_deg: optional_f64_field(coordinate, "base_yaw_offset_deg")?
+            .unwrap_or_default(),
+    })
+}
+
 fn drive_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<DriveConfig, String> {
     let drive = object(field(root, name)?, name)?;
     Ok(DriveConfig {
@@ -218,6 +242,23 @@ fn optional_i32_field(
     i32::try_from(value)
         .map(Some)
         .map_err(|_| format!("{name} is outside i32 range"))
+}
+
+fn optional_f64_field(
+    root: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<Option<f64>, String> {
+    let Some(value) = root.get(name) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_f64()
+        .ok_or_else(|| format!("{name} must be a number"))?;
+    if value.is_finite() {
+        Ok(Some(value))
+    } else {
+        Err(format!("{name} must be finite"))
+    }
 }
 
 fn compatible_i32_field(
@@ -382,6 +423,19 @@ mod tests {
         }"#
     }
 
+    fn valid_json_with_coordinate(
+        forward_sign: i8,
+        left_sign: i8,
+        base_yaw_offset_deg: f64,
+    ) -> String {
+        valid_json().replace(
+            "\n            \"arm\": {",
+            &format!(
+                "\n            \"coordinate\": {{\n                \"forward_sign\": {forward_sign},\n                \"left_sign\": {left_sign},\n                \"base_yaw_offset_deg\": {base_yaw_offset_deg}\n            }},\n            \"arm\": {{"
+            ),
+        )
+    }
+
     #[test]
     fn parse_valid_json_config() {
         let config = parse_config_json(valid_json()).unwrap();
@@ -391,6 +445,43 @@ mod tests {
         assert_eq!(config.arm.servo_ids(), [11, 12, 13, 14]);
         assert_eq!(config.arm.joints[1].tick_min, 100);
         assert_eq!(config.arm.joints[1].tick_max, 1000);
+        assert_eq!(config.coordinate, CoordinateCalibration::default());
+    }
+
+    #[test]
+    fn parse_coordinate_calibration() {
+        let json = valid_json_with_coordinate(-1, 1, 90.0);
+
+        let config = parse_config_json(&json).unwrap();
+
+        assert_eq!(config.coordinate.forward_sign, -1);
+        assert_eq!(config.coordinate.left_sign, 1);
+        assert_eq!(config.coordinate.base_yaw_offset_deg, 90.0);
+    }
+
+    #[test]
+    fn reject_invalid_coordinate_calibration_sign() {
+        let json = valid_json_with_coordinate(0, 1, 0.0);
+
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("forward_sign must be -1 or 1")
+        );
+    }
+
+    #[test]
+    fn reject_invalid_coordinate_rotation() {
+        let json = valid_json_with_coordinate(1, 1, 0.0).replace(
+            "\"base_yaw_offset_deg\": 0",
+            "\"base_yaw_offset_deg\": null",
+        );
+
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("base_yaw_offset_deg must be a number")
+        );
     }
 
     #[test]
@@ -469,6 +560,7 @@ mod tests {
         let parsed = parse_config_json(&saved).unwrap();
         assert_eq!(parsed, config);
         assert!(saved.contains("\"tick_min\": 123"));
+        assert!(saved.contains("\"coordinate\""));
         assert!(!saved.contains("soft_tick"));
         assert!(!saved.contains("raw_tick"));
         assert!(saved.ends_with('\n'));
@@ -486,5 +578,7 @@ mod tests {
         assert_eq!(value["dirty"], true);
         assert_eq!(value["config"]["serial"], "PB-DEV-0001");
         assert_eq!(value["config"]["arm"]["joints"][0]["servo_id"], 11);
+        assert_eq!(value["config"]["coordinate"]["forward_sign"], 1);
+        assert_eq!(value["config"]["coordinate"]["base_yaw_offset_deg"], 0.0);
     }
 }

@@ -405,6 +405,7 @@ mod tests {
             arm: PuppyArmConfig {
                 joints: [joint(ids[0]), joint(ids[1]), joint(ids[2]), joint(ids[3])],
             },
+            coordinate: Default::default(),
         }
     }
 

@@ -11,7 +11,7 @@ use std::{
 
 use embassy_executor as _;
 use puppybot_core::{
-    config::PuppybotConfigV1,
+    config::{CoordinateCalibration, PuppybotConfigV1},
     protocol::{self, ProtocolEvent},
     puppyarm::types::{ArmCommand, ControllerError},
     robot::Puppybot,
@@ -200,6 +200,30 @@ impl RuntimeRobot {
         )
     }
 
+    pub(crate) fn coordinate_calibration(&self) -> CoordinateCalibration {
+        self.active_config.coordinate
+    }
+
+    pub(crate) fn flip_coordinate_forward_sign(&mut self) -> i8 {
+        self.active_config.coordinate.forward_sign = -self.active_config.coordinate.forward_sign;
+        self.calibration_dirty = true;
+        self.active_config.coordinate.forward_sign
+    }
+
+    pub(crate) fn flip_coordinate_left_sign(&mut self) -> i8 {
+        self.active_config.coordinate.left_sign = -self.active_config.coordinate.left_sign;
+        self.calibration_dirty = true;
+        self.active_config.coordinate.left_sign
+    }
+
+    pub(crate) fn rotate_coordinate_base_yaw_offset_deg(&mut self) -> f64 {
+        let offset = (self.active_config.coordinate.base_yaw_offset_deg + 90.0).rem_euclid(360.0);
+        self.active_config.coordinate.base_yaw_offset_deg =
+            if offset == 360.0 { 0.0 } else { offset };
+        self.calibration_dirty = true;
+        self.active_config.coordinate.base_yaw_offset_deg
+    }
+
     pub(crate) fn save_calibration(&mut self) -> Result<String, String> {
         self.sync_arm_calibration_from_robot();
         config::save_runtime_config(&self.config_path, &self.active_config)?;
@@ -249,6 +273,32 @@ impl RuntimeRobot {
         if changed {
             self.calibration_dirty = true;
         }
+    }
+
+    pub(crate) fn joint_angle_sign(&self, joint: usize) -> Option<i8> {
+        self.active_config
+            .arm
+            .joints
+            .get(joint)
+            .map(|joint| joint.angle_sign)
+    }
+
+    pub(crate) fn flip_joint_angle_sign(&mut self, joint: usize) -> Result<i8, String> {
+        if joint >= self.active_config.arm.joints.len() {
+            return Err("invalid joint".to_string());
+        }
+
+        self.sync_arm_calibration_from_robot();
+        let new_sign = {
+            let config_joint = &mut self.active_config.arm.joints[joint];
+            config_joint.angle_sign = -config_joint.angle_sign;
+            config_joint.angle_sign
+        };
+        let now_ms = self.now_ms();
+        self.robot = Puppybot::new_with_config(&self.active_config, now_ms)
+            .map_err(|err| format!("invalid calibration after sign flip: {err}"))?;
+        self.calibration_dirty = true;
+        Ok(new_sign)
     }
 
     fn sync_joint_reference_calibration(
@@ -663,6 +713,87 @@ mod tests {
         let saved = config::load_runtime_config(&path).unwrap().unwrap();
         assert_eq!(saved.arm.joints[1].reference_tick, 700);
         assert_eq!(saved.arm.joints[1].reference_angle_rad, reference_angle_rad);
+        assert!(!robot.calibration_state().0);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn runtime_robot_saves_flipped_joint_angle_sign() {
+        let path = std::env::temp_dir().join(format!(
+            "runtime-robot-save-joint-angle-sign-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let mut robot = RuntimeRobot::new(None, path.clone(), PuppybotConfigV1::default());
+
+        assert_eq!(robot.joint_angle_sign(3), Some(1));
+
+        let sign = robot.flip_joint_angle_sign(3).unwrap();
+
+        assert_eq!(sign, -1);
+        assert_eq!(robot.joint_angle_sign(3), Some(-1));
+        assert!(robot.calibration_state().0);
+
+        robot.save_calibration().unwrap();
+
+        let saved = config::load_runtime_config(&path).unwrap().unwrap();
+        assert_eq!(saved.arm.joints[3].angle_sign, -1);
+        assert!(!robot.calibration_state().0);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn runtime_robot_saves_flipped_coordinate_forward_sign() {
+        let path = std::env::temp_dir().join(format!(
+            "runtime-robot-save-coordinate-sign-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let mut robot = RuntimeRobot::new(None, path.clone(), PuppybotConfigV1::default());
+
+        assert_eq!(robot.coordinate_calibration().forward_sign, 1);
+
+        let sign = robot.flip_coordinate_forward_sign();
+
+        assert_eq!(sign, -1);
+        assert_eq!(robot.coordinate_calibration().forward_sign, -1);
+        assert!(robot.calibration_state().0);
+
+        robot.save_calibration().unwrap();
+
+        let saved = config::load_runtime_config(&path).unwrap().unwrap();
+        assert_eq!(saved.coordinate.forward_sign, -1);
+        assert!(!robot.calibration_state().0);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn runtime_robot_saves_rotated_coordinate_base_yaw_offset() {
+        let path = std::env::temp_dir().join(format!(
+            "runtime-robot-save-coordinate-rotation-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let mut robot = RuntimeRobot::new(None, path.clone(), PuppybotConfigV1::default());
+
+        assert_eq!(robot.coordinate_calibration().base_yaw_offset_deg, 0.0);
+
+        let offset = robot.rotate_coordinate_base_yaw_offset_deg();
+
+        assert_eq!(offset, 90.0);
+        assert_eq!(robot.coordinate_calibration().base_yaw_offset_deg, 90.0);
+        assert!(robot.calibration_state().0);
+
+        robot.save_calibration().unwrap();
+
+        let saved = config::load_runtime_config(&path).unwrap().unwrap();
+        assert_eq!(saved.coordinate.base_yaw_offset_deg, 90.0);
         assert!(!robot.calibration_state().0);
 
         let _ = std::fs::remove_file(&path);
