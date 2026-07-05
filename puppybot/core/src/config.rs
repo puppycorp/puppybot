@@ -220,7 +220,6 @@ impl JointCalibration {
 fn validate_drive(config: &DriveConfig) -> Result<(), ConfigError> {
     if config.left_motor_id == 0
         || config.right_motor_id == 0
-        || config.steering_servo_id == 0
         || config.left_motor_id == config.right_motor_id
     {
         return Err(ConfigError::InvalidDrive);
@@ -292,6 +291,14 @@ mod tests {
     #[test]
     fn valid_config_passes_validation() {
         assert_eq!(config().validate(), Ok(()));
+    }
+
+    #[test]
+    fn zero_steering_servo_id_disables_steering_servo() {
+        let mut config = config();
+        config.drive.steering_servo_id = 0;
+
+        assert_eq!(config.validate(), Ok(()));
     }
 
     #[test]

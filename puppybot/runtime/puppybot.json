@@ -54,7 +54,7 @@
     "right_motor_id": 2,
     "steering_center_deg": 90,
     "steering_range_deg": 45,
-    "steering_servo_id": 1
+    "steering_servo_id": 5
   },
   "serial": "PB-DEV-0001",
   "version": 1

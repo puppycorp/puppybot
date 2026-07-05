@@ -41,6 +41,23 @@ pub struct DriveOutput {
     pub active: bool,
 }
 
+pub trait DriveActuator {
+    type Error;
+
+    fn apply_drive_output(&mut self, output: DriveOutput) -> Result<(), Self::Error>;
+}
+
+#[derive(Debug, Default)]
+pub struct NoopDriveActuator;
+
+impl DriveActuator for NoopDriveActuator {
+    type Error = core::convert::Infallible;
+
+    fn apply_drive_output(&mut self, _output: DriveOutput) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
 impl DriveOutput {
     fn neutral(config: DriveConfig) -> Self {
         Self {

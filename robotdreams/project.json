@@ -153,6 +153,54 @@
               "zeroOffset": 3437,
               "direction": 1
             }
+          },
+          {
+            "type": "servo",
+            "id": 5,
+            "name": "Steering Servo",
+            "profile": "ST3215",
+            "calibration": {
+              "zeroOffset": 1535,
+              "direction": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "drive_bus",
+        "name": "Drive H-Bridge",
+        "transport": {
+          "type": "virtual"
+        },
+        "protocol": "hbridge",
+        "devices": [
+          {
+            "type": "dcMotor",
+            "id": 1,
+            "name": "Left Drive Motor",
+            "profile": "L298N",
+            "drives": {
+              "robot": "puppybot",
+              "wheel": "left_rear"
+            },
+            "calibration": {
+              "direction": 1,
+              "maxSpeedMps": 0.4
+            }
+          },
+          {
+            "type": "dcMotor",
+            "id": 2,
+            "name": "Right Drive Motor",
+            "profile": "L298N",
+            "drives": {
+              "robot": "puppybot",
+              "wheel": "right_rear"
+            },
+            "calibration": {
+              "direction": 1,
+              "maxSpeedMps": 0.4
+            }
           }
         ]
       }

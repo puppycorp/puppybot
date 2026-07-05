@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use puppybot_state::PuppyBotState;
@@ -21,6 +22,10 @@ fn model_profile_path() -> PathBuf {
 
 fn project_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../robotdreams/project.json")
+}
+
+fn runtime_config_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../puppybot/runtime/puppybot.json")
 }
 
 fn distance(left: [f64; 3], right: [f64; 3]) -> f64 {
@@ -221,6 +226,88 @@ fn puppybot_robotdreams_model_transformation_orients_urdf_to_ros_frame() {
         "PuppyBot wheel width should be Y-dominant, not X-dominant: delta={wheel_delta:?}"
     );
     assert_close_m(wheel_delta[2], 0.0, 1.0e-3);
+}
+
+#[test]
+fn puppybot_robotdreams_steering_servo_is_virtual_but_not_arm_mapped() {
+    let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
+    let bus = project
+        .hardware
+        .buses
+        .iter()
+        .find(|bus| bus.id == "main_bus")
+        .expect("main bus");
+    let steering_servo = bus
+        .devices
+        .iter()
+        .find_map(|device| match device {
+            DeviceConfig::Servo(servo) if servo.id == 5 => Some(servo),
+            _ => None,
+        })
+        .expect("steering servo 5");
+
+    assert_eq!(steering_servo.name, "Steering Servo");
+    assert!(
+        steering_servo.drives.is_none(),
+        "steering servo 5 should not drive an arm URDF joint"
+    );
+    assert_eq!(steering_servo.calibration.zero_offset, 1535);
+}
+
+#[test]
+fn puppybot_runtime_drive_devices_exist_in_robotdreams_project() {
+    let runtime_config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(runtime_config_path()).expect("read PuppyBot runtime config"),
+    )
+    .expect("parse PuppyBot runtime config");
+    let drive = runtime_config
+        .get("drive")
+        .and_then(serde_json::Value::as_object)
+        .expect("runtime drive config");
+    let steering_servo_id = drive
+        .get("steering_servo_id")
+        .and_then(serde_json::Value::as_u64)
+        .expect("runtime steering_servo_id") as u32;
+    let left_motor_id = drive
+        .get("left_motor_id")
+        .and_then(serde_json::Value::as_u64)
+        .expect("runtime left_motor_id") as u32;
+    let right_motor_id = drive
+        .get("right_motor_id")
+        .and_then(serde_json::Value::as_u64)
+        .expect("runtime right_motor_id") as u32;
+
+    let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
+    let main_bus = project
+        .hardware
+        .buses
+        .iter()
+        .find(|bus| bus.id == "main_bus")
+        .expect("main bus");
+    let drive_bus = project
+        .hardware
+        .buses
+        .iter()
+        .find(|bus| bus.id == "drive_bus")
+        .expect("drive bus");
+
+    assert!(
+        main_bus.devices.iter().any(|device| matches!(
+            device,
+            DeviceConfig::Servo(servo)
+                if servo.id == steering_servo_id && servo.drives.is_none()
+        )),
+        "runtime steering servo {steering_servo_id} should exist on main_bus and not drive an arm joint"
+    );
+    for motor_id in [left_motor_id, right_motor_id] {
+        assert!(
+            drive_bus.devices.iter().any(|device| matches!(
+                device,
+                DeviceConfig::DcMotor(motor) if motor.id == motor_id
+            )),
+            "runtime drive motor {motor_id} should exist on drive_bus"
+        );
+    }
 }
 
 #[test]

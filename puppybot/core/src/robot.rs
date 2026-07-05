@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::{
     config::{ConfigError, PuppybotConfigV1},
-    drive::{DriveController, DriveOutput},
+    drive::{DriveActuator, DriveController, DriveOutput, NoopDriveActuator},
     protocol::{
         self, ProtocolEvent, ProtocolJointTelemetry, ProtocolOutput, ProtocolState, RobotConfig,
     },
@@ -28,9 +28,10 @@ pub struct Puppybot {
     last_steering_sent: Option<(u8, u16)>,
 }
 
-pub struct PuppyBotSystem<B> {
+pub struct PuppyBotSystem<B, D = NoopDriveActuator> {
     robot: Puppybot,
     servo: StServo<B>,
+    drive_actuator: D,
     now_ms: u64,
 }
 
@@ -58,6 +59,18 @@ impl<B> PuppyBotSystem<B> {
         Self {
             robot,
             servo,
+            drive_actuator: NoopDriveActuator,
+            now_ms: 0,
+        }
+    }
+}
+
+impl<B, D> PuppyBotSystem<B, D> {
+    pub fn with_servo_and_drive(robot: Puppybot, servo: StServo<B>, drive_actuator: D) -> Self {
+        Self {
+            robot,
+            servo,
+            drive_actuator,
             now_ms: 0,
         }
     }
@@ -78,6 +91,14 @@ impl<B> PuppyBotSystem<B> {
         &mut self.servo
     }
 
+    pub fn drive_actuator(&self) -> &D {
+        &self.drive_actuator
+    }
+
+    pub fn drive_actuator_mut(&mut self) -> &mut D {
+        &mut self.drive_actuator
+    }
+
     pub fn now_ms(&self) -> u64 {
         self.now_ms
     }
@@ -87,7 +108,7 @@ impl<B> PuppyBotSystem<B> {
     }
 }
 
-impl<B> PuppyBotSystem<B>
+impl<B> PuppyBotSystem<B, NoopDriveActuator>
 where
     B: SerialBus,
 {
@@ -96,10 +117,12 @@ where
     }
 }
 
-impl<B> PuppyBotSystem<B>
+impl<B, D> PuppyBotSystem<B, D>
 where
     B: SerialBus,
     B::Error: core::fmt::Debug,
+    D: DriveActuator,
+    D::Error: core::fmt::Debug,
 {
     pub async fn run_once_at<F>(&mut self, now_ms: u64, receive_event: F)
     where
@@ -107,7 +130,12 @@ where
     {
         self.now_ms = now_ms;
         self.robot
-            .run_once(&mut self.servo, self.now_ms, receive_event)
+            .run_once_with_drive(
+                &mut self.servo,
+                &mut self.drive_actuator,
+                self.now_ms,
+                receive_event,
+            )
             .await;
     }
 
@@ -116,7 +144,12 @@ where
         F: FnMut() -> Option<ProtocolEvent>,
     {
         self.robot
-            .run_once(&mut self.servo, self.now_ms, receive_event)
+            .run_once_with_drive(
+                &mut self.servo,
+                &mut self.drive_actuator,
+                self.now_ms,
+                receive_event,
+            )
             .await;
         self.now_ms = self.now_ms.wrapping_add(PUPPYBOT_SYSTEM_TICK_MS);
     }
@@ -236,7 +269,7 @@ impl Puppybot {
         B::Error: core::fmt::Debug,
     {
         let output = self.drive.output();
-        if !output.active {
+        if !output.active || output.steering_servo_id == 0 {
             return;
         }
         let steering = (output.steering_servo_id, output.steering_angle_deg);
@@ -260,6 +293,17 @@ impl Puppybot {
                 output.steering_angle_deg,
                 err
             ),
+        }
+    }
+
+    fn apply_drive_actuator_output<D>(&self, drive_actuator: &mut D)
+    where
+        D: DriveActuator,
+        D::Error: core::fmt::Debug,
+    {
+        let output = self.drive.output();
+        if let Err(err) = drive_actuator.apply_drive_output(output) {
+            log::warn!("set drive output {:?} failed: {:?}", output, err);
         }
     }
 
@@ -351,6 +395,31 @@ impl Puppybot {
 
         self.drive.tick(now_ms);
         self.apply_steering_output(servo).await;
+        self.apply_arm_outputs(servo, now_ms).await;
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+    }
+
+    pub async fn run_once_with_drive<B, D, F>(
+        &mut self,
+        servo: &mut StServo<B>,
+        drive_actuator: &mut D,
+        now_ms: u64,
+        mut receive_event: F,
+    ) where
+        B: SerialBus,
+        B::Error: core::fmt::Debug,
+        D: DriveActuator,
+        D::Error: core::fmt::Debug,
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        self.read_servo_feedback(servo, now_ms).await;
+        while let Some(event) = receive_event() {
+            self.handle_event(event, now_ms);
+        }
+
+        self.drive.tick(now_ms);
+        self.apply_steering_output(servo).await;
+        self.apply_drive_actuator_output(drive_actuator);
         self.apply_arm_outputs(servo, now_ms).await;
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
@@ -547,6 +616,51 @@ mod tests {
 
         assert_eq!(servo.bus().servo(1).unwrap().wheel_speed, 300);
         assert_eq!(robot.arm_telemetry().joints[0].tick, Some(0));
+    }
+
+    #[test]
+    fn run_once_drive_forward_with_no_steering_servo_does_not_write_arm_yaw() {
+        let mut config = config_with_arm_servo_ids([1, 2, 3, 4]);
+        config.drive.steering_servo_id = 0;
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(1, 1234), (2, 2000), (3, 2000), (4, 2000)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut servo = StServo::new(bus);
+        let mut event = Some(ProtocolEvent::Drive(DriveCommand::DriveSteer {
+            throttle: 35,
+            steering: 0,
+        }));
+
+        block_on_ready(robot.run_once(&mut servo, 20, || event.take()));
+
+        assert_eq!(robot.drive_output().steering_servo_id, 0);
+        assert_eq!(robot.drive_output().left_speed, 35);
+        assert_eq!(servo.bus().servo(1).unwrap().position, 1234);
+    }
+
+    #[test]
+    fn run_once_drive_forward_with_separate_steering_servo_does_not_write_arm_yaw() {
+        let mut config = config_with_arm_servo_ids([1, 2, 3, 4]);
+        config.drive.steering_servo_id = 5;
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(1, 1234), (2, 2000), (3, 2000), (4, 2000), (5, 1500)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut servo = StServo::new(bus);
+        let mut event = Some(ProtocolEvent::Drive(DriveCommand::DriveSteer {
+            throttle: 35,
+            steering: 0,
+        }));
+
+        block_on_ready(robot.run_once(&mut servo, 20, || event.take()));
+
+        assert_eq!(robot.drive_output().steering_servo_id, 5);
+        assert_eq!(robot.drive_output().left_speed, 35);
+        assert_eq!(servo.bus().servo(1).unwrap().position, 1234);
+        assert_ne!(servo.bus().servo(5).unwrap().position, 1500);
     }
 
     #[test]

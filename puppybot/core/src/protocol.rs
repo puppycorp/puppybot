@@ -68,7 +68,7 @@ impl RobotConfig {
         if payload.len() < 6 || payload[0] != CONFIG_VERSION {
             return None;
         }
-        if payload[1..6].contains(&0) {
+        if payload[2..6].contains(&0) {
             return None;
         }
 
@@ -668,6 +668,27 @@ mod tests {
             vec![
                 ProtocolEvent::Arm(ArmCommand::SetServoIds([1, 2, 3, 4])),
                 ProtocolEvent::Drive(DriveCommand::SetSteeringServoId(9)),
+            ]
+        );
+        assert_eq!(output.response, Some(config_state_frame(&state.config)));
+    }
+
+    #[test]
+    fn config_set_accepts_zero_steering_servo_id_to_disable_steering() {
+        let mut state = ProtocolState::default();
+
+        let output = handle_binary_command(
+            &command_frame(CMD_CONFIG_SET, &[1, 0, 1, 2, 3, 4]),
+            &mut state,
+        );
+
+        assert_eq!(state.config.steering_servo_id, 0);
+        assert_eq!(state.config.arm_servo_ids, [1, 2, 3, 4]);
+        assert_eq!(
+            output.events,
+            vec![
+                ProtocolEvent::Arm(ArmCommand::SetServoIds([1, 2, 3, 4])),
+                ProtocolEvent::Drive(DriveCommand::SetSteeringServoId(0)),
             ]
         );
         assert_eq!(output.response, Some(config_state_frame(&state.config)));
