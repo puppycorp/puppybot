@@ -26,6 +26,7 @@ pub struct Puppybot {
     protocol: ProtocolState,
     telemetry_seq: u32,
     last_steering_sent: Option<(u8, u16)>,
+    next_feedback_joint: usize,
 }
 
 pub struct PuppyBotSystem<B, D = NoopDriveActuator> {
@@ -163,6 +164,7 @@ impl Puppybot {
             protocol: ProtocolState::default(),
             telemetry_seq: 0,
             last_steering_sent: None,
+            next_feedback_joint: 0,
         }
     }
 
@@ -180,6 +182,7 @@ impl Puppybot {
             },
             telemetry_seq: 0,
             last_steering_sent: None,
+            next_feedback_joint: 0,
         })
     }
 
@@ -247,10 +250,12 @@ impl Puppybot {
         B: SerialBus,
         B::Error: core::fmt::Debug,
     {
-        for joint in 0..JOINT_COUNT {
+        for offset in 0..JOINT_COUNT {
+            let joint = (self.next_feedback_joint + offset) % JOINT_COUNT;
             let Some(servo_id) = self.arm.joint_servo_id(joint) else {
                 continue;
             };
+            self.next_feedback_joint = (joint + 1) % JOINT_COUNT;
             match servo.read_position(servo_id).await {
                 Ok(tick) => {
                     self.arm.record_feedback(joint, tick, now_ms);
@@ -260,6 +265,7 @@ impl Puppybot {
                     self.arm.record_feedback_error(joint);
                 }
             }
+            break;
         }
     }
 
@@ -478,6 +484,16 @@ mod tests {
         }
     }
 
+    fn run_feedback_cycle<B>(robot: &mut Puppybot, servo: &mut StServo<B>)
+    where
+        B: SerialBus,
+        B::Error: core::fmt::Debug,
+    {
+        for tick in 0..JOINT_COUNT {
+            block_on_ready(robot.run_once(servo, (tick as u64 + 1) * 20, || None));
+        }
+    }
+
     #[test]
     fn handle_frame_updates_drive_output() {
         let mut robot = Puppybot::new(0);
@@ -557,7 +573,9 @@ mod tests {
         }
         let mut system = PuppyBotSystem::new(robot, bus);
 
-        block_on_ready(system.run_once(|| None));
+        for _ in 0..JOINT_COUNT {
+            block_on_ready(system.run_once(|| None));
+        }
 
         let telemetry = system.robot().arm_telemetry();
         assert_eq!(telemetry.joints[0].servo_id, 11);
@@ -664,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn run_once_reads_feedback_from_configured_arm_servo_ids() {
+    fn run_once_polls_feedback_one_joint_at_a_time() {
         let config = config_with_arm_servo_ids([11, 12, 13, 14]);
         let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
         let mut bus = FakeSerialBus::new();
@@ -674,6 +692,26 @@ mod tests {
         let mut servo = StServo::new(bus);
 
         block_on_ready(robot.run_once(&mut servo, 20, || None));
+
+        let telemetry = robot.arm_telemetry();
+        assert_eq!(telemetry.joints[0].servo_id, 11);
+        assert_eq!(telemetry.joints[0].tick, Some(101));
+        assert_eq!(telemetry.joints[1].tick, None);
+        assert_eq!(telemetry.joints[2].tick, None);
+        assert_eq!(telemetry.joints[3].tick, None);
+    }
+
+    #[test]
+    fn run_once_reads_feedback_from_configured_arm_servo_ids_after_cycle() {
+        let config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut servo = StServo::new(bus);
+
+        run_feedback_cycle(&mut robot, &mut servo);
 
         let telemetry = robot.arm_telemetry();
         assert_eq!(telemetry.joints[0].servo_id, 11);

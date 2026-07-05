@@ -13,8 +13,8 @@ use puppybot_core::drive::{DriveActuator, DriveCommand, DriveConfig, DriveOutput
 use puppybot_core::protocol::ProtocolEvent;
 use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT};
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
-use puppybot_core::stservo::{SerialBus, StServo};
 use puppybot_core::stservo::mock::block_on_ready;
+use puppybot_core::stservo::{SerialBus, StServo};
 use robotdreams_core::RobotDreams;
 use robotdreams_core::project::load_model_profile;
 use serde_json::Value;
@@ -144,6 +144,7 @@ pub struct RuntimeLikePuppybotRobotDreamsHarness {
     state: Rc<RefCell<RobotDreamsSerialBusState>>,
     robot: Puppybot,
     servo: StServo<RobotDreamsSerialBus>,
+    drive_actuator: RobotDreamsDriveActuator,
     cycle: u64,
 }
 
@@ -175,6 +176,7 @@ impl PuppybotRobotDreamsHarness {
         cycles: usize,
         sample_every_cycles: usize,
     ) -> Vec<[f64; 3]> {
+        self.prime_feedback();
         let mut event = Some(ProtocolEvent::Arm(command));
         let mut samples = Vec::new();
         for cycle in 0..cycles {
@@ -301,9 +303,11 @@ impl PuppybotRobotDreamsHarness {
     }
 
     fn prime_feedback(&mut self) {
-        block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
-        self.cycle = self.cycle.wrapping_add(1);
-        self.advance_robotdreams();
+        for _ in 0..JOINT_COUNT {
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+        }
     }
 
     fn run_cycles_sampled(&mut self, cycles: usize, sample_every_cycles: usize) -> Vec<[f64; 3]> {
@@ -333,10 +337,12 @@ impl RuntimeLikePuppybotRobotDreamsHarness {
         let config = runtime_config();
         let state = initialized_state(&config, angles_rad);
         let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
+        let drive_actuator = RobotDreamsDriveActuator::new(Rc::clone(&state));
         Self {
             state,
             robot: Puppybot::new_with_config(&config, 0).expect("simulation PuppyBot config"),
             servo: StServo::new(bus),
+            drive_actuator,
             cycle: 0,
         }
     }
@@ -344,10 +350,12 @@ impl RuntimeLikePuppybotRobotDreamsHarness {
     pub fn run_repeated_drive_command(&mut self, command: DriveCommand, cycles: usize) {
         for _ in 0..cycles {
             let mut event = Some(ProtocolEvent::Drive(command));
-            block_on_ready(
-                self.robot
-                    .run_once(&mut self.servo, self.cycle * 20, || event.take()),
-            );
+            block_on_ready(self.robot.run_once_with_drive(
+                &mut self.servo,
+                &mut self.drive_actuator,
+                self.cycle * 20,
+                || event.take(),
+            ));
             self.cycle = self.cycle.wrapping_add(1);
             self.advance_robotdreams();
         }

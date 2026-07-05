@@ -244,8 +244,7 @@ fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<RuntimeRobot>>) -> Re
 
     loop {
         let telemetry = {
-            let mut robot = robot.lock().unwrap();
-            robot.tick();
+            let robot = robot.lock().unwrap();
             if telemetry_enabled && sent_telemetry_seq != Some(robot.telemetry_seq()) {
                 Some((robot.telemetry_seq(), robot.arm_state_frame()))
             } else {

@@ -5,12 +5,14 @@ use std::{
     time::Duration,
 };
 
+use embassy_time::Duration as EmbassyDuration;
 use puppybot_core::stservo::{DEFAULT_BAUD, SerialBus, StServo};
 
 const STSERVO_PORT_ENV: &str = "PUPPYBOT_STSERVO_PORT";
 const STSERVO_BAUD_ENV: &str = "PUPPYBOT_STSERVO_BAUD";
 const STSERVO_PROBE_ENV: &str = "PUPPYBOT_STSERVO_PROBE";
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_millis(1);
+const VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS: u64 = 500;
 const SERIAL_CACHE_FILE: &str = "puppybot-runtime-stservo-port";
 const SUPPORTED_PORT_PATTERNS: &[&str] = &[
     "/dev/serial/by-id/",
@@ -238,7 +240,7 @@ pub(crate) fn open_serial(port: Option<&str>) -> Option<RuntimeStServo> {
             Ok(bus) => {
                 log::info!("runtime STServo serial bus probe opened successfully");
                 remember_port(&config.port);
-                return Some(StServo::new(bus));
+                return Some(runtime_stservo_for_config(bus, &config));
             }
             Err(err) => {
                 log::warn!("runtime STServo serial bus probe failed: {err}");
@@ -250,12 +252,31 @@ pub(crate) fn open_serial(port: Option<&str>) -> Option<RuntimeStServo> {
     match RuntimeSerialBus::open(&config) {
         Ok(bus) => {
             remember_port(&config.port);
-            Some(StServo::new(bus))
+            Some(runtime_stservo_for_config(bus, &config))
         }
         Err(err) => {
             log::warn!("runtime STServo serial bus open failed: {err}");
             None
         }
+    }
+}
+
+fn runtime_stservo_for_config(
+    bus: RuntimeSerialBus,
+    config: &RuntimeSerialConfig,
+) -> RuntimeStServo {
+    let servo = StServo::new(bus);
+    if is_ephemeral_virtual_port(&config.port) {
+        log::info!(
+            "runtime using {} ms STServo transaction timeout for virtual serial bus {}",
+            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
+            config.port
+        );
+        servo.with_timeout(EmbassyDuration::from_millis(
+            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
+        ))
+    } else {
+        servo
     }
 }
 

@@ -1220,6 +1220,7 @@ name = "puppybot-runtime"
 version = "0.1.0"
 dependencies = [
  "embassy-executor",
+ "embassy-time",
  "env_logger",
  "log",
  "mdns-sd",

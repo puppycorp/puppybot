@@ -12,6 +12,7 @@ use std::{
 use embassy_executor as _;
 use puppybot_core::{
     config::{CoordinateCalibration, PuppybotConfigV1},
+    drive::DriveActuator,
     protocol::{self, ProtocolEvent},
     puppyarm::types::{ArmCommand, ControllerError},
     robot::Puppybot,
@@ -19,6 +20,7 @@ use puppybot_core::{
 
 mod config;
 mod mdns;
+mod robotdreams_drive;
 mod stservo;
 mod ui;
 mod ws;
@@ -42,6 +44,7 @@ enum RuntimeCli {
 pub(crate) struct RuntimeRobot {
     robot: Puppybot,
     servo: Option<stservo::RuntimeStServo>,
+    drive_actuator: robotdreams_drive::RuntimeDriveActuator,
     config_path: PathBuf,
     active_config: PuppybotConfigV1,
     calibration_dirty: bool,
@@ -90,6 +93,7 @@ impl RuntimeRobot {
         Self {
             robot,
             servo,
+            drive_actuator: robotdreams_drive::RuntimeDriveActuator::discover(),
             config_path,
             active_config: config,
             calibration_dirty: false,
@@ -113,9 +117,24 @@ impl RuntimeRobot {
 
         let now_ms = self.now_ms();
         if let Some(servo) = self.servo.as_mut() {
-            block_on(self.robot.run_once(servo, now_ms, || None));
+            block_on(self.robot.run_once_with_drive(
+                servo,
+                &mut self.drive_actuator,
+                now_ms,
+                || None,
+            ));
         } else {
             self.robot.tick(elapsed_ms as u64, now_ms);
+            if let Err(err) = self
+                .drive_actuator
+                .apply_drive_output(self.robot.drive_output())
+            {
+                log::warn!(
+                    "set drive output {:?} failed: {}",
+                    self.robot.drive_output(),
+                    err
+                );
+            }
         }
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
@@ -547,7 +566,11 @@ fn main() {
                 let robot = Arc::clone(&robot);
                 std::thread::spawn(move || {
                     if let Err(err) = ws::handle_connection(stream, robot) {
-                        log::warn!("runtime websocket connection ended: {err}");
+                        if matches!(err, ws::Error::Closed) {
+                            log::info!("runtime websocket connection closed");
+                        } else {
+                            log::warn!("runtime websocket connection ended: {err}");
+                        }
                     }
                 });
             }

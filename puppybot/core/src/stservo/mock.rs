@@ -56,6 +56,7 @@ pub struct FakeSerialBus {
     read_buf: [u8; FAKE_MAX_READ],
     read_start: usize,
     read_end: usize,
+    delayed_read_prefix: Vec<u8>,
     fail_reads: [bool; 256],
     fail_writes: [bool; 256],
     timeout_reads: [bool; 256],
@@ -69,6 +70,7 @@ impl FakeSerialBus {
             read_buf: [0; FAKE_MAX_READ],
             read_start: 0,
             read_end: 0,
+            delayed_read_prefix: Vec::new(),
             fail_reads: [false; 256],
             fail_writes: [false; 256],
             timeout_reads: [false; 256],
@@ -244,6 +246,7 @@ impl FakeSerialBus {
     }
 
     fn queue_status(&mut self, id: u8, status: u8, params: &[u8]) -> Result<(), FakeBusError> {
+        self.flush_delayed_read_prefix()?;
         let mut frame = [0u8; FAKE_MAX_PACKET];
         frame[0..2].copy_from_slice(&HEADER);
         frame[2] = id;
@@ -262,6 +265,18 @@ impl FakeSerialBus {
         self.read_buf[self.read_end..self.read_end + bytes.len()].copy_from_slice(bytes);
         self.read_end += bytes.len();
         Ok(())
+    }
+
+    pub fn queue_read_before_next_response(&mut self, bytes: &[u8]) {
+        self.delayed_read_prefix.extend_from_slice(bytes);
+    }
+
+    fn flush_delayed_read_prefix(&mut self) -> Result<(), FakeBusError> {
+        if self.delayed_read_prefix.is_empty() {
+            return Ok(());
+        }
+        let prefix = core::mem::take(&mut self.delayed_read_prefix);
+        self.queue_read(&prefix)
     }
 }
 
@@ -433,6 +448,23 @@ fn read_position_uses_fake_serial_bus_end_to_end() {
     assert_eq!(
         servo.bus_mut().writes[0],
         packet(4, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2])
+    );
+}
+
+#[test]
+fn read_position_skips_stale_unexpected_id_response() {
+    let mut bus = FakeSerialBus::new()
+        .with_servo(1, 0x0111)
+        .with_servo(2, 0x0222);
+    bus.queue_read_before_next_response(&status_packet(1, 0, &0x0111u16.to_le_bytes()));
+    let mut servo = StServo::new(bus);
+
+    let position = block_on_ready(servo.read_position(2)).unwrap();
+
+    assert_eq!(position, 0x0222);
+    assert_eq!(
+        servo.bus_mut().writes[0],
+        packet(2, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2])
     );
 }
 

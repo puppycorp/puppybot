@@ -297,10 +297,8 @@ where
 
     pub async fn ping(&mut self, servo_id: u8) -> Result<(), Error<B::Error>> {
         require_id(servo_id)?;
-        let frame = self.tx_rx(servo_id, INST_PING, &[], self.timeout).await?;
-        if frame.id != servo_id {
-            return Err(Error::UnexpectedId);
-        }
+        self.tx_rx_expected(servo_id, INST_PING, &[], self.timeout)
+            .await?;
         Ok(())
     }
 
@@ -440,11 +438,8 @@ where
         }
 
         let frame = self
-            .tx_rx(servo_id, INST_READ, &[address, len], self.timeout)
+            .tx_rx_expected(servo_id, INST_READ, &[address, len], self.timeout)
             .await?;
-        if frame.id != servo_id {
-            return Err(Error::UnexpectedId);
-        }
         if frame.error != 0 {
             return Err(Error::Status(frame.error));
         }
@@ -459,15 +454,37 @@ where
 
     async fn write_checked(&mut self, servo_id: u8, params: &[u8]) -> Result<(), Error<B::Error>> {
         let frame = self
-            .tx_rx(servo_id, INST_WRITE, params, self.timeout)
+            .tx_rx_expected(servo_id, INST_WRITE, params, self.timeout)
             .await?;
-        if frame.id != servo_id {
-            return Err(Error::UnexpectedId);
-        }
         if frame.error != 0 {
             return Err(Error::Status(frame.error));
         }
         Ok(())
+    }
+
+    async fn tx_rx_expected(
+        &mut self,
+        servo_id: u8,
+        instruction: u8,
+        params: &[u8],
+        timeout: Duration,
+    ) -> Result<Frame, Error<B::Error>> {
+        let deadline = Instant::now() + timeout;
+        let first = self.tx_rx(servo_id, instruction, params, timeout).await?;
+        if first.id == servo_id {
+            return Ok(first);
+        }
+
+        loop {
+            if Instant::now() >= deadline {
+                return Err(Error::UnexpectedId);
+            }
+            let remaining = deadline - Instant::now();
+            let frame = read_frame(&mut self.bus, remaining).await?;
+            if frame.id == servo_id {
+                return Ok(frame);
+            }
+        }
     }
 
     async fn tx_rx(
