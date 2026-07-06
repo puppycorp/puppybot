@@ -20,12 +20,43 @@ use robotdreams_core::{RobotDreams, RobotDreamsSnapshot, world_state_from_scene_
 
 const CAMERA_ID: &str = "orbit_camera";
 const DRIVE_BUS_ID: &str = "drive_bus";
-const ELBOW_DIRECTION: i16 = -1;
-const ELBOW_SERVO_ID: u8 = 3;
-const ELBOW_ZERO_TICKS: i16 = 1552;
-const MAIN_BUS_ID: &str = "main_bus";
 const ROBOT_ID: &str = "puppybot";
-const SERVO_FULL_ROTATION_TICKS: f32 = 4096.0;
+
+#[derive(Default)]
+struct TimingTotals {
+    command_sec: f64,
+    advance_sec: f64,
+    visual_sec: f64,
+    sync_sec: f64,
+    render_sec: f64,
+    write_sec: f64,
+}
+
+impl TimingTotals {
+    fn add_command(&mut self, start: Instant) {
+        self.command_sec += start.elapsed().as_secs_f64();
+    }
+
+    fn add_advance(&mut self, start: Instant) {
+        self.advance_sec += start.elapsed().as_secs_f64();
+    }
+
+    fn add_visual(&mut self, start: Instant) {
+        self.visual_sec += start.elapsed().as_secs_f64();
+    }
+
+    fn add_sync(&mut self, start: Instant) {
+        self.sync_sec += start.elapsed().as_secs_f64();
+    }
+
+    fn add_render(&mut self, start: Instant) {
+        self.render_sec += start.elapsed().as_secs_f64();
+    }
+
+    fn add_write(&mut self, start: Instant) {
+        self.write_sec += start.elapsed().as_secs_f64();
+    }
+}
 
 fn add_orbit_camera(
     scene: &mut robotdreams_core::scene_graph::SceneGraph,
@@ -108,12 +139,6 @@ fn cross(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-fn elbow_ticks(angle_rad: f32) -> i16 {
-    let ticks = ELBOW_ZERO_TICKS as f32
-        + angle_rad * SERVO_FULL_ROTATION_TICKS / (ELBOW_DIRECTION as f32 * std::f32::consts::TAU);
-    ticks.round().clamp(0.0, 4095.0) as i16
-}
-
 fn joint_angle(snapshot: &RobotDreamsSnapshot, joint_name: &str) -> Option<f64> {
     snapshot
         .robots
@@ -185,18 +210,39 @@ fn sub(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
     [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 }
 
-fn sync_world_transforms(
+fn set_world_node_transform(
     world: &mut WorldState,
-    node: &SceneNode,
     index: &HashMap<String, ArenaId<PgeNode>>,
+    entity: &str,
+    transform: PgeTransform,
 ) {
-    if let Some(node_id) = index.get(&node.entity.0)
+    if let Some(node_id) = index.get(entity)
         && let Some(world_node) = world.nodes.get_mut(node_id)
     {
-        world_node.transform = pge_transform(node.transform);
+        world_node.transform = transform;
     }
-    for child in &node.children {
-        sync_world_transforms(world, child, index);
+}
+
+fn sync_robot_visual_transforms(
+    world: &mut WorldState,
+    visual_meshes: &[robotdreams_core::project::RobotVisualMesh],
+    index: &HashMap<String, ArenaId<PgeNode>>,
+) {
+    for (visual_index, visual) in visual_meshes.iter().enumerate() {
+        let entity = format!(
+            "robot:{}:visual:{}:{visual_index}",
+            visual.robot_id, visual.link_name
+        );
+        set_world_node_transform(
+            world,
+            index,
+            &entity,
+            PgeTransform {
+                translation: visual.translation,
+                rotation: [0.0, 0.0, 0.0],
+                rotation_matrix: Some(visual.rotation_matrix),
+            },
+        );
     }
 }
 
@@ -217,6 +263,7 @@ fn write_metadata(
     seconds: u32,
     resolution: [u32; 2],
     render_elapsed: f64,
+    timings: &TimingTotals,
     start_snapshot: &RobotDreamsSnapshot,
     end_snapshot: &RobotDreamsSnapshot,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -234,6 +281,14 @@ fn write_metadata(
         "resolution": resolution,
         "renderWallSeconds": render_elapsed,
         "renderThroughputFps": frame_count as f64 / render_elapsed.max(f64::EPSILON),
+        "timingSeconds": {
+            "command": timings.command_sec,
+            "advance": timings.advance_sec,
+            "robotVisuals": timings.visual_sec,
+            "syncWorldTransforms": timings.sync_sec,
+            "renderReadback": timings.render_sec,
+            "writeFrames": timings.write_sec
+        },
         "renderer": {
             "name": "pge-wgpu-renderer",
             "source": "RobotDreams scene graph exported as pge_core::WorldState",
@@ -249,11 +304,10 @@ fn write_metadata(
         "robotBaseEnd": robot_base_xy_yaw(end_snapshot),
         "elbowStartRad": joint_angle(start_snapshot, "elbow"),
         "elbowEndRad": joint_angle(end_snapshot, "elbow"),
-        "elbowServo": {
-            "bus": MAIN_BUS_ID,
-            "id": ELBOW_SERVO_ID,
-            "zeroTicks": ELBOW_ZERO_TICKS,
-            "direction": ELBOW_DIRECTION
+        "elbowJointAnimation": {
+            "joint": "elbow",
+            "amplitudeDeg": 22.0,
+            "periodSec": 2.0
         }
     });
     fs::write(
@@ -320,8 +374,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         settings: None,
     };
     let render_start = Instant::now();
+    let mut timings = TimingTotals::default();
 
     for index in 0..frame_count {
+        let command_start = Instant::now();
         let elapsed_sec = index as f32 * dt;
         let now_ms = (elapsed_sec * 1000.0).round() as u64;
         drive.handle_command(
@@ -334,11 +390,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         apply_drive_output(&mut dreams, drive.output())?;
 
         let elbow_angle = 22.0_f32.to_radians() * (elapsed_sec * std::f32::consts::TAU / 2.0).sin();
-        dreams.set_virtual_servo_target(MAIN_BUS_ID, ELBOW_SERVO_ID, elbow_ticks(elbow_angle));
+        dreams.set_joint_angle("elbow", f64::from(elbow_angle))?;
+        timings.add_command(command_start);
 
+        let advance_start = Instant::now();
         if index > 0 {
-            dreams.advance_seconds(dt);
+            dreams.advance_rover_drive_seconds(dt);
         }
+        timings.add_advance(advance_start);
 
         let phase = index as f32 / frame_count as f32;
         let azimuth = phase * std::f32::consts::TAU;
@@ -347,16 +406,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             target[1] + radius * elevation_rad.cos() * azimuth.sin(),
             target[2] + radius * elevation_rad.sin(),
         ];
-        let mut scene = dreams.scene_graph();
-        add_orbit_camera(&mut scene, eye, target, resolution);
-        sync_world_transforms(&mut world, &scene.root, &world_node_index);
+        let visual_start = Instant::now();
+        let visual_meshes = dreams
+            .model()
+            .map(|model| model.robot_visual_meshes())
+            .unwrap_or_default();
+        timings.add_visual(visual_start);
+
+        let sync_start = Instant::now();
+        sync_robot_visual_transforms(&mut world, &visual_meshes, &world_node_index);
+        set_world_node_transform(
+            &mut world,
+            &world_node_index,
+            &format!("camera:{CAMERA_ID}"),
+            pge_transform(Transform::matrix(
+                eye,
+                look_at_matrix(eye, target, [0.0, 0.0, 1.0]),
+            )),
+        );
+        timings.add_sync(sync_start);
+
+        let render_frame_start = Instant::now();
         let frame = renderer
             .render_rgba(&world, &request)
             .map_err(|err| format!("render frame {index}: {err}"))?;
+        timings.add_render(render_frame_start);
+
+        let write_start = Instant::now();
         fs::write(
             default_raw_rgba_frame_path(&frames_dir, index),
             &frame.bytes,
         )?;
+        timings.add_write(write_start);
         println!("frame {}/{}", index + 1, frame_count);
     }
 
@@ -378,6 +459,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         seconds,
         resolution,
         render_elapsed,
+        &timings,
         &start_snapshot,
         &dreams.snapshot(),
     )?;
@@ -385,6 +467,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "render throughput {:.2} fps",
         frame_count as f64 / render_elapsed.max(f64::EPSILON)
+    );
+    println!(
+        "timing seconds command={:.3} advance={:.3} visuals={:.3} sync={:.3} render={:.3} write={:.3}",
+        timings.command_sec,
+        timings.advance_sec,
+        timings.visual_sec,
+        timings.sync_sec,
+        timings.render_sec,
+        timings.write_sec
     );
 
     Ok(())
