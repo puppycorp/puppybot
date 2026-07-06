@@ -267,6 +267,7 @@ fn write_metadata(
     start_snapshot: &RobotDreamsSnapshot,
     end_snapshot: &RobotDreamsSnapshot,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let metadata_path = out.with_extension("metadata.json");
     let metadata = serde_json::json!({
         "project": project.display().to_string(),
         "video": out.display().to_string(),
@@ -310,10 +311,7 @@ fn write_metadata(
             "periodSec": 2.0
         }
     });
-    fs::write(
-        out.with_file_name("puppybot-circles.metadata.json"),
-        serde_json::to_vec_pretty(&metadata)?,
-    )?;
+    fs::write(metadata_path, serde_json::to_vec_pretty(&metadata)?)?;
     Ok(())
 }
 
