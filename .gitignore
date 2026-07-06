@@ -39,6 +39,7 @@ design/*.lck
 *auto_saved_files*
 
 workdir
+examples/*/target/
 build
 tests/robotdreams/target/
 managed_components
