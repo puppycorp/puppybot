@@ -85,7 +85,33 @@
         "rate": "30 Hz",
         "resolution": [640, 480]
       }
-    ]
+    ],
+    "lights": [
+      {
+        "id": "key_sun",
+        "name": "Key Sun",
+        "kind": "directional",
+        "direction": [0.25, -0.35, -1.0],
+        "angularRadiusDeg": 3.0,
+        "color": "#fff6df",
+        "intensity": 3.0
+      }
+    ],
+    "renderSettings": {
+      "backgroundRgb": "#162331",
+      "ambientRgb": "#ffffff",
+      "ambientIntensity": 0.42,
+      "softShadowSamples": 12,
+      "environment": {
+        "skyTopRgb": "#345f8a",
+        "skyHorizonRgb": "#91a7ba",
+        "groundRgb": "#1a2735",
+        "intensity": 1.0,
+        "ambientIntensity": 0.42
+      },
+      "toneMapping": "Linear",
+      "toneExposure": 1.0
+    }
   },
   "hardware": {
     "buses": [
