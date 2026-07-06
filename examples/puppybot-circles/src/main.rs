@@ -1,16 +1,22 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use pge_video::{Mp4EncodeRequest, default_frame_path, encode_png_sequence_to_mp4};
+use pge_core::{
+    ArenaId, EntityId as PgeEntityId, Node as PgeNode, Transform as PgeTransform, WorldState,
+};
+use pge_renderer::{RenderRequest, RenderView};
+use pge_video::{
+    RawRgbaMp4EncodeRequest, default_raw_rgba_frame_path, encode_raw_rgba_sequence_to_mp4,
+};
+use pge_wgpu_renderer::WgpuRenderer;
 use puppybot_core::drive::{DriveCommand, DriveConfig, DriveController, DriveOutput};
 use robotdreams_core::scene_graph::{
-    CameraProjection, CameraSpec, EntityId, EntityMetadata, ObservationRequest, ObservationView,
-    RenderSettings, SceneNode, SceneNodeKind, Transform,
+    CameraProjection, CameraSpec, EntityId, EntityMetadata, SceneNode, SceneNodeKind, Transform,
 };
-use robotdreams_core::{RobotDreams, RobotDreamsSnapshot};
-use robotdreams_renderer::{FrameKind, NativeRenderer};
+use robotdreams_core::{RobotDreams, RobotDreamsSnapshot, world_state_from_scene_graph};
 
 const CAMERA_ID: &str = "orbit_camera";
 const DRIVE_BUS_ID: &str = "drive_bus";
@@ -117,6 +123,14 @@ fn joint_angle(snapshot: &RobotDreamsSnapshot, joint_name: &str) -> Option<f64> 
         .map(|joint| joint.position_rad)
 }
 
+fn index_world_nodes(world: &WorldState) -> HashMap<String, ArenaId<PgeNode>> {
+    world
+        .nodes
+        .iter()
+        .map(|(node_id, node)| (node.entity.0.clone(), node_id))
+        .collect()
+}
+
 fn length(vector: [f32; 3]) -> f32 {
     (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt()
 }
@@ -171,17 +185,27 @@ fn sub(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
     [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 }
 
-fn video_render_settings(scene_settings: Option<RenderSettings>) -> Option<RenderSettings> {
-    let mut settings = scene_settings?;
-    settings.debug_rgb_samples_per_pixel = 1;
-    settings.ambient_occlusion_samples = 0;
-    settings.indirect_diffuse_samples = 0;
-    settings.soft_shadow_samples = 1;
-    settings.area_light_samples = 1;
-    settings.rough_reflection_samples = 1;
-    settings.rough_transmission_samples = 1;
-    settings.specular_reflection_bounces = 0;
-    Some(settings)
+fn sync_world_transforms(
+    world: &mut WorldState,
+    node: &SceneNode,
+    index: &HashMap<String, ArenaId<PgeNode>>,
+) {
+    if let Some(node_id) = index.get(&node.entity.0)
+        && let Some(world_node) = world.nodes.get_mut(node_id)
+    {
+        world_node.transform = pge_transform(node.transform);
+    }
+    for child in &node.children {
+        sync_world_transforms(world, child, index);
+    }
+}
+
+fn pge_transform(transform: Transform) -> PgeTransform {
+    PgeTransform {
+        translation: transform.translation,
+        rotation: transform.rotation,
+        rotation_matrix: transform.rotation_matrix,
+    }
 }
 
 fn write_metadata(
@@ -210,6 +234,11 @@ fn write_metadata(
         "resolution": resolution,
         "renderWallSeconds": render_elapsed,
         "renderThroughputFps": frame_count as f64 / render_elapsed.max(f64::EPSILON),
+        "renderer": {
+            "name": "pge-wgpu-renderer",
+            "source": "RobotDreams scene graph exported as pge_core::WorldState",
+            "pgeRevision": "d0c0e7231b92af47c9dd2daa2cb53b2ceae61c6a"
+        },
         "driveCommand": {
             "source": "puppybot_core::drive::DriveController",
             "command": "DriveSteer",
@@ -257,7 +286,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     prepare_output(&out, &frames_dir)?;
 
     let mut dreams = RobotDreams::open(&project).map_err(|err| format!("{err}"))?;
-    let renderer = NativeRenderer::new();
+    let mut renderer = WgpuRenderer::new().map_err(|err| format!("{err}"))?;
     let dt = 1.0_f32 / fps as f32;
     let mut drive = DriveController::new(
         DriveConfig {
@@ -275,6 +304,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target = [0.03_f32, 0.08_f32, 0.16_f32];
     let radius = 0.82_f32;
     let elevation_rad = 45.0_f32.to_radians();
+    let initial_eye = [
+        target[0] + radius * elevation_rad.cos(),
+        target[1],
+        target[2] + radius * elevation_rad.sin(),
+    ];
+    let mut initial_scene = dreams.scene_graph();
+    add_orbit_camera(&mut initial_scene, initial_eye, target, resolution);
+    let mut world = world_state_from_scene_graph(&initial_scene);
+    let world_node_index = index_world_nodes(&world);
+    let request = RenderRequest {
+        camera_id: Some(PgeEntityId(format!("camera:{CAMERA_ID}"))),
+        views: vec![RenderView::Rgb],
+        resolution,
+        settings: None,
+    };
     let render_start = Instant::now();
 
     for index in 0..frame_count {
@@ -305,30 +349,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ];
         let mut scene = dreams.scene_graph();
         add_orbit_camera(&mut scene, eye, target, resolution);
-        let request = ObservationRequest {
-            camera_id: Some(CAMERA_ID.to_string()),
-            views: vec![ObservationView::DebugRgb],
-            resolution,
-            segmentation_policy: None,
-            shutter_policy: None,
-            render_settings: video_render_settings(scene.render_settings.clone()),
-        };
-        let output = renderer
-            .render(&scene, Some(dreams.snapshot()), &request)
+        sync_world_transforms(&mut world, &scene.root, &world_node_index);
+        let frame = renderer
+            .render_rgba(&world, &request)
             .map_err(|err| format!("render frame {index}: {err}"))?;
-        let frame = output
-            .frames
-            .iter()
-            .find(|frame| frame.kind == FrameKind::DebugRgb)
-            .ok_or("debug rgb frame missing")?;
-        fs::write(default_frame_path(&frames_dir, index), &frame.bytes)?;
+        fs::write(
+            default_raw_rgba_frame_path(&frames_dir, index),
+            &frame.bytes,
+        )?;
         println!("frame {}/{}", index + 1, frame_count);
     }
 
     let render_elapsed = render_start.elapsed().as_secs_f64();
-    encode_png_sequence_to_mp4(&Mp4EncodeRequest::png_sequence(
+    encode_raw_rgba_sequence_to_mp4(&RawRgbaMp4EncodeRequest::raw_rgba_sequence(
         &frames_dir,
         frame_count,
+        width,
+        height,
         fps,
         &out,
     ))?;

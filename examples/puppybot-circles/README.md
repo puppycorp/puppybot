@@ -6,7 +6,8 @@ Renders a RobotDreams PuppyBot bin scene video with:
 - PuppyBot drive output produced from `puppybot_core::drive::DriveController`
 - a circular drive path from turned steering
 - PuppyArm elbow servo target animation
-- MP4 encoding through `pge-video`
+- headless WGPU rendering through `pge-wgpu-renderer`
+- raw RGBA frame sequence MP4 encoding through `pge-video`
 
 From the PuppyBot repository root:
 
@@ -23,4 +24,4 @@ The arguments are:
 <robotdreams-project> <output-mp4> <width> <height> <fps> <seconds>
 ```
 
-The output video is encoded at the requested FPS. The current RobotDreams native renderer is CPU-bound, so wall-clock render throughput is much slower than 24 FPS until RobotDreams is connected to a GPU/WGPU renderer path.
+The output video is encoded at the requested FPS. The example renders the RobotDreams scene graph through PGE's headless WGPU renderer and writes raw RGBA frames for video encoding instead of PNG frames from the CPU raytraced RobotDreams native renderer.
