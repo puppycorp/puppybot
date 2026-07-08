@@ -8,3 +8,10 @@ rust-version = "1.88"
 puppybot-core = { path = "../../puppybot/core", default-features = false, features = ["runtime"] }
 robotdreams-core = { path = "../../../RobotDreams/core" }
 serde_json = "1"
+
+[patch."https://github.com/puppycorp/pge.git"]
+pge-app = { path = "../../../pge/pge-app" }
+pge-core = { path = "../../../pge/pge-core" }
+pge-physics = { path = "../../../pge/pge-physics" }
+pge-renderer = { path = "../../../pge/pge-renderer" }
+pge-wgpu-renderer = { path = "../../../pge/pge-wgpu-renderer" }

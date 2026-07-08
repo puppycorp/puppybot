@@ -45,6 +45,8 @@ pub const CMD_ARM_POSE: u8 = 30;
 pub const CMD_ARM_STOP: u8 = 31;
 pub const CMD_SERVO_SET: u8 = 32;
 pub const CMD_SUBSCRIBE: u8 = 33;
+pub const CMD_ARM_START_TCP_JOG: u8 = 34;
+pub const CMD_ARM_STOP_TCP_JOG: u8 = 35;
 
 pub const MSG_TO_SRV_PONG: u8 = 1;
 #[allow(dead_code)]
@@ -355,6 +357,35 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                 }
             }
         }
+        CMD_ARM_START_TCP_JOG => {
+            if body.len() >= 17 {
+                if let Some(frame) = read_tcp_frame(body[0]) {
+                    let direction = [
+                        read_f32_le(&body[1..5]) as f64,
+                        read_f32_le(&body[5..9]) as f64,
+                        read_f32_le(&body[9..13]) as f64,
+                    ];
+                    let speed_mm_s = read_f32_le(&body[13..17]) as f64;
+                    if direction.iter().all(|component| component.is_finite())
+                        && speed_mm_s.is_finite()
+                        && speed_mm_s > 0.0
+                    {
+                        output
+                            .events
+                            .push(ProtocolEvent::Arm(ArmCommand::StartTcpJog {
+                                frame,
+                                direction,
+                                speed_mm_s,
+                            }));
+                    }
+                }
+            }
+        }
+        CMD_ARM_STOP_TCP_JOG => {
+            output
+                .events
+                .push(ProtocolEvent::Arm(ArmCommand::StopTcpJog));
+        }
         CMD_ARM_HOLD => {
             if body.len() >= 2 {
                 output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
@@ -605,6 +636,8 @@ pub fn command_name(command: u8) -> &'static str {
         CMD_STOP_DRIVE => "STOP_DRIVE",
         CMD_ARM_JOINT => "ARM_JOINT",
         CMD_ARM_POSE => "ARM_POSE",
+        CMD_ARM_START_TCP_JOG => "ARM_START_TCP_JOG",
+        CMD_ARM_STOP_TCP_JOG => "ARM_STOP_TCP_JOG",
         CMD_ARM_STOP => "ARM_STOP",
         CMD_SERVO_SET => "SERVO_SET",
         CMD_SUBSCRIBE => "SUBSCRIBE",
@@ -890,6 +923,87 @@ mod tests {
         assert_eq!(
             output.events[0],
             ProtocolEvent::Arm(ArmCommand::SetSpeed(i16::MAX))
+        );
+    }
+
+    #[test]
+    fn arm_start_tcp_jog_maps_to_tcp_jog_intent() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.push(2);
+        body.extend_from_slice(&1.0f32.to_le_bytes());
+        body.extend_from_slice(&0.5f32.to_le_bytes());
+        body.extend_from_slice(&0.0f32.to_le_bytes());
+        body.extend_from_slice(&20.0f32.to_le_bytes());
+
+        let output =
+            handle_binary_command(&command_frame(CMD_ARM_START_TCP_JOG, &body), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Arm(ArmCommand::StartTcpJog {
+                frame: TcpFrame::YawFlat,
+                direction: [1.0, 0.5, 0.0],
+                speed_mm_s: 20.0,
+            })]
+        );
+    }
+
+    #[test]
+    fn arm_start_tcp_jog_rejects_invalid_body() {
+        let mut state = ProtocolState::default();
+
+        let output = handle_binary_command(
+            &command_frame(CMD_ARM_START_TCP_JOG, &[0, 0, 0]),
+            &mut state,
+        );
+        assert!(output.events.is_empty());
+
+        let mut unknown_frame = Vec::new();
+        unknown_frame.push(99);
+        unknown_frame.extend_from_slice(&1.0f32.to_le_bytes());
+        unknown_frame.extend_from_slice(&0.0f32.to_le_bytes());
+        unknown_frame.extend_from_slice(&0.0f32.to_le_bytes());
+        unknown_frame.extend_from_slice(&20.0f32.to_le_bytes());
+        let output = handle_binary_command(
+            &command_frame(CMD_ARM_START_TCP_JOG, &unknown_frame),
+            &mut state,
+        );
+        assert!(output.events.is_empty());
+
+        let mut invalid_direction = Vec::new();
+        invalid_direction.push(0);
+        invalid_direction.extend_from_slice(&f32::NAN.to_le_bytes());
+        invalid_direction.extend_from_slice(&0.0f32.to_le_bytes());
+        invalid_direction.extend_from_slice(&0.0f32.to_le_bytes());
+        invalid_direction.extend_from_slice(&20.0f32.to_le_bytes());
+        let output = handle_binary_command(
+            &command_frame(CMD_ARM_START_TCP_JOG, &invalid_direction),
+            &mut state,
+        );
+        assert!(output.events.is_empty());
+
+        let mut invalid_speed = Vec::new();
+        invalid_speed.push(0);
+        invalid_speed.extend_from_slice(&1.0f32.to_le_bytes());
+        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
+        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
+        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
+        let output = handle_binary_command(
+            &command_frame(CMD_ARM_START_TCP_JOG, &invalid_speed),
+            &mut state,
+        );
+        assert!(output.events.is_empty());
+    }
+
+    #[test]
+    fn arm_stop_tcp_jog_maps_to_stop_tcp_jog_intent() {
+        let mut state = ProtocolState::default();
+        let output = handle_binary_command(&command_frame(CMD_ARM_STOP_TCP_JOG, &[]), &mut state);
+
+        assert_eq!(
+            output.events,
+            vec![ProtocolEvent::Arm(ArmCommand::StopTcpJog)]
         );
     }
 

@@ -7,9 +7,10 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use client::{ArmState, RuntimeClient, RuntimeFrame};
 use puppybot_core::protocol::{
     CMD_ARM_CLEAR_FAULTS, CMD_ARM_GOTO_ANGLES, CMD_ARM_GOTO_COORDS, CMD_ARM_GOTO_TICKS,
-    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_MOVE_RELATIVE, CMD_ARM_SET_JOINT_TICK, CMD_ARM_STOP,
-    CMD_ARM_STOP_JOINT, CMD_CONFIG_GET, CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_PING, CMD_SERVO_SET,
-    CMD_STOP_DRIVE, CONFIG_VERSION, RobotConfig,
+    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_MOVE_RELATIVE, CMD_ARM_SET_JOINT_TICK,
+    CMD_ARM_START_TCP_JOG, CMD_ARM_STOP, CMD_ARM_STOP_JOINT, CMD_ARM_STOP_TCP_JOG, CMD_CONFIG_GET,
+    CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_PING, CMD_SERVO_SET, CMD_STOP_DRIVE, CONFIG_VERSION,
+    RobotConfig,
 };
 
 const DEFAULT_URL: &str = "ws://127.0.0.1:8080/ws";
@@ -65,9 +66,17 @@ enum ArmCommand {
     GotoAngles(GotoAnglesArgs),
     GotoCoords(GotoCoordsArgs),
     MoveTcp(MoveTcpArgs),
+    #[command(subcommand)]
+    TcpJog(TcpJogCommand),
     SetJointTick(SetJointTickArgs),
     ClearFaults(ClearFaultsArgs),
     ServoSet(ServoSetArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum TcpJogCommand {
+    Start(TcpJogStartArgs),
+    Stop,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -160,6 +169,36 @@ struct MoveTcpArgs {
 }
 
 #[derive(Debug, Args)]
+struct TcpJogStartArgs {
+    #[arg(long, value_enum, default_value = "base")]
+    frame: TcpFrameArg,
+
+    #[arg(long, default_value_t = 0.0)]
+    up: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    down: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    left: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    right: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    forward: f32,
+
+    #[arg(long, default_value_t = 0.0)]
+    back: f32,
+
+    #[arg(long, default_value_t = 20.0)]
+    speed_mm_s: f32,
+
+    #[arg(long)]
+    duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Args)]
 struct SetJointTickArgs {
     #[arg(long)]
     joint: u8,
@@ -243,6 +282,37 @@ fn move_tcp_body(args: &MoveTcpArgs) -> Vec<u8> {
     push_f32_le(&mut body, dy);
     push_f32_le(&mut body, dz);
     body
+}
+
+fn tcp_jog_direction(args: &TcpJogStartArgs) -> (f32, f32, f32) {
+    match args.frame {
+        TcpFrameArg::Base | TcpFrameArg::YawFlat | TcpFrameArg::Tool => (
+            args.forward - args.back,
+            args.left - args.right,
+            args.up - args.down,
+        ),
+    }
+}
+
+fn tcp_jog_body(args: &TcpJogStartArgs) -> Result<Vec<u8>> {
+    let (dx, dy, dz) = tcp_jog_direction(args);
+    if !dx.is_finite() || !dy.is_finite() || !dz.is_finite() {
+        bail!("tcp jog direction components must be finite");
+    }
+    if dx == 0.0 && dy == 0.0 && dz == 0.0 {
+        bail!("tcp jog direction must not be zero");
+    }
+    if !args.speed_mm_s.is_finite() || args.speed_mm_s <= 0.0 {
+        bail!("--speed-mm-s must be positive and finite");
+    }
+
+    let mut body = Vec::new();
+    body.push(tcp_frame_id(args.frame));
+    push_f32_le(&mut body, dx);
+    push_f32_le(&mut body, dy);
+    push_f32_le(&mut body, dz);
+    push_f32_le(&mut body, args.speed_mm_s);
+    Ok(body)
 }
 
 fn print_config(config: RobotConfig) {
@@ -361,6 +431,20 @@ mod tests {
         }
     }
 
+    fn tcp_jog_args(frame: TcpFrameArg) -> TcpJogStartArgs {
+        TcpJogStartArgs {
+            frame,
+            up: 0.0,
+            down: 0.0,
+            left: 0.0,
+            right: 0.0,
+            forward: 0.0,
+            back: 0.0,
+            speed_mm_s: 20.0,
+            duration_ms: None,
+        }
+    }
+
     #[test]
     fn base_move_tcp_aliases_map_to_table_delta() {
         let mut args = args(TcpFrameArg::Base);
@@ -414,6 +498,32 @@ mod tests {
         assert_eq!(f32::from_le_bytes(body[3..7].try_into().unwrap()), 10.0);
         assert_eq!(f32::from_le_bytes(body[7..11].try_into().unwrap()), 0.0);
         assert_eq!(f32::from_le_bytes(body[11..15].try_into().unwrap()), 0.0);
+    }
+
+    #[test]
+    fn tcp_jog_body_encodes_direction_and_speed() {
+        let mut args = tcp_jog_args(TcpFrameArg::YawFlat);
+        args.forward = 1.0;
+        args.left = 0.5;
+        args.speed_mm_s = 42.5;
+        let body = tcp_jog_body(&args).unwrap();
+
+        assert_eq!(body[0], 2);
+        assert_eq!(f32::from_le_bytes(body[1..5].try_into().unwrap()), 1.0);
+        assert_eq!(f32::from_le_bytes(body[5..9].try_into().unwrap()), 0.5);
+        assert_eq!(f32::from_le_bytes(body[9..13].try_into().unwrap()), 0.0);
+        assert_eq!(f32::from_le_bytes(body[13..17].try_into().unwrap()), 42.5);
+    }
+
+    #[test]
+    fn tcp_jog_body_rejects_zero_direction_and_invalid_speed() {
+        let args = tcp_jog_args(TcpFrameArg::Base);
+        assert!(tcp_jog_body(&args).is_err());
+
+        let mut args = tcp_jog_args(TcpFrameArg::Base);
+        args.forward = 1.0;
+        args.speed_mm_s = 0.0;
+        assert!(tcp_jog_body(&args).is_err());
     }
 }
 
@@ -520,6 +630,25 @@ async fn main() -> Result<()> {
         Command::Arm(ArmCommand::MoveTcp(args)) => {
             let body = move_tcp_body(&args);
             send_arm_command(&mut client, CMD_ARM_MOVE_RELATIVE, &body, "arm move tcp").await?;
+        }
+        Command::Arm(ArmCommand::TcpJog(TcpJogCommand::Start(args))) => {
+            let duration_ms = args.duration_ms;
+            let body = tcp_jog_body(&args)?;
+            send_arm_command(
+                &mut client,
+                CMD_ARM_START_TCP_JOG,
+                &body,
+                "arm tcp jog start",
+            )
+            .await?;
+            if let Some(duration_ms) = duration_ms {
+                tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+                send_arm_command(&mut client, CMD_ARM_STOP_TCP_JOG, &[], "arm tcp jog stop")
+                    .await?;
+            }
+        }
+        Command::Arm(ArmCommand::TcpJog(TcpJogCommand::Stop)) => {
+            send_arm_command(&mut client, CMD_ARM_STOP_TCP_JOG, &[], "arm tcp jog stop").await?;
         }
         Command::Arm(ArmCommand::SetJointTick(args)) => {
             let mut body = vec![args.joint];

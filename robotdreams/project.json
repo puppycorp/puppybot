@@ -134,7 +134,7 @@
               "joint": "revolute_2_3"
             },
             "calibration": {
-              "zeroOffset": 3957,
+              "zeroOffset": 2771,
               "direction": 1
             }
           },
@@ -148,8 +148,8 @@
               "joint": "revolute_1_1"
             },
             "calibration": {
-              "zeroOffset": 3051,
-              "direction": 1
+              "zeroOffset": 3045,
+              "direction": -1
             }
           },
           {
@@ -162,8 +162,8 @@
               "joint": "revolute_1_2"
             },
             "calibration": {
-              "zeroOffset": 1552,
-              "direction": -1
+              "zeroOffset": 2603,
+              "direction": 1
             }
           },
           {
@@ -176,8 +176,8 @@
               "joint": "revolute_1"
             },
             "calibration": {
-              "zeroOffset": 3437,
-              "direction": 1
+              "zeroOffset": 3372,
+              "direction": -1
             }
           },
           {
@@ -185,6 +185,13 @@
             "id": 5,
             "name": "Steering Servo",
             "profile": "ST3215",
+            "steers": {
+              "robot": "puppybot",
+              "joints": [
+                "revolute_4",
+                "revolute_6"
+              ]
+            },
             "calibration": {
               "zeroOffset": 1535,
               "direction": 1

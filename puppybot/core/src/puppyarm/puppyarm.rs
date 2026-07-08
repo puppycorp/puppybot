@@ -30,7 +30,6 @@ const TIP_ZERO_TICK: i32 = 1783;
 
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
-const RAD_TO_DEG: f64 = 180.0 / core::f64::consts::PI;
 const CARTESIAN_TOOL_PHI_SEARCH_STEPS: usize = 181;
 const CARTESIAN_CURRENT_POSITION_TOLERANCE_MM: f64 = 1.0;
 const SHOULDER_Z_TABLE_FLOOR_MM: f64 = -kinematics::Z_ORIGIN_MM;
@@ -46,7 +45,7 @@ fn current_targets(joints: &[Joint; JOINT_COUNT]) -> Option<[i32; JOINT_COUNT]> 
 fn target_angles(joints: &[Joint; JOINT_COUNT]) -> Option<[f64; JOINT_COUNT]> {
     let mut angles = [0.0; JOINT_COUNT];
     for (index, joint) in joints.iter().enumerate() {
-        let angle = tick_to_angle(joint, joint.target_tick?);
+        let angle = joint.target_angle_rad?;
         if !angle.is_finite() {
             return None;
         }
@@ -63,10 +62,6 @@ fn table_coords(coords: (f64, f64, f64)) -> (f32, f32, f32) {
     )
 }
 
-fn telemetry_angle_deg(angle_rad: f64) -> f32 {
-    (kinematics::wrap_pi(angle_rad) * RAD_TO_DEG) as f32
-}
-
 fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
     for (index, joint) in joints.iter().enumerate() {
         if joint.target_tick.is_none() && joint.speed != 0 {
@@ -74,6 +69,10 @@ fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
         }
     }
     None
+}
+
+fn vector_length(vector: [f64; 3]) -> f64 {
+    libm::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2])
 }
 
 fn default_joints() -> [Joint; JOINT_COUNT] {
@@ -99,14 +98,14 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             has_feedback: false,
             limit_reached: false,
             tick: None,
+            angle_rad: None,
             target_tick: None,
-            target_angle_deg: None,
+            target_angle_rad: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
             limit_min: YAW_TICK_MIN,
             limit_max: YAW_TICK_MAX,
-            angle_deg: None,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -135,14 +134,14 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             has_feedback: false,
             limit_reached: false,
             tick: None,
+            angle_rad: None,
             target_tick: None,
-            target_angle_deg: None,
+            target_angle_rad: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
             limit_min: SHOULDER_TICK_MIN,
             limit_max: SHOULDER_TICK_MAX,
-            angle_deg: None,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -171,14 +170,14 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             has_feedback: false,
             limit_reached: false,
             tick: None,
+            angle_rad: None,
             target_tick: None,
-            target_angle_deg: None,
+            target_angle_rad: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
             limit_min: ELBOW_TICK_MIN,
             limit_max: ELBOW_TICK_MAX,
-            angle_deg: None,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -207,14 +206,14 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             has_feedback: false,
             limit_reached: false,
             tick: None,
+            angle_rad: None,
             target_tick: None,
-            target_angle_deg: None,
+            target_angle_rad: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
             limit_min: TIP_TICK_MIN,
             limit_max: TIP_TICK_MAX,
-            angle_deg: None,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -314,7 +313,7 @@ fn configured_arm_state(
 }
 
 pub struct PuppyArm {
-    joints: [Joint; JOINT_COUNT],
+    pub joints: [Joint; JOINT_COUNT],
     default_speed: i16,
     last_cmd_ms: u64,
     last_ok_feedback_ms: u64,
@@ -455,7 +454,20 @@ impl PuppyArm {
     }
 
     pub fn update(&mut self, now: u64) -> [SpeedCommand; JOINT_COUNT] {
+        self.advance_tcp_jog(now);
+        let tcp_jog_targets = if matches!(self.mode, ArmMode::TcpJogging { .. }) {
+            current_targets(&self.joints)
+        } else {
+            None
+        };
         let commands = self.speed_commands(now);
+        if self.last_error.is_none() {
+            if let Some(targets) = tcp_jog_targets {
+                for (joint, target) in targets.into_iter().enumerate() {
+                    self.set_joint_target_tick(joint, target);
+                }
+            }
+        }
         self.refresh_mode_from_motion();
         commands
     }
@@ -533,11 +545,6 @@ impl PuppyArm {
     }
 
     pub fn telemetry_snapshot(&self, seq: u32) -> PuppyarmTelemetry {
-        let coords_mm = self.current_coords().ok().map(table_coords);
-        let target_angles = target_angles(&self.joints);
-        let target_coords_mm = target_angles
-            .map(|angles| table_coords(kinematics::fk(angles[0], angles[1], angles[2], angles[3])));
-
         PuppyarmTelemetry {
             seq,
             joints: core::array::from_fn(|index| {
@@ -546,13 +553,10 @@ impl PuppyArm {
                 joint.limit_reached = servo_safety::is_outside_limits(&joint);
                 joint.limit_min = joint.tick_min;
                 joint.limit_max = joint.tick_max;
-                joint.angle_deg = self.joint_angle(index).ok().map(telemetry_angle_deg);
-                joint.target_angle_deg =
-                    target_angles.map(|angles| telemetry_angle_deg(angles[index]));
                 joint
             }),
-            coords_mm,
-            target_coords_mm,
+            coords_mm: self.coords_mm(),
+            target_coords_mm: self.target_coords_mm(),
         }
     }
 
@@ -633,6 +637,16 @@ impl PuppyArm {
                 dy_mm,
                 dz_mm,
             } => self.move_tcp_relative(frame, dx_mm, dy_mm, dz_mm, now),
+            ArmCommand::StartTcpJog {
+                frame,
+                direction,
+                speed_mm_s,
+            } => self.start_tcp_jog(frame, direction, speed_mm_s, now),
+            ArmCommand::StopTcpJog => {
+                self.stop_all(now);
+                self.mode = ArmMode::Idle;
+                Ok(())
+            }
             ArmCommand::Hold => self.hold(now),
             ArmCommand::SetJointTick { joint, tick } => self.set_joint_tick(joint, tick, now),
             ArmCommand::SetJointAngle { joint, angle_rad } => {
@@ -671,6 +685,39 @@ impl PuppyArm {
     fn set_default_speed(&mut self, speed: i16, now: u64) {
         self.default_speed = speed.abs();
         self.last_cmd_ms = now;
+    }
+
+    fn start_tcp_jog(
+        &mut self,
+        frame: TcpFrame,
+        direction: [f64; 3],
+        speed_mm_s: f64,
+        now: u64,
+    ) -> Result<(), ControllerError> {
+        if !speed_mm_s.is_finite() || speed_mm_s <= 0.0 {
+            return Err(ControllerError::InvalidLimit);
+        }
+        if !direction.iter().all(|component| component.is_finite()) {
+            return Err(ControllerError::InvalidLimit);
+        }
+        let length = vector_length(direction);
+        if length <= f64::EPSILON {
+            return Err(ControllerError::InvalidLimit);
+        }
+        let target_angles = self.target_or_current_angles()?;
+        self.mode = ArmMode::TcpJogging {
+            frame,
+            direction: [
+                direction[0] / length,
+                direction[1] / length,
+                direction[2] / length,
+            ],
+            speed_mm_s,
+            last_step_ms: now,
+            target_angles,
+        };
+        self.last_cmd_ms = now;
+        Ok(())
     }
 
     fn spin(&mut self, joint: usize, direction: i8, now: u64) -> Result<(), ControllerError> {
@@ -713,6 +760,7 @@ impl PuppyArm {
     ) -> Result<(), ControllerError> {
         let joint = validate_joint(joint)?;
         self.joints[joint].record_feedback(tick, now);
+        self.refresh_joint_angle_cache(joint);
         self.last_ok_feedback_ms = now;
         Ok(())
     }
@@ -721,6 +769,32 @@ impl PuppyArm {
         let joint = validate_joint(joint)?;
         self.joints[joint].record_feedback_error();
         Ok(())
+    }
+
+    fn refresh_joint_angle_cache(&mut self, joint: usize) {
+        if joint >= JOINT_COUNT {
+            return;
+        }
+
+        let angle_rad = self.joints[joint]
+            .tick
+            .map(|tick| tick_to_angle(&self.joints[joint], tick));
+        let target_angle_rad = self.joints[joint]
+            .target_tick
+            .map(|tick| tick_to_angle(&self.joints[joint], tick));
+
+        self.joints[joint].angle_rad = angle_rad.filter(|angle| angle.is_finite());
+        self.joints[joint].target_angle_rad = target_angle_rad.filter(|angle| angle.is_finite());
+    }
+
+    fn set_joint_target_tick(&mut self, joint: usize, tick: i32) {
+        if joint >= JOINT_COUNT {
+            return;
+        }
+
+        let clipped_tick = servo_safety::clip_tick_to_joint_limits(&self.joints[joint], tick);
+        self.joints[joint].target_tick = Some(clipped_tick);
+        self.refresh_joint_angle_cache(joint);
     }
 
     fn mark_speed_sent(
@@ -771,10 +845,9 @@ impl PuppyArm {
 
     fn joint_angle(&self, joint: usize) -> Result<f64, ControllerError> {
         let joint = validate_joint(joint)?;
-        let tick = self.joints[joint]
-            .tick
-            .ok_or(ControllerError::MissingFeedback)?;
-        Ok(tick_to_angle(&self.joints[joint], tick))
+        self.joints[joint]
+            .angle_rad
+            .ok_or(ControllerError::MissingFeedback)
     }
 
     fn current_coords(&self) -> Result<(f64, f64, f64), ControllerError> {
@@ -782,10 +855,19 @@ impl PuppyArm {
         Ok(kinematics::fk(angles[0], angles[1], angles[2], angles[3]))
     }
 
+    pub fn coords_mm(&self) -> Option<(f32, f32, f32)> {
+        self.current_coords().ok().map(table_coords)
+    }
+
+    pub fn target_coords_mm(&self) -> Option<(f32, f32, f32)> {
+        target_angles(&self.joints)
+            .map(|angles| table_coords(kinematics::fk(angles[0], angles[1], angles[2], angles[3])))
+    }
+
     fn goto_ticks(&mut self, ticks: [i32; JOINT_COUNT], now: u64) -> Result<(), ControllerError> {
-        for (joint, tick) in self.joints.iter_mut().zip(ticks.iter()) {
-            joint.clear_fault();
-            joint.target_tick = Some(servo_safety::clip_tick_to_joint_limits(joint, *tick));
+        for (index, tick) in ticks.iter().enumerate() {
+            self.joints[index].clear_fault();
+            self.set_joint_target_tick(index, *tick);
         }
         self.last_cmd_ms = now;
         self.mode = ArmMode::TrackingTicks { targets: ticks };
@@ -881,7 +963,11 @@ impl PuppyArm {
             for direction in [-1.0, 1.0] {
                 let tool_phi_rad =
                     kinematics::wrap_pi(kinematics::ARM_TOOL_PHI_RAD + direction * offset);
-                let angles = Self::coords_candidate_angles(base, tool_phi_rad);
+                let result = kinematics::ik_with_tool_pitch(x, y, z, tool_phi_rad);
+                if !result.reachable {
+                    continue;
+                }
+                let angles = [result.yaw, result.shoulder, result.elbow, result.wrist];
                 if self.angles_within_joint_limits(angles) {
                     return Ok(angles);
                 }
@@ -896,7 +982,7 @@ impl PuppyArm {
             base[0],
             base[1],
             base[2],
-            kinematics::wrap_pi(base[1] - base[2] - tool_phi_rad),
+            kinematics::solve_tip_angle_down(base[1], base[2], tool_phi_rad),
         ]
     }
 
@@ -909,7 +995,20 @@ impl PuppyArm {
         now: u64,
     ) -> Result<(), ControllerError> {
         let angles = self.target_or_current_angles()?;
-        let tool_phi = angles[1] - angles[2] - angles[3];
+        self.move_tcp_relative_from_angles(angles, frame, dx_mm, dy_mm, dz_mm, now)
+            .map(|_| ())
+    }
+
+    fn move_tcp_relative_from_angles(
+        &mut self,
+        angles: [f64; JOINT_COUNT],
+        frame: TcpFrame,
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
+        now: u64,
+    ) -> Result<[f64; JOINT_COUNT], ControllerError> {
+        let tool_phi = kinematics::tool_pitch(angles[1], angles[2], angles[3]);
         let (x, y, z_shoulder) = kinematics::fk(angles[0], angles[1], angles[2], angles[3]);
         let (dx, dy, dz) = match frame {
             TcpFrame::Base => (dx_mm, dy_mm, dz_mm),
@@ -920,9 +1019,88 @@ impl PuppyArm {
         let target_z = kinematics::table_to_shoulder_z(z_table + dz);
         match frame {
             TcpFrame::Base | TcpFrame::YawFlat => {
-                self.goto_pose(x + dx, y + dy, target_z, tool_phi, now)
+                self.goto_pose(x + dx, y + dy, target_z, tool_phi, now)?
             }
-            TcpFrame::Tool => self.goto_pose(x + dx, y + dy, target_z, tool_phi, now),
+            TcpFrame::Tool => self.goto_pose(x + dx, y + dy, target_z, tool_phi, now)?,
+        };
+        if matches!(frame, TcpFrame::Base | TcpFrame::YawFlat)
+            && dx_mm.abs() <= f64::EPSILON
+            && dy_mm.abs() <= f64::EPSILON
+        {
+            self.set_joint_target_tick(0, angle_to_tick(&self.joints[0], angles[0]));
+        }
+        target_angles(&self.joints).ok_or(ControllerError::MissingFeedback)
+    }
+
+    fn jog_tcp_relative_from_angles(
+        &mut self,
+        angles: [f64; JOINT_COUNT],
+        frame: TcpFrame,
+        dx_mm: f64,
+        dy_mm: f64,
+        dz_mm: f64,
+        now: u64,
+    ) -> Result<[f64; JOINT_COUNT], ControllerError> {
+        match self.move_tcp_relative_from_angles(angles, frame, dx_mm, dy_mm, dz_mm, now) {
+            Ok(angles) => Ok(angles),
+            Err(_err) if matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) => {
+                let (x, y, z_shoulder) = kinematics::fk(angles[0], angles[1], angles[2], angles[3]);
+                let (dx, dy, dz) = match frame {
+                    TcpFrame::Base => (dx_mm, dy_mm, dz_mm),
+                    TcpFrame::YawFlat => {
+                        Self::yaw_flat_delta_to_base_delta(angles, dx_mm, dy_mm, dz_mm)
+                    }
+                    TcpFrame::Tool => unreachable!("tool frame excluded above"),
+                };
+                let z_table = kinematics::shoulder_to_table_z(z_shoulder);
+                let target_z = kinematics::table_to_shoulder_z(z_table + dz);
+                let solved = self.solve_coords_with_wrist_search(x + dx, y + dy, target_z)?;
+                self.goto_checked_angles(solved, now)?;
+                if dx_mm.abs() <= f64::EPSILON && dy_mm.abs() <= f64::EPSILON {
+                    self.set_joint_target_tick(0, angle_to_tick(&self.joints[0], angles[0]));
+                }
+                target_angles(&self.joints).ok_or(ControllerError::MissingFeedback)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn advance_tcp_jog(&mut self, now: u64) {
+        let ArmMode::TcpJogging {
+            frame,
+            direction,
+            speed_mm_s,
+            last_step_ms,
+            target_angles,
+        } = self.mode
+        else {
+            return;
+        };
+
+        let elapsed_ms = now.saturating_sub(last_step_ms);
+        if elapsed_ms == 0 {
+            return;
+        }
+        let step_mm = speed_mm_s * elapsed_ms as f64 / 1000.0;
+        let result = self.jog_tcp_relative_from_angles(
+            target_angles,
+            frame,
+            direction[0] * step_mm,
+            direction[1] * step_mm,
+            direction[2] * step_mm,
+            now,
+        );
+        if result.is_ok() {
+            self.mode = ArmMode::TcpJogging {
+                frame,
+                direction,
+                speed_mm_s,
+                last_step_ms: now,
+                target_angles: result.expect("checked ok above"),
+            };
+        } else {
+            self.mode = ArmMode::Idle;
+            self.refresh_mode_from_motion();
         }
     }
 
@@ -949,7 +1127,7 @@ impl PuppyArm {
         dz_mm: f64,
     ) -> (f64, f64, f64) {
         let [yaw, shoulder, elbow, wrist] = angles;
-        let tool_phi = shoulder - elbow - wrist;
+        let tool_phi = kinematics::tool_pitch(shoulder, elbow, wrist);
         let cos_yaw = libm::cos(yaw);
         let sin_yaw = libm::sin(yaw);
         let cos_phi = libm::cos(tool_phi);
@@ -977,9 +1155,9 @@ impl PuppyArm {
                 .tick
                 .ok_or(ControllerError::MissingFeedback)?;
         }
-        for (joint, tick) in self.joints.iter_mut().zip(ticks.iter()) {
-            joint.clear_fault();
-            joint.target_tick = Some(servo_safety::clip_tick_to_joint_limits(joint, *tick));
+        for (index, tick) in ticks.iter().enumerate() {
+            self.joints[index].clear_fault();
+            self.set_joint_target_tick(index, *tick);
         }
         self.last_cmd_ms = now;
         self.mode = ArmMode::Holding { targets: ticks };
@@ -1040,6 +1218,7 @@ impl PuppyArm {
         self.joints[joint].reference_angle_rad = angle_rad;
         self.joints[joint].zero_offset_rad =
             zero_offset_from_reference(tick, raw_tick_min, raw_tick_max, sign, angle_rad);
+        self.refresh_joint_angle_cache(joint);
         Ok(())
     }
 
@@ -1073,6 +1252,10 @@ impl PuppyArm {
     fn refresh_mode_from_motion(&mut self) {
         if self.last_error.is_some() {
             self.mode = ArmMode::Fault;
+            return;
+        }
+
+        if matches!(self.mode, ArmMode::TcpJogging { .. }) {
             return;
         }
 

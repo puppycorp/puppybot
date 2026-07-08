@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::{
     config::{ConfigError, PuppybotConfigV1},
-    drive::{DriveActuator, DriveController, DriveOutput, NoopDriveActuator},
+    drive::{DriveActuator, DriveController, DriveOutput},
     protocol::{
         self, ProtocolEvent, ProtocolJointTelemetry, ProtocolOutput, ProtocolState, RobotConfig,
     },
@@ -15,25 +15,19 @@ use crate::{
     stservo::{Mode, SerialBus, StServo},
 };
 
+pub use crate::system::PuppyBotSystem;
+
 const ARM_WHEEL_ACC: u8 = 0;
-const PUPPYBOT_SYSTEM_TICK_MS: u64 = 20;
 const STEERING_SERVO_SPEED: u16 = 2400;
 const STEERING_SERVO_ACC: u8 = 0;
 
 pub struct Puppybot {
-    arm: PuppyArm,
+    pub arm: PuppyArm,
     drive: DriveController,
     protocol: ProtocolState,
     telemetry_seq: u32,
     last_steering_sent: Option<(u8, u16)>,
     next_feedback_joint: usize,
-}
-
-pub struct PuppyBotSystem<B, D = NoopDriveActuator> {
-    robot: Puppybot,
-    servo: StServo<B>,
-    drive_actuator: D,
-    now_ms: u64,
 }
 
 pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
@@ -48,112 +42,11 @@ pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
             speed: joint.speed,
             limit_min: joint.limit_min,
             limit_max: joint.limit_max,
-            angle_deg: joint.angle_deg,
-            target_angle_deg: joint.target_angle_deg,
+            angle_deg: joint.angle_deg(),
+            target_angle_deg: joint.target_angle_deg(),
             fault: joint.fault.map(protocol::fault_name),
         });
     protocol::arm_state_frame(&joints, telemetry.coords_mm, telemetry.target_coords_mm)
-}
-
-impl<B> PuppyBotSystem<B> {
-    pub fn with_servo(robot: Puppybot, servo: StServo<B>) -> Self {
-        Self {
-            robot,
-            servo,
-            drive_actuator: NoopDriveActuator,
-            now_ms: 0,
-        }
-    }
-}
-
-impl<B, D> PuppyBotSystem<B, D> {
-    pub fn with_servo_and_drive(robot: Puppybot, servo: StServo<B>, drive_actuator: D) -> Self {
-        Self {
-            robot,
-            servo,
-            drive_actuator,
-            now_ms: 0,
-        }
-    }
-
-    pub fn robot(&self) -> &Puppybot {
-        &self.robot
-    }
-
-    pub fn robot_mut(&mut self) -> &mut Puppybot {
-        &mut self.robot
-    }
-
-    pub fn servo(&self) -> &StServo<B> {
-        &self.servo
-    }
-
-    pub fn servo_mut(&mut self) -> &mut StServo<B> {
-        &mut self.servo
-    }
-
-    pub fn drive_actuator(&self) -> &D {
-        &self.drive_actuator
-    }
-
-    pub fn drive_actuator_mut(&mut self) -> &mut D {
-        &mut self.drive_actuator
-    }
-
-    pub fn now_ms(&self) -> u64 {
-        self.now_ms
-    }
-
-    pub fn set_now_ms(&mut self, now_ms: u64) {
-        self.now_ms = now_ms;
-    }
-}
-
-impl<B> PuppyBotSystem<B, NoopDriveActuator>
-where
-    B: SerialBus,
-{
-    pub fn new(robot: Puppybot, bus: B) -> Self {
-        Self::with_servo(robot, StServo::new(bus))
-    }
-}
-
-impl<B, D> PuppyBotSystem<B, D>
-where
-    B: SerialBus,
-    B::Error: core::fmt::Debug,
-    D: DriveActuator,
-    D::Error: core::fmt::Debug,
-{
-    pub async fn run_once_at<F>(&mut self, now_ms: u64, receive_event: F)
-    where
-        F: FnMut() -> Option<ProtocolEvent>,
-    {
-        self.now_ms = now_ms;
-        self.robot
-            .run_once_with_drive(
-                &mut self.servo,
-                &mut self.drive_actuator,
-                self.now_ms,
-                receive_event,
-            )
-            .await;
-    }
-
-    pub async fn run_once<F>(&mut self, receive_event: F)
-    where
-        F: FnMut() -> Option<ProtocolEvent>,
-    {
-        self.robot
-            .run_once_with_drive(
-                &mut self.servo,
-                &mut self.drive_actuator,
-                self.now_ms,
-                receive_event,
-            )
-            .await;
-        self.now_ms = self.now_ms.wrapping_add(PUPPYBOT_SYSTEM_TICK_MS);
-    }
 }
 
 impl Puppybot {
@@ -429,6 +322,33 @@ impl Puppybot {
         self.apply_arm_outputs(servo, now_ms).await;
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
+
+    pub async fn try_run_once_with_drive<B, D, F>(
+        &mut self,
+        servo: &mut StServo<B>,
+        drive_actuator: &mut D,
+        now_ms: u64,
+        mut receive_event: F,
+    ) -> Result<(), ControllerError>
+    where
+        B: SerialBus,
+        B::Error: core::fmt::Debug,
+        D: DriveActuator,
+        D::Error: core::fmt::Debug,
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        self.read_servo_feedback(servo, now_ms).await;
+        while let Some(event) = receive_event() {
+            self.try_handle_event(event, now_ms)?;
+        }
+
+        self.drive.tick(now_ms);
+        self.apply_steering_output(servo).await;
+        self.apply_drive_actuator_output(drive_actuator);
+        self.apply_arm_outputs(servo, now_ms).await;
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+        Ok(())
+    }
 }
 
 impl Default for Puppybot {
@@ -610,7 +530,7 @@ mod tests {
 
         block_on_ready(system.run_once(|| None));
 
-        assert_eq!(system.now_ms(), PUPPYBOT_SYSTEM_TICK_MS);
+        assert_eq!(system.now_ms(), crate::system::PUPPYBOT_SYSTEM_TICK_MS);
     }
 
     #[test]

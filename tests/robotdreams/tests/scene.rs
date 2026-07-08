@@ -162,9 +162,9 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
         );
         let (expected_zero_offset, expected_direction) = match semantic_name {
             "yaw" => (3957, 1),
-            "shoulder" => (3051, 1),
-            "elbow" => (1552, -1),
-            "wrist" => (3437, 1),
+            "shoulder" => (3039, -1),
+            "elbow" => (1606, 1),
+            "wrist" => (3307, -1),
             _ => unreachable!("unexpected semantic joint"),
         };
         assert_eq!(
@@ -251,6 +251,12 @@ fn puppybot_robotdreams_steering_servo_is_virtual_but_not_arm_mapped() {
         steering_servo.drives.is_none(),
         "steering servo 5 should not drive an arm URDF joint"
     );
+    let steers = steering_servo
+        .steers
+        .as_ref()
+        .expect("steering servo should map to front steering joints");
+    assert_eq!(steers.robot, "puppybot");
+    assert_eq!(steers.joints, ["revolute_4", "revolute_6"]);
     assert_eq!(steering_servo.calibration.zero_offset, 1535);
 }
 

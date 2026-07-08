@@ -21,7 +21,12 @@ cargo run --release --manifest-path examples/puppybot-circles/Cargo.toml -- \
 The arguments are:
 
 ```text
-<robotdreams-project> <output-mp4> <width> <height> <fps> <seconds>
+<robotdreams-project> <output-mp4> <width> <height> <fps> <seconds> [mode]
 ```
+
+`mode` defaults to `circles`. Use `steering-demo` to record the steering-only left,
+center, right, center sequence used to inspect the front wheel turn joints. Use
+`drive-turn-demo` to record forward-left, forward-right, backward-left, and
+backward-right driving segments with base pose samples in the metadata.
 
 The output video is encoded at the requested FPS. The example builds the full RobotDreams scene once, updates robot visual transforms incrementally while advancing RobotDreams rover drive kinematics from the PuppyBot drive command, and renders raw RGBA frames through PGE's headless WGPU renderer.

@@ -1,4 +1,7 @@
-use super::{kinematics::IkError, servo_safety::SafetyFault};
+use super::{
+    kinematics::{self, IkError},
+    servo_safety::SafetyFault,
+};
 
 pub const JOINT_COUNT: usize = 4;
 
@@ -39,6 +42,12 @@ pub enum ArmCommand {
         dy_mm: f64,
         dz_mm: f64,
     },
+    StartTcpJog {
+        frame: TcpFrame,
+        direction: [f64; 3],
+        speed_mm_s: f64,
+    },
+    StopTcpJog,
     Hold,
     SetJointTick {
         joint: usize,
@@ -76,9 +85,23 @@ pub enum ArmCommand {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArmMode {
     Idle,
-    Jogging { joint: usize, direction: i8 },
-    TrackingTicks { targets: [i32; JOINT_COUNT] },
-    Holding { targets: [i32; JOINT_COUNT] },
+    Jogging {
+        joint: usize,
+        direction: i8,
+    },
+    TrackingTicks {
+        targets: [i32; JOINT_COUNT],
+    },
+    TcpJogging {
+        frame: TcpFrame,
+        direction: [f64; 3],
+        speed_mm_s: f64,
+        last_step_ms: u64,
+        target_angles: [f64; JOINT_COUNT],
+    },
+    Holding {
+        targets: [i32; JOINT_COUNT],
+    },
     Fault,
 }
 
@@ -121,14 +144,14 @@ pub struct Joint {
     pub has_feedback: bool,
     pub limit_reached: bool,
     pub tick: Option<i32>,
+    pub angle_rad: Option<f64>,
     pub target_tick: Option<i32>,
-    pub target_angle_deg: Option<f32>,
+    pub target_angle_rad: Option<f64>,
     pub tick_delta: i32,
     pub limit_enabled: bool,
     pub speed: i16,
     pub limit_min: i32,
     pub limit_max: i32,
-    pub angle_deg: Option<f32>,
     pub last_feedback_ms: u64,
     pub temp_c: Option<u8>,
     pub last_sent_speed: Option<i16>,
@@ -154,14 +177,14 @@ impl Joint {
             has_feedback: false,
             limit_reached: false,
             tick: None,
+            angle_rad: None,
             target_tick: None,
-            target_angle_deg: None,
+            target_angle_rad: None,
             tick_delta: 0,
             limit_enabled: true,
             speed: 0,
             limit_min: tick_min,
             limit_max: tick_max,
-            angle_deg: None,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -188,6 +211,7 @@ impl Joint {
     pub fn record_feedback_error(&mut self) {
         self.online = false;
         self.tick = None;
+        self.angle_rad = None;
         self.tick_delta = 0;
     }
 
@@ -200,14 +224,31 @@ impl Joint {
         self.stall_since_ms = None;
     }
 
-    pub fn stop(&mut self) {
+    pub fn clear_target(&mut self) {
         self.target_tick = None;
+        self.target_angle_rad = None;
+    }
+
+    pub fn stop(&mut self) {
+        self.clear_target();
         self.speed = 0;
     }
 
     pub fn spin(&mut self, direction: i8, default_speed: i16) {
         self.clear_fault();
-        self.target_tick = None;
+        self.clear_target();
         self.speed = direction.signum() as i16 * default_speed.abs();
     }
+
+    pub fn angle_deg(&self) -> Option<f32> {
+        self.angle_rad.map(display_degrees)
+    }
+
+    pub fn target_angle_deg(&self) -> Option<f32> {
+        self.target_angle_rad.map(display_degrees)
+    }
+}
+
+fn display_degrees(angle_rad: f64) -> f32 {
+    (kinematics::wrap_pi(angle_rad) * 180.0 / core::f64::consts::PI) as f32
 }

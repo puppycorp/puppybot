@@ -193,6 +193,8 @@ cargo run -p puppybot -- arm stop --joint 0
 cargo run -p puppybot -- arm goto-ticks --speed 300 2048 2048 2048 2048
 cargo run -p puppybot -- arm move-tcp --up 20
 cargo run -p puppybot -- arm move-tcp --frame tool --forward 20
+cargo run -p puppybot -- arm tcp-jog start --frame yaw-flat --forward 1 --speed-mm-s 20 --duration-ms 500
+cargo run -p puppybot -- arm tcp-jog stop
 ```
 
 `arm move-tcp` moves the tool center point relative to its current pose. The
@@ -200,6 +202,11 @@ default frame is `base`, where `up/down` use table Z, `forward/back` use the
 robot base X axis, and `left/right` use the robot base Y axis. With
 `--frame tool`, `forward/back` follows the gripper approach axis and the current
 tool pitch is preserved.
+
+`arm tcp-jog start` starts continuous TCP motion in the given direction at
+`--speed-mm-s` until `arm tcp-jog stop` is sent. Passing `--duration-ms` makes
+the CLI send stop automatically after that many milliseconds, which is useful
+for shell-scripted press-and-hold tests.
 
 To validate `move-tcp` end-to-end against RobotDreams' virtual STServo bus and
 PuppyBot runtime telemetry:

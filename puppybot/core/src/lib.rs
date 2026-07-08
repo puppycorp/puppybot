@@ -11,4 +11,5 @@ pub mod protocol;
 pub mod puppyarm;
 pub mod robot;
 pub mod stservo;
+pub mod system;
 pub mod utility;

@@ -95,9 +95,20 @@ pub fn align_tick_to_interval(tick: i32, lo: i32, hi: i32) -> i32 {
     best
 }
 
+fn is_plain_servo_interval(min_tick: i32, max_tick: i32) -> bool {
+    0 <= min_tick
+        && min_tick <= max_tick
+        && max_tick < TICK_WRAP
+        && !(min_tick == 0 && max_tick == TICK_WRAP - 1)
+}
+
 pub fn clip_tick_to_joint_limits(joint: &Joint, tick: i32) -> i32 {
     if !joint.limit_enabled {
         return tick;
+    }
+
+    if is_plain_servo_interval(joint.tick_min, joint.tick_max) {
+        return tick.clamp(joint.tick_min, joint.tick_max);
     }
 
     let (lo, hi) = continuous_tick_interval(joint.tick_min, joint.tick_max);
@@ -107,6 +118,10 @@ pub fn clip_tick_to_joint_limits(joint: &Joint, tick: i32) -> i32 {
 pub fn tick_within_joint_limits(joint: &Joint, tick: i32) -> bool {
     if !joint.limit_enabled {
         return true;
+    }
+
+    if is_plain_servo_interval(joint.tick_min, joint.tick_max) {
+        return joint.tick_min <= tick && tick <= joint.tick_max;
     }
 
     let (lo, hi) = continuous_tick_interval(joint.tick_min, joint.tick_max);
@@ -132,6 +147,12 @@ pub fn target_tick_error(target_tick: i32, current_tick: i32) -> i32 {
 }
 
 pub fn target_tick_error_limited(joint: &Joint, target_tick: i32, current_tick: i32) -> i32 {
+    if is_plain_servo_interval(joint.tick_min, joint.tick_max) {
+        let current = current_tick.clamp(joint.tick_min, joint.tick_max);
+        let target = target_tick.clamp(joint.tick_min, joint.tick_max);
+        return target - current;
+    }
+
     let (lo, hi) = continuous_tick_interval(joint.tick_min, joint.tick_max);
     let current = align_tick_to_interval(current_tick, lo, hi);
     let target = align_tick_to_interval(target_tick, lo, hi);
@@ -182,7 +203,7 @@ fn compute_target_tracking_speed(joint: &mut Joint, default_speed: i16) -> i16 {
     };
 
     if tick_error.abs() <= TARGET_TICK_DEADBAND {
-        joint.target_tick = None;
+        joint.clear_target();
         return 0;
     }
 
@@ -393,7 +414,6 @@ pub fn deadman_reason(
 pub fn force_stop(joints: &mut [Joint], last_error: &mut Option<SafetyFault>, reason: SafetyFault) {
     *last_error = Some(reason);
     for joint in joints {
-        joint.target_tick = None;
-        joint.speed = 0;
+        joint.stop();
     }
 }

@@ -131,6 +131,12 @@ fn arg_u32(index: usize, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+fn arg_string(index: usize, default: &str) -> String {
+    env::args()
+        .nth(index)
+        .unwrap_or_else(|| default.to_string())
+}
+
 fn cross(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
     [
         left[1] * right[2] - left[2] * right[1],
@@ -266,11 +272,14 @@ fn write_metadata(
     timings: &TimingTotals,
     start_snapshot: &RobotDreamsSnapshot,
     end_snapshot: &RobotDreamsSnapshot,
+    mode: &str,
+    robot_base_samples: &[serde_json::Value],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let metadata_path = out.with_extension("metadata.json");
     let metadata = serde_json::json!({
         "project": project.display().to_string(),
         "video": out.display().to_string(),
+        "mode": mode,
         "framesDirectory": frames_dir.display().to_string(),
         "cameraId": CAMERA_ID,
         "target": [0.03_f32, 0.08_f32, 0.16_f32],
@@ -298,11 +307,15 @@ fn write_metadata(
         "driveCommand": {
             "source": "puppybot_core::drive::DriveController",
             "command": "DriveSteer",
-            "throttle": 45,
-            "steering": 70
+            "schedule": match mode {
+                "steering-demo" => "center, left, center, right, center",
+                "drive-turn-demo" => "forward-left, forward-right, backward-left, backward-right",
+                _ => "forward-right circle",
+            }
         },
         "robotBaseStart": robot_base_xy_yaw(start_snapshot),
         "robotBaseEnd": robot_base_xy_yaw(end_snapshot),
+        "robotBaseSamples": robot_base_samples,
         "elbowStartRad": joint_angle(start_snapshot, "elbow"),
         "elbowEndRad": joint_angle(end_snapshot, "elbow"),
         "elbowJointAnimation": {
@@ -313,6 +326,52 @@ fn write_metadata(
     });
     fs::write(metadata_path, serde_json::to_vec_pretty(&metadata)?)?;
     Ok(())
+}
+
+fn drive_turn_demo_command(elapsed_sec: f32, seconds: u32) -> DriveCommand {
+    let duration = seconds.max(1) as f32;
+    let phase = (elapsed_sec / duration).clamp(0.0, 0.999);
+    let (throttle, steering) = if phase < 0.25 {
+        (45, -70)
+    } else if phase < 0.50 {
+        (45, 70)
+    } else if phase < 0.75 {
+        (-45, -70)
+    } else {
+        (-45, 70)
+    };
+    DriveCommand::DriveSteer { throttle, steering }
+}
+
+fn steering_demo_command(elapsed_sec: f32, seconds: u32) -> DriveCommand {
+    let duration = seconds.max(1) as f32;
+    let phase = (elapsed_sec / duration).clamp(0.0, 0.999);
+    let steering = if phase < 0.20 {
+        0
+    } else if phase < 0.45 {
+        -70
+    } else if phase < 0.55 {
+        0
+    } else if phase < 0.80 {
+        70
+    } else {
+        0
+    };
+    DriveCommand::DriveSteer {
+        throttle: 0,
+        steering,
+    }
+}
+
+fn drive_command_for_mode(mode: &str, elapsed_sec: f32, seconds: u32) -> DriveCommand {
+    match mode {
+        "steering-demo" => steering_demo_command(elapsed_sec, seconds),
+        "drive-turn-demo" => drive_turn_demo_command(elapsed_sec, seconds),
+        _ => DriveCommand::DriveSteer {
+            throttle: 45,
+            steering: 70,
+        },
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -331,6 +390,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let height = arg_u32(4, 180);
     let fps = arg_u32(5, 24);
     let seconds = arg_u32(6, 10);
+    let mode = arg_string(7, "circles");
     let frames_dir = out.with_file_name("puppybot-circles-frames");
     let frame_count = (fps * seconds).max(1);
     let resolution = [width, height];
@@ -373,21 +433,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let render_start = Instant::now();
     let mut timings = TimingTotals::default();
+    let mut robot_base_samples = Vec::new();
 
     for index in 0..frame_count {
         let command_start = Instant::now();
         let elapsed_sec = index as f32 * dt;
         let now_ms = (elapsed_sec * 1000.0).round() as u64;
-        drive.handle_command(
-            DriveCommand::DriveSteer {
-                throttle: 45,
-                steering: 70,
-            },
-            now_ms,
-        );
+        let drive_command = drive_command_for_mode(&mode, elapsed_sec, seconds);
+        drive.handle_command(drive_command, now_ms);
         apply_drive_output(&mut dreams, drive.output())?;
 
-        let elbow_angle = 22.0_f32.to_radians() * (elapsed_sec * std::f32::consts::TAU / 2.0).sin();
+        let elbow_angle = if mode == "steering-demo" {
+            0.0
+        } else {
+            22.0_f32.to_radians() * (elapsed_sec * std::f32::consts::TAU / 2.0).sin()
+        };
         dreams.set_joint_angle("elbow", f64::from(elbow_angle))?;
         timings.add_command(command_start);
 
@@ -396,6 +456,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             dreams.advance_rover_drive_seconds(dt);
         }
         timings.add_advance(advance_start);
+        if index % fps.max(1) == 0 || index + 1 == frame_count {
+            robot_base_samples.push(serde_json::json!({
+                "frame": index,
+                "timeSec": elapsed_sec,
+                "command": format!("{drive_command:?}"),
+                "baseXYYaw": robot_base_xy_yaw(&dreams.snapshot()),
+            }));
+        }
 
         let phase = index as f32 / frame_count as f32;
         let azimuth = phase * std::f32::consts::TAU;
@@ -460,6 +528,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &timings,
         &start_snapshot,
         &dreams.snapshot(),
+        &mode,
+        &robot_base_samples,
     )?;
     println!("encoded {}", out.display());
     println!(

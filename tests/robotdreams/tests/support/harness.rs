@@ -11,7 +11,7 @@ use puppybot_core::config::{
 };
 use puppybot_core::drive::{DriveActuator, DriveCommand, DriveConfig, DriveOutput};
 use puppybot_core::protocol::ProtocolEvent;
-use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT};
+use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT, PuppyarmTelemetry};
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
 use puppybot_core::stservo::mock::block_on_ready;
 use puppybot_core::stservo::{SerialBus, StServo};
@@ -198,10 +198,10 @@ impl PuppybotRobotDreamsHarness {
         sample_every_cycles: usize,
     ) -> Result<Vec<[f64; 3]>, ControllerError> {
         self.prime_feedback();
-        self.system
-            .robot_mut()
-            .try_handle_event(ProtocolEvent::Arm(command), self.cycle * 20)?;
-        Ok(self.run_cycles_sampled(cycles, sample_every_cycles))
+        let mut event = Some(ProtocolEvent::Arm(command));
+        let samples =
+            self.try_run_cycles_sampled_with_event(cycles, sample_every_cycles, || event.take())?;
+        Ok(samples)
     }
 
     pub fn run_drive_command(&mut self, command: DriveCommand, cycles: usize) {
@@ -281,6 +281,28 @@ impl PuppybotRobotDreamsHarness {
             .map(|snapshot| snapshot.target_position)
     }
 
+    pub fn servo_present_position(&self, servo_id: u8) -> Option<i16> {
+        self.state
+            .borrow()
+            .dreams
+            .servo_snapshots(SERVO_MAIN_BUS_ID)?
+            .into_iter()
+            .find(|snapshot| snapshot.id == servo_id)
+            .map(|snapshot| snapshot.present_position)
+    }
+
+    pub fn joint_position_rad(&self, joint: &str) -> f64 {
+        self.state
+            .borrow()
+            .dreams
+            .robot_state("puppybot")
+            .expect("puppybot robot state")
+            .joints
+            .get(joint)
+            .unwrap_or_else(|| panic!("{joint} joint state"))
+            .position_rad
+    }
+
     pub fn tcp_position(&self) -> [f64; 3] {
         self.state
             .borrow()
@@ -302,6 +324,10 @@ impl PuppybotRobotDreamsHarness {
             .position
     }
 
+    pub fn arm_telemetry(&self) -> PuppyarmTelemetry {
+        self.system.robot().arm_telemetry()
+    }
+
     fn prime_feedback(&mut self) {
         for _ in 0..JOINT_COUNT {
             block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
@@ -311,9 +337,21 @@ impl PuppybotRobotDreamsHarness {
     }
 
     fn run_cycles_sampled(&mut self, cycles: usize, sample_every_cycles: usize) -> Vec<[f64; 3]> {
+        self.run_cycles_sampled_with_event(cycles, sample_every_cycles, || None)
+    }
+
+    fn run_cycles_sampled_with_event<F>(
+        &mut self,
+        cycles: usize,
+        sample_every_cycles: usize,
+        mut event: F,
+    ) -> Vec<[f64; 3]>
+    where
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
         let mut samples = Vec::new();
         for cycle in 0..cycles {
-            block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
+            block_on_ready(self.system.run_once_at(self.cycle * 20, &mut event));
             self.cycle = self.cycle.wrapping_add(1);
             self.advance_robotdreams();
             if sample_every_cycles > 0 && (cycle + 1) % sample_every_cycles == 0 {
@@ -322,6 +360,28 @@ impl PuppybotRobotDreamsHarness {
         }
         self.advance_robotdreams();
         samples
+    }
+
+    fn try_run_cycles_sampled_with_event<F>(
+        &mut self,
+        cycles: usize,
+        sample_every_cycles: usize,
+        mut event: F,
+    ) -> Result<Vec<[f64; 3]>, ControllerError>
+    where
+        F: FnMut() -> Option<ProtocolEvent>,
+    {
+        let mut samples = Vec::new();
+        for cycle in 0..cycles {
+            block_on_ready(self.system.try_run_once_at(self.cycle * 20, &mut event))?;
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            if sample_every_cycles > 0 && (cycle + 1) % sample_every_cycles == 0 {
+                samples.push(self.tcp_position());
+            }
+        }
+        self.advance_robotdreams();
+        Ok(samples)
     }
 
     fn advance_robotdreams(&mut self) {

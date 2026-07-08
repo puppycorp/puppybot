@@ -14,6 +14,10 @@ const DRIVE_STATIONARY_TOLERANCE_M: f64 = 0.001;
 const ARM_YAW_SERVO_ID: u8 = 1;
 const STEERING_SERVO_ID: u8 = 5;
 const STEERING_CENTER_DEG: u16 = 90;
+const STEERING_LEFT_DEG: u16 = 66;
+const STEERING_RIGHT_DEG: u16 = 114;
+const FRONT_LEFT_STEERING_JOINT: &str = "revolute_4";
+const FRONT_RIGHT_STEERING_JOINT: &str = "revolute_6";
 
 fn test_harness() -> PuppybotRobotDreamsHarness {
     PuppybotRobotDreamsHarness::with_arm_pose([
@@ -41,11 +45,28 @@ fn steering_center_position() -> i16 {
     angle_to_position(STEERING_CENTER_DEG) as i16
 }
 
+fn steering_position(angle_deg: u16) -> i16 {
+    angle_to_position(angle_deg) as i16
+}
+
 fn steering_center_write(events: &[RobotDreamsBusEvent]) -> Option<&RobotDreamsBusEvent> {
     events.iter().find(|event| {
         event.id == Some(STEERING_SERVO_ID)
             && event.target_position == Some(steering_center_position())
     })
+}
+
+fn assert_front_steering_joints(harness: &PuppybotRobotDreamsHarness, expected_rad: f64) {
+    let left = harness.joint_position_rad(FRONT_LEFT_STEERING_JOINT);
+    let right = harness.joint_position_rad(FRONT_RIGHT_STEERING_JOINT);
+    assert!(
+        (left - expected_rad).abs() <= 1.0e-9,
+        "left front steering joint should be {expected_rad:.6} rad, got {left:.6}"
+    );
+    assert!(
+        (right - expected_rad).abs() <= 1.0e-9,
+        "right front steering joint should be {expected_rad:.6} rad, got {right:.6}"
+    );
 }
 
 #[test]
@@ -103,6 +124,50 @@ fn drive_forward_centers_steering_servo_5_over_serial() {
 }
 
 #[test]
+fn drive_left_turns_steering_servo_5_and_front_wheel_joints() {
+    let mut harness = test_harness();
+    harness.clear_bus_events();
+
+    harness.run_drive_command(drive_steer(0, -55), 1);
+    let events = harness.bus_events();
+    let expected_position = steering_position(STEERING_LEFT_DEG);
+    let steering_event = events
+        .iter()
+        .find(|event| {
+            event.id == Some(STEERING_SERVO_ID) && event.target_position == Some(expected_position)
+        })
+        .unwrap_or_else(|| panic!("missing steering left write in events: {events:?}"));
+
+    harness.assert_no_bus_errors();
+    assert!(
+        steering_event.responded,
+        "steering servo write should receive a RobotDreams serial response: {steering_event:?}"
+    );
+    assert_eq!(
+        harness.servo_target_position(STEERING_SERVO_ID),
+        Some(expected_position)
+    );
+    assert_front_steering_joints(
+        &harness,
+        f64::from(STEERING_LEFT_DEG as i16 - STEERING_CENTER_DEG as i16).to_radians(),
+    );
+}
+
+#[test]
+fn drive_right_turns_front_wheel_joints() {
+    let mut harness = test_harness();
+    harness.clear_bus_events();
+
+    harness.run_drive_command(drive_steer(0, 55), 1);
+
+    harness.assert_no_bus_errors();
+    assert_front_steering_joints(
+        &harness,
+        f64::from(STEERING_RIGHT_DEG as i16 - STEERING_CENTER_DEG as i16).to_radians(),
+    );
+}
+
+#[test]
 fn drive_forward_does_not_write_arm_yaw_servo_1() {
     let mut harness = test_harness();
     harness.clear_bus_events();
@@ -144,6 +209,20 @@ fn drive_forward_positive_steering_yaw_increases() {
     assert!(
         moved_yaw > start_yaw + 0.1,
         "positive steering should increase ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
+    );
+}
+
+#[test]
+fn drive_backward_positive_steering_yaw_decreases() {
+    let mut harness = test_harness();
+    let start_yaw = harness.base_yaw();
+
+    harness.run_repeated_drive_command(drive_steer(-50, 50), 50);
+    let moved_yaw = harness.base_yaw();
+
+    assert!(
+        moved_yaw < start_yaw - 0.1,
+        "positive steering while reversing should decrease ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
     );
 }
 
