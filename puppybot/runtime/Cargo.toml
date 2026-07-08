@@ -18,5 +18,5 @@ puppybot-core = { path = "../core", default-features = false, features = ["runti
 serialport = { version = "4.7", default-features = false }
 serde_json = "1"
 sha1 = { version = "0.11.0", default-features = false }
-tokio = { version = "1", features = ["rt-multi-thread"] }
-wgui = { git = "https://github.com/J45k4/wgui.git", rev = "c9a30a931385fd8a51a3ec782841934a26bfa51c" }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+wgui = { path = "../../../wgui/wgui" }

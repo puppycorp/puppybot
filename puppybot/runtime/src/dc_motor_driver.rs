@@ -11,26 +11,26 @@ const ROBOTDREAMS_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const ROBOTDREAMS_RETRY_AFTER_ERROR: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
-pub(crate) enum RuntimeDriveError {
+pub(crate) enum DCMotorDriverError {
     Io(String),
     Protocol(String),
 }
 
-impl std::fmt::Display for RuntimeDriveError {
+impl std::fmt::Display for DCMotorDriverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(message) => write!(f, "RobotDreams drive I/O failed: {message}"),
-            Self::Protocol(message) => write!(f, "RobotDreams drive protocol failed: {message}"),
+            Self::Io(message) => write!(f, "DC motor driver I/O failed: {message}"),
+            Self::Protocol(message) => write!(f, "DC motor driver protocol failed: {message}"),
         }
     }
 }
 
-pub(crate) enum RuntimeDriveActuator {
+pub(crate) enum DCMotorDriver {
     Noop,
-    RobotDreams(RobotDreamsDaemonDriveActuator),
+    RobotDreams(RobotDreamsDCMotorDriver),
 }
 
-pub(crate) struct RobotDreamsDaemonDriveActuator {
+pub(crate) struct RobotDreamsDCMotorDriver {
     socket_path: PathBuf,
     robot_id: String,
     bus_id: String,
@@ -38,7 +38,7 @@ pub(crate) struct RobotDreamsDaemonDriveActuator {
     last_error_at: Option<Instant>,
 }
 
-impl RuntimeDriveActuator {
+impl DCMotorDriver {
     pub(crate) fn discover() -> Self {
         let explicit_socket = std::env::var_os(ROBOTDREAMS_SOCKET_ENV)
             .map(PathBuf::from)
@@ -48,7 +48,7 @@ impl RuntimeDriveActuator {
                 "RobotDreams drive bridge using {} from {ROBOTDREAMS_SOCKET_ENV}",
                 socket_path.display()
             );
-            return Self::RobotDreams(RobotDreamsDaemonDriveActuator::new(socket_path));
+            return Self::RobotDreams(RobotDreamsDCMotorDriver::new(socket_path));
         }
 
         let default_socket = PathBuf::from(DEFAULT_ROBOTDREAMS_SOCKET);
@@ -57,17 +57,17 @@ impl RuntimeDriveActuator {
                 "RobotDreams drive bridge using default socket {}",
                 default_socket.display()
             );
-            Self::RobotDreams(RobotDreamsDaemonDriveActuator::new(default_socket))
+            Self::RobotDreams(RobotDreamsDCMotorDriver::new(default_socket))
         } else {
             log::info!(
-                "RobotDreams drive bridge disabled; set {ROBOTDREAMS_SOCKET_ENV} to enable it"
+                "DC motor driver using noop backend; set {ROBOTDREAMS_SOCKET_ENV} to enable RobotDreams"
             );
             Self::Noop
         }
     }
 }
 
-impl RobotDreamsDaemonDriveActuator {
+impl RobotDreamsDCMotorDriver {
     fn new(socket_path: PathBuf) -> Self {
         Self {
             socket_path,
@@ -84,7 +84,7 @@ impl RobotDreamsDaemonDriveActuator {
             .unwrap_or(true)
     }
 
-    fn send_output(&mut self, output: DriveOutput) -> Result<(), RuntimeDriveError> {
+    fn send_output(&mut self, output: DriveOutput) -> Result<(), DCMotorDriverError> {
         if !should_send_output(self.last_sent, output) {
             return Ok(());
         }
@@ -113,8 +113,8 @@ fn should_send_output(last_sent: Option<DriveOutput>, output: DriveOutput) -> bo
     output.active || last_sent.is_some()
 }
 
-impl DriveActuator for RuntimeDriveActuator {
-    type Error = RuntimeDriveError;
+impl DriveActuator for DCMotorDriver {
+    type Error = DCMotorDriverError;
 
     fn apply_drive_output(&mut self, output: DriveOutput) -> Result<(), Self::Error> {
         match self {
@@ -130,33 +130,33 @@ fn send_drive_command(
     robot_id: &str,
     bus_id: &str,
     output: DriveOutput,
-) -> Result<(), RuntimeDriveError> {
+) -> Result<(), DCMotorDriverError> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
     let mut stream =
-        UnixStream::connect(socket_path).map_err(|err| RuntimeDriveError::Io(err.to_string()))?;
+        UnixStream::connect(socket_path).map_err(|err| DCMotorDriverError::Io(err.to_string()))?;
     stream
         .set_read_timeout(Some(ROBOTDREAMS_IO_TIMEOUT))
-        .map_err(|err| RuntimeDriveError::Io(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Io(err.to_string()))?;
     stream
         .set_write_timeout(Some(ROBOTDREAMS_IO_TIMEOUT))
-        .map_err(|err| RuntimeDriveError::Io(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Io(err.to_string()))?;
 
     let mut raw = serde_json::to_vec(&drive_command_request(robot_id, bus_id, output))
-        .map_err(|err| RuntimeDriveError::Protocol(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Protocol(err.to_string()))?;
     raw.push(b'\n');
     stream
         .write_all(&raw)
-        .map_err(|err| RuntimeDriveError::Io(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Io(err.to_string()))?;
 
     let mut reader = BufReader::new(stream);
     let mut response = String::new();
     reader
         .read_line(&mut response)
-        .map_err(|err| RuntimeDriveError::Io(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Io(err.to_string()))?;
     let response: serde_json::Value = serde_json::from_str(&response)
-        .map_err(|err| RuntimeDriveError::Protocol(err.to_string()))?;
+        .map_err(|err| DCMotorDriverError::Protocol(err.to_string()))?;
     if response
         .get("ok")
         .and_then(|value| value.as_bool())
@@ -168,7 +168,7 @@ fn send_drive_command(
             .get("message")
             .and_then(|value| value.as_str())
             .unwrap_or("RobotDreams daemon rejected drive command");
-        Err(RuntimeDriveError::Protocol(message.to_string()))
+        Err(DCMotorDriverError::Protocol(message.to_string()))
     }
 }
 
@@ -178,8 +178,8 @@ fn send_drive_command(
     _robot_id: &str,
     _bus_id: &str,
     _output: DriveOutput,
-) -> Result<(), RuntimeDriveError> {
-    Err(RuntimeDriveError::Protocol(
+) -> Result<(), DCMotorDriverError> {
+    Err(DCMotorDriverError::Protocol(
         "RobotDreams drive bridge requires Unix sockets".to_string(),
     ))
 }
