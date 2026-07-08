@@ -1,22 +1,68 @@
-use std::{
-    io::{ErrorKind, Read, Write},
-    net::TcpStream,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr};
 
 use puppybot_core::utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii};
 use sha1::{Digest, Sha1};
-
-use crate::RuntimeRobot;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::{TcpListener as TokioTcpListener, TcpStream as TokioTcpStream},
+    sync::mpsc,
+};
 
 const MAX_HTTP_REQUEST: usize = 2048;
 const MAX_WS_FRAME_SIZE: usize = 2048;
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-struct WsFrame<'a> {
+struct OwnedWsFrame {
     opcode: u8,
-    payload: &'a [u8],
+    payload: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum WsEvent {
+    Connected { client_id: u64 },
+    Binary { client_id: u64, payload: Vec<u8> },
+    Text { client_id: u64, payload: Vec<u8> },
+    HttpRequest { request_id: u64, target: Vec<u8> },
+    Closed { client_id: u64 },
+}
+
+#[derive(Debug)]
+pub(crate) enum WsCommand {
+    SendBinary {
+        client_id: u64,
+        payload: Vec<u8>,
+    },
+    SendText {
+        client_id: u64,
+        payload: Vec<u8>,
+    },
+    HttpResponse {
+        request_id: u64,
+        status: &'static str,
+        content_type: &'static str,
+        body: Vec<u8>,
+    },
+    #[allow(dead_code)]
+    Close {
+        client_id: u64,
+    },
+}
+
+enum ConnectionCommand {
+    SendBinary(Vec<u8>),
+    SendText(Vec<u8>),
+    HttpResponse {
+        status: &'static str,
+        content_type: &'static str,
+        body: Vec<u8>,
+    },
+    Close,
+}
+
+pub(crate) struct WsServer {
+    local_addr: SocketAddr,
+    events: mpsc::Receiver<WsEvent>,
+    commands: mpsc::Sender<WsCommand>,
 }
 
 #[derive(Debug)]
@@ -25,7 +71,6 @@ pub(crate) enum Error {
     Closed,
     FrameTooLarge,
     RequestTooLarge,
-    WouldBlock,
     Io(std::io::Error),
 }
 
@@ -42,13 +87,59 @@ impl std::fmt::Display for Error {
             Self::Closed => formatter.write_str("connection closed"),
             Self::FrameTooLarge => formatter.write_str("websocket frame too large"),
             Self::RequestTooLarge => formatter.write_str("http request too large"),
-            Self::WouldBlock => formatter.write_str("operation would block"),
             Self::Io(err) => write!(formatter, "{err}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+impl WsServer {
+    pub(crate) fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
+    pub(crate) async fn next(&mut self) -> Option<WsEvent> {
+        self.events.recv().await
+    }
+
+    pub(crate) async fn send_binary(&self, client_id: u64, payload: Vec<u8>) {
+        let _ = self
+            .commands
+            .send(WsCommand::SendBinary { client_id, payload })
+            .await;
+    }
+
+    pub(crate) async fn send_text(&self, client_id: u64, payload: Vec<u8>) {
+        let _ = self
+            .commands
+            .send(WsCommand::SendText { client_id, payload })
+            .await;
+    }
+
+    pub(crate) async fn send_http_response(
+        &self,
+        request_id: u64,
+        status: &'static str,
+        content_type: &'static str,
+        body: Vec<u8>,
+    ) {
+        let _ = self
+            .commands
+            .send(WsCommand::HttpResponse {
+                request_id,
+                status,
+                content_type,
+                body,
+            })
+            .await;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn close(&self, client_id: u64) {
+        let _ = self.commands.send(WsCommand::Close { client_id }).await;
+    }
+}
 
 fn websocket_accept_key(key: &[u8], out: &mut [u8; 28]) -> Result<(), Error> {
     let mut hasher = Sha1::new();
@@ -92,26 +183,10 @@ fn request_target(request: &[u8]) -> Option<&[u8]> {
     }
 }
 
-fn read_exact(stream: &mut TcpStream, mut buf: &mut [u8]) -> Result<(), Error> {
-    while !buf.is_empty() {
-        match stream.read(buf) {
-            Ok(0) => return Err(Error::Closed),
-            Ok(read) => {
-                let (_, rest) = buf.split_at_mut(read);
-                buf = rest;
-            }
-            Err(err)
-                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
-            {
-                return Err(Error::WouldBlock);
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-    Ok(())
-}
-
-fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), Error> {
+async fn send_ws_frame_async<W>(writer: &mut W, opcode: u8, payload: &[u8]) -> Result<(), Error>
+where
+    W: AsyncWrite + Unpin,
+{
     let mut header = [0u8; 10];
     header[0] = 0x80 | (opcode & 0x0f);
 
@@ -128,14 +203,17 @@ fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(
         10
     };
 
-    stream.write_all(&header[..header_len])?;
-    stream.write_all(payload)?;
+    writer.write_all(&header[..header_len]).await?;
+    writer.write_all(payload).await?;
     Ok(())
 }
 
-fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<WsFrame<'a>, Error> {
+async fn read_ws_frame_async<R>(reader: &mut R) -> Result<OwnedWsFrame, Error>
+where
+    R: AsyncRead + Unpin,
+{
     let mut header = [0u8; 2];
-    read_exact(stream, &mut header)?;
+    reader.read_exact(&mut header).await?;
 
     let opcode = header[0] & 0x0f;
     let masked = (header[1] & 0x80) != 0;
@@ -143,11 +221,11 @@ fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<Ws
 
     if len == 126 {
         let mut extended = [0u8; 2];
-        read_exact(stream, &mut extended)?;
+        reader.read_exact(&mut extended).await?;
         len = u16::from_be_bytes(extended) as usize;
     } else if len == 127 {
         let mut extended = [0u8; 8];
-        read_exact(stream, &mut extended)?;
+        reader.read_exact(&mut extended).await?;
         let raw_len = u64::from_be_bytes(extended);
         if raw_len > usize::MAX as u64 {
             return Err(Error::FrameTooLarge);
@@ -155,43 +233,30 @@ fn read_ws_frame<'a>(stream: &mut TcpStream, payload: &'a mut [u8]) -> Result<Ws
         len = raw_len as usize;
     }
 
-    if len > payload.len() {
+    if len > MAX_WS_FRAME_SIZE {
         return Err(Error::FrameTooLarge);
     }
 
     let mut mask = [0u8; 4];
     if masked {
-        read_exact(stream, &mut mask)?;
+        reader.read_exact(&mut mask).await?;
     }
 
-    read_exact(stream, &mut payload[..len])?;
+    let mut payload = vec![0u8; len];
+    reader.read_exact(&mut payload).await?;
     if masked {
-        for (idx, byte) in payload[..len].iter_mut().enumerate() {
+        for (idx, byte) in payload.iter_mut().enumerate() {
             *byte ^= mask[idx % 4];
         }
     }
 
-    Ok(WsFrame {
-        opcode,
-        payload: &payload[..len],
-    })
+    Ok(OwnedWsFrame { opcode, payload })
 }
 
-fn handle_websocket_upgrade(stream: &mut TcpStream, request: &[u8]) -> Result<(), Error> {
-    let key = header_value(request, b"sec-websocket-key").ok_or(Error::BadRequest)?;
-    let mut accept = [0u8; 28];
-    websocket_accept_key(key, &mut accept)?;
-
-    stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\n")?;
-    stream.write_all(b"Upgrade: websocket\r\n")?;
-    stream.write_all(b"Connection: Upgrade\r\n")?;
-    stream.write_all(b"Sec-WebSocket-Accept: ")?;
-    stream.write_all(&accept)?;
-    stream.write_all(b"\r\n\r\n")?;
-    Ok(())
-}
-
-fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize, Error> {
+async fn read_http_request_async<R>(reader: &mut R, request: &mut [u8]) -> Result<usize, Error>
+where
+    R: AsyncRead + Unpin,
+{
     let mut len = 0;
 
     loop {
@@ -199,142 +264,336 @@ fn read_http_request(stream: &mut TcpStream, request: &mut [u8]) -> Result<usize
             return Err(Error::RequestTooLarge);
         }
 
-        match stream.read(&mut request[len..]) {
-            Ok(0) => return Err(Error::Closed),
-            Ok(read) => {
-                len += read;
-                if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
-                    return Ok(len);
-                }
-            }
-            Err(err)
-                if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::TimedOut =>
-            {
-                return Err(Error::WouldBlock);
-            }
-            Err(err) => return Err(err.into()),
+        let read = reader.read(&mut request[len..]).await?;
+        if read == 0 {
+            return Err(Error::Closed);
+        }
+        len += read;
+        if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
+            return Ok(len);
         }
     }
 }
 
-fn write_http_response(
-    stream: &mut TcpStream,
+async fn write_http_response_async<W>(
+    writer: &mut W,
     status: &str,
     content_type: &str,
     body: &[u8],
-) -> Result<(), Error> {
-    write!(
-        stream,
+) -> Result<(), Error>
+where
+    W: AsyncWrite + Unpin,
+{
+    let header = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()
-    )?;
-    stream.write_all(body)?;
+    );
+    writer.write_all(header.as_bytes()).await?;
+    writer.write_all(body).await?;
     Ok(())
 }
 
-fn config_json_body(robot: &Arc<Mutex<RuntimeRobot>>) -> Result<String, String> {
-    let mut robot = robot.lock().unwrap();
-    robot.config_json()
+async fn handle_websocket_upgrade_async<W>(writer: &mut W, request: &[u8]) -> Result<(), Error>
+where
+    W: AsyncWrite + Unpin,
+{
+    let key = header_value(request, b"sec-websocket-key").ok_or(Error::BadRequest)?;
+    let mut accept = [0u8; 28];
+    websocket_accept_key(key, &mut accept)?;
+
+    writer
+        .write_all(b"HTTP/1.1 101 Switching Protocols\r\n")
+        .await?;
+    writer.write_all(b"Upgrade: websocket\r\n").await?;
+    writer.write_all(b"Connection: Upgrade\r\n").await?;
+    writer.write_all(b"Sec-WebSocket-Accept: ").await?;
+    writer.write_all(&accept).await?;
+    writer.write_all(b"\r\n\r\n").await?;
+    Ok(())
 }
 
-fn websocket_loop(stream: &mut TcpStream, robot: Arc<Mutex<RuntimeRobot>>) -> Result<(), Error> {
-    let mut payload = [0u8; MAX_WS_FRAME_SIZE];
-    let mut telemetry_enabled = false;
-    let mut sent_telemetry_seq = None;
-
-    loop {
-        let telemetry = {
-            let robot = robot.lock().unwrap();
-            if telemetry_enabled && sent_telemetry_seq != Some(robot.telemetry_seq()) {
-                Some((robot.telemetry_seq(), robot.arm_state_frame()))
-            } else {
-                None
-            }
-        };
-        if let Some((seq, frame)) = telemetry {
-            send_ws_frame(stream, 0x2, &frame)?;
-            sent_telemetry_seq = Some(seq);
-        }
-
-        let frame = match read_ws_frame(stream, &mut payload) {
-            Ok(frame) => frame,
-            Err(Error::WouldBlock) => continue,
-            Err(err) => return Err(err),
-        };
-
-        match frame.opcode {
-            0x1 => {
-                if frame.payload == b"ping" {
-                    send_ws_frame(stream, 0x1, b"pong")?;
-                }
-            }
-            0x2 => {
-                let response = {
-                    let mut robot = robot.lock().unwrap();
-                    robot.handle_binary_command(frame.payload, &mut telemetry_enabled)
-                };
-                if let Some(response) = response {
-                    send_ws_frame(stream, 0x2, &response)?;
-                }
-            }
-            0x8 => {
-                send_ws_frame(stream, 0x8, &[])?;
-                return Ok(());
-            }
-            0x9 => send_ws_frame(stream, 0xA, frame.payload)?,
-            _ => {}
-        }
-    }
-}
-
-pub(crate) fn handle_connection(
-    mut stream: TcpStream,
-    robot: Arc<Mutex<RuntimeRobot>>,
+async fn app_connection_loop(
+    mut stream: TokioTcpStream,
+    client_id: u64,
+    events: mpsc::Sender<WsEvent>,
+    mut commands: mpsc::Receiver<ConnectionCommand>,
 ) -> Result<(), Error> {
-    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
-    stream.set_nodelay(true)?;
-
     let mut request = [0u8; MAX_HTTP_REQUEST];
-    let request_len = read_http_request(&mut stream, &mut request)?;
+    let request_len = read_http_request_async(&mut stream, &mut request).await?;
     let request = &request[..request_len];
 
-    if is_websocket_request(request) {
-        handle_websocket_upgrade(&mut stream, request)?;
-        websocket_loop(&mut stream, robot)
-    } else if request_target(request) == Some(b"/api/config.json") {
-        let body = config_json_body(&robot);
-        match body {
-            Ok(body) => {
-                write_http_response(&mut stream, "200 OK", "application/json", body.as_bytes())
+    if !is_websocket_request(request) {
+        if request_target(request) == Some(b"/api/config.json") {
+            let _ = events
+                .send(WsEvent::HttpRequest {
+                    request_id: client_id,
+                    target: b"/api/config.json".to_vec(),
+                })
+                .await;
+            match commands.recv().await {
+                Some(ConnectionCommand::HttpResponse {
+                    status,
+                    content_type,
+                    body,
+                }) => {
+                    write_http_response_async(&mut stream, status, content_type, &body).await?;
+                }
+                _ => {
+                    write_http_response_async(
+                        &mut stream,
+                        "500 Internal Server Error",
+                        "application/json",
+                        b"{\"error\":\"runtime response channel closed\"}\n",
+                    )
+                    .await?;
+                }
             }
-            Err(err) => {
-                let body = format!("{{\"error\":{}}}\n", serde_json::json!(err));
-                write_http_response(
-                    &mut stream,
-                    "500 Internal Server Error",
-                    "application/json",
-                    body.as_bytes(),
-                )
+        } else if request_target(request) == Some(b"/") {
+            write_http_response_async(
+                &mut stream,
+                "200 OK",
+                "text/plain",
+                b"puppybot runtime websocket is available on /ws\nconfig is available on /api/config.json\n",
+            )
+            .await?;
+        } else {
+            write_http_response_async(&mut stream, "404 Not Found", "text/plain", b"not found\n")
+                .await?;
+        }
+        return Ok(());
+    }
+
+    handle_websocket_upgrade_async(&mut stream, request).await?;
+    let _ = events.send(WsEvent::Connected { client_id }).await;
+    let (mut reader, mut writer) = stream.into_split();
+
+    loop {
+        tokio::select! {
+            frame = read_ws_frame_async(&mut reader) => {
+                match frame? {
+                    OwnedWsFrame { opcode: 0x1, payload } => {
+                        let _ = events.send(WsEvent::Text { client_id, payload }).await;
+                    }
+                    OwnedWsFrame { opcode: 0x2, payload } => {
+                        let _ = events.send(WsEvent::Binary { client_id, payload }).await;
+                    }
+                    OwnedWsFrame { opcode: 0x8, .. } => {
+                        let _ = send_ws_frame_async(&mut writer, 0x8, &[]).await;
+                        return Ok(());
+                    }
+                    OwnedWsFrame { opcode: 0x9, payload } => {
+                        send_ws_frame_async(&mut writer, 0xA, &payload).await?;
+                    }
+                    _ => {}
+                }
+            }
+            command = commands.recv() => {
+                match command {
+                    Some(ConnectionCommand::SendBinary(payload)) => {
+                        send_ws_frame_async(&mut writer, 0x2, &payload).await?;
+                    }
+                    Some(ConnectionCommand::SendText(payload)) => {
+                        send_ws_frame_async(&mut writer, 0x1, &payload).await?;
+                    }
+                    Some(ConnectionCommand::HttpResponse { .. }) => {}
+                    Some(ConnectionCommand::Close) => {
+                        let _ = send_ws_frame_async(&mut writer, 0x8, &[]).await;
+                        return Ok(());
+                    }
+                    None => return Ok(()),
+                }
             }
         }
-    } else if request_target(request) == Some(b"/") {
-        write_http_response(
-            &mut stream,
-            "200 OK",
-            "text/plain",
-            b"puppybot runtime websocket is available on /ws\nconfig is available on /api/config.json\n",
-        )
-    } else {
-        write_http_response(&mut stream, "404 Not Found", "text/plain", b"not found\n")
     }
+}
+
+pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<WsServer, Error> {
+    let listener = std::net::TcpListener::bind(bind_addr)?;
+    listener.set_nonblocking(true)?;
+    let listener = TokioTcpListener::from_std(listener)?;
+    let local_addr = listener.local_addr()?;
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let (command_tx, mut command_rx) = mpsc::channel(64);
+    let (closed_tx, mut closed_rx) = mpsc::channel(64);
+
+    tokio::spawn(async move {
+        let mut clients: HashMap<u64, mpsc::Sender<ConnectionCommand>> = HashMap::new();
+        let mut next_client_id = 1u64;
+
+        loop {
+            tokio::select! {
+                accepted = listener.accept() => {
+                    let (stream, _) = match accepted {
+                        Ok(accepted) => accepted,
+                        Err(err) => {
+                            log::warn!("runtime App websocket accept failed: {err}");
+                            continue;
+                        }
+                    };
+                    let client_id = next_client_id;
+                    next_client_id = next_client_id.wrapping_add(1).max(1);
+                    let (client_tx, client_rx) = mpsc::channel(16);
+                    clients.insert(client_id, client_tx);
+                    let events = event_tx.clone();
+                    let closed = closed_tx.clone();
+                    tokio::spawn(async move {
+                        let result = app_connection_loop(stream, client_id, events.clone(), client_rx).await;
+                        if let Err(err) = result
+                            && !matches!(err, Error::Closed)
+                        {
+                            log::warn!("runtime App websocket client {client_id} ended: {err}");
+                        }
+                        let _ = events.send(WsEvent::Closed { client_id }).await;
+                        let _ = closed.send(client_id).await;
+                    });
+                }
+                command = command_rx.recv() => {
+                    let Some(command) = command else {
+                        break;
+                    };
+                    match command {
+                        WsCommand::SendBinary { client_id, payload } => {
+                            if let Some(client) = clients.get(&client_id)
+                                && client.send(ConnectionCommand::SendBinary(payload)).await.is_err()
+                            {
+                                clients.remove(&client_id);
+                            }
+                        }
+                        WsCommand::SendText { client_id, payload } => {
+                            if let Some(client) = clients.get(&client_id)
+                                && client.send(ConnectionCommand::SendText(payload)).await.is_err()
+                            {
+                                clients.remove(&client_id);
+                            }
+                        }
+                        WsCommand::HttpResponse { request_id, status, content_type, body } => {
+                            if let Some(client) = clients.get(&request_id)
+                                && client.send(ConnectionCommand::HttpResponse { status, content_type, body }).await.is_err()
+                            {
+                                clients.remove(&request_id);
+                            }
+                        }
+                        WsCommand::Close { client_id } => {
+                            if let Some(client) = clients.remove(&client_id) {
+                                let _ = client.send(ConnectionCommand::Close).await;
+                            }
+                        }
+                    }
+                }
+                closed = closed_rx.recv() => {
+                    let Some(client_id) = closed else {
+                        break;
+                    };
+                    clients.remove(&client_id);
+                }
+            }
+        }
+    });
+
+    Ok(WsServer {
+        local_addr,
+        events: event_rx,
+        commands: command_tx,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::io::ErrorKind as IoErrorKind;
+    use std::time::Duration;
 
-    use puppybot_core::config::PuppybotConfigV1;
+    use tokio::time::timeout;
+
+    fn start_test_app_server() -> Option<WsServer> {
+        match start_app_server("127.0.0.1:0".parse().unwrap()) {
+            Ok(server) => Some(server),
+            Err(Error::Io(err)) if err.kind() == IoErrorKind::PermissionDenied => None,
+            Err(err) => panic!("failed to start test websocket server: {err}"),
+        }
+    }
+
+    async fn connect_app_ws(server: &WsServer) -> TokioTcpStream {
+        let mut stream = TokioTcpStream::connect(server.local_addr()).await.unwrap();
+        stream
+            .write_all(
+                b"GET /ws HTTP/1.1\r\n\
+                Host: localhost\r\n\
+                Upgrade: websocket\r\n\
+                Connection: Upgrade\r\n\
+                Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                Sec-WebSocket-Version: 13\r\n\
+                \r\n",
+            )
+            .await
+            .unwrap();
+
+        let mut response = [0u8; 512];
+        let read = stream.read(&mut response).await.unwrap();
+        assert!(
+            std::str::from_utf8(&response[..read])
+                .unwrap()
+                .starts_with("HTTP/1.1 101 Switching Protocols")
+        );
+        stream
+    }
+
+    async fn next_app_event(server: &mut WsServer) -> WsEvent {
+        timeout(Duration::from_secs(1), server.next())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn send_client_frame(stream: &mut TokioTcpStream, opcode: u8, payload: &[u8]) {
+        assert!(payload.len() < 126);
+        let mask = [1u8, 2, 3, 4];
+        let mut frame = Vec::with_capacity(6 + payload.len());
+        frame.push(0x80 | opcode);
+        frame.push(0x80 | payload.len() as u8);
+        frame.extend_from_slice(&mask);
+        for (idx, byte) in payload.iter().enumerate() {
+            frame.push(*byte ^ mask[idx % mask.len()]);
+        }
+        stream.write_all(&frame).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn app_server_routes_config_http_response() {
+        let Some(mut server) = start_test_app_server() else {
+            return;
+        };
+        let mut client = TokioTcpStream::connect(server.local_addr()).await.unwrap();
+        client
+            .write_all(b"GET /api/config.json HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+
+        let request_id = match next_app_event(&mut server).await {
+            WsEvent::HttpRequest { request_id, target } => {
+                assert_eq!(target, b"/api/config.json");
+                request_id
+            }
+            event => panic!("unexpected event: {event:?}"),
+        };
+        server
+            .send_http_response(
+                request_id,
+                "200 OK",
+                "application/json",
+                b"{\"ok\":true}\n".to_vec(),
+            )
+            .await;
+
+        let mut response = [0u8; 512];
+        let read = timeout(Duration::from_secs(1), client.read(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        let response = std::str::from_utf8(&response[..read]).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("{\"ok\":true}"));
+    }
 
     #[test]
     fn request_target_reads_get_path() {
@@ -346,19 +605,68 @@ mod tests {
         );
     }
 
-    #[test]
-    fn config_json_body_returns_active_config() {
-        let robot = Arc::new(Mutex::new(RuntimeRobot::new(
-            None,
-            PathBuf::from("puppybot.json"),
-            PuppybotConfigV1::default(),
-        )));
+    #[tokio::test]
+    async fn app_server_delivers_binary_and_routes_binary_response() {
+        let Some(mut server) = start_test_app_server() else {
+            return;
+        };
+        let mut client = connect_app_ws(&server).await;
 
-        let body = config_json_body(&robot).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let client_id = match next_app_event(&mut server).await {
+            WsEvent::Connected { client_id } => client_id,
+            event => panic!("unexpected event: {event:?}"),
+        };
 
-        assert_eq!(value["path"], "puppybot.json");
-        assert_eq!(value["dirty"], false);
-        assert_eq!(value["config"]["serial"], "PB-DEV-0001");
+        send_client_frame(&mut client, 0x2, b"abc").await;
+        assert_eq!(
+            next_app_event(&mut server).await,
+            WsEvent::Binary {
+                client_id,
+                payload: b"abc".to_vec()
+            }
+        );
+
+        server.send_binary(client_id, b"response".to_vec()).await;
+        let frame = read_ws_frame_async(&mut client).await.unwrap();
+        assert_eq!(frame.opcode, 0x2);
+        assert_eq!(frame.payload, b"response");
+    }
+
+    #[tokio::test]
+    async fn app_server_delivers_text_and_routes_text_response() {
+        let Some(mut server) = start_test_app_server() else {
+            return;
+        };
+        let mut client = connect_app_ws(&server).await;
+
+        let client_id = match next_app_event(&mut server).await {
+            WsEvent::Connected { client_id } => client_id,
+            event => panic!("unexpected event: {event:?}"),
+        };
+
+        send_client_frame(&mut client, 0x1, b"ping").await;
+        assert_eq!(
+            next_app_event(&mut server).await,
+            WsEvent::Text {
+                client_id,
+                payload: b"ping".to_vec()
+            }
+        );
+
+        server.send_text(client_id, b"pong".to_vec()).await;
+        let frame = read_ws_frame_async(&mut client).await.unwrap();
+        assert_eq!(frame.opcode, 0x1);
+        assert_eq!(frame.payload, b"pong");
+    }
+
+    #[tokio::test]
+    async fn app_server_ignores_send_to_missing_client() {
+        let Some(server) = start_test_app_server() else {
+            return;
+        };
+
+        server.send_binary(999, b"missing".to_vec()).await;
+        server.send_text(999, b"missing".to_vec()).await;
+        server.close(999).await;
     }
 }
