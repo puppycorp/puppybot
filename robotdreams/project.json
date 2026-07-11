@@ -176,7 +176,7 @@
               "joint": "revolute_1"
             },
             "calibration": {
-              "zeroOffset": 2459,
+              "zeroOffset": 1200,
               "direction": 1
             }
           },

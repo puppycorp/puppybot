@@ -95,6 +95,8 @@ const COORDINATE_LEFT_ID: u32 = 512;
 const COORDINATE_RIGHT_ID: u32 = 513;
 const COORDINATE_UP_ID: u32 = 514;
 const COORDINATE_DOWN_ID: u32 = 515;
+const PREVIEW_COORDINATES_ID: u32 = 516;
+const CLOSE_COORDINATE_PREVIEW_ID: u32 = 517;
 
 const ARM_HOLD_ID: u32 = 600;
 const ARM_STOP_ALL_ID: u32 = 601;
@@ -376,6 +378,39 @@ fn angle_detail(joint: &Joint) -> String {
     }
 }
 
+fn opt_tick(value: Option<i32>) -> String {
+    match value {
+        Some(tick) => tick.to_string(),
+        None => "—".to_string(),
+    }
+}
+
+fn opt_deg(value: Option<f32>) -> String {
+    match value {
+        Some(deg) => format!("{deg:.1}"),
+        None => "—".to_string(),
+    }
+}
+
+fn close_preview_button() -> Item {
+    hstack(vec![primary_button("Close").on_click(CLOSE_COORDINATE_PREVIEW_ID)]).spacing(8)
+}
+
+fn preview_modal(body: Vec<Item>) -> Option<Item> {
+    Some(
+        modal(vec![
+            vstack(body)
+                .width(420)
+                .max_width(420)
+                .background_color("#18202b")
+                .border("1px solid #415066")
+                .padding(16)
+                .spacing(12),
+        ])
+        .id(CLOSE_COORDINATE_PREVIEW_ID),
+    )
+}
+
 fn limit_detail(joint: &Joint) -> String {
     match joint.tick {
         Some(tick) => format!("tick {tick} / {}..{}", joint.limit_min, joint.limit_max),
@@ -589,6 +624,7 @@ pub struct App {
     coordinate_y: String,
     coordinate_z: String,
     coordinate_error: String,
+    coordinate_preview_open: bool,
     keyboard_drive: KeyboardDriveState,
     last_command: String,
 }
@@ -733,6 +769,7 @@ impl App {
             coordinate_y,
             coordinate_z,
             coordinate_error: String::new(),
+            coordinate_preview_open: false,
             keyboard_drive: KeyboardDriveState::default(),
             last_command: "none".to_string(),
         })
@@ -1457,6 +1494,9 @@ impl App {
         if let Some(modal) = self.render_calibration_modal() {
             children.push(modal);
         }
+        if let Some(modal) = self.render_coordinate_preview_modal() {
+            children.push(modal);
+        }
 
         vstack(children)
             .fill(true)
@@ -1859,6 +1899,10 @@ impl App {
                     .height(34)
                     .width(88)
                     .on_click(SET_COORDINATES_CURRENT_ID),
+                secondary_button("Preview")
+                    .height(34)
+                    .width(88)
+                    .on_click(PREVIEW_COORDINATES_ID),
                 primary_button("Move")
                     .height(34)
                     .width(88)
@@ -2040,6 +2084,96 @@ impl App {
             ])
             .id(CLOSE_JOINT_CALIBRATION_ID)
         })
+    }
+
+    fn render_coordinate_preview_modal(&self) -> Option<Item> {
+        if !self.coordinate_preview_open {
+            return None;
+        }
+
+        let current = self
+            .robot
+            .arm
+            .coords_mm()
+            .map(|(x, y, z)| format!("current TCP {x:.1}, {y:.1}, {z:.1} mm"))
+            .unwrap_or_else(|| "current TCP position unavailable".to_string());
+
+        let parsed = Self::parse_coordinate(&self.coordinate_x, "x")
+            .and_then(|x| Self::parse_coordinate(&self.coordinate_y, "y").map(|y| (x, y)))
+            .and_then(|(x, y)| Self::parse_coordinate(&self.coordinate_z, "z").map(|z| (x, y, z)));
+
+        let mut body = vec![
+            title_text("Coordinate Preview").text_align("center"),
+            label_text(&current).text_align("center").break_words(true),
+        ];
+
+        let Some((x, y, z_table)) = parsed.ok() else {
+            body.push(
+                label_text("coordinates invalid")
+                    .text_align("center")
+                    .break_words(true),
+            );
+            body.push(close_preview_button());
+            return preview_modal(body);
+        };
+
+        let z = kinematics::table_to_shoulder_z(z_table);
+        let tool_phi_rad = kinematics::ARM_TOOL_PHI_RAD;
+        let target_angles = self
+            .robot
+            .arm
+            .preview_target_angles(x, y, z, tool_phi_rad);
+
+        body.push(
+            label_text(&format!(
+                "target TCP (from coordinates) {x:.1}, {y:.1}, {z_table:.1} mm"
+            ))
+            .text_align("center")
+            .break_words(true),
+        );
+
+        if target_angles.is_none() {
+            body.push(
+                label_text("target unreachable")
+                    .text_align("center")
+                    .break_words(true),
+            );
+        }
+
+        let joints: Vec<Item> = (0..JOINT_COUNT)
+            .map(|joint| {
+                let j = &self.robot.arm.joints[joint];
+                let target_angle_rad = target_angles.map(|angles| angles[joint]);
+                let target_tick = target_angle_rad.map(|rad| j.angle_to_tick(rad));
+                let target_deg = target_angle_rad
+                    .map(|rad| kinematics::wrap_pi(rad).to_degrees() as f32);
+                subpanel(vec![
+                    title_text(ARM_JOINT_LABELS[joint]),
+                    label_text(&format!(
+                        "servo {}  speed {}  online {}  feedback {}  limit {}",
+                        j.servo_id, j.speed, j.online, j.has_feedback, j.limit_reached
+                    ))
+                    .break_words(true),
+                    label_text(&format!(
+                        "tick {}  target tick {}",
+                        opt_tick(j.tick),
+                        opt_tick(target_tick)
+                    ))
+                    .break_words(true),
+                    label_text(&format!(
+                        "angle {} deg  target {} deg",
+                        opt_deg(j.angle_deg()),
+                        opt_deg(target_deg)
+                    ))
+                    .break_words(true),
+                ])
+            })
+            .collect();
+
+        body.extend(joints);
+        body.push(close_preview_button());
+
+        preview_modal(body)
     }
 
     fn render_arm_panel(&self) -> Item {
@@ -2903,6 +3037,12 @@ impl App {
             SET_TCP_FRAME_TOOL_ID => self.set_tcp_frame(TcpFrame::Tool),
             SET_COORDINATES_CURRENT_ID => self.set_coordinates_current(),
             MOVE_TO_COORDINATES_ID => self.move_to_coordinates(),
+            PREVIEW_COORDINATES_ID => {
+                self.coordinate_preview_open = true;
+            }
+            CLOSE_COORDINATE_PREVIEW_ID => {
+                self.coordinate_preview_open = false;
+            }
             SET_COORDINATE_FRAME_BASE_ID => self.set_coordinate_frame(TcpFrame::Base),
             SET_COORDINATE_FRAME_YAW_FLAT_ID => self.set_coordinate_frame(TcpFrame::YawFlat),
             FLIP_COORDINATE_FORWARD_AXIS_ID => self.flip_coordinate_forward_axis(),

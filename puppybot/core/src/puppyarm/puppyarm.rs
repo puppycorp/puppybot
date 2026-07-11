@@ -1005,6 +1005,16 @@ impl PuppyArm {
         best.map(|(angles, _)| angles)
     }
 
+    pub fn preview_target_angles(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        tool_phi_rad: f64,
+    ) -> Option<[f64; JOINT_COUNT]> {
+        self.nearest_branch_candidate(x, y, z, tool_phi_rad, self.current_angles().ok())
+    }
+
     fn move_tcp_relative(
         &mut self,
         frame: TcpFrame,
