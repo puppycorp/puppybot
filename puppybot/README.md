@@ -56,9 +56,14 @@ Without those variables the firmware still runs, but Wi-Fi is disabled.
 When Wi-Fi is enabled and DHCP succeeds, the firmware advertises
 `PuppyBot._ws._tcp.local` on port 80 with hostname `puppybot.local`.
 The HTTP server responds on port 80, and WebSocket clients can connect to
-`ws://puppybot.local/ws`. The Rust firmware currently accepts command frames
-and replies to protocol pings; motor/arm command execution still needs the
-Rust hardware control layer.
+`ws://puppybot.local/ws`. The Rust firmware accepts the v1 command frames,
+executes PuppyArm and steering commands through the STServo bus, publishes arm
+telemetry, and replies to protocol pings. Physical rear DC motor actuation is
+not wired into the bare-metal Rust entry point yet.
+
+The Android app still contains its historical Bluetooth control mode, but the
+Rust ESP32 firmware does not provide a BLE service. Use the app's Network mode
+with the `/ws` endpoint.
 
 For a debug build:
 

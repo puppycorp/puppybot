@@ -17,7 +17,6 @@ pub const CMD_PING: u8 = 1;
 pub const CMD_DRIVE_MOTOR: u8 = 2;
 pub const CMD_STOP_MOTOR: u8 = 3;
 pub const CMD_STOP_ALL_MOTORS: u8 = 4;
-pub const CMD_APPLY_CONFIG: u8 = 6;
 pub const CMD_SMARTBUS_SCAN: u8 = 7;
 pub const CMD_SMARTBUS_SET_ID: u8 = 8;
 pub const CMD_SET_MOTOR_POLL: u8 = 9;
@@ -612,7 +611,6 @@ pub fn command_name(command: u8) -> &'static str {
         CMD_DRIVE_MOTOR => "DRIVE_MOTOR",
         CMD_STOP_MOTOR => "STOP_MOTOR",
         CMD_STOP_ALL_MOTORS => "STOP_ALL_MOTORS",
-        CMD_APPLY_CONFIG => "APPLY_CONFIG",
         CMD_SMARTBUS_SCAN => "SMARTBUS_SCAN",
         CMD_SMARTBUS_SET_ID => "SMARTBUS_SET_ID",
         CMD_SET_MOTOR_POLL => "SET_MOTOR_POLL",

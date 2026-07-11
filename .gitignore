@@ -42,18 +42,11 @@ workdir
 examples/*/target/
 build
 tests/robotdreams/target/
-managed_components
 .env
 
-lib_pickle_dir
-
 design
-node_modules
 .gradle
-esp32/.cache/
 puppybot.xml
-puppybot.dat
-puppybot.pbcl
 __pycache__/
 *.pyc
 python/STServo_Python/.DS_Store

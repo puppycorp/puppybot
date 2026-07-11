@@ -23,8 +23,12 @@ fi
 runtime_addr="127.0.0.1:18080"
 runtime_log="$(mktemp)"
 PUPPYBOT_RUNTIME_ADDR="$runtime_addr" \
-    PUPPYBOT_STSERVO_PORT="${PUPPYBOT_STSERVO_PORT-}" \
-    "${cargo_cmd[@]}" run -p puppybot-runtime >"$runtime_log" 2>&1 &
+    "${cargo_cmd[@]}" run -p puppybot-runtime -- \
+    --sim \
+    --headless \
+    --config runtime/puppybot.json \
+    --ui-bind 127.0.0.1:0 \
+    >"$runtime_log" 2>&1 &
 runtime_pid="$!"
 cleanup() {
     kill "$runtime_pid" >/dev/null 2>&1 || true

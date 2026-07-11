@@ -1,1 +1,0 @@
-repomix --ignore "deps,esp32/.cache,esp32/build" -o puppybot.xml

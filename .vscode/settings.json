@@ -1,10 +1,1 @@
-{
-	"files.associations": {
-		"stdio.h": "c"
-	},
-	"search.exclude": {
-		"deps/**": true
-	},
-	"git.repositoryScanIgnoredFolders": ["deps"],
-	"git.ignoredRepositories": ["deps/espidf", "deps/uWebSockets"]
-}
+{}
