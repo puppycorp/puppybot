@@ -1,3 +1,5 @@
+use puppybot_core::drive::DriveCommand;
+use puppybot_core::puppyarm::kinematics::tool_pitch;
 use puppybot_core::puppyarm::types::{ArmCommand, TcpFrame};
 
 use harness::{
@@ -20,7 +22,7 @@ fn assert_coordinate_forward_preserves_model_up_axis(frame: TcpFrame) {
     let start_tcp = harness.tcp_position();
 
     harness.run_arm_command(
-        ArmCommand::MoveTcpRelative {
+        ArmCommand::MoveTcp {
             frame,
             dx_mm: 10.0,
             dy_mm: 0.0,
@@ -92,7 +94,7 @@ const FORWARD: CoordinateButtonCase = CoordinateButtonCase {
     movement_axes: &[0, 1],
     stable_axes: &[2],
     button_presses: 3,
-    jog_hold_cycles: 70,
+    jog_hold_cycles: 250,
     minimum_movement_m: 0.010,
     jog_minimum_m: 0.010,
 };
@@ -105,7 +107,7 @@ const BACK: CoordinateButtonCase = CoordinateButtonCase {
     movement_axes: &[0, 1],
     stable_axes: &[2],
     button_presses: 3,
-    jog_hold_cycles: 70,
+    jog_hold_cycles: 250,
     minimum_movement_m: 0.010,
     jog_minimum_m: 0.010,
 };
@@ -118,7 +120,7 @@ const LEFT: CoordinateButtonCase = CoordinateButtonCase {
     movement_axes: &[0, 1],
     stable_axes: &[2],
     button_presses: 3,
-    jog_hold_cycles: 70,
+    jog_hold_cycles: 200,
     minimum_movement_m: 0.010,
     jog_minimum_m: 0.010,
 };
@@ -131,7 +133,7 @@ const RIGHT: CoordinateButtonCase = CoordinateButtonCase {
     movement_axes: &[0, 1],
     stable_axes: &[2],
     button_presses: 3,
-    jog_hold_cycles: 70,
+    jog_hold_cycles: 200,
     minimum_movement_m: 0.010,
     jog_minimum_m: 0.010,
 };
@@ -227,9 +229,9 @@ fn test_harness_for_coordinate_move(case: CoordinateButtonCase) -> PuppybotRobot
     if case.dx_mm == 0.0 && case.dy_mm == 0.0 && case.dz_mm < 0.0 {
         return PuppybotRobotDreamsHarness::with_arm_pose([
             0.0,
-            52.0_f64.to_radians(),
-            36.0_f64.to_radians(),
-            (-30.0_f64).to_radians(),
+            55.0_f64.to_radians(),
+            65.0_f64.to_radians(),
+            10.0_f64.to_radians(),
         ]);
     }
     test_harness()
@@ -242,15 +244,275 @@ fn test_harness() -> PuppybotRobotDreamsHarness {
 fn test_harness_with_yaw(yaw_rad: f64) -> PuppybotRobotDreamsHarness {
     PuppybotRobotDreamsHarness::with_arm_pose([
         yaw_rad,
-        90.0_f64.to_radians(),
-        90.0_f64.to_radians(),
-        90.0_f64.to_radians(),
+        55.0_f64.to_radians(),
+        65.0_f64.to_radians(),
+        10.0_f64.to_radians(),
     ])
 }
 
+fn floor_test_harness_with_yaw(yaw_rad: f64) -> PuppybotRobotDreamsHarness {
+    PuppybotRobotDreamsHarness::with_arm_pose([
+        yaw_rad,
+        (-20.0_f64).to_radians(),
+        70.0_f64.to_radians(),
+        60.0_f64.to_radians(),
+    ])
+}
+
+#[test]
+fn analytic_tcp_matches_urdf_tcp_through_arm_base_at_multiple_rover_poses() {
+    const MAX_RESIDUAL_M: f64 = 0.002;
+    let poses = [
+        [0.0, 1.2, 0.7, -0.4],
+        [0.5, 0.8, 1.4, 0.3],
+        [-0.8, 1.6, 0.4, 1.0],
+        [1.1, 1.0, 1.8, -0.7],
+    ];
+    let mut analytic_points = Vec::new();
+    let mut max_residual: f64 = 0.0;
+
+    for pose in poses {
+        let mut harness = PuppybotRobotDreamsHarness::with_arm_pose(pose);
+        harness.run_idle_cycles(4);
+        harness.run_repeated_drive_command(
+            DriveCommand::DriveSteer {
+                throttle: 45,
+                steering: 35,
+            },
+            35,
+        );
+        harness.run_drive_command(DriveCommand::Stop, 1);
+        let base = harness.base_position();
+        let base_yaw = harness.base_yaw();
+        assert!(
+            base[0].hypot(base[1]) > 0.001,
+            "rover translation must be nonzero"
+        );
+        assert!(base_yaw.abs() > 0.001, "rover yaw must be nonzero");
+
+        let telemetry = harness.arm_telemetry();
+        let analytic_angles = telemetry
+            .joints
+            .map(|joint| joint.angle_rad.expect("analytic joint feedback"));
+        harness.set_urdf_from_analytic_pose(analytic_angles);
+        let (x, y, z) = telemetry.coords_mm.expect("analytic TCP");
+        let analytic_m = [
+            f64::from(x) * 0.001,
+            f64::from(y) * 0.001,
+            f64::from(z) * 0.001,
+        ];
+        let expected_world = harness
+            .frame_world_transform("armBase")
+            .transform_point(analytic_m);
+        let urdf_world = harness.tcp_position();
+        max_residual = max_residual.max(distance(expected_world, urdf_world));
+        analytic_points.push(analytic_m);
+    }
+
+    let first = vector_between(analytic_points[0], analytic_points[1]);
+    let second = vector_between(analytic_points[0], analytic_points[2]);
+    assert!(
+        vector_length(cross_product(first, second)) > 1.0e-4,
+        "fit poses must be non-collinear"
+    );
+    assert!(
+        max_residual <= MAX_RESIDUAL_M,
+        "armBase rigid transform residual exceeds tolerance: max_residual_mm={:.3}",
+        max_residual * 1000.0,
+    );
+}
+
+#[test]
+fn serialized_puppybot_commands_match_urdf_tcp_after_rover_motion() {
+    const MAX_RESIDUAL_M: f64 = 0.002;
+    const MAX_SETTLE_CYCLES: usize = 1_200;
+    let poses = [
+        [
+            0.20,
+            55.0_f64.to_radians(),
+            65.0_f64.to_radians(),
+            10.0_f64.to_radians(),
+        ],
+        [
+            -0.55,
+            62.0_f64.to_radians(),
+            82.0_f64.to_radians(),
+            35.0_f64.to_radians(),
+        ],
+        [
+            0.85,
+            50.0_f64.to_radians(),
+            95.0_f64.to_radians(),
+            -5.0_f64.to_radians(),
+        ],
+    ];
+    let mut harness = PuppybotRobotDreamsHarness::with_arm_pose([
+        0.0,
+        55.0_f64.to_radians(),
+        65.0_f64.to_radians(),
+        10.0_f64.to_radians(),
+    ]);
+    harness.run_repeated_drive_command(
+        DriveCommand::DriveSteer {
+            throttle: 45,
+            steering: 35,
+        },
+        35,
+    );
+    harness.run_drive_command(DriveCommand::Stop, 1);
+    let base = harness.base_position();
+    assert!(
+        base[0].hypot(base[1]) > 0.001,
+        "rover translation must be nonzero"
+    );
+    assert!(
+        harness.base_yaw().abs() > 0.001,
+        "rover yaw must be nonzero"
+    );
+
+    let mut analytic_points = Vec::new();
+    let mut max_residual: f64 = 0.0;
+    for pose in poses {
+        harness.clear_bus_events();
+        harness.run_arm_command_until_settled(ArmCommand::GotoAngles(pose), MAX_SETTLE_CYCLES);
+        harness.assert_no_bus_errors();
+        let events = harness.bus_events();
+        assert!(
+            events.iter().any(|event| {
+                event.instruction == "write"
+                    && event.id.is_some_and(|id| (1..=4).contains(&id))
+                    && event.responded
+            }),
+            "arm pose must pass through responded serialized servo writes: {events:?}"
+        );
+
+        let telemetry = harness.arm_telemetry();
+        let (x, y, z) = telemetry.coords_mm.expect("settled controller TCP");
+        let analytic_m = [
+            f64::from(x) * 0.001,
+            f64::from(y) * 0.001,
+            f64::from(z) * 0.001,
+        ];
+        let transformed_current = harness
+            .frame_world_transform("armBase")
+            .transform_point(analytic_m);
+        let cyan_urdf_tcp = harness.tcp_position();
+        max_residual = max_residual.max(distance(transformed_current, cyan_urdf_tcp));
+        analytic_points.push(analytic_m);
+    }
+
+    let first = vector_between(analytic_points[0], analytic_points[1]);
+    let second = vector_between(analytic_points[0], analytic_points[2]);
+    assert!(
+        vector_length(cross_product(first, second)) > 1.0e-4,
+        "settled live-path poses must be non-collinear"
+    );
+    assert!(
+        max_residual <= MAX_RESIDUAL_M,
+        "serialized Puppybot -> virtual bus -> RobotDreams TCP residual exceeds tolerance: max_residual_mm={:.3}",
+        max_residual * 1000.0,
+    );
+}
+
+#[test]
+fn current_and_hold_targets_match_transformed_current_and_urdf_tcp() {
+    const MAX_TCP_DRIFT_M: f64 = 0.002;
+    let mut harness = PuppybotRobotDreamsHarness::with_arm_pose([
+        0.0,
+        55.0_f64.to_radians(),
+        65.0_f64.to_radians(),
+        10.0_f64.to_radians(),
+    ]);
+    harness.run_idle_cycles(8);
+    harness.run_repeated_drive_command(
+        DriveCommand::DriveSteer {
+            throttle: 40,
+            steering: 30,
+        },
+        30,
+    );
+    harness.run_drive_command(DriveCommand::Stop, 1);
+    let base = harness.base_position();
+    assert!(
+        base[0].hypot(base[1]) > 0.001,
+        "rover translation must be nonzero"
+    );
+    assert!(
+        harness.base_yaw().abs() > 0.001,
+        "rover yaw must be nonzero"
+    );
+    let before = harness.tcp_position();
+    let telemetry = harness.arm_telemetry();
+    let (x, y, z) = telemetry.coords_mm.expect("current analytic TCP");
+    let angles = telemetry
+        .joints
+        .map(|joint| joint.angle_rad.expect("current analytic joint angle"));
+    let tool_phi_rad = tool_pitch(angles[1], angles[2], angles[3]);
+    let world_from_arm_base = harness.frame_world_transform("armBase");
+    let transformed_current = world_from_arm_base.transform_point([
+        f64::from(x) * 0.001,
+        f64::from(y) * 0.001,
+        f64::from(z) * 0.001,
+    ]);
+    assert!(
+        distance(transformed_current, before) <= MAX_TCP_DRIFT_M,
+        "transformed controller current disagrees with cyan URDF TCP: transformed={transformed_current:?} urdf={before:?} residual_mm={:.3}",
+        distance(transformed_current, before) * 1000.0,
+    );
+
+    harness.run_arm_command(ArmCommand::Hold, 1);
+    let hold = harness.arm_telemetry();
+    let hold_target = hold
+        .effective_target_coords_mm
+        .expect("Hold effective analytic target");
+    let transformed_hold_target = world_from_arm_base.transform_point([
+        f64::from(hold_target.0) * 0.001,
+        f64::from(hold_target.1) * 0.001,
+        f64::from(hold_target.2) * 0.001,
+    ]);
+    assert!(
+        distance(transformed_hold_target, harness.tcp_position()) <= MAX_TCP_DRIFT_M,
+        "transformed Hold target disagrees with cyan URDF TCP: transformed={transformed_hold_target:?} urdf={:?} residual_mm={:.3}",
+        harness.tcp_position(),
+        distance(transformed_hold_target, harness.tcp_position()) * 1000.0,
+    );
+
+    harness.run_arm_command(
+        ArmCommand::GotoCoords {
+            x: f64::from(x),
+            y: f64::from(y),
+            z: f64::from(z),
+            tool_phi_rad,
+        },
+        160,
+    );
+
+    let after = harness.tcp_position();
+    assert!(
+        distance(before, after) <= MAX_TCP_DRIFT_M,
+        "Current -> Move changed URDF TCP: before={before:?} after={after:?} drift_mm={:.3}",
+        distance(before, after) * 1000.0,
+    );
+}
+
+fn vector_between(from: [f64; 3], to: [f64; 3]) -> [f64; 3] {
+    [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+}
+
+fn cross_product(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+}
+
+fn vector_length(value: [f64; 3]) -> f64 {
+    (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt()
+}
+
 fn assert_angle_equivalent_rad(actual: f64, expected: f64, tolerance: f64, label: &str) {
-    let error = (actual - expected + std::f64::consts::PI)
-        .rem_euclid(std::f64::consts::TAU)
+    let error = (actual - expected + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
         - std::f64::consts::PI;
     assert!(
         error.abs() <= tolerance,
@@ -259,7 +521,7 @@ fn assert_angle_equivalent_rad(actual: f64, expected: f64, tolerance: f64, label
 }
 
 fn coordinate_move(frame: TcpFrame, case: CoordinateButtonCase) -> ArmCommand {
-    ArmCommand::MoveTcpRelative {
+    ArmCommand::MoveTcp {
         frame,
         dx_mm: case.dx_mm,
         dy_mm: case.dy_mm,
@@ -275,7 +537,6 @@ fn coordinate_jog(frame: TcpFrame, case: CoordinateButtonCase) -> ArmCommand {
             axis_sign(case.dy_mm),
             axis_sign(case.dz_mm),
         ],
-        speed_mm_s: 20.0,
     }
 }
 
@@ -290,6 +551,7 @@ fn assert_coordinate_jog_preserves_other_axes(frame: TcpFrame, case: CoordinateB
 
     let mut harness = test_harness();
     let start_tcp = harness.tcp_position();
+    harness.run_arm_command(ArmCommand::SetSpeed(20), 1);
     let mut samples = harness.run_arm_command_sampled(
         coordinate_jog(frame, case),
         case.jog_hold_cycles,
@@ -362,6 +624,7 @@ fn assert_vertical_coordinate_jog_changes_z(frame: TcpFrame, case: CoordinateBut
 
     let mut harness = test_harness();
     let start_tcp = harness.tcp_position();
+    harness.run_arm_command(ArmCommand::SetSpeed(20), 1);
     let samples = harness.run_arm_command_sampled(
         coordinate_jog(frame, case),
         HOLD_CYCLES,
@@ -409,7 +672,7 @@ fn assert_vertical_coordinate_jog_changes_z(frame: TcpFrame, case: CoordinateBut
 }
 
 fn assert_down_jog_reaches_floor_threshold(frame: TcpFrame) {
-    let mut harness = test_harness();
+    let mut harness = floor_test_harness_with_yaw(0.0);
     assert_down_jog_reaches_floor_threshold_with_harness(frame, "default", &mut harness);
 }
 
@@ -420,15 +683,15 @@ fn assert_down_jog_reaches_floor_threshold_with_harness(
 ) -> [f64; 3] {
     const HOLD_CYCLES: usize = 500;
     const SAMPLE_EVERY_CYCLES: usize = 10;
-    const JOG_SPEED_MM_S: f64 = 120.0;
+    const JOG_SPEED_MM_S: i16 = 120;
 
     let start_tcp = harness.tcp_position();
+    harness.run_arm_command(ArmCommand::SetSpeed(JOG_SPEED_MM_S), 1);
     let samples = harness
         .try_run_arm_command_sampled(
             ArmCommand::StartTcpJog {
                 frame,
                 direction: [0.0, 0.0, -1.0],
-                speed_mm_s: JOG_SPEED_MM_S,
             },
             HOLD_CYCLES,
             SAMPLE_EVERY_CYCLES,
@@ -480,14 +743,14 @@ fn assert_up_jog_reaches_body_clearance_with_harness(
 ) -> [f64; 3] {
     const HOLD_CYCLES: usize = 300;
     const SAMPLE_EVERY_CYCLES: usize = 10;
-    const JOG_SPEED_MM_S: f64 = 120.0;
+    const JOG_SPEED_MM_S: i16 = 120;
 
     let start_tcp = harness.tcp_position();
+    harness.run_arm_command(ArmCommand::SetSpeed(JOG_SPEED_MM_S), 1);
     let samples = harness.run_arm_command_sampled(
         ArmCommand::StartTcpJog {
             frame,
             direction: [0.0, 0.0, 1.0],
-            speed_mm_s: JOG_SPEED_MM_S,
         },
         HOLD_CYCLES,
         SAMPLE_EVERY_CYCLES,
@@ -521,7 +784,7 @@ fn assert_up_jog_reaches_body_clearance_with_harness(
 
 fn assert_floor_and_body_clearance_in_cardinal_directions(frame: TcpFrame) {
     for direction in CARDINAL_WORKSPACE_DIRECTIONS {
-        let mut floor_harness = test_harness_with_yaw(direction.yaw_rad);
+        let mut floor_harness = floor_test_harness_with_yaw(direction.yaw_rad);
         assert_down_jog_reaches_floor_threshold_with_harness(
             frame,
             direction.name,
@@ -610,7 +873,7 @@ fn yaw_flat_move_forward_once_z_no_change() {
 }
 
 #[test]
-fn puppybot_runtime_ninety_pose_maps_to_robotdreams_reference_pose() {
+fn puppybot_runtime_ninety_pose_maps_through_analytic_model_contract() {
     let harness = PuppybotRobotDreamsHarness::with_arm_pose([
         std::f64::consts::FRAC_PI_2,
         std::f64::consts::FRAC_PI_2,
@@ -620,20 +883,25 @@ fn puppybot_runtime_ninety_pose_maps_to_robotdreams_reference_pose() {
 
     assert_angle_equivalent_rad(
         harness.joint_position_rad("yaw"),
-        std::f64::consts::PI,
+        std::f64::consts::FRAC_PI_2,
         0.005,
         "yaw",
     );
-    assert_angle_equivalent_rad(harness.joint_position_rad("shoulder"), 0.0, 0.005, "shoulder");
+    assert_angle_equivalent_rad(
+        harness.joint_position_rad("shoulder"),
+        -0.0089501963813258,
+        0.005,
+        "shoulder",
+    );
     assert_angle_equivalent_rad(
         harness.joint_position_rad("elbow"),
-        std::f64::consts::FRAC_PI_2,
+        -3.1826878522682254,
         0.005,
         "elbow",
     );
     assert_angle_equivalent_rad(
         harness.joint_position_rad("wrist"),
-        std::f64::consts::PI,
+        -3.2412117779955514,
         0.005,
         "wrist",
     );

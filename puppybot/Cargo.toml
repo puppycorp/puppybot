@@ -11,6 +11,21 @@ debug-assertions = true
 lto = "fat"
 codegen-units = 1
 
+[profile.perf]
+inherits = "release"
+opt-level = 3
+debug = "line-tables-only"
+debug-assertions = false
+lto = "thin"
+codegen-units = 16
+
 [profile.dev]
 debug = true
 opt-level = "z"
+
+[patch."https://github.com/puppycorp/pge.git"]
+pge-app = { path = "../../pge/pge-app" }
+pge-core = { path = "../../pge/pge-core" }
+pge-physics = { path = "../../pge/pge-physics" }
+pge-renderer = { path = "../../pge/pge-renderer" }
+pge-wgpu-renderer = { path = "../../pge/pge-wgpu-renderer" }

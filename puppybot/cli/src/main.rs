@@ -7,7 +7,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use client::{ArmState, RuntimeClient, RuntimeFrame};
 use puppybot_core::protocol::{
     CMD_ARM_CLEAR_FAULTS, CMD_ARM_GOTO_ANGLES, CMD_ARM_GOTO_COORDS, CMD_ARM_GOTO_TICKS,
-    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_MOVE_RELATIVE, CMD_ARM_SET_JOINT_TICK,
+    CMD_ARM_HOLD, CMD_ARM_JOG, CMD_ARM_MOVE_RELATIVE, CMD_ARM_SET_JOINT_TICK, CMD_ARM_SET_SPEED,
     CMD_ARM_START_TCP_JOG, CMD_ARM_STOP, CMD_ARM_STOP_JOINT, CMD_ARM_STOP_TCP_JOG, CMD_CONFIG_GET,
     CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_PING, CMD_SERVO_SET, CMD_STOP_DRIVE, CONFIG_VERSION,
     RobotConfig,
@@ -136,6 +136,7 @@ struct GotoCoordsArgs {
     x: f32,
     y: f32,
     z: f32,
+    tool_phi_deg: f32,
 
     #[arg(long, default_value_t = 300)]
     speed: u16,
@@ -191,8 +192,8 @@ struct TcpJogStartArgs {
     #[arg(long, default_value_t = 0.0)]
     back: f32,
 
-    #[arg(long, default_value_t = 20.0)]
-    speed_mm_s: f32,
+    #[arg(long, default_value_t = 300)]
+    speed: u16,
 
     #[arg(long)]
     duration_ms: Option<u64>,
@@ -302,16 +303,12 @@ fn tcp_jog_body(args: &TcpJogStartArgs) -> Result<Vec<u8>> {
     if dx == 0.0 && dy == 0.0 && dz == 0.0 {
         bail!("tcp jog direction must not be zero");
     }
-    if !args.speed_mm_s.is_finite() || args.speed_mm_s <= 0.0 {
-        bail!("--speed-mm-s must be positive and finite");
-    }
-
     let mut body = Vec::new();
     body.push(tcp_frame_id(args.frame));
     push_f32_le(&mut body, dx);
     push_f32_le(&mut body, dy);
     push_f32_le(&mut body, dz);
-    push_f32_le(&mut body, args.speed_mm_s);
+    push_f32_le(&mut body, args.speed as f32);
     Ok(body)
 }
 
@@ -440,7 +437,7 @@ mod tests {
             right: 0.0,
             forward: 0.0,
             back: 0.0,
-            speed_mm_s: 20.0,
+            speed: 300,
             duration_ms: None,
         }
     }
@@ -501,28 +498,23 @@ mod tests {
     }
 
     #[test]
-    fn tcp_jog_body_encodes_direction_and_speed() {
+    fn tcp_jog_body_encodes_direction_and_legacy_speed() {
         let mut args = tcp_jog_args(TcpFrameArg::YawFlat);
         args.forward = 1.0;
         args.left = 0.5;
-        args.speed_mm_s = 42.5;
+        args.speed = 425;
         let body = tcp_jog_body(&args).unwrap();
 
         assert_eq!(body[0], 2);
         assert_eq!(f32::from_le_bytes(body[1..5].try_into().unwrap()), 1.0);
         assert_eq!(f32::from_le_bytes(body[5..9].try_into().unwrap()), 0.5);
         assert_eq!(f32::from_le_bytes(body[9..13].try_into().unwrap()), 0.0);
-        assert_eq!(f32::from_le_bytes(body[13..17].try_into().unwrap()), 42.5);
+        assert_eq!(f32::from_le_bytes(body[13..17].try_into().unwrap()), 425.0);
     }
 
     #[test]
-    fn tcp_jog_body_rejects_zero_direction_and_invalid_speed() {
+    fn tcp_jog_body_rejects_zero_direction() {
         let args = tcp_jog_args(TcpFrameArg::Base);
-        assert!(tcp_jog_body(&args).is_err());
-
-        let mut args = tcp_jog_args(TcpFrameArg::Base);
-        args.forward = 1.0;
-        args.speed_mm_s = 0.0;
         assert!(tcp_jog_body(&args).is_err());
     }
 }
@@ -625,6 +617,7 @@ async fn main() -> Result<()> {
             push_f32_le(&mut body, args.x);
             push_f32_le(&mut body, args.y);
             push_f32_le(&mut body, args.z);
+            push_f32_le(&mut body, args.tool_phi_deg);
             send_arm_command(&mut client, CMD_ARM_GOTO_COORDS, &body, "arm goto coords").await?;
         }
         Command::Arm(ArmCommand::MoveTcp(args)) => {
@@ -633,6 +626,9 @@ async fn main() -> Result<()> {
         }
         Command::Arm(ArmCommand::TcpJog(TcpJogCommand::Start(args))) => {
             let duration_ms = args.duration_ms;
+            let mut speed_body = Vec::new();
+            push_u16_le(&mut speed_body, args.speed);
+            send_arm_command(&mut client, CMD_ARM_SET_SPEED, &speed_body, "arm set speed").await?;
             let body = tcp_jog_body(&args)?;
             send_arm_command(
                 &mut client,

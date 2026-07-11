@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use app::{App, AppOptions};
 
@@ -6,14 +6,18 @@ mod app;
 mod config;
 mod dc_motor_driver;
 mod env;
+mod http;
 mod mdns;
+mod sim;
 mod stservo;
-mod ws;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct RuntimeArgs {
     config: Option<String>,
     servo_device: Option<String>,
+    simulated: bool,
+    headless: bool,
+    robotdreams_project: Option<String>,
     ui_bind: Option<String>,
 }
 
@@ -24,7 +28,7 @@ enum RuntimeCli {
 }
 
 fn runtime_usage() -> &'static str {
-    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --config <PATH>        Load runtime config JSON, default ./puppybot.json\n  --servo-device <PATH>  Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --ui-bind <ADDR>       Bind the WGUI dashboard, default 127.0.0.1:8081\n  -h, --help             Show this help text"
+    "Usage: puppybot-runtime [OPTIONS]\n\nOptions:\n  --config <PATH>               Load runtime config JSON, default ./puppybot.json\n  --servo-device <PATH>         Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --sim                         Run with in-process RobotDreams simulation and PGE preview\n  --headless                    Run --sim without a PGE preview window\n  --robotdreams-project <PATH>  RobotDreams project for --sim, default ../../robotdreams/project.json\n  --ui-bind <ADDR>              Bind the WGUI dashboard, default 127.0.0.1:8081\n  -h, --help                    Show this help text"
 }
 
 fn parse_runtime_args<I, S>(args: I) -> Result<RuntimeCli, String>
@@ -38,6 +42,12 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(RuntimeCli::Help),
+            "--sim" => {
+                parsed.simulated = true;
+            }
+            "--headless" => {
+                parsed.headless = true;
+            }
             "--config" => {
                 let Some(path) = args.next() else {
                     return Err("--config requires a path".to_string());
@@ -68,6 +78,16 @@ where
                 }
                 parsed.ui_bind = Some(bind.to_string());
             }
+            "--robotdreams-project" => {
+                let Some(path) = args.next() else {
+                    return Err("--robotdreams-project requires a path".to_string());
+                };
+                let path = path.trim();
+                if path.is_empty() {
+                    return Err("--robotdreams-project requires a non-empty path".to_string());
+                }
+                parsed.robotdreams_project = Some(path.to_string());
+            }
             _ => {
                 if let Some(path) = arg.strip_prefix("--config=") {
                     let path = path.trim();
@@ -87,11 +107,21 @@ where
                         return Err("--ui-bind requires a non-empty host:port".to_string());
                     }
                     parsed.ui_bind = Some(bind.to_string());
+                } else if let Some(path) = arg.strip_prefix("--robotdreams-project=") {
+                    let path = path.trim();
+                    if path.is_empty() {
+                        return Err("--robotdreams-project requires a non-empty path".to_string());
+                    }
+                    parsed.robotdreams_project = Some(path.to_string());
                 } else {
                     return Err(format!("unknown option: {arg}"));
                 }
             }
         }
+    }
+
+    if parsed.headless && !parsed.simulated {
+        return Err("--headless requires --sim".to_string());
     }
 
     Ok(RuntimeCli::Run(parsed))
@@ -137,6 +167,8 @@ async fn main() {
     let options = AppOptions {
         config: args.config,
         servo_device: args.servo_device,
+        simulated: args.simulated,
+        robotdreams_project: args.robotdreams_project.map(PathBuf::from),
         ui_bind,
         ws_bind: None,
     };
@@ -148,6 +180,35 @@ async fn main() {
             std::process::exit(2);
         }
     };
+
+    if !args.headless {
+        if let Some(preview) = app.simulated_preview() {
+            let _app_thread = std::thread::spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(err) => {
+                        eprintln!("failed to start PuppyBot runtime worker: {err}");
+                        std::process::exit(1);
+                    }
+                };
+
+                if let Err(err) = runtime.block_on(app.run()) {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+                std::process::exit(0);
+            });
+
+            if let Err(err) = preview.run_blocking() {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+            std::process::exit(0);
+        }
+    }
 
     if let Err(err) = app.run().await {
         eprintln!("{err}");
@@ -177,7 +238,40 @@ mod tests {
             Ok(RuntimeCli::Run(RuntimeArgs {
                 config: Some("custom.json".to_string()),
                 servo_device: Some("/dev/ttyUSB0".to_string()),
+                simulated: false,
+                headless: false,
+                robotdreams_project: None,
                 ui_bind: Some("127.0.0.1:9000".to_string()),
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_simulation_options() {
+        assert_eq!(
+            parse_runtime_args(["--sim", "--robotdreams-project=robotdreams/project.json"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
+                servo_device: None,
+                simulated: true,
+                headless: false,
+                robotdreams_project: Some("robotdreams/project.json".to_string()),
+                ui_bind: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn runtime_args_accept_headless_simulation() {
+        assert_eq!(
+            parse_runtime_args(["--sim", "--headless"]),
+            Ok(RuntimeCli::Run(RuntimeArgs {
+                config: None,
+                servo_device: None,
+                simulated: true,
+                headless: true,
+                robotdreams_project: None,
+                ui_bind: None,
             }))
         );
     }
@@ -191,6 +285,14 @@ mod tests {
         assert_eq!(
             parse_runtime_args(["--config="]),
             Err("--config requires a non-empty path".to_string())
+        );
+        assert_eq!(
+            parse_runtime_args(["--robotdreams-project"]),
+            Err("--robotdreams-project requires a path".to_string())
+        );
+        assert_eq!(
+            parse_runtime_args(["--headless"]),
+            Err("--headless requires --sim".to_string())
         );
     }
 }

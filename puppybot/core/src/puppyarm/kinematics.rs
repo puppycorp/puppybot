@@ -1,13 +1,14 @@
 use core::f64::consts::PI;
 
-pub const ARM_L1_MM: f64 = 147.75108525844107;
-pub const ARM_L2_MM: f64 = 153.82056899073126;
-pub const ARM_L3_MM: f64 = 53.09036380503875;
+pub const ARM_L1_MM: f64 = 149.00090135823393;
+pub const ARM_L2_MM: f64 = 155.00027915891692;
+pub const ARM_L3_MM: f64 = 53.49874360630071;
 pub const ARM_TOOL_PHI_RAD: f64 = -PI / 2.0;
 pub const Z_ORIGIN_MM: f64 = 0.0;
 
-const ARM_BASE_R_MM: f64 = 34.66365061672025;
-const ARM_BASE_Z_MM: f64 = 78.92044218483846;
+pub(crate) const ARM_YAW_TO_SHOULDER_X_MM: f64 = 0.0007026911535341386;
+pub(crate) const ARM_YAW_TO_SHOULDER_Y_MM: f64 = -19.150050229126062;
+pub(crate) const ARM_YAW_TO_SHOULDER_Z_MM: f64 = 20.00000056097148;
 const ARM_L1_PHASE_RAD: f64 = -0.04455098757637516;
 const ARM_L2_PHASE_RAD: f64 = 2.3049867004356583;
 const ARM_L3_PHASE_RAD: f64 = -1.2793333267189992;
@@ -58,43 +59,51 @@ pub fn tooltip_target_to_wrist_target(
 ) -> (f64, f64, f64) {
     let radial_backoff = ARM_L3_MM * libm::cos(tool_phi_rad);
     let vertical_backoff = ARM_L3_MM * libm::sin(tool_phi_rad);
-    let r_xy = libm::sqrt(x * x + y * y);
+    let radial =
+        libm::sqrt((x * x + y * y - ARM_YAW_TO_SHOULDER_Y_MM * ARM_YAW_TO_SHOULDER_Y_MM).max(0.0));
+    let yaw = libm::atan2(y, x) - libm::atan2(ARM_YAW_TO_SHOULDER_Y_MM, radial);
+    let wrist_x = x - radial_backoff * libm::cos(yaw);
+    let wrist_y = y - radial_backoff * libm::sin(yaw);
 
-    let (wrist_x, wrist_y) = if r_xy < 1.0e-9 || radial_backoff.abs() < 1.0e-9 {
-        (x, y)
-    } else {
-        let ux = x / r_xy;
-        let uy = y / r_xy;
-        (x - radial_backoff * ux, y - radial_backoff * uy)
-    };
-
-    (wrist_x, wrist_y, z - ARM_BASE_Z_MM - vertical_backoff)
+    (
+        wrist_x,
+        wrist_y,
+        z - ARM_YAW_TO_SHOULDER_Z_MM - vertical_backoff,
+    )
 }
 
-pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult {
-    let (yaw, r_xy) = if x * x + y * y < NEAR_ZERO_XY {
-        (0.0, 0.0)
+fn ik_branch(
+    x: f64,
+    y: f64,
+    z: f64,
+    tool_phi_rad: f64,
+    radial_sign: f64,
+    elbow_sign: f64,
+) -> IkResult {
+    let radius_squared = x * x + y * y;
+    let lateral_squared = ARM_YAW_TO_SHOULDER_Y_MM * ARM_YAW_TO_SHOULDER_Y_MM;
+    let radial = radial_sign * libm::sqrt((radius_squared - lateral_squared).max(0.0));
+    let yaw = if radius_squared < NEAR_ZERO_XY {
+        0.0
     } else {
-        (libm::atan2(y, x), libm::sqrt(x * x + y * y))
+        libm::atan2(y, x) - libm::atan2(ARM_YAW_TO_SHOULDER_Y_MM, radial)
     };
-
-    let (wrist_x, wrist_y, zw) = tooltip_target_to_wrist_target(x, y, z, tool_phi_rad);
-    let rw = if x * x + y * y < NEAR_ZERO_XY {
-        r_xy - ARM_BASE_R_MM
-    } else {
-        libm::sqrt(wrist_x * wrist_x + wrist_y * wrist_y) - ARM_BASE_R_MM
-    };
+    let radial_backoff = ARM_L3_MM * libm::cos(tool_phi_rad);
+    let vertical_backoff = ARM_L3_MM * libm::sin(tool_phi_rad);
+    let rw = radial - ARM_YAW_TO_SHOULDER_X_MM - radial_backoff;
+    let zw = z - ARM_YAW_TO_SHOULDER_Z_MM - vertical_backoff;
     let d2 = rw * rw + zw * zw;
     let cos_q2 =
         (d2 - ARM_L1_MM * ARM_L1_MM - ARM_L2_MM * ARM_L2_MM) / (2.0 * ARM_L1_MM * ARM_L2_MM);
-    let reachable = (-1.0..=1.0).contains(&cos_q2);
+    let reachable = radius_squared >= lateral_squared && (-1.0..=1.0).contains(&cos_q2);
     let cos_q2 = clamp(cos_q2, -1.0, 1.0);
 
     let link_delta = libm::acos(cos_q2);
-    let k1 = ARM_L1_MM + ARM_L2_MM * libm::cos(link_delta);
-    let k2 = ARM_L2_MM * libm::sin(link_delta);
+    let signed_delta = elbow_sign * link_delta;
+    let k1 = ARM_L1_MM + ARM_L2_MM * libm::cos(signed_delta);
+    let k2 = ARM_L2_MM * libm::sin(signed_delta);
     let link1_angle = libm::atan2(zw, rw) - libm::atan2(k2, k1);
-    let link2_angle = link1_angle + link_delta;
+    let link2_angle = link1_angle + signed_delta;
     let shoulder = link1_angle - ARM_L1_PHASE_RAD;
     let elbow = shoulder + ARM_L2_PHASE_RAD - link2_angle;
     let wrist = solve_tip_angle_down(shoulder, elbow, tool_phi_rad);
@@ -108,6 +117,19 @@ pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult
     }
 }
 
+pub fn ik_with_tool_pitch(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> IkResult {
+    ik_branch(x, y, z, tool_phi_rad, 1.0, 1.0)
+}
+
+pub fn ik_with_tool_pitch_branches(x: f64, y: f64, z: f64, tool_phi_rad: f64) -> [IkResult; 4] {
+    [
+        ik_branch(x, y, z, tool_phi_rad, 1.0, 1.0),
+        ik_branch(x, y, z, tool_phi_rad, 1.0, -1.0),
+        ik_branch(x, y, z, tool_phi_rad, -1.0, 1.0),
+        ik_branch(x, y, z, tool_phi_rad, -1.0, -1.0),
+    ]
+}
+
 pub fn ik(x: f64, y: f64, z: f64) -> IkResult {
     ik_with_tool_pitch(x, y, z, ARM_TOOL_PHI_RAD)
 }
@@ -116,13 +138,13 @@ pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
     let link1_pitch = shoulder + ARM_L1_PHASE_RAD;
     let link2_pitch = shoulder - elbow + ARM_L2_PHASE_RAD;
     let tool_pitch = shoulder - elbow + wrist + ARM_L3_PHASE_RAD;
-    let r = ARM_BASE_R_MM
+    let radial = ARM_YAW_TO_SHOULDER_X_MM
         + ARM_L1_MM * libm::cos(link1_pitch)
         + ARM_L2_MM * libm::cos(link2_pitch)
         + ARM_L3_MM * libm::cos(tool_pitch);
-    let x = r * libm::cos(yaw);
-    let y = r * libm::sin(yaw);
-    let z = ARM_BASE_Z_MM
+    let x = radial * libm::cos(yaw) - ARM_YAW_TO_SHOULDER_Y_MM * libm::sin(yaw);
+    let y = radial * libm::sin(yaw) + ARM_YAW_TO_SHOULDER_Y_MM * libm::cos(yaw);
+    let z = ARM_YAW_TO_SHOULDER_Z_MM
         + ARM_L1_MM * libm::sin(link1_pitch)
         + ARM_L2_MM * libm::sin(link2_pitch)
         + ARM_L3_MM * libm::sin(tool_pitch);

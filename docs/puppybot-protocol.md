@@ -27,13 +27,14 @@ Binary server messages use this frame:
 | `0x04` | `STOP_ALL_MOTORS` | empty |
 | `0x0D` | `ARM_JOG` | `joint:u8`, `direction:i8`, `speed:u16le` |
 | `0x0E` | `ARM_STOP_JOINT` | `joint:u8` |
+| `0x12` | `ARM_GOTO_COORDS` | `speed:u16le`, `x:f32le`, `y:f32le`, `z:f32le`, `tool_phi_deg:f32le` |
 | `0x17` | `ARM_MOVE_RELATIVE` | `speed:u16le`, `frame:u8`, `dx_mm:f32le`, `dy_mm:f32le`, `dz_mm:f32le` |
 | `0x19` | `CONFIG_GET` | empty |
 | `0x1A` | `CONFIG_SET` | `version:u8`, `steering_servo_id:u8`, `arm_servo_ids:[u8;4]` |
 | `0x1B` | `DRIVE_STEER` | `throttle:i8`, `steering:i8`, each `-100..100` |
 | `0x1C` | `STOP_DRIVE` | empty |
 | `0x1D` | `ARM_JOINT` | `joint:u8`, `angle_deg:i16le`, `speed:u16le` |
-| `0x1E` | `ARM_POSE` | `x:f32le`, `y:f32le`, `z:f32le`, `wrist_deg:f32le`, `speed:u16le` |
+| `0x1E` | `ARM_POSE` | legacy `ARM_GOTO_COORDS` payload: `x:f32le`, `y:f32le`, `z:f32le`, `wrist_deg:f32le`, `speed:u16le` |
 | `0x1F` | `ARM_STOP` | empty |
 | `0x20` | `SERVO_SET` | `servo_id:u8`, `angle_deg:u16le`, `duration_ms:u16le` |
 | `0x21` | `SUBSCRIBE` | `topic:u8`, `enabled:u8`; topic `0x01` is arm state |

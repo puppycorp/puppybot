@@ -15,8 +15,8 @@ use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT, P
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
 use puppybot_core::stservo::mock::block_on_ready;
 use puppybot_core::stservo::{SerialBus, StServo};
-use robotdreams_core::RobotDreams;
 use robotdreams_core::project::load_model_profile;
+use robotdreams_core::{RigidTransform, RobotDreams};
 use serde_json::Value;
 
 pub const MODEL_UP_TOLERANCE_M: f64 = 0.0015;
@@ -170,6 +170,32 @@ impl PuppybotRobotDreamsHarness {
         let _ = self.run_arm_command_sampled(command, cycles, 0);
     }
 
+    pub fn run_arm_command_until_settled(
+        &mut self,
+        command: ArmCommand,
+        max_cycles: usize,
+    ) -> usize {
+        self.prime_feedback();
+        let mut event = Some(ProtocolEvent::Arm(command));
+        let mut saw_target = false;
+        for cycle in 1..=max_cycles {
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || event.take()));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            let telemetry = self.arm_telemetry();
+            let has_target = telemetry
+                .joints
+                .iter()
+                .any(|joint| joint.target_tick.is_some());
+            saw_target |= has_target;
+            if saw_target && !has_target {
+                self.advance_robotdreams();
+                return cycle;
+            }
+        }
+        panic!("arm command did not settle within {max_cycles} cycles: {command:?}");
+    }
+
     pub fn run_arm_command_sampled(
         &mut self,
         command: ArmCommand,
@@ -252,6 +278,43 @@ impl PuppybotRobotDreamsHarness {
             .base
             .rotation
             .expect("puppybot base rotation")[2]
+    }
+
+    pub fn frame_world_transform(&self, frame: &str) -> RigidTransform {
+        self.state
+            .borrow()
+            .dreams
+            .frame_state("puppybot", frame)
+            .unwrap_or_else(|| panic!("PuppyBot frame {frame}"))
+            .world_transform
+    }
+
+    pub fn set_urdf_from_analytic_pose(&mut self, angles_rad: [f64; JOINT_COUNT]) {
+        let contents =
+            fs::read_to_string(model_profile_path()).expect("read PuppyBot model profile");
+        let profile: Value = serde_json::from_str(&contents).expect("parse PuppyBot model profile");
+        assert_eq!(
+            path_value(&profile, &["analyticToUrdf", "unit"]).as_str(),
+            Some("rad")
+        );
+        for (semantic, angle_rad) in ["yaw", "shoulder", "elbow", "wrist"]
+            .into_iter()
+            .zip(angles_rad)
+        {
+            let mapping = path_value(&profile, &["analyticToUrdf", "joints", semantic]);
+            let joint = path_value(mapping, &["joint"])
+                .as_str()
+                .expect("analyticToUrdf joint name");
+            let urdf_angle =
+                angle_rad * f64_value(mapping, &["scale"]) + f64_value(mapping, &["offset"]);
+            self.state
+                .borrow_mut()
+                .dreams
+                .set_joint_angle(joint, urdf_angle)
+                .unwrap_or_else(|error| {
+                    panic!("set analytic {semantic} on URDF joint {joint}: {error}")
+                });
+        }
     }
 
     pub fn clear_bus_events(&mut self) {

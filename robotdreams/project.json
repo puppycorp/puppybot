@@ -134,7 +134,7 @@
               "joint": "revolute_2_3"
             },
             "calibration": {
-              "zeroOffset": 2771,
+              "zeroOffset": 3716,
               "direction": 1
             }
           },
@@ -148,7 +148,7 @@
               "joint": "revolute_1_1"
             },
             "calibration": {
-              "zeroOffset": 3045,
+              "zeroOffset": 3015,
               "direction": -1
             }
           },
@@ -162,7 +162,7 @@
               "joint": "revolute_1_2"
             },
             "calibration": {
-              "zeroOffset": 2603,
+              "zeroOffset": 2088,
               "direction": 1
             }
           },
@@ -176,7 +176,7 @@
               "joint": "revolute_1"
             },
             "calibration": {
-              "zeroOffset": 3372,
+              "zeroOffset": 3897,
               "direction": -1
             }
           },

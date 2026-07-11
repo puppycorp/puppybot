@@ -161,20 +161,74 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
             "semantic joint {semantic_name} should have exactly one driving servo"
         );
         let (expected_zero_offset, expected_direction) = match semantic_name {
-            "yaw" => (3957, 1),
-            "shoulder" => (3039, -1),
-            "elbow" => (1606, 1),
-            "wrist" => (3307, -1),
+            "yaw" => (3716, 1),
+            "shoulder" => (3015, -1),
+            "elbow" => (2088, 1),
+            "wrist" => (3897, -1),
             _ => unreachable!("unexpected semantic joint"),
         };
         assert_eq!(
             servos[0].calibration.zero_offset, expected_zero_offset,
-            "semantic joint {semantic_name} RobotDreams zeroOffset should match PuppyBot runtime mapping"
+            "semantic joint {semantic_name} RobotDreams zeroOffset is an installation mapping"
         );
         assert_eq!(
             servos[0].calibration.direction, expected_direction,
-            "semantic joint {semantic_name} RobotDreams direction should match PuppyBot runtime mapping"
+            "semantic joint {semantic_name} RobotDreams direction is an installation mapping"
         );
+    }
+}
+
+#[test]
+fn puppybot_fixed_servo_ticks_preserve_installed_urdf_angles() {
+    let mut dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    let cases = [
+        ("yaw", 1_u8, 3200_i16),
+        ("shoulder", 2, 2500),
+        ("elbow", 3, 3100),
+        ("wrist", 4, 2800),
+    ];
+    for (_, servo_id, tick) in cases {
+        assert!(dreams.set_virtual_servo_target("main_bus", servo_id, tick));
+    }
+    dreams.advance_seconds(3.0);
+    let state = dreams
+        .robot_state("puppybot")
+        .expect("PuppyBot robot state");
+    let runtime: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(runtime_config_path()).expect("read runtime config"),
+    )
+    .expect("parse runtime config");
+    let model: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(model_profile_path()).expect("read model profile"),
+    )
+    .expect("parse model profile");
+
+    for (index, (semantic, _, tick)) in cases.into_iter().enumerate() {
+        let runtime_joint = &runtime["arm"]["joints"][index];
+        let reference_tick = runtime_joint["reference_tick"]
+            .as_f64()
+            .expect("runtime reference tick");
+        let reference_angle = runtime_joint["reference_angle_deg"]
+            .as_f64()
+            .expect("runtime reference angle")
+            .to_radians();
+        let angle_sign = runtime_joint["angle_sign"]
+            .as_f64()
+            .expect("runtime angle sign");
+        let mapping = &model["analyticToUrdf"]["joints"][semantic];
+        let analytic_angle = reference_angle
+            + angle_sign * (f64::from(tick) - reference_tick) * (std::f64::consts::TAU / 4096.0);
+        let expected = analytic_angle * mapping["scale"].as_f64().expect("analytic mapping scale")
+            + mapping["offset"].as_f64().expect("analytic mapping offset");
+        let actual = state
+            .joints
+            .get(semantic)
+            .unwrap_or_else(|| panic!("semantic joint {semantic}"))
+            .position_rad;
+        let modulo_error = (actual - expected + std::f64::consts::PI)
+            .rem_euclid(std::f64::consts::TAU)
+            - std::f64::consts::PI;
+        assert_close_m(modulo_error, 0.0, std::f64::consts::TAU / 8192.0);
     }
 }
 
@@ -399,17 +453,28 @@ fn puppybot_model_declares_arm_joint_and_frame_metadata() {
     assert_eq!(frame_mapping.model.left_axis, "y");
     assert_eq!(frame_mapping.model.up_axis, "z");
 
-    let model_transformation = profile
-        .robot
-        .model
-        .model_transformation
-        .expect("model transformation");
-    assert_eq!(model_transformation.translation, [0.0, 0.0, 0.0]);
-    assert_close_m(
-        f64::from(model_transformation.rotation[2]),
-        std::f64::consts::FRAC_PI_2,
-        1.0e-6,
-    );
+    let arm_base = profile
+        .frames
+        .iter()
+        .find(|frame| frame.id == "armBase")
+        .expect("armBase frame");
+    assert_eq!(arm_base.name, "Arm Base");
+    assert_eq!(arm_base.relative_to, "base");
+    for (actual, expected) in
+        arm_base
+            .translation_m
+            .into_iter()
+            .zip([0.0369572, -0.00974321, 0.0589591])
+    {
+        assert_close_m(actual, expected, 1.0e-9);
+    }
+    for (actual, expected) in arm_base
+        .rotation_rpy_rad
+        .into_iter()
+        .zip([0.0, 0.0, 0.1248338])
+    {
+        assert_close_m(actual, expected, 1.0e-9);
+    }
 
     let tcp = profile.tcp.expect("tcp metadata");
     assert_eq!(tcp.link, "part_1_4");

@@ -1,7 +1,8 @@
 use super::{
     kinematics::{self, IkError},
-    servo_safety::SafetyFault,
+    servo_safety::{align_tick_to_reference, continuous_tick_interval, SafetyFault, TICK_WRAP},
 };
+use core::f64::consts::PI;
 
 pub const JOINT_COUNT: usize = 4;
 
@@ -29,20 +30,19 @@ pub enum ArmCommand {
         x: f64,
         y: f64,
         z: f64,
-    },
-    GotoPose {
-        x: f64,
-        y: f64,
-        z: f64,
         tool_phi_rad: f64,
     },
-    MoveTcpRelative {
+    MoveTcp {
         frame: TcpFrame,
         dx_mm: f64,
         dy_mm: f64,
         dz_mm: f64,
     },
     StartTcpJog {
+        frame: TcpFrame,
+        direction: [f64; 3],
+    },
+    StartTcpJogAtSpeed {
         frame: TcpFrame,
         direction: [f64; 3],
         speed_mm_s: f64,
@@ -95,7 +95,7 @@ pub enum ArmMode {
     TcpJogging {
         frame: TcpFrame,
         direction: [f64; 3],
-        speed_mm_s: f64,
+        speed_override_mm_s: Option<f64>,
         last_step_ms: u64,
         target_angles: [f64; JOINT_COUNT],
     },
@@ -126,6 +126,7 @@ pub struct PuppyarmTelemetry {
     pub joints: [Joint; JOINT_COUNT],
     pub coords_mm: Option<(f32, f32, f32)>,
     pub target_coords_mm: Option<(f32, f32, f32)>,
+    pub effective_target_coords_mm: Option<(f32, f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -246,6 +247,24 @@ impl Joint {
 
     pub fn target_angle_deg(&self) -> Option<f32> {
         self.target_angle_rad.map(display_degrees)
+    }
+
+    fn reference_mid_tick(&self) -> f64 {
+        let (lo, hi) = continuous_tick_interval(self.raw_tick_min, self.raw_tick_max);
+        0.5 * (lo + hi) as f64
+    }
+
+    pub fn angle_to_tick(&self, angle_rad: f64) -> i32 {
+        let mid_tick = self.reference_mid_tick();
+        let physical_angle = self.sign * angle_rad + self.zero_offset_rad;
+        libm::round(mid_tick + physical_angle * TICK_WRAP as f64 / (2.0 * PI)) as i32
+    }
+
+    pub fn tick_to_angle(&self, tick: i32) -> f64 {
+        let mid_tick = self.reference_mid_tick();
+        let aligned_tick = align_tick_to_reference(tick, mid_tick as i32);
+        let physical_angle = (aligned_tick as f64 - mid_tick) * (2.0 * PI / TICK_WRAP as f64);
+        (physical_angle - self.zero_offset_rad) / self.sign
     }
 }
 

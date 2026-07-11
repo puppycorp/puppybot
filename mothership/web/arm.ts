@@ -271,9 +271,11 @@ export const armPage = (container: Container, botId: string) => {
 	const xInput = makeNumberInput("200", "0.1")
 	const yInput = makeNumberInput("0", "0.1")
 	const zInput = makeNumberInput("0", "0.1")
+	const toolPhiInput = makeNumberInput("-90", "0.1")
 	targetGrid.appendChild(wrapField("X", xInput))
 	targetGrid.appendChild(wrapField("Y", yInput))
 	targetGrid.appendChild(wrapField("Z", zInput))
+	targetGrid.appendChild(wrapField("Tool angle (deg)", toolPhiInput))
 
 	const gotoCoordsButton = document.createElement("button")
 	gotoCoordsButton.textContent = "Go to XYZ"
@@ -281,8 +283,9 @@ export const armPage = (container: Container, botId: string) => {
 		const x = parseNumber(xInput.value)
 		const y = parseNumber(yInput.value)
 		const z = parseNumber(zInput.value)
-		if (x === null || y === null || z === null) return
-		send({ type: "armGotoCoords", x, y, z, speed: readSpeed() })
+		const toolPhiDeg = parseNumber(toolPhiInput.value)
+		if (x === null || y === null || z === null || toolPhiDeg === null) return
+		send({ type: "armGotoCoords", x, y, z, toolPhiDeg, speed: readSpeed() })
 	})
 	targetGrid.appendChild(gotoCoordsButton)
 

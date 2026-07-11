@@ -166,7 +166,7 @@ const DRIVE_PAYLOAD_LENGTH = 9
 const ARM_MOVE_PAYLOAD_LENGTH = 15
 const ARM_GOTO_TICKS_PAYLOAD_LENGTH = 18
 const ARM_GOTO_ANGLES_PAYLOAD_LENGTH = 18
-const ARM_GOTO_COORDS_PAYLOAD_LENGTH = 14
+const ARM_GOTO_COORDS_PAYLOAD_LENGTH = 18
 const ARM_MOVE_RELATIVE_PAYLOAD_LENGTH = 10
 
 type DrivePayloadInput = {
@@ -273,12 +273,17 @@ const createArmGotoCoordsPayload = (input: {
 	x: number
 	y: number
 	z: number
+	toolPhiDeg: number
 }): Buffer => {
 	const payload = Buffer.alloc(ARM_GOTO_COORDS_PAYLOAD_LENGTH)
 	payload.writeUInt16LE(clampInt(input.speed, 0, 1000), 0)
 	payload.writeFloatLE(Number.isFinite(input.x) ? input.x : 0, 2)
 	payload.writeFloatLE(Number.isFinite(input.y) ? input.y : 0, 6)
 	payload.writeFloatLE(Number.isFinite(input.z) ? input.z : 0, 10)
+	payload.writeFloatLE(
+		Number.isFinite(input.toolPhiDeg) ? input.toolPhiDeg : 0,
+		14,
+	)
 	return payload
 }
 

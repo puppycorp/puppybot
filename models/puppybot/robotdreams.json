@@ -28,7 +28,40 @@
   },
   "tcp": {
     "link": "part_1_4",
-    "offset": [0.0383, 0.0497, -0.0100]
+    "offset": [0.0383, 0.0497, 0.0128]
+  },
+  "frames": {
+    "armBase": {
+      "name": "Arm Base",
+      "relativeTo": "base",
+      "translation": [0.0369572, -0.00974321, 0.0589591],
+      "rotation": [0.0, 0.0, 0.1248338]
+    }
+  },
+  "analyticToUrdf": {
+    "unit": "rad",
+    "joints": {
+      "yaw": {
+        "joint": "revolute_2_3",
+        "scale": 1.0,
+        "offset": 0.0
+      },
+      "shoulder": {
+        "joint": "revolute_1_1",
+        "scale": 1.0,
+        "offset": -1.5797465231762224
+      },
+      "elbow": {
+        "joint": "revolute_1_2",
+        "scale": 1.0,
+        "offset": -4.753484179063122
+      },
+      "wrist": {
+        "joint": "revolute_1",
+        "scale": 1.0,
+        "offset": -4.812008104790448
+      }
+    }
   },
   "frameMapping": {
     "core": {

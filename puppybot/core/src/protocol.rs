@@ -322,7 +322,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
             }
         }
         CMD_ARM_GOTO_COORDS => {
-            if body.len() >= 14 {
+            if body.len() >= 18 {
                 output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
                     u16::from_le_bytes([body[0], body[1]]) as i16,
                 )));
@@ -332,6 +332,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                         x: read_f32_le(&body[2..6]) as f64,
                         y: read_f32_le(&body[6..10]) as f64,
                         z: kinematics::table_to_shoulder_z(read_f32_le(&body[10..14]) as f64),
+                        tool_phi_rad: deg_to_rad(read_f32_le(&body[14..18])),
                     }));
             }
         }
@@ -345,14 +346,12 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                         output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
                             read_speed_i16(body),
                         )));
-                        output
-                            .events
-                            .push(ProtocolEvent::Arm(ArmCommand::MoveTcpRelative {
-                                frame,
-                                dx_mm,
-                                dy_mm,
-                                dz_mm,
-                            }));
+                        output.events.push(ProtocolEvent::Arm(ArmCommand::MoveTcp {
+                            frame,
+                            dx_mm,
+                            dy_mm,
+                            dz_mm,
+                        }));
                     }
                 }
             }
@@ -372,7 +371,7 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                     {
                         output
                             .events
-                            .push(ProtocolEvent::Arm(ArmCommand::StartTcpJog {
+                            .push(ProtocolEvent::Arm(ArmCommand::StartTcpJogAtSpeed {
                                 frame,
                                 direction,
                                 speed_mm_s,
@@ -458,12 +457,14 @@ pub fn handle_binary_command(frame: &[u8], state: &mut ProtocolState) -> Protoco
                 output.events.push(ProtocolEvent::Arm(ArmCommand::SetSpeed(
                     u16::from_le_bytes([body[16], body[17]]) as i16,
                 )));
-                output.events.push(ProtocolEvent::Arm(ArmCommand::GotoPose {
-                    x: read_f32_le(&body[0..4]) as f64,
-                    y: read_f32_le(&body[4..8]) as f64,
-                    z: kinematics::table_to_shoulder_z(read_f32_le(&body[8..12]) as f64),
-                    tool_phi_rad: deg_to_rad(read_f32_le(&body[12..16])),
-                }));
+                output
+                    .events
+                    .push(ProtocolEvent::Arm(ArmCommand::GotoCoords {
+                        x: read_f32_le(&body[0..4]) as f64,
+                        y: read_f32_le(&body[4..8]) as f64,
+                        z: kinematics::table_to_shoulder_z(read_f32_le(&body[8..12]) as f64),
+                        tool_phi_rad: deg_to_rad(read_f32_le(&body[12..16])),
+                    }));
             }
         }
         CMD_DRIVE_STEER => {
@@ -814,6 +815,33 @@ mod tests {
     }
 
     #[test]
+    fn arm_goto_coords_maps_table_z_and_tool_pitch() {
+        let mut state = ProtocolState::default();
+        let mut body = Vec::new();
+        body.extend_from_slice(&77u16.to_le_bytes());
+        body.extend_from_slice(&1.0f32.to_le_bytes());
+        body.extend_from_slice(&2.0f32.to_le_bytes());
+        body.extend_from_slice(&42.0f32.to_le_bytes());
+        body.extend_from_slice(&90.0f32.to_le_bytes());
+
+        let output = handle_binary_command(&command_frame(CMD_ARM_GOTO_COORDS, &body), &mut state);
+
+        assert_eq!(
+            output.events[0],
+            ProtocolEvent::Arm(ArmCommand::SetSpeed(77))
+        );
+        match output.events[1] {
+            ProtocolEvent::Arm(ArmCommand::GotoCoords {
+                z, tool_phi_rad, ..
+            }) => {
+                assert_eq!(z, 42.0 - kinematics::Z_ORIGIN_MM);
+                assert_eq!(tool_phi_rad, core::f64::consts::FRAC_PI_2);
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+
+    #[test]
     fn arm_pose_maps_table_z_to_shoulder_z() {
         let mut state = ProtocolState::default();
         let mut body = Vec::new();
@@ -830,7 +858,7 @@ mod tests {
             ProtocolEvent::Arm(ArmCommand::SetSpeed(77))
         );
         match output.events[1] {
-            ProtocolEvent::Arm(ArmCommand::GotoPose { z, .. }) => {
+            ProtocolEvent::Arm(ArmCommand::GotoCoords { z, .. }) => {
                 assert_eq!(z, 42.0 - kinematics::Z_ORIGIN_MM);
             }
             other => panic!("unexpected event {other:?}"),
@@ -854,7 +882,7 @@ mod tests {
             output.events,
             vec![
                 ProtocolEvent::Arm(ArmCommand::SetSpeed(300)),
-                ProtocolEvent::Arm(ArmCommand::MoveTcpRelative {
+                ProtocolEvent::Arm(ArmCommand::MoveTcp {
                     frame: TcpFrame::YawFlat,
                     dx_mm: 10.0,
                     dy_mm: 20.0,
@@ -941,7 +969,7 @@ mod tests {
 
         assert_eq!(
             output.events,
-            vec![ProtocolEvent::Arm(ArmCommand::StartTcpJog {
+            vec![ProtocolEvent::Arm(ArmCommand::StartTcpJogAtSpeed {
                 frame: TcpFrame::YawFlat,
                 direction: [1.0, 0.5, 0.0],
                 speed_mm_s: 20.0,
@@ -983,17 +1011,22 @@ mod tests {
         );
         assert!(output.events.is_empty());
 
-        let mut invalid_speed = Vec::new();
-        invalid_speed.push(0);
-        invalid_speed.extend_from_slice(&1.0f32.to_le_bytes());
-        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
-        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
-        invalid_speed.extend_from_slice(&0.0f32.to_le_bytes());
-        let output = handle_binary_command(
-            &command_frame(CMD_ARM_START_TCP_JOG, &invalid_speed),
-            &mut state,
-        );
-        assert!(output.events.is_empty());
+        for speed_mm_s in [0.0_f32, -20.0, f32::NAN, f32::INFINITY] {
+            let mut invalid_legacy_speed = Vec::new();
+            invalid_legacy_speed.push(0);
+            invalid_legacy_speed.extend_from_slice(&1.0f32.to_le_bytes());
+            invalid_legacy_speed.extend_from_slice(&0.0f32.to_le_bytes());
+            invalid_legacy_speed.extend_from_slice(&0.0f32.to_le_bytes());
+            invalid_legacy_speed.extend_from_slice(&speed_mm_s.to_le_bytes());
+            let output = handle_binary_command(
+                &command_frame(CMD_ARM_START_TCP_JOG, &invalid_legacy_speed),
+                &mut state,
+            );
+            assert!(
+                output.events.is_empty(),
+                "legacy TCP jog speed {speed_mm_s:?} must be rejected"
+            );
+        }
     }
 
     #[test]

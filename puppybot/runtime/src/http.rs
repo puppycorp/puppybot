@@ -8,7 +8,8 @@ use tokio::{
     sync::mpsc,
 };
 
-const MAX_HTTP_REQUEST: usize = 2048;
+const MAX_HTTP_REQUEST: usize = 12 * 1024;
+const MAX_HTTP_BODY: usize = 8 * 1024;
 const MAX_WS_FRAME_SIZE: usize = 2048;
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -18,21 +19,36 @@ struct OwnedWsFrame {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum WsEvent {
-    Connected { client_id: u64 },
-    Binary { client_id: u64, payload: Vec<u8> },
-    Text { client_id: u64, payload: Vec<u8> },
-    HttpRequest { request_id: u64, target: Vec<u8> },
-    Closed { client_id: u64 },
-}
-
-#[derive(Debug)]
-pub(crate) enum WsCommand {
-    SendBinary {
+pub(crate) enum HttpEvent {
+    WebSocketConnected {
+        client_id: u64,
+    },
+    WebSocketBinary {
         client_id: u64,
         payload: Vec<u8>,
     },
-    SendText {
+    WebSocketText {
+        client_id: u64,
+        payload: Vec<u8>,
+    },
+    HttpRequest {
+        request_id: u64,
+        method: Vec<u8>,
+        target: Vec<u8>,
+        body: Vec<u8>,
+    },
+    WebSocketClosed {
+        client_id: u64,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) enum HttpCommand {
+    SendWebSocketBinary {
+        client_id: u64,
+        payload: Vec<u8>,
+    },
+    SendWebSocketText {
         client_id: u64,
         payload: Vec<u8>,
     },
@@ -59,10 +75,10 @@ enum ConnectionCommand {
     Close,
 }
 
-pub(crate) struct WsServer {
+pub(crate) struct HttpServer {
     local_addr: SocketAddr,
-    events: mpsc::Receiver<WsEvent>,
-    commands: mpsc::Sender<WsCommand>,
+    events: mpsc::Receiver<HttpEvent>,
+    commands: mpsc::Sender<HttpCommand>,
 }
 
 #[derive(Debug)]
@@ -94,26 +110,26 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl WsServer {
+impl HttpServer {
     pub(crate) fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
 
-    pub(crate) async fn next(&mut self) -> Option<WsEvent> {
+    pub(crate) async fn next(&mut self) -> Option<HttpEvent> {
         self.events.recv().await
     }
 
     pub(crate) async fn send_binary(&self, client_id: u64, payload: Vec<u8>) {
         let _ = self
             .commands
-            .send(WsCommand::SendBinary { client_id, payload })
+            .send(HttpCommand::SendWebSocketBinary { client_id, payload })
             .await;
     }
 
     pub(crate) async fn send_text(&self, client_id: u64, payload: Vec<u8>) {
         let _ = self
             .commands
-            .send(WsCommand::SendText { client_id, payload })
+            .send(HttpCommand::SendWebSocketText { client_id, payload })
             .await;
     }
 
@@ -126,7 +142,7 @@ impl WsServer {
     ) {
         let _ = self
             .commands
-            .send(WsCommand::HttpResponse {
+            .send(HttpCommand::HttpResponse {
                 request_id,
                 status,
                 content_type,
@@ -137,7 +153,7 @@ impl WsServer {
 
     #[allow(dead_code)]
     pub(crate) async fn close(&self, client_id: u64) {
-        let _ = self.commands.send(WsCommand::Close { client_id }).await;
+        let _ = self.commands.send(HttpCommand::Close { client_id }).await;
     }
 }
 
@@ -173,14 +189,26 @@ fn is_websocket_request(request: &[u8]) -> bool {
         && header_value(request, b"sec-websocket-key").is_some()
 }
 
-fn request_target(request: &[u8]) -> Option<&[u8]> {
+fn request_line_parts(request: &[u8]) -> Option<(&[u8], &[u8])> {
     let line_end = find_bytes(request, b"\r\n")?;
     let request_line = &request[..line_end];
     let mut parts = request_line.split(|byte| *byte == b' ');
     match (parts.next(), parts.next(), parts.next()) {
-        (Some(b"GET"), Some(target), Some(_)) => Some(target),
+        (Some(method), Some(target), Some(_)) => Some((method, target)),
         _ => None,
     }
+}
+
+fn request_target(request: &[u8]) -> Option<&[u8]> {
+    request_line_parts(request).map(|(_, target)| target)
+}
+
+fn content_length(request: &[u8]) -> Result<usize, Error> {
+    let Some(value) = header_value(request, b"content-length") else {
+        return Ok(0);
+    };
+    let value = std::str::from_utf8(value).map_err(|_| Error::BadRequest)?;
+    value.parse::<usize>().map_err(|_| Error::BadRequest)
 }
 
 async fn send_ws_frame_async<W>(writer: &mut W, opcode: u8, payload: &[u8]) -> Result<(), Error>
@@ -258,6 +286,7 @@ where
     R: AsyncRead + Unpin,
 {
     let mut len = 0;
+    let mut header_end = None;
 
     loop {
         if len == request.len() {
@@ -269,8 +298,23 @@ where
             return Err(Error::Closed);
         }
         len += read;
-        if find_bytes(&request[..len], b"\r\n\r\n").is_some() {
-            return Ok(len);
+        if header_end.is_none() {
+            header_end = find_bytes(&request[..len], b"\r\n\r\n").map(|index| index + 4);
+        }
+        if let Some(header_end) = header_end {
+            let body_len = content_length(&request[..header_end])?;
+            if body_len > MAX_HTTP_BODY {
+                return Err(Error::RequestTooLarge);
+            }
+            let total_len = header_end
+                .checked_add(body_len)
+                .ok_or(Error::RequestTooLarge)?;
+            if total_len > request.len() {
+                return Err(Error::RequestTooLarge);
+            }
+            if len >= total_len {
+                return Ok(total_len);
+            }
         }
     }
 }
@@ -315,7 +359,7 @@ where
 async fn app_connection_loop(
     mut stream: TokioTcpStream,
     client_id: u64,
-    events: mpsc::Sender<WsEvent>,
+    events: mpsc::Sender<HttpEvent>,
     mut commands: mpsc::Receiver<ConnectionCommand>,
 ) -> Result<(), Error> {
     let mut request = [0u8; MAX_HTTP_REQUEST];
@@ -323,11 +367,28 @@ async fn app_connection_loop(
     let request = &request[..request_len];
 
     if !is_websocket_request(request) {
-        if request_target(request) == Some(b"/api/config.json") {
+        let parts = request_line_parts(request);
+        let target = parts.map(|(_, target)| target);
+        if target == Some(b"/") {
+            write_http_response_async(
+                &mut stream,
+                "200 OK",
+                "text/plain",
+                b"puppybot runtime websocket is available on /ws\nconfig is available on /api/config.json\nstate is available on /api/state\ncommands are available under /api/\n",
+            )
+            .await?;
+        } else if target.is_some_and(|target| target.starts_with(b"/api/")) {
+            let (method, target) = parts.expect("target matched above");
+            let header_end = find_bytes(request, b"\r\n\r\n")
+                .map(|index| index + 4)
+                .ok_or(Error::BadRequest)?;
+            let body = request[header_end..].to_vec();
             let _ = events
-                .send(WsEvent::HttpRequest {
+                .send(HttpEvent::HttpRequest {
                     request_id: client_id,
-                    target: b"/api/config.json".to_vec(),
+                    method: method.to_vec(),
+                    target: target.to_vec(),
+                    body,
                 })
                 .await;
             match commands.recv().await {
@@ -348,14 +409,6 @@ async fn app_connection_loop(
                     .await?;
                 }
             }
-        } else if request_target(request) == Some(b"/") {
-            write_http_response_async(
-                &mut stream,
-                "200 OK",
-                "text/plain",
-                b"puppybot runtime websocket is available on /ws\nconfig is available on /api/config.json\n",
-            )
-            .await?;
         } else {
             write_http_response_async(&mut stream, "404 Not Found", "text/plain", b"not found\n")
                 .await?;
@@ -364,7 +417,9 @@ async fn app_connection_loop(
     }
 
     handle_websocket_upgrade_async(&mut stream, request).await?;
-    let _ = events.send(WsEvent::Connected { client_id }).await;
+    let _ = events
+        .send(HttpEvent::WebSocketConnected { client_id })
+        .await;
     let (mut reader, mut writer) = stream.into_split();
 
     loop {
@@ -372,10 +427,10 @@ async fn app_connection_loop(
             frame = read_ws_frame_async(&mut reader) => {
                 match frame? {
                     OwnedWsFrame { opcode: 0x1, payload } => {
-                        let _ = events.send(WsEvent::Text { client_id, payload }).await;
+                        let _ = events.send(HttpEvent::WebSocketText { client_id, payload }).await;
                     }
                     OwnedWsFrame { opcode: 0x2, payload } => {
-                        let _ = events.send(WsEvent::Binary { client_id, payload }).await;
+                        let _ = events.send(HttpEvent::WebSocketBinary { client_id, payload }).await;
                     }
                     OwnedWsFrame { opcode: 0x8, .. } => {
                         let _ = send_ws_frame_async(&mut writer, 0x8, &[]).await;
@@ -407,7 +462,7 @@ async fn app_connection_loop(
     }
 }
 
-pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<WsServer, Error> {
+pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<HttpServer, Error> {
     let listener = std::net::TcpListener::bind(bind_addr)?;
     listener.set_nonblocking(true)?;
     let listener = TokioTcpListener::from_std(listener)?;
@@ -443,7 +498,7 @@ pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<WsServer, Error>
                         {
                             log::warn!("runtime App websocket client {client_id} ended: {err}");
                         }
-                        let _ = events.send(WsEvent::Closed { client_id }).await;
+                        let _ = events.send(HttpEvent::WebSocketClosed { client_id }).await;
                         let _ = closed.send(client_id).await;
                     });
                 }
@@ -452,28 +507,28 @@ pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<WsServer, Error>
                         break;
                     };
                     match command {
-                        WsCommand::SendBinary { client_id, payload } => {
+                        HttpCommand::SendWebSocketBinary { client_id, payload } => {
                             if let Some(client) = clients.get(&client_id)
                                 && client.send(ConnectionCommand::SendBinary(payload)).await.is_err()
                             {
                                 clients.remove(&client_id);
                             }
                         }
-                        WsCommand::SendText { client_id, payload } => {
+                        HttpCommand::SendWebSocketText { client_id, payload } => {
                             if let Some(client) = clients.get(&client_id)
                                 && client.send(ConnectionCommand::SendText(payload)).await.is_err()
                             {
                                 clients.remove(&client_id);
                             }
                         }
-                        WsCommand::HttpResponse { request_id, status, content_type, body } => {
+                        HttpCommand::HttpResponse { request_id, status, content_type, body } => {
                             if let Some(client) = clients.get(&request_id)
                                 && client.send(ConnectionCommand::HttpResponse { status, content_type, body }).await.is_err()
                             {
                                 clients.remove(&request_id);
                             }
                         }
-                        WsCommand::Close { client_id } => {
+                        HttpCommand::Close { client_id } => {
                             if let Some(client) = clients.remove(&client_id) {
                                 let _ = client.send(ConnectionCommand::Close).await;
                             }
@@ -490,7 +545,7 @@ pub(crate) fn start_app_server(bind_addr: SocketAddr) -> Result<WsServer, Error>
         }
     });
 
-    Ok(WsServer {
+    Ok(HttpServer {
         local_addr,
         events: event_rx,
         commands: command_tx,
@@ -505,7 +560,7 @@ mod tests {
 
     use tokio::time::timeout;
 
-    fn start_test_app_server() -> Option<WsServer> {
+    fn start_test_app_server() -> Option<HttpServer> {
         match start_app_server("127.0.0.1:0".parse().unwrap()) {
             Ok(server) => Some(server),
             Err(Error::Io(err)) if err.kind() == IoErrorKind::PermissionDenied => None,
@@ -513,7 +568,7 @@ mod tests {
         }
     }
 
-    async fn connect_app_ws(server: &WsServer) -> TokioTcpStream {
+    async fn connect_app_ws(server: &HttpServer) -> TokioTcpStream {
         let mut stream = TokioTcpStream::connect(server.local_addr()).await.unwrap();
         stream
             .write_all(
@@ -538,7 +593,7 @@ mod tests {
         stream
     }
 
-    async fn next_app_event(server: &mut WsServer) -> WsEvent {
+    async fn next_app_event(server: &mut HttpServer) -> HttpEvent {
         timeout(Duration::from_secs(1), server.next())
             .await
             .unwrap()
@@ -570,8 +625,15 @@ mod tests {
             .unwrap();
 
         let request_id = match next_app_event(&mut server).await {
-            WsEvent::HttpRequest { request_id, target } => {
+            HttpEvent::HttpRequest {
+                request_id,
+                method,
+                target,
+                body,
+            } => {
+                assert_eq!(method, b"GET");
                 assert_eq!(target, b"/api/config.json");
+                assert!(body.is_empty());
                 request_id
             }
             event => panic!("unexpected event: {event:?}"),
@@ -595,14 +657,110 @@ mod tests {
         assert!(response.contains("{\"ok\":true}"));
     }
 
+    #[tokio::test]
+    async fn app_server_routes_state_http_response() {
+        let Some(mut server) = start_test_app_server() else {
+            return;
+        };
+        let mut client = TokioTcpStream::connect(server.local_addr()).await.unwrap();
+        client
+            .write_all(b"GET /api/state HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+
+        let request_id = match next_app_event(&mut server).await {
+            HttpEvent::HttpRequest {
+                request_id,
+                method,
+                target,
+                body,
+            } => {
+                assert_eq!(method, b"GET");
+                assert_eq!(target, b"/api/state");
+                assert!(body.is_empty());
+                request_id
+            }
+            event => panic!("unexpected event: {event:?}"),
+        };
+        server
+            .send_http_response(
+                request_id,
+                "200 OK",
+                "application/json",
+                b"{\"state\":true}\n".to_vec(),
+            )
+            .await;
+
+        let mut response = [0u8; 512];
+        let read = timeout(Duration::from_secs(1), client.read(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        let response = std::str::from_utf8(&response[..read]).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("Content-Type: application/json"));
+        assert!(response.contains("{\"state\":true}"));
+    }
+
     #[test]
     fn request_target_reads_get_path() {
-        let request = b"GET /api/config.json HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        let config_request = b"GET /api/config.json HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        let state_request = b"GET /api/state HTTP/1.1\r\nHost: localhost\r\n\r\n";
 
         assert_eq!(
-            request_target(request),
+            request_target(config_request),
             Some(b"/api/config.json".as_slice())
         );
+        assert_eq!(
+            request_target(state_request),
+            Some(b"/api/state".as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn app_server_routes_post_api_body() {
+        let Some(mut server) = start_test_app_server() else {
+            return;
+        };
+        let mut client = TokioTcpStream::connect(server.local_addr()).await.unwrap();
+        client
+            .write_all(
+                b"POST /api/drive HTTP/1.1\r\nHost: localhost\r\nContent-Length: 20\r\n\r\n{\"action\":\"forward\"}",
+            )
+            .await
+            .unwrap();
+
+        let request_id = match next_app_event(&mut server).await {
+            HttpEvent::HttpRequest {
+                request_id,
+                method,
+                target,
+                body,
+            } => {
+                assert_eq!(method, b"POST");
+                assert_eq!(target, b"/api/drive");
+                assert_eq!(body, br#"{"action":"forward"}"#);
+                request_id
+            }
+            event => panic!("unexpected event: {event:?}"),
+        };
+        server
+            .send_http_response(
+                request_id,
+                "200 OK",
+                "application/json",
+                b"{\"ok\":true}\n".to_vec(),
+            )
+            .await;
+
+        let mut response = [0u8; 512];
+        let read = timeout(Duration::from_secs(1), client.read(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        let response = std::str::from_utf8(&response[..read]).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("{\"ok\":true}"));
     }
 
     #[tokio::test]
@@ -613,14 +771,14 @@ mod tests {
         let mut client = connect_app_ws(&server).await;
 
         let client_id = match next_app_event(&mut server).await {
-            WsEvent::Connected { client_id } => client_id,
+            HttpEvent::WebSocketConnected { client_id } => client_id,
             event => panic!("unexpected event: {event:?}"),
         };
 
         send_client_frame(&mut client, 0x2, b"abc").await;
         assert_eq!(
             next_app_event(&mut server).await,
-            WsEvent::Binary {
+            HttpEvent::WebSocketBinary {
                 client_id,
                 payload: b"abc".to_vec()
             }
@@ -640,14 +798,14 @@ mod tests {
         let mut client = connect_app_ws(&server).await;
 
         let client_id = match next_app_event(&mut server).await {
-            WsEvent::Connected { client_id } => client_id,
+            HttpEvent::WebSocketConnected { client_id } => client_id,
             event => panic!("unexpected event: {event:?}"),
         };
 
         send_client_frame(&mut client, 0x1, b"ping").await;
         assert_eq!(
             next_app_event(&mut server).await,
-            WsEvent::Text {
+            HttpEvent::WebSocketText {
                 client_id,
                 payload: b"ping".to_vec()
             }

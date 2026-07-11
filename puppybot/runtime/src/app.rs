@@ -25,9 +25,9 @@ use crate::{
     config,
     dc_motor_driver::DCMotorDriver,
     env::wgui_bind_addr,
-    mdns,
+    http, mdns,
+    sim::{SimulatedPreview, SimulatedRuntimeBackend},
     stservo::{self, RuntimeStServo},
-    ws,
 };
 
 const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
@@ -35,11 +35,10 @@ const DEFAULT_WS_BIND: &str = "0.0.0.0:8080";
 const ROBOT_TICK_MS: u64 = 20;
 const UI_RENDER_INTERVAL_MS: u64 = 100;
 const HELD_DRIVE_REFRESH_MS: u64 = 200;
-const UI_ARM_SPEED: i16 = 220;
+const DEFAULT_ARM_SPEED: i16 = 220;
 const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
 const UI_LIMIT_STEP_TICKS: i32 = 10;
-const DEFAULT_TCP_JOG_SPEED_MM_S: f64 = 20.0;
 const DEFAULT_GOTO_ANGLE_DEG: f64 = 90.0;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
 
@@ -71,12 +70,13 @@ const GOTO_ANGLES_ID: u32 = 306;
 
 const SET_TCP_FRAME_BASE_ID: u32 = 400;
 const SET_TCP_FRAME_TOOL_ID: u32 = 401;
-const EDIT_TCP_JOG_SPEED_ID: u32 = 402;
+const EDIT_ARM_SPEED_ID: u32 = 402;
 const MOVE_TCP_FORWARD_ID: u32 = 403;
 const MOVE_TCP_BACK_ID: u32 = 404;
 const MOVE_TCP_LEFT_ID: u32 = 405;
 const MOVE_TCP_RIGHT_ID: u32 = 406;
 const MOVE_TCP_STOP_ID: u32 = 407;
+const SET_ARM_SPEED_ID: u32 = 408;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
@@ -136,6 +136,8 @@ fn ws_bind_addr() -> Result<SocketAddr, String> {
 pub(crate) struct AppOptions {
     pub(crate) config: Option<String>,
     pub(crate) servo_device: Option<String>,
+    pub(crate) simulated: bool,
+    pub(crate) robotdreams_project: Option<PathBuf>,
     pub(crate) ui_bind: Option<SocketAddr>,
     pub(crate) ws_bind: Option<SocketAddr>,
 }
@@ -152,6 +154,46 @@ struct KeyboardDriveState {
     down: bool,
     left: bool,
     right: bool,
+}
+
+pub(crate) struct ApiResponse {
+    status: &'static str,
+    body: Vec<u8>,
+}
+
+struct ApiError {
+    status: &'static str,
+    message: String,
+}
+
+impl ApiError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: "400 Bad Request",
+            message: message.into(),
+        }
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: "404 Not Found",
+            message: message.into(),
+        }
+    }
+
+    fn method_not_allowed(message: impl Into<String>) -> Self {
+        Self {
+            status: "405 Method Not Allowed",
+            message: message.into(),
+        }
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status: "500 Internal Server Error",
+            message: message.into(),
+        }
+    }
 }
 
 impl KeyboardDriveState {
@@ -397,6 +439,26 @@ fn frame_label(frame: TcpFrame) -> &'static str {
     }
 }
 
+fn coordinate_jog_frame_label(frame: TcpFrame) -> &'static str {
+    match frame {
+        TcpFrame::Base => "Arm Base",
+        frame => frame_label(frame),
+    }
+}
+
+fn rigid_transform_json(
+    transform: robotdreams_core::RigidTransform,
+    from_frame: &str,
+    to_frame: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "fromFrame": from_frame,
+        "toFrame": to_frame,
+        "translationM": transform.translation_m,
+        "rotationMatrix": transform.rotation,
+    })
+}
+
 fn frame_detail(frame: TcpFrame) -> &'static str {
     match frame {
         TcpFrame::Base => "moves along robot base axes",
@@ -439,9 +501,9 @@ fn coordinate_command(command: ArmCommand) -> bool {
     matches!(
         command,
         ArmCommand::GotoCoords { .. }
-            | ArmCommand::GotoPose { .. }
-            | ArmCommand::MoveTcpRelative { .. }
+            | ArmCommand::MoveTcp { .. }
             | ArmCommand::StartTcpJog { .. }
+            | ArmCommand::StartTcpJogAtSpeed { .. }
     )
 }
 
@@ -451,25 +513,22 @@ fn goto_angles_command(command: ArmCommand) -> bool {
 
 fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<String> {
     match (command, err) {
-        (ArmCommand::GotoCoords { x, y, z }, ControllerError::Ik(IkError::Unreachable)) => {
+        (ArmCommand::GotoCoords { x, y, z, .. }, ControllerError::Ik(IkError::Unreachable)) => {
             Some(format!(
                 "target unreachable: {x:.1}, {y:.1}, {:.1} mm",
                 kinematics::shoulder_to_table_z(z)
             ))
         }
-        (ArmCommand::GotoPose { x, y, z, .. }, ControllerError::Ik(IkError::Unreachable)) => {
-            Some(format!(
-                "target unreachable: {x:.1}, {y:.1}, {:.1} mm",
-                kinematics::shoulder_to_table_z(z)
-            ))
-        }
-        (ArmCommand::MoveTcpRelative { .. }, ControllerError::Ik(IkError::Unreachable)) => {
+        (ArmCommand::MoveTcp { .. }, ControllerError::Ik(IkError::Unreachable)) => {
             Some("target unreachable from current position".to_string())
         }
-        (ArmCommand::MoveTcpRelative { .. }, ControllerError::MissingFeedback) => {
+        (ArmCommand::MoveTcp { .. }, ControllerError::MissingFeedback) => {
             Some("current position unavailable".to_string())
         }
         (ArmCommand::StartTcpJog { .. }, ControllerError::InvalidLimit) => {
+            Some("invalid tcp jog command".to_string())
+        }
+        (ArmCommand::StartTcpJogAtSpeed { .. }, ControllerError::InvalidLimit) => {
             Some("invalid tcp jog command".to_string())
         }
         (ArmCommand::GotoAngles(_), ControllerError::MissingFeedback) => {
@@ -490,8 +549,7 @@ pub struct App {
     ws_bind_addr: SocketAddr,
     ws_clients: HashMap<u64, WsClientState>,
     robot: Puppybot,
-    servo: RuntimeStServo,
-    dc_motor_driver: DCMotorDriver,
+    backend: RuntimeBackend,
     held_drive: Option<HeldDrive>,
     config_path: PathBuf,
     active_config: PuppybotConfigV1,
@@ -516,13 +574,52 @@ pub struct App {
     goto_angle_elbow: String,
     goto_angle_wrist: String,
     goto_angle_error: String,
+    arm_speed: String,
+    arm_speed_error: String,
     coordinate_x: String,
     coordinate_y: String,
     coordinate_z: String,
-    tcp_jog_speed_mm_s: String,
     coordinate_error: String,
     keyboard_drive: KeyboardDriveState,
     last_command: String,
+}
+
+enum RuntimeBackend {
+    Hardware {
+        servo: RuntimeStServo,
+        dc_motor_driver: DCMotorDriver,
+    },
+    Simulated(SimulatedRuntimeBackend),
+}
+
+impl RuntimeBackend {
+    async fn run_once(&mut self, robot: &mut Puppybot, now_ms: u64) {
+        match self {
+            Self::Hardware {
+                servo,
+                dc_motor_driver,
+            } => {
+                robot
+                    .run_once_with_drive(servo, dc_motor_driver, now_ms, || None)
+                    .await;
+            }
+            Self::Simulated(backend) => backend.run_once(robot, now_ms).await,
+        }
+    }
+
+    fn status_value(&self) -> &'static str {
+        match self {
+            Self::Hardware { .. } => "hardware",
+            Self::Simulated(_) => "simulation",
+        }
+    }
+
+    fn status_detail(&self) -> &'static str {
+        match self {
+            Self::Hardware { .. } => "required STServo bus is open",
+            Self::Simulated(_) => "RobotDreams virtual STServo bus is in-process",
+        }
+    }
 }
 
 impl App {
@@ -534,9 +631,6 @@ impl App {
     pub(crate) fn with_options(options: AppOptions) -> Result<App, String> {
         let started_at = Instant::now();
 
-        let servo = stservo::open_serial(options.servo_device.as_deref()).ok_or_else(|| {
-            "STServo bus is required; pass --servo-device or set PUPPYBOT_STSERVO_PORT".to_string()
-        })?;
         let config_path = config::runtime_config_path(options.config.as_deref());
         let runtime_config = config::load_runtime_config(&config_path)?;
         if runtime_config.is_some() {
@@ -548,8 +642,37 @@ impl App {
             );
         }
         let active_config = runtime_config.unwrap_or_default();
-        let robot = Puppybot::new_with_config(&active_config, 0)
+        let mut robot = Puppybot::new_with_config(&active_config, 0)
             .map_err(|err| format!("invalid runtime config: {err}"))?;
+        robot.handle_event(
+            ProtocolEvent::Arm(ArmCommand::SetSpeed(DEFAULT_ARM_SPEED)),
+            0,
+        );
+        let backend = if options.simulated {
+            if options.servo_device.is_some() {
+                return Err("--sim cannot be combined with --servo-device".to_string());
+            }
+            let project_path = options
+                .robotdreams_project
+                .unwrap_or_else(SimulatedRuntimeBackend::default_project_path);
+            log::info!(
+                "runtime using RobotDreams simulation project {}",
+                project_path.display()
+            );
+            RuntimeBackend::Simulated(SimulatedRuntimeBackend::new(&project_path, &active_config)?)
+        } else {
+            if options.robotdreams_project.is_some() {
+                return Err("--robotdreams-project requires --sim".to_string());
+            }
+            let servo = stservo::open_serial(options.servo_device.as_deref()).ok_or_else(|| {
+                "STServo bus is required; pass --servo-device or set PUPPYBOT_STSERVO_PORT"
+                    .to_string()
+            })?;
+            RuntimeBackend::Hardware {
+                servo,
+                dc_motor_driver: DCMotorDriver::discover(),
+            }
+        };
         let goto_angles = Self::initial_goto_angle_inputs_for_robot(&robot);
         let (coordinate_x, coordinate_y, coordinate_z) =
             Self::initial_coordinate_inputs_for_robot(&robot);
@@ -569,8 +692,7 @@ impl App {
             ws_bind_addr,
             ws_clients: HashMap::new(),
             robot,
-            servo,
-            dc_motor_driver: DCMotorDriver::discover(),
+            backend,
             held_drive: None,
             config_path,
             active_config,
@@ -595,14 +717,22 @@ impl App {
             goto_angle_elbow: goto_angles[2].clone(),
             goto_angle_wrist: goto_angles[3].clone(),
             goto_angle_error: String::new(),
+            arm_speed: DEFAULT_ARM_SPEED.to_string(),
+            arm_speed_error: String::new(),
             coordinate_x,
             coordinate_y,
             coordinate_z,
-            tcp_jog_speed_mm_s: format!("{DEFAULT_TCP_JOG_SPEED_MM_S:.1}"),
             coordinate_error: String::new(),
             keyboard_drive: KeyboardDriveState::default(),
             last_command: "none".to_string(),
         })
+    }
+
+    pub(crate) fn simulated_preview(&self) -> Option<SimulatedPreview> {
+        match &self.backend {
+            RuntimeBackend::Hardware { .. } => None,
+            RuntimeBackend::Simulated(backend) => Some(backend.preview()),
+        }
     }
 
     fn initial_goto_angle_inputs_for_robot(robot: &Puppybot) -> [String; JOINT_COUNT] {
@@ -638,9 +768,7 @@ impl App {
         self.last_tick_at = now;
         let now_ms = self.now_ms();
         self.refresh_held_drive(now_ms);
-        self.robot
-            .run_once_with_drive(&mut self.servo, &mut self.dc_motor_driver, now_ms, || None)
-            .await;
+        self.backend.run_once(&mut self.robot, now_ms).await;
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
 
@@ -727,6 +855,537 @@ impl App {
         )
     }
 
+    pub(crate) fn api_state_json(&self) -> Result<String, String> {
+        let now_ms = self.now_ms();
+        let arm = self.robot.arm_telemetry();
+        let drive = self.robot.drive_output();
+        let tuple_json = |value: Option<(f32, f32, f32)>| {
+            value
+                .map(|(x, y, z)| serde_json::json!([x, y, z]))
+                .unwrap_or(serde_json::Value::Null)
+        };
+        let joints = arm
+            .joints
+            .iter()
+            .enumerate()
+            .map(|(index, joint)| {
+                serde_json::json!({
+                    "index": index,
+                    "servoId": joint.servo_id,
+                    "tick": joint.tick,
+                    "targetTick": joint.target_tick,
+                    "angleDeg": joint.angle_deg(),
+                    "targetAngleDeg": joint.target_angle_deg(),
+                    "online": joint.online,
+                    "hasFeedback": joint.has_feedback,
+                    "limitReached": joint.limit_reached,
+                })
+            })
+            .collect::<Vec<_>>();
+        let sim = match &self.backend {
+            RuntimeBackend::Hardware { .. } => {
+                serde_json::json!({
+                    "enabled": false,
+                    "markers": [],
+                    "frames": null,
+                })
+            }
+            RuntimeBackend::Simulated(backend) => {
+                let markers = backend
+                    .debug_markers(&self.robot)
+                    .into_iter()
+                    .map(|marker| {
+                        serde_json::json!({
+                            "robotId": marker.robot_id,
+                            "floorZ": marker.floor_z,
+                            "currentTcp": marker.current_tcp,
+                            "targetTcp": marker.target_tcp,
+                            "frame": "world",
+                            "unit": "m",
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let frames = backend.frame_transforms().map(|frames| {
+                    serde_json::json!({
+                        "worldFromBase": rigid_transform_json(
+                            frames.world_from_base,
+                            "base",
+                            "world",
+                        ),
+                        "baseFromArmBase": rigid_transform_json(
+                            frames.base_from_arm_base,
+                            "armBase",
+                            "base",
+                        ),
+                    })
+                });
+                serde_json::json!({
+                    "enabled": true,
+                    "markers": markers,
+                    "frames": frames,
+                })
+            }
+        };
+        let state = serde_json::json!({
+            "mode": self.backend.status_value(),
+            "timeMs": now_ms,
+            "arm": {
+                "mode": format!("{:?}", self.robot.arm.mode()),
+                "frame": "armBase",
+                "unit": "mm",
+                "currentTcpMm": tuple_json(arm.coords_mm),
+                "targetTcpMm": tuple_json(arm.target_coords_mm),
+                "effectiveTargetTcpMm": tuple_json(arm.effective_target_coords_mm),
+                "joints": joints,
+            },
+            "drive": {
+                "leftMotorId": drive.left_motor_id,
+                "rightMotorId": drive.right_motor_id,
+                "steeringServoId": drive.steering_servo_id,
+                "leftSpeed": drive.left_speed,
+                "rightSpeed": drive.right_speed,
+                "steeringAngleDeg": drive.steering_angle_deg,
+                "active": drive.active,
+            },
+            "sim": sim,
+            "ui": {
+                "coordinateFrame": frame_label(self.coordinate_frame),
+                "absoluteCoordinateFrame": "Arm Base",
+                "tcpFrame": frame_label(self.tcp_frame),
+                "armSpeed": self.arm_speed.parse::<i16>().ok(),
+                "lastCommand": self.last_command.as_str(),
+            },
+        });
+        serde_json::to_string_pretty(&state).map_err(|err| err.to_string())
+    }
+
+    fn api_json(status: &'static str, value: serde_json::Value) -> ApiResponse {
+        let body = serde_json::to_vec_pretty(&value)
+            .unwrap_or_else(|_| b"{\"ok\":false,\"error\":\"json encoding failed\"}\n".to_vec());
+        ApiResponse { status, body }
+    }
+
+    fn api_error(error: ApiError) -> ApiResponse {
+        Self::api_json(
+            error.status,
+            serde_json::json!({
+                "ok": false,
+                "error": error.message,
+            }),
+        )
+    }
+
+    fn api_success(&self) -> Result<ApiResponse, ApiError> {
+        let state = self
+            .api_state_json()
+            .map_err(ApiError::internal)
+            .and_then(|json| {
+                serde_json::from_str::<serde_json::Value>(&json).map_err(|err| {
+                    ApiError::internal(format!("state json could not be decoded: {err}"))
+                })
+            })?;
+        Ok(Self::api_json(
+            "200 OK",
+            serde_json::json!({
+                "ok": true,
+                "state": state,
+            }),
+        ))
+    }
+
+    fn api_request_body(body: &[u8]) -> Result<serde_json::Value, ApiError> {
+        if body.is_empty() {
+            return Ok(serde_json::json!({}));
+        }
+        serde_json::from_slice(body)
+            .map_err(|err| ApiError::bad_request(format!("invalid json: {err}")))
+    }
+
+    fn json_str<'a>(value: &'a serde_json::Value, field: &str) -> Result<&'a str, ApiError> {
+        value
+            .get(field)
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| ApiError::bad_request(format!("{field} must be a string")))
+    }
+
+    fn json_f64(value: &serde_json::Value, field: &str) -> Result<f64, ApiError> {
+        let number = value
+            .get(field)
+            .and_then(|value| value.as_f64())
+            .ok_or_else(|| ApiError::bad_request(format!("{field} must be a number")))?;
+        if number.is_finite() {
+            Ok(number)
+        } else {
+            Err(ApiError::bad_request(format!("{field} must be finite")))
+        }
+    }
+
+    fn json_i64(value: &serde_json::Value, field: &str) -> Result<i64, ApiError> {
+        value
+            .get(field)
+            .and_then(|value| value.as_i64())
+            .ok_or_else(|| ApiError::bad_request(format!("{field} must be an integer")))
+    }
+
+    fn json_bool(value: &serde_json::Value, field: &str) -> Result<bool, ApiError> {
+        value
+            .get(field)
+            .and_then(|value| value.as_bool())
+            .ok_or_else(|| ApiError::bad_request(format!("{field} must be a boolean")))
+    }
+
+    fn api_joint(segment: &str) -> Result<usize, ApiError> {
+        let joint = segment
+            .parse::<usize>()
+            .map_err(|_| ApiError::bad_request("joint must be an integer"))?;
+        if joint < JOINT_COUNT {
+            Ok(joint)
+        } else {
+            Err(ApiError::bad_request(format!(
+                "joint must be between 0 and {}",
+                JOINT_COUNT - 1
+            )))
+        }
+    }
+
+    fn api_frame(value: &serde_json::Value, field: &str) -> Result<TcpFrame, ApiError> {
+        match Self::json_str(value, field)? {
+            "base" | "Base" | "armBase" | "Arm Base" => Ok(TcpFrame::Base),
+            "tool" | "Tool" => Ok(TcpFrame::Tool),
+            "yawFlat" | "yaw-flat" | "Yaw-flat" | "YawFlat" => Ok(TcpFrame::YawFlat),
+            _ => Err(ApiError::bad_request(format!(
+                "{field} must be base/armBase, tool, or yawFlat"
+            ))),
+        }
+    }
+
+    fn api_direction(direction: &str) -> Result<[f64; 3], ApiError> {
+        match direction {
+            "forward" => Ok([1.0, 0.0, 0.0]),
+            "back" | "backward" => Ok([-1.0, 0.0, 0.0]),
+            "left" => Ok([0.0, 1.0, 0.0]),
+            "right" => Ok([0.0, -1.0, 0.0]),
+            "up" => Ok([0.0, 0.0, 1.0]),
+            "down" => Ok([0.0, 0.0, -1.0]),
+            _ => Err(ApiError::bad_request(
+                "direction must be forward, back, left, right, up, or down",
+            )),
+        }
+    }
+
+    pub(crate) fn handle_api_request(
+        &mut self,
+        method: &[u8],
+        target: &[u8],
+        body: &[u8],
+    ) -> ApiResponse {
+        let method = match std::str::from_utf8(method) {
+            Ok(method) => method,
+            Err(_) => return Self::api_error(ApiError::bad_request("method must be ascii")),
+        };
+        let target = match std::str::from_utf8(target) {
+            Ok(target) => target,
+            Err(_) => return Self::api_error(ApiError::bad_request("target must be utf-8")),
+        };
+        let path = target
+            .split_once('?')
+            .map(|(path, _)| path)
+            .unwrap_or(target);
+
+        let response: Result<ApiResponse, ApiError> = match (method, path) {
+            ("GET", "/api/config.json") => self
+                .config_json()
+                .map(|body| ApiResponse {
+                    status: "200 OK",
+                    body: body.into_bytes(),
+                })
+                .map_err(ApiError::internal),
+            ("GET", "/api/state") => self
+                .api_state_json()
+                .map(|body| ApiResponse {
+                    status: "200 OK",
+                    body: body.into_bytes(),
+                })
+                .map_err(ApiError::internal),
+            ("GET", _) => Err(ApiError::not_found("unknown api endpoint")),
+            ("POST", _) => self
+                .handle_api_command(path, body)
+                .and_then(|()| self.api_success()),
+            _ => Err(ApiError::method_not_allowed("api commands require POST")),
+        };
+
+        match response {
+            Ok(response) => response,
+            Err(error) => Self::api_error(error),
+        }
+    }
+
+    fn handle_api_command(&mut self, path: &str, body: &[u8]) -> Result<(), ApiError> {
+        let json = Self::api_request_body(body)?;
+        let segments = path
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+
+        match segments.as_slice() {
+            ["api", "drive"] => self.api_drive(&json),
+            ["api", "drive", "stop"] => {
+                self.stop_drive();
+                Ok(())
+            }
+            ["api", "arm", "speed"] => self.api_arm_speed(&json),
+            ["api", "arm", "hold"] => self
+                .arm("arm hold", ArmCommand::Hold)
+                .map_err(|err| ApiError::bad_request(format!("arm hold rejected: {err:?}"))),
+            ["api", "arm", "stop"] => self
+                .arm("arm stop all", ArmCommand::StopAll)
+                .map_err(|err| ApiError::bad_request(format!("arm stop rejected: {err:?}"))),
+            ["api", "arm", "clear-faults"] => self
+                .arm("clear arm faults", ArmCommand::ClearFaults { joint: None })
+                .map_err(|err| ApiError::bad_request(format!("clear faults rejected: {err:?}"))),
+            ["api", "arm", "joints", joint, "spin"] => {
+                let joint = Self::api_joint(joint)?;
+                let direction = Self::json_i64(&json, "direction")?;
+                let direction = match direction {
+                    -1 => -1,
+                    1 => 1,
+                    _ => return Err(ApiError::bad_request("direction must be -1 or 1")),
+                };
+                self.arm("spin joint", ArmCommand::Spin { joint, direction })
+                    .map_err(|err| ApiError::bad_request(format!("spin joint rejected: {err:?}")))
+            }
+            ["api", "arm", "joints", joint, "stop"] => {
+                let joint = Self::api_joint(joint)?;
+                self.arm("stop joint", ArmCommand::Stop { joint })
+                    .map_err(|err| ApiError::bad_request(format!("stop joint rejected: {err:?}")))
+            }
+            ["api", "arm", "joints", joint, "zero"] => {
+                let joint = Self::api_joint(joint)?;
+                self.arm(
+                    "move joint to zero",
+                    ArmCommand::SetJointAngle {
+                        joint,
+                        angle_rad: 0.0,
+                    },
+                )
+                .map_err(|err| ApiError::bad_request(format!("zero joint rejected: {err:?}")))
+            }
+            ["api", "arm", "joints", joint, "reference"] => {
+                let joint = Self::api_joint(joint)?;
+                let angle_deg = Self::json_f64(&json, "angleDeg")?;
+                self.set_joint_reference_angle(joint, angle_deg)
+                    .map_err(|err| {
+                        ApiError::bad_request(format!("set joint reference rejected: {err:?}"))
+                    })
+            }
+            ["api", "arm", "joints", joint, "angle-sign", "flip"] => {
+                let joint = Self::api_joint(joint)?;
+                self.flip_joint_angle_sign_for(joint);
+                Ok(())
+            }
+            ["api", "arm", "joints", joint, "limits"] => {
+                let joint = Self::api_joint(joint)?;
+                let min = i32::try_from(Self::json_i64(&json, "minTick")?)
+                    .map_err(|_| ApiError::bad_request("minTick is out of range"))?;
+                let max = i32::try_from(Self::json_i64(&json, "maxTick")?)
+                    .map_err(|_| ApiError::bad_request("maxTick is out of range"))?;
+                if min == max {
+                    return Err(ApiError::bad_request("minTick and maxTick must differ"));
+                }
+                self.arm(
+                    "set joint limits",
+                    ArmCommand::SetTickLimits { joint, min, max },
+                )
+                .map_err(|err| ApiError::bad_request(format!("set limits rejected: {err:?}")))
+            }
+            ["api", "arm", "joints", joint, "limits", "enabled"] => {
+                let joint = Self::api_joint(joint)?;
+                let enabled = Self::json_bool(&json, "enabled")?;
+                self.arm(
+                    if enabled {
+                        "enable joint limits"
+                    } else {
+                        "disable joint limits"
+                    },
+                    ArmCommand::SetTickLimitsEnabled { joint, enabled },
+                )
+                .map_err(|err| {
+                    ApiError::bad_request(format!("set limits enabled rejected: {err:?}"))
+                })
+            }
+            ["api", "arm", "goto-angles"] => self.api_goto_angles(&json),
+            ["api", "arm", "goto-default"] | ["api", "arm", "goto-default-angles"] => {
+                self.move_to_default_goto_angles();
+                Ok(())
+            }
+            ["api", "arm", "goto-current"] => {
+                self.set_goto_angles_current();
+                Ok(())
+            }
+            ["api", "arm", "coordinates", "current"] => {
+                self.set_coordinates_current();
+                Ok(())
+            }
+            ["api", "arm", "coordinates", "move"] => self.api_move_coordinates(&json),
+            ["api", "arm", "tcp-frame"] => {
+                let frame = Self::api_frame(&json, "frame")?;
+                if !matches!(frame, TcpFrame::Base | TcpFrame::Tool) {
+                    return Err(ApiError::bad_request("tcp frame must be base or tool"));
+                }
+                self.set_tcp_frame(frame);
+                Ok(())
+            }
+            ["api", "arm", "coordinate-frame"] => {
+                let frame = Self::api_frame(&json, "frame")?;
+                if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
+                    return Err(ApiError::bad_request(
+                        "coordinate frame must be base or yawFlat",
+                    ));
+                }
+                self.set_coordinate_frame(frame);
+                Ok(())
+            }
+            ["api", "arm", "tcp-jog", "start"] => self.api_tcp_jog_start(&json),
+            ["api", "arm", "coordinate-jog", "start"] => self.api_coordinate_jog_start(&json),
+            ["api", "arm", "tcp-jog", "stop"] => self
+                .arm("stop tcp jog", ArmCommand::StopTcpJog)
+                .map_err(|err| ApiError::bad_request(format!("stop tcp jog rejected: {err:?}"))),
+            ["api", "calibration", "save"] => {
+                self.save_calibration();
+                Ok(())
+            }
+            ["api", "arm", "coordinate-calibration", "flip-forward"] => {
+                self.flip_coordinate_forward_axis();
+                Ok(())
+            }
+            ["api", "arm", "coordinate-calibration", "flip-left"] => {
+                self.flip_coordinate_left_axis();
+                Ok(())
+            }
+            ["api", "arm", "coordinate-calibration", "rotate-base"] => {
+                self.rotate_coordinate_base_frame();
+                Ok(())
+            }
+            _ => Err(ApiError::not_found("unknown api command")),
+        }
+    }
+
+    fn api_drive(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        match Self::json_str(json, "action")? {
+            "forward" => self.drive("drive forward", UI_DRIVE_SPEED, 0),
+            "back" | "backward" => self.drive("drive back", -UI_DRIVE_SPEED, 0),
+            "left" => self.drive("drive left", 0, -UI_STEER_SPEED),
+            "right" => self.drive("drive right", 0, UI_STEER_SPEED),
+            "stop" => self.stop_drive(),
+            _ => {
+                return Err(ApiError::bad_request(
+                    "action must be forward, back, left, right, or stop",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn api_arm_speed(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let speed = Self::json_i64(json, "speed")?;
+        if speed < 0 || speed > i64::from(i16::MAX) {
+            return Err(ApiError::bad_request(
+                "speed must be a non-negative i16 integer",
+            ));
+        }
+        self.arm_speed = speed.to_string();
+        self.apply_arm_speed();
+        Ok(())
+    }
+
+    fn api_goto_angles(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let yaw = Self::json_f64(json, "yawDeg")?;
+        let shoulder = Self::json_f64(json, "shoulderDeg")?;
+        let elbow = Self::json_f64(json, "elbowDeg")?;
+        let wrist = Self::json_f64(json, "wristDeg")?;
+        self.goto_angle_yaw = format!("{yaw:.1}");
+        self.goto_angle_shoulder = format!("{shoulder:.1}");
+        self.goto_angle_elbow = format!("{elbow:.1}");
+        self.goto_angle_wrist = format!("{wrist:.1}");
+        self.arm(
+            "move to target angles",
+            ArmCommand::GotoAngles([
+                yaw.to_radians(),
+                shoulder.to_radians(),
+                elbow.to_radians(),
+                wrist.to_radians(),
+            ]),
+        )
+        .map_err(|err| ApiError::bad_request(format!("goto angles rejected: {err:?}")))?;
+        self.sync_coordinates_from_target();
+        Ok(())
+    }
+
+    fn api_move_coordinates(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let x = Self::json_f64(json, "xMm")?;
+        let y = Self::json_f64(json, "yMm")?;
+        let z_table = Self::json_f64(json, "zMm")?;
+        let tool_phi_rad = Self::json_f64(json, "toolPhiDeg")?.to_radians();
+        self.coordinate_x = format!("{x:.1}");
+        self.coordinate_y = format!("{y:.1}");
+        self.coordinate_z = format!("{z_table:.1}");
+        self.coordinate_error.clear();
+        self.arm(
+            "move to coordinates",
+            ArmCommand::GotoCoords {
+                x,
+                y,
+                z: kinematics::table_to_shoulder_z(z_table),
+                tool_phi_rad,
+            },
+        )
+        .map_err(|err| ApiError::bad_request(format!("move to coordinates rejected: {err:?}")))?;
+        self.sync_goto_angles_from_targets();
+        Ok(())
+    }
+
+    fn api_tcp_jog_start(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let frame = Self::api_frame(json, "frame")?;
+        if !matches!(frame, TcpFrame::Base | TcpFrame::Tool) {
+            return Err(ApiError::bad_request("tcp jog frame must be base or tool"));
+        }
+        let direction = Self::api_direction(Self::json_str(json, "direction")?)?;
+        if direction[2] != 0.0 {
+            return Err(ApiError::bad_request(
+                "tcp jog direction must be forward, back, left, or right",
+            ));
+        }
+        self.start_tcp_jog("http tcp jog", frame, direction)
+            .map_err(|err| ApiError::bad_request(format!("tcp jog rejected: {err:?}")))
+    }
+
+    fn api_coordinate_jog_start(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let frame = Self::api_frame(json, "frame")?;
+        if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
+            return Err(ApiError::bad_request(
+                "coordinate jog frame must be base or yawFlat",
+            ));
+        }
+        let direction = match Self::json_str(json, "direction")? {
+            "forward" => self.coordinate_jog_direction(self.coordinate_forward_sign(), 0.0, 0.0),
+            "back" | "backward" => {
+                self.coordinate_jog_direction(-self.coordinate_forward_sign(), 0.0, 0.0)
+            }
+            "left" => self.coordinate_jog_direction(0.0, self.coordinate_left_sign(), 0.0),
+            "right" => self.coordinate_jog_direction(0.0, -self.coordinate_left_sign(), 0.0),
+            "up" => [0.0, 0.0, 1.0],
+            "down" => [0.0, 0.0, -1.0],
+            _ => {
+                return Err(ApiError::bad_request(
+                    "direction must be forward, back, left, right, up, or down",
+                ));
+            }
+        };
+        self.start_tcp_jog("http coordinate jog", frame, direction)
+            .map_err(|err| ApiError::bad_request(format!("coordinate jog rejected: {err:?}")))
+    }
+
     fn coordinate_calibration(&self) -> CoordinateCalibration {
         self.active_config.coordinate
     }
@@ -793,8 +1452,8 @@ impl App {
             },
             UiMetric {
                 label: "Servo bus".to_string(),
-                value: "hardware".to_string(),
-                detail: "required STServo bus is open".to_string(),
+                value: self.backend.status_value().to_string(),
+                detail: self.backend.status_detail().to_string(),
                 accent: "#3fbf6f",
                 save_action: false,
             },
@@ -982,6 +1641,9 @@ impl App {
     fn render_joint_target(&self) -> Item {
         subpanel(vec![
             title_text("Joint Target (deg)"),
+            label_text(
+                "Default (90 / 90 / 90 / 90) is a folded transport pose, not a neutral reach home",
+            ),
             hstack(vec![
                 field(
                     "Yaw",
@@ -1035,6 +1697,21 @@ impl App {
         ])
     }
 
+    fn render_arm_speed(&self) -> Item {
+        subpanel(vec![
+            title_text("Arm Speed"),
+            hstack(vec![
+                field("Speed", EDIT_ARM_SPEED_ID, &self.arm_speed, "speed", 112),
+                primary_button("Set Speed")
+                    .height(34)
+                    .width(104)
+                    .on_click(SET_ARM_SPEED_ID),
+            ])
+            .spacing(8),
+            error_text(&self.arm_speed_error),
+        ])
+    }
+
     fn render_tcp_jog(&self) -> Item {
         subpanel(vec![
             title_text("TCP Jog"),
@@ -1058,15 +1735,6 @@ impl App {
                     .break_words(true),
             ])
             .spacing(8),
-            hstack(vec![field(
-                "Speed mm/s",
-                EDIT_TCP_JOG_SPEED_ID,
-                &self.tcp_jog_speed_mm_s,
-                "speed",
-                112,
-            )])
-            .spacing(8)
-            .wrap(true),
             hstack(vec![
                 primary_button("Forward")
                     .height(32)
@@ -1102,15 +1770,15 @@ impl App {
             .unwrap_or_else(|| "current position unavailable".to_string());
 
         subpanel(vec![
-            title_text("Coordinate Move (mm)"),
+            title_text("Arm Base (mm)"),
             label_text(&coordinate_detail).break_words(true),
             hstack(vec![
-                label_text("Frame").min_width(56),
+                label_text("Jog Frame").min_width(72),
                 frame_button(
-                    "Base",
+                    "Arm Base",
                     self.coordinate_frame == TcpFrame::Base,
                     SET_COORDINATE_FRAME_BASE_ID,
-                    74,
+                    92,
                 ),
                 frame_button(
                     "Yaw-flat",
@@ -1118,7 +1786,7 @@ impl App {
                     SET_COORDINATE_FRAME_YAW_FLAT_ID,
                     96,
                 ),
-                title_text(frame_label(self.coordinate_frame)).min_width(66),
+                title_text(coordinate_jog_frame_label(self.coordinate_frame)).min_width(76),
                 label_text(frame_detail(self.coordinate_frame))
                     .grow(1)
                     .break_words(true),
@@ -1343,6 +2011,7 @@ impl App {
     fn render_arm_panel(&self) -> Item {
         let arm = self.robot.arm_telemetry();
         let mut children = vec![title_text("Arm Jog")];
+        children.push(self.render_arm_speed());
         children.extend(
             arm.joints
                 .iter()
@@ -1586,7 +2255,6 @@ impl App {
         let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
             return;
         };
-        let _ = self.arm("set arm speed", ArmCommand::SetSpeed(UI_ARM_SPEED));
         let _ = self.arm("spin joint", ArmCommand::Spin { joint, direction });
     }
 
@@ -1594,7 +2262,6 @@ impl App {
         let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
             return;
         };
-        let _ = self.arm("set arm speed", ArmCommand::SetSpeed(UI_ARM_SPEED));
         let _ = self.arm(
             "move joint to zero",
             ArmCommand::SetJointAngle {
@@ -1731,20 +2398,25 @@ impl App {
         Some((x, y, z))
     }
 
-    fn parse_tcp_jog_speed_mm_s(&mut self) -> Option<f64> {
-        let speed = match Self::parse_coordinate(&self.tcp_jog_speed_mm_s, "speed") {
-            Ok(value) if value > 0.0 => value,
-            Ok(_) => {
-                self.coordinate_error = "speed must be positive".to_string();
-                return None;
-            }
-            Err(err) => {
-                self.coordinate_error = err;
+    fn parse_arm_speed(&mut self) -> Option<i16> {
+        let trimmed = self.arm_speed.trim();
+        let speed = match trimmed.parse::<i16>() {
+            Ok(value) if value >= 0 => value,
+            _ => {
+                self.arm_speed_error = "speed must be a non-negative whole number".to_string();
                 return None;
             }
         };
-        self.coordinate_error.clear();
+        self.arm_speed_error.clear();
         Some(speed)
+    }
+
+    fn apply_arm_speed(&mut self) {
+        let Some(speed) = self.parse_arm_speed() else {
+            self.mark_ui_dirty();
+            return;
+        };
+        let _ = self.arm("set arm speed", ArmCommand::SetSpeed(speed));
     }
 
     fn nudge_limit_editor(&mut self, min_delta: i32, max_delta: i32) {
@@ -1779,17 +2451,7 @@ impl App {
         frame: TcpFrame,
         direction: [f64; 3],
     ) -> Result<(), ControllerError> {
-        let Some(speed_mm_s) = self.parse_tcp_jog_speed_mm_s() else {
-            return Err(ControllerError::InvalidLimit);
-        };
-        self.arm(
-            label,
-            ArmCommand::StartTcpJog {
-                frame,
-                direction,
-                speed_mm_s,
-            },
-        )
+        self.arm(label, ArmCommand::StartTcpJog { frame, direction })
     }
 
     fn move_to_goto_angles(&mut self, label: &str) {
@@ -1797,7 +2459,6 @@ impl App {
             self.mark_ui_dirty();
             return;
         };
-        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
         if self.arm(label, ArmCommand::GotoAngles(angles_rad)).is_ok() {
             self.sync_coordinates_from_target();
         }
@@ -1833,12 +2494,18 @@ impl App {
         }
     }
 
-    fn move_to_coordinate_target(&mut self, label: &str, x: f64, y: f64, z_table: f64) {
+    fn move_to_coordinate_target(
+        &mut self,
+        label: &str,
+        x: f64,
+        y: f64,
+        z_table: f64,
+        tool_phi_rad: f64,
+    ) {
         self.coordinate_x = format!("{x:.1}");
         self.coordinate_y = format!("{y:.1}");
         self.coordinate_z = format!("{z_table:.1}");
         self.coordinate_error.clear();
-        let _ = self.arm(label, ArmCommand::SetSpeed(UI_ARM_SPEED));
         if self
             .arm(
                 label,
@@ -1846,6 +2513,7 @@ impl App {
                     x,
                     y,
                     z: kinematics::table_to_shoulder_z(z_table),
+                    tool_phi_rad,
                 },
             )
             .is_ok()
@@ -1879,42 +2547,51 @@ impl App {
             self.mark_ui_dirty();
             return;
         };
-        let arm_joint = &self.robot.arm.joints[joint];
-        if let Some(err) = joint_reference_tick_error(arm_joint) {
-            self.calibration_editor_error = err;
-            self.mark_ui_dirty();
-            return;
-        }
-        let Some(tick) = arm_joint.tick else {
-            self.calibration_editor_error = "current tick unavailable".to_string();
-            self.mark_ui_dirty();
-            return;
-        };
-
-        if self
-            .arm(
-                &format!(
-                    "calibrate {} reference angle",
-                    ARM_JOINT_LABELS[joint].to_lowercase()
-                ),
-                ArmCommand::SetJointReference {
-                    joint,
-                    tick,
-                    angle_rad: angle_deg.to_radians(),
-                },
-            )
-            .is_ok()
-        {
+        if self.set_joint_reference_angle(joint, angle_deg).is_ok() {
             self.calibration_editor_joint = None;
             self.calibration_editor_error.clear();
         }
         self.mark_ui_dirty();
     }
 
+    fn set_joint_reference_angle(
+        &mut self,
+        joint: usize,
+        angle_deg: f64,
+    ) -> Result<(), ControllerError> {
+        let arm_joint = &self.robot.arm.joints[joint];
+        if let Some(err) = joint_reference_tick_error(arm_joint) {
+            self.calibration_editor_error = err;
+            self.mark_ui_dirty();
+            return Err(ControllerError::MissingFeedback);
+        }
+        let Some(tick) = arm_joint.tick else {
+            self.calibration_editor_error = "current tick unavailable".to_string();
+            self.mark_ui_dirty();
+            return Err(ControllerError::MissingFeedback);
+        };
+
+        self.arm(
+            &format!(
+                "calibrate {} reference angle",
+                ARM_JOINT_LABELS[joint].to_lowercase()
+            ),
+            ArmCommand::SetJointReference {
+                joint,
+                tick,
+                angle_rad: angle_deg.to_radians(),
+            },
+        )
+    }
+
     fn flip_joint_angle_sign(&mut self) {
         let Some(joint) = self.calibration_editor_joint else {
             return;
         };
+        self.flip_joint_angle_sign_for(joint);
+    }
+
+    fn flip_joint_angle_sign_for(&mut self, joint: usize) {
         if joint >= JOINT_COUNT {
             self.calibration_editor_error = "invalid joint".to_string();
             self.mark_ui_dirty();
@@ -1992,6 +2669,8 @@ impl App {
             self.coordinate_y = format!("{y:.1}");
             self.coordinate_z = format!("{z:.1}");
             self.coordinate_error.clear();
+            let _ = self.arm("set coordinate target to current", ArmCommand::Hold);
+            self.sync_goto_angles_from_targets();
         } else {
             self.coordinate_error = "current position unavailable".to_string();
         }
@@ -2003,7 +2682,13 @@ impl App {
             self.mark_ui_dirty();
             return;
         };
-        self.move_to_coordinate_target("move to coordinates", x, y, z_table);
+        self.move_to_coordinate_target(
+            "move to coordinates",
+            x,
+            y,
+            z_table,
+            kinematics::ARM_TOOL_PHI_RAD,
+        );
     }
 
     fn flip_coordinate_forward_axis(&mut self) {
@@ -2124,6 +2809,7 @@ impl App {
             FLIP_JOINT_ANGLE_SIGN_ID => self.flip_joint_angle_sign(),
             STOP_JOINT_ID => self.stop_joint(event_arg(inx)),
             SET_GOTO_ANGLES_CURRENT_ID => self.set_goto_angles_current(),
+            SET_ARM_SPEED_ID => self.apply_arm_speed(),
             SET_TCP_FRAME_BASE_ID => self.set_tcp_frame(TcpFrame::Base),
             SET_TCP_FRAME_TOOL_ID => self.set_tcp_frame(TcpFrame::Tool),
             SET_COORDINATES_CURRENT_ID => self.set_coordinates_current(),
@@ -2134,7 +2820,6 @@ impl App {
             FLIP_COORDINATE_LEFT_AXIS_ID => self.flip_coordinate_left_axis(),
             ROTATE_COORDINATE_BASE_FRAME_ID => self.rotate_coordinate_base_frame(),
             ARM_HOLD_ID => {
-                let _ = self.arm("set arm speed", ArmCommand::SetSpeed(UI_ARM_SPEED));
                 let _ = self.arm("arm hold", ArmCommand::Hold);
             }
             ARM_STOP_ALL_ID => {
@@ -2306,9 +2991,9 @@ impl App {
                 self.goto_angle_error.clear();
                 self.mark_ui_dirty();
             }
-            EDIT_TCP_JOG_SPEED_ID => {
-                self.tcp_jog_speed_mm_s = value;
-                self.coordinate_error.clear();
+            EDIT_ARM_SPEED_ID => {
+                self.arm_speed = value;
+                self.arm_speed_error.clear();
                 self.mark_ui_dirty();
             }
             EDIT_COORDINATE_X_ID => {
@@ -2459,9 +3144,9 @@ impl App {
         }
     }
 
-    async fn handle_ws_event(&mut self, server: &ws::WsServer, event: ws::WsEvent) {
+    async fn handle_ws_event(&mut self, server: &http::HttpServer, event: http::HttpEvent) {
         match event {
-            ws::WsEvent::Connected { client_id } => {
+            http::HttpEvent::WebSocketConnected { client_id } => {
                 self.ws_clients.insert(
                     client_id,
                     WsClientState {
@@ -2470,7 +3155,7 @@ impl App {
                     },
                 );
             }
-            ws::WsEvent::Binary { client_id, payload } => {
+            http::HttpEvent::WebSocketBinary { client_id, payload } => {
                 let mut telemetry_enabled = self
                     .ws_clients
                     .get(&client_id)
@@ -2487,53 +3172,33 @@ impl App {
                     server.send_binary(client_id, response).await;
                 }
             }
-            ws::WsEvent::Text { client_id, payload } if payload == b"ping" => {
+            http::HttpEvent::WebSocketText { client_id, payload } if payload == b"ping" => {
                 server.send_text(client_id, b"pong".to_vec()).await;
             }
-            ws::WsEvent::HttpRequest { request_id, target } => {
-                if target == b"/api/config.json" {
-                    match self.config_json() {
-                        Ok(body) => {
-                            server
-                                .send_http_response(
-                                    request_id,
-                                    "200 OK",
-                                    "application/json",
-                                    body.into_bytes(),
-                                )
-                                .await;
-                        }
-                        Err(err) => {
-                            let body = format!("{{\"error\":{}}}\n", serde_json::json!(err));
-                            server
-                                .send_http_response(
-                                    request_id,
-                                    "500 Internal Server Error",
-                                    "application/json",
-                                    body.into_bytes(),
-                                )
-                                .await;
-                        }
-                    }
-                } else {
-                    server
-                        .send_http_response(
-                            request_id,
-                            "404 Not Found",
-                            "text/plain",
-                            b"not found\n".to_vec(),
-                        )
-                        .await;
-                }
+            http::HttpEvent::HttpRequest {
+                request_id,
+                method,
+                target,
+                body,
+            } => {
+                let response = self.handle_api_request(&method, &target, &body);
+                server
+                    .send_http_response(
+                        request_id,
+                        response.status,
+                        "application/json",
+                        response.body,
+                    )
+                    .await;
             }
-            ws::WsEvent::Closed { client_id } => {
+            http::HttpEvent::WebSocketClosed { client_id } => {
                 self.ws_clients.remove(&client_id);
             }
             _ => {}
         }
     }
 
-    async fn send_ws_telemetry(&mut self, server: &ws::WsServer) {
+    async fn send_ws_telemetry(&mut self, server: &http::HttpServer) {
         let telemetry_seq = self.telemetry_seq();
         let client_ids = self
             .ws_clients
@@ -2558,7 +3223,7 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<(), String> {
-        let mut ws = ws::start_app_server(self.ws_bind_addr).map_err(|err| err.to_string())?;
+        let mut ws = http::start_app_server(self.ws_bind_addr).map_err(|err| err.to_string())?;
         let ws_addr = ws.local_addr();
         let _mdns = mdns::start_advertisement(ws_addr.port());
         log::info!(
@@ -2606,6 +3271,156 @@ mod tests {
     use puppybot_core::protocol::{
         CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_SUBSCRIBE, SUBSCRIPTION_TOPIC_ARM_STATE, command_frame,
     };
+
+    #[tokio::test]
+    async fn api_state_json_reports_runtime_state() {
+        let mut app = App::with_options(AppOptions {
+            config: None,
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("127.0.0.1:0".parse().unwrap()),
+        })
+        .expect("simulated runtime app");
+
+        for _ in 0..8 {
+            app.tick_robot().await;
+        }
+        let state: serde_json::Value =
+            serde_json::from_str(&app.api_state_json().expect("api state json"))
+                .expect("valid state json");
+
+        assert_eq!(state["mode"], "simulation");
+        assert!(state["timeMs"].is_number());
+        assert_eq!(
+            state["arm"]["joints"].as_array().expect("joints").len(),
+            JOINT_COUNT
+        );
+        assert!(state["arm"].get("currentTcpMm").is_some());
+        assert!(state["arm"].get("targetTcpMm").is_some());
+        assert_eq!(state["arm"]["frame"], "armBase");
+        assert_eq!(state["arm"]["unit"], "mm");
+        assert_eq!(state["arm"]["targetTcpMm"], serde_json::Value::Null);
+        assert_eq!(
+            state["arm"]["effectiveTargetTcpMm"],
+            state["arm"]["currentTcpMm"]
+        );
+        assert!(state["drive"].get("leftSpeed").is_some());
+        assert_eq!(state["sim"]["enabled"], true);
+        assert!(state["sim"]["markers"].is_array());
+        let marker = &state["sim"]["markers"].as_array().expect("sim markers")[0];
+        assert_eq!(marker["targetTcp"], serde_json::Value::Null);
+        assert_eq!(marker["frame"], "world");
+        assert_eq!(marker["unit"], "m");
+        assert_eq!(state["sim"]["frames"]["worldFromBase"]["fromFrame"], "base");
+        assert_eq!(state["sim"]["frames"]["worldFromBase"]["toFrame"], "world");
+        assert_eq!(
+            state["sim"]["frames"]["baseFromArmBase"]["fromFrame"],
+            "armBase"
+        );
+        assert_eq!(state["sim"]["frames"]["baseFromArmBase"]["toFrame"], "base");
+        assert!(state["sim"]["frames"]["worldFromBase"]["translationM"].is_array());
+        assert!(state["sim"]["frames"]["baseFromArmBase"]["rotationMatrix"].is_array());
+        assert_eq!(state["ui"]["coordinateFrame"], "Yaw-flat");
+        assert_eq!(state["ui"]["absoluteCoordinateFrame"], "Arm Base");
+    }
+
+    fn test_app() -> App {
+        App::with_options(AppOptions {
+            config: None,
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("127.0.0.1:0".parse().unwrap()),
+        })
+        .expect("simulated runtime app")
+    }
+
+    fn response_json(response: ApiResponse) -> serde_json::Value {
+        serde_json::from_slice(&response.body).expect("json response")
+    }
+
+    #[tokio::test]
+    async fn api_command_drive_forward_and_stop_updates_state() {
+        let mut app = test_app();
+
+        let response = app.handle_api_request(b"POST", b"/api/drive", br#"{"action":"forward"}"#);
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["drive"]["active"], true);
+        assert_eq!(body["state"]["drive"]["leftSpeed"], UI_DRIVE_SPEED);
+        assert_eq!(body["state"]["drive"]["rightSpeed"], UI_DRIVE_SPEED);
+
+        let response = app.handle_api_request(b"POST", b"/api/drive/stop", b"");
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["state"]["drive"]["active"], false);
+    }
+
+    #[tokio::test]
+    async fn api_command_arm_speed_updates_state() {
+        let mut app = test_app();
+
+        let response = app.handle_api_request(b"POST", b"/api/arm/speed", br#"{"speed":123}"#);
+
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["ui"]["armSpeed"], 123);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "set arm speed");
+    }
+
+    #[tokio::test]
+    async fn api_command_coordinate_jog_start_and_stop_updates_arm_state() {
+        let mut app = test_app();
+        for _ in 0..8 {
+            app.tick_robot().await;
+        }
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/coordinate-jog/start",
+            br#"{"direction":"up","frame":"yawFlat"}"#,
+        );
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "http coordinate jog");
+
+        let response = app.handle_api_request(b"POST", b"/api/arm/tcp-jog/stop", b"");
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "stop tcp jog");
+    }
+
+    #[tokio::test]
+    async fn api_command_joint_limits_and_errors_are_reported() {
+        let mut app = test_app();
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/joints/1/limits",
+            br#"{"minTick":1000,"maxTick":3000}"#,
+        );
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "set joint limits");
+
+        let response = app.handle_api_request(b"POST", b"/api/arm/speed", br#"{"speed":-1}"#);
+        assert_eq!(response.status, "400 Bad Request");
+        let body = response_json(response);
+        assert_eq!(body["ok"], false);
+
+        let response = app.handle_api_request(b"POST", b"/api/arm/nope", b"");
+        assert_eq!(response.status, "404 Not Found");
+
+        let response = app.handle_api_request(b"PUT", b"/api/arm/stop", b"");
+        assert_eq!(response.status, "405 Method Not Allowed");
+    }
 
     #[test]
     fn binary_command_parser_ignores_short_payload() {

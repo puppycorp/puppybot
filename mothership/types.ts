@@ -175,6 +175,7 @@ type ArmGotoCoords = {
 	x: number
 	y: number
 	z: number
+	toolPhiDeg: number
 }
 
 type ArmHold = {

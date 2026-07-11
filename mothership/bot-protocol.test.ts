@@ -207,14 +207,16 @@ describe("encodeBotMsg", () => {
 			x: 100,
 			y: -25.5,
 			z: 60,
+			toolPhiDeg: -90,
 		} as any)
-		const coordsPayload = Buffer.alloc(14)
+		const coordsPayload = Buffer.alloc(18)
 		coordsPayload.writeUInt16LE(180, 0)
 		coordsPayload.writeFloatLE(100, 2)
 		coordsPayload.writeFloatLE(-25.5, 6)
 		coordsPayload.writeFloatLE(60, 10)
+		coordsPayload.writeFloatLE(-90, 14)
 		expect(
-			coords.equals(Buffer.concat([Buffer.from([0xaa, 18, 14, 0]), coordsPayload])),
+			coords.equals(Buffer.concat([Buffer.from([0xaa, 18, 18, 0]), coordsPayload])),
 		).toBe(true)
 
 		const tick = encodeBotMsg({

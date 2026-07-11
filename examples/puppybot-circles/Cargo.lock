@@ -1161,6 +1161,8 @@ dependencies = [
  "libc",
  "pge-core",
  "pge-physics",
+ "pge-renderer",
+ "pge-wgpu-renderer",
  "roxmltree",
  "serde",
  "serde_json",
