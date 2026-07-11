@@ -13,13 +13,18 @@ use pge_core::{ArenaId as PgeCoreArenaId, Node as PgeCoreNode, Transform as PgeC
 use puppybot_core::{
     config::{JointCalibration, PuppybotConfigV1},
     drive::{DriveActuator, DriveOutput},
-    puppyarm::servo_safety::TICK_WRAP,
+    puppyarm::{
+        kinematics,
+        servo_safety::TICK_WRAP,
+        types::{JOINT_COUNT, PuppyarmTelemetry},
+    },
     robot::Puppybot,
     stservo::{SerialBus, StServo},
 };
 use robotdreams_core::{
     CoordinateDebugMarkerPositions, RigidTransform, RobotDreams, RobotDreamsPgeFrameOptions,
-    RobotDreamsPgeTextLabel, coordinate_debug_legend_labels, robotdreams_pge_frame,
+    RobotDreamsPgeTextLabel, RobotState, coordinate_debug_legend_labels,
+    project::RobotVisualTransform, robotdreams_pge_frame,
 };
 
 const SERVO_FULL_ROTATION_TICKS: f64 = TICK_WRAP as f64;
@@ -27,6 +32,11 @@ const SIMULATION_STEP_SECONDS: f32 = 0.02;
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
 const ROBOT_ID: &str = "puppybot";
+const TCP_ALIGNMENT_TOLERANCE_MM: f64 = 2.0;
+const MODEL_JOINT_NAMES: [&str; 4] = ["yaw", "shoulder", "elbow", "wrist"];
+const CONTROLLER_ARM_POINT_NAMES: [&str; 5] = ["yaw", "shoulder", "elbow", "wrist", "tcp"];
+const CONTROLLER_ARM_SEGMENT_NAMES: [&str; 4] =
+    ["yaw_shoulder", "shoulder_elbow", "elbow_wrist", "wrist_tcp"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RobotDreamsSerialBusError {
@@ -41,6 +51,7 @@ struct RobotDreamsRuntimeState {
     read_buf: VecDeque<u8>,
     labels: Vec<RobotDreamsPgeTextLabel>,
     puppybot_target_tcp_mm: Option<(f32, f32, f32)>,
+    controller_arm_chain_world_m: Option<ControllerArmChain>,
 }
 
 #[derive(Clone)]
@@ -55,6 +66,7 @@ pub(crate) struct RobotDreamsDriveActuator {
 
 pub(crate) struct SimulatedRuntimeBackend {
     state: Arc<Mutex<RobotDreamsRuntimeState>>,
+    preview_snapshot: Arc<Mutex<PreviewSnapshot>>,
     pub(crate) servo: StServo<RobotDreamsSerialBus>,
     pub(crate) drive_actuator: RobotDreamsDriveActuator,
 }
@@ -63,6 +75,32 @@ pub(crate) struct SimulatedRuntimeBackend {
 pub(crate) struct SimulationFrameTransforms {
     pub(crate) world_from_base: RigidTransform,
     pub(crate) base_from_arm_base: RigidTransform,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ModelTelemetry {
+    tcp_world_m: Option<[f64; 3]>,
+    joint_angles_rad: [Option<f64>; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ControllerArmChain {
+    points_world_m: [[f32; 3]; 5],
+}
+
+/// Immutable data consumed by the PGE window for one rendered frame.
+///
+/// The simulation worker owns the mutable RobotDreams model and can spend a
+/// long time in virtual-servo handling or physics stepping. Keeping the
+/// renderer on this separate, already-materialized snapshot means it never
+/// waits for that worker's mutex.
+#[derive(Clone)]
+struct PreviewSnapshot {
+    labels: Vec<RobotDreamsPgeTextLabel>,
+    visual_transforms: Vec<RobotVisualTransform>,
+    debug_markers: Vec<CoordinateDebugMarkerPositions>,
+    frames: Option<SimulationFrameTransforms>,
+    controller_arm_chain: Option<ControllerArmChain>,
 }
 
 impl SimulationFrameTransforms {
@@ -74,6 +112,7 @@ impl SimulationFrameTransforms {
 #[derive(Clone)]
 pub(crate) struct SimulatedPreview {
     state: Arc<Mutex<RobotDreamsRuntimeState>>,
+    snapshot: Arc<Mutex<PreviewSnapshot>>,
 }
 
 impl SimulatedRuntimeBackend {
@@ -102,7 +141,14 @@ impl SimulatedRuntimeBackend {
             read_buf: VecDeque::new(),
             labels: Vec::new(),
             puppybot_target_tcp_mm: None,
+            controller_arm_chain_world_m: None,
         }));
+        let preview_snapshot = {
+            let state_guard = state
+                .lock()
+                .map_err(|_| "RobotDreams simulation state lock poisoned at startup")?;
+            Arc::new(Mutex::new(preview_snapshot_from_state(&state_guard)))
+        };
         let bus = RobotDreamsSerialBus {
             state: Arc::clone(&state),
         };
@@ -112,6 +158,7 @@ impl SimulatedRuntimeBackend {
 
         Ok(Self {
             state,
+            preview_snapshot,
             servo: StServo::new(bus).with_timeout(Duration::from_millis(200)),
             drive_actuator,
         })
@@ -125,16 +172,17 @@ impl SimulatedRuntimeBackend {
         robot
             .run_once_with_drive(&mut self.servo, &mut self.drive_actuator, now_ms, || None)
             .await;
-        self.update_labels(robot);
         match self.state.lock() {
             Ok(mut state) => state.dreams.advance_seconds(SIMULATION_STEP_SECONDS),
             Err(_) => log::warn!("RobotDreams simulation state lock poisoned while advancing"),
         }
+        self.update_labels(robot);
     }
 
     pub(crate) fn preview(&self) -> SimulatedPreview {
         SimulatedPreview {
             state: Arc::clone(&self.state),
+            snapshot: Arc::clone(&self.preview_snapshot),
         }
     }
 
@@ -172,64 +220,222 @@ impl SimulatedRuntimeBackend {
     fn update_labels(&self, robot: &Puppybot) {
         let arm = robot.arm_telemetry();
         let drive = robot.drive_output();
-        let mut labels = vec![
-            RobotDreamsPgeTextLabel::overlay("title", "PUPPYBOT SIM", 0),
-            RobotDreamsPgeTextLabel::overlay(
-                "drive",
-                format!(
-                    "DRIVE L {} R {} STEER {} ACTIVE {}",
-                    drive.left_speed, drive.right_speed, drive.steering_angle_deg, drive.active
-                ),
-                1,
-            ),
-        ];
-        if let Some((x, y, z)) = arm.coords_mm {
-            labels.push(RobotDreamsPgeTextLabel::overlay(
-                "tcp_current",
-                format!("TCP CUR {x:.1} {y:.1} {z:.1} MM"),
-                2,
-            ));
-        }
-        if let Some((x, y, z)) = arm.target_coords_mm {
-            labels.push(RobotDreamsPgeTextLabel::overlay(
-                "tcp_target",
-                format!("TCP TGT {x:.1} {y:.1} {z:.1} MM"),
-                3,
-            ));
-        }
-        for (index, joint) in arm.joints.iter().enumerate() {
-            labels.push(RobotDreamsPgeTextLabel::overlay(
-                format!("joint_{index}"),
-                format!(
-                    "J{} ID {} TICK {} TGT {} ANG {}",
-                    index + 1,
-                    joint.servo_id,
-                    option_i32(joint.tick),
-                    option_i32(joint.target_tick),
-                    joint
-                        .angle_deg()
-                        .map(|angle| format!("{angle:.1}"))
-                        .unwrap_or_else(|| "NA".to_string())
-                ),
-                4 + index,
-            ));
-        }
 
-        match self.state.lock() {
+        let snapshot = match self.state.lock() {
             Ok(mut state) => {
+                let model_telemetry = state
+                    .dreams
+                    .robot_state(ROBOT_ID)
+                    .as_ref()
+                    .map(model_telemetry);
+                let controller_arm_chain = simulation_frame_transforms(&state.dreams)
+                    .and_then(|frames| controller_arm_chain_world_m(&arm, frames));
+                let mut labels = Vec::new();
+                push_overlay_label(&mut labels, "title", "PUPPYBOT SIM");
+                push_overlay_label(
+                    &mut labels,
+                    "drive",
+                    format!(
+                        "CTRL DRIVE L {} R {} STEER {} ACTIVE {}",
+                        drive.left_speed, drive.right_speed, drive.steering_angle_deg, drive.active
+                    ),
+                );
+                push_model_telemetry_labels(&mut labels, model_telemetry.as_ref());
+                push_controller_tcp_alignment_label(
+                    &mut labels,
+                    controller_arm_chain.as_ref(),
+                    model_telemetry.as_ref(),
+                );
+                if let Some((x, y, z)) = arm.coords_mm {
+                    push_overlay_label(
+                        &mut labels,
+                        "tcp_current",
+                        format!("CTRL CUR TCP ARM MM X {x:.1} Y {y:.1} Z {z:.1}"),
+                    );
+                }
+                if let Some((x, y, z)) = arm.target_coords_mm {
+                    push_overlay_label(
+                        &mut labels,
+                        "tcp_target",
+                        format!("CTRL TGT TCP ARM MM X {x:.1} Y {y:.1} Z {z:.1}"),
+                    );
+                }
+                for (index, joint) in arm.joints.iter().enumerate() {
+                    push_overlay_label(
+                        &mut labels,
+                        format!("joint_{index}"),
+                        format!(
+                            "CTRL J{} ID {} TICK {} TGT {} ANG DEG {}",
+                            index + 1,
+                            joint.servo_id,
+                            option_i32(joint.tick),
+                            option_i32(joint.target_tick),
+                            joint
+                                .angle_deg()
+                                .map(|angle| format!("{angle:.1}"))
+                                .unwrap_or_else(|| "NA".to_string())
+                        ),
+                    );
+                }
                 state.labels = labels;
                 state.puppybot_target_tcp_mm = arm.target_coords_mm;
+                state.controller_arm_chain_world_m = controller_arm_chain;
+                Some(preview_snapshot_from_state(&state))
             }
             Err(_) => {
-                log::warn!("RobotDreams simulation state lock poisoned while updating labels")
+                log::warn!("RobotDreams simulation state lock poisoned while updating labels");
+                None
+            }
+        };
+        if let Some(snapshot) = snapshot {
+            match self.preview_snapshot.lock() {
+                Ok(mut cached) => *cached = snapshot,
+                Err(_) => log::warn!("simulation preview snapshot lock poisoned while publishing"),
             }
         }
     }
 }
 
+fn preview_snapshot_from_state(state: &RobotDreamsRuntimeState) -> PreviewSnapshot {
+    let mut debug_markers = state.dreams.coordinate_debug_marker_positions(
+        robotdreams_core::CoordinateDebugOverlayOptions::default(),
+    );
+    let frames = simulation_frame_transforms(&state.dreams);
+    override_debug_markers_with_puppybot_tcp(
+        &mut debug_markers,
+        state.puppybot_target_tcp_mm,
+        frames,
+    );
+    PreviewSnapshot {
+        labels: state.labels.clone(),
+        visual_transforms: state
+            .dreams
+            .model()
+            .map(|model| model.robot_visual_transforms())
+            .unwrap_or_default(),
+        debug_markers,
+        frames,
+        controller_arm_chain: state.controller_arm_chain_world_m,
+    }
+}
+
+fn model_telemetry(robot_state: &RobotState) -> ModelTelemetry {
+    ModelTelemetry {
+        tcp_world_m: robot_state
+            .tcp
+            .as_ref()
+            .and_then(|tcp| tcp.location.as_ref())
+            .map(|location| location.position),
+        joint_angles_rad: MODEL_JOINT_NAMES.map(|semantic_name| {
+            robot_state
+                .joints
+                .values()
+                .find(|joint| joint.semantic_name.as_deref() == Some(semantic_name))
+                .map(|joint| joint.position_rad)
+        }),
+    }
+}
+
+fn controller_arm_chain_world_m(
+    telemetry: &PuppyarmTelemetry,
+    frames: SimulationFrameTransforms,
+) -> Option<ControllerArmChain> {
+    let mut angles = [0.0; JOINT_COUNT];
+    for (index, joint) in telemetry.joints.iter().enumerate() {
+        if !joint.has_feedback {
+            return None;
+        }
+        angles[index] = joint.angle_rad?;
+    }
+    let chain = kinematics::arm_chain_points(angles[0], angles[1], angles[2], angles[3]);
+    let points_arm_mm = [
+        chain.yaw,
+        chain.shoulder,
+        chain.elbow,
+        chain.wrist,
+        chain.tcp,
+    ];
+    let world_from_arm_base = frames.world_from_arm_base();
+    Some(ControllerArmChain {
+        points_world_m: points_arm_mm.map(|point_mm| {
+            f64_vec3_to_f32(
+                world_from_arm_base.transform_point(point_mm.map(|value| value * 0.001)),
+            )
+        }),
+    })
+}
+
+fn push_model_telemetry_labels(
+    labels: &mut Vec<RobotDreamsPgeTextLabel>,
+    telemetry: Option<&ModelTelemetry>,
+) {
+    let tcp_text = telemetry
+        .and_then(|telemetry| telemetry.tcp_world_m)
+        .map(|[x, y, z]| format!("MODEL OBS TCP WORLD M X {x:.3} Y {y:.3} Z {z:.3}"))
+        .unwrap_or_else(|| "MODEL OBS TCP WORLD M X NA Y NA Z NA".to_string());
+    push_overlay_label(labels, "model_tcp_observed", tcp_text);
+
+    let joint_angles = telemetry
+        .map(|telemetry| telemetry.joint_angles_rad)
+        .unwrap_or([None; 4]);
+    push_overlay_label(
+        labels,
+        "model_joints_observed",
+        format!(
+            "MODEL OBS JOINT DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
+            option_degrees(joint_angles[0]),
+            option_degrees(joint_angles[1]),
+            option_degrees(joint_angles[2]),
+            option_degrees(joint_angles[3]),
+        ),
+    );
+}
+
+fn push_controller_tcp_alignment_label(
+    labels: &mut Vec<RobotDreamsPgeTextLabel>,
+    controller_chain: Option<&ControllerArmChain>,
+    model_telemetry: Option<&ModelTelemetry>,
+) {
+    let text = controller_tcp_model_delta_mm(controller_chain, model_telemetry)
+        .map(|delta_mm| {
+            let status = if delta_mm <= TCP_ALIGNMENT_TOLERANCE_MM {
+                format!("ALIGNED <= {TCP_ALIGNMENT_TOLERANCE_MM:.1}")
+            } else {
+                format!("MISMATCH > {TCP_ALIGNMENT_TOLERANCE_MM:.1}")
+            };
+            format!("CTRL FK TCP DELTA TO MODEL MM {delta_mm:.1} ({status})")
+        })
+        .unwrap_or_else(|| "CTRL FK TCP DELTA TO MODEL MM NA".to_string());
+    push_overlay_label(labels, "controller_tcp_model_delta", text);
+}
+
+fn controller_tcp_model_delta_mm(
+    controller_chain: Option<&ControllerArmChain>,
+    model_telemetry: Option<&ModelTelemetry>,
+) -> Option<f64> {
+    let controller_tcp = controller_chain?.points_world_m[4];
+    let model_tcp = model_telemetry?.tcp_world_m?;
+    let squared_distance: f64 = controller_tcp
+        .into_iter()
+        .map(f64::from)
+        .zip(model_tcp)
+        .map(|(controller, model)| (controller - model).powi(2))
+        .sum();
+    Some(squared_distance.sqrt() * 1000.0)
+}
+
+fn push_overlay_label(
+    labels: &mut Vec<RobotDreamsPgeTextLabel>,
+    id: impl Into<String>,
+    text: impl Into<String>,
+) {
+    labels.push(RobotDreamsPgeTextLabel::overlay(id, text, labels.len()));
+}
+
 impl SimulatedPreview {
     pub(crate) fn run_blocking(self) -> Result<(), String> {
         let state = Arc::clone(&self.state);
+        let snapshot = Arc::clone(&self.snapshot);
         let options = RobotDreamsPgeFrameOptions::default();
         let target = options.target;
         let elevation_rad = options.camera_elevation_deg.to_radians();
@@ -264,6 +470,7 @@ impl SimulatedPreview {
             }
             Err(_) => return Err("RobotDreams preview state lock poisoned before startup".into()),
         };
+        insert_controller_arm_overlay(&mut frame.world);
         let world_node_index = index_world_nodes(&frame.world);
         set_world_camera_transform(
             &mut frame.world,
@@ -293,36 +500,28 @@ impl SimulatedPreview {
                 }
                 orbit_controller.process(&mut orbit_state, orbit_camera_node_id, 0.0);
 
-                let (labels, visual_transforms, debug_markers, frames) = match state.lock() {
-                    Ok(state) => {
-                        let mut debug_markers = state.dreams.coordinate_debug_marker_positions(
-                            robotdreams_core::CoordinateDebugOverlayOptions::default(),
-                        );
-                        let frames = simulation_frame_transforms(&state.dreams);
-                        override_debug_markers_with_puppybot_tcp(
-                            &mut debug_markers,
-                            state.puppybot_target_tcp_mm,
-                            frames,
-                        );
-                        (
-                            state.labels.clone(),
-                            state
-                                .dreams
-                                .model()
-                                .map(|model| model.robot_visual_transforms())
-                                .unwrap_or_default(),
-                            debug_markers,
-                            frames,
-                        )
-                    }
-                    Err(_) => {
-                        log::warn!("RobotDreams preview state lock poisoned");
-                        return Ok(false);
-                    }
-                };
+                let PreviewSnapshot {
+                    labels,
+                    visual_transforms,
+                    debug_markers,
+                    frames,
+                    controller_arm_chain,
+                } = match snapshot.lock() {
+                    Ok(snapshot) => snapshot.clone(),
+                        Err(_) => {
+                            log::warn!("simulation preview snapshot lock poisoned");
+                            return Ok(false);
+                        }
+                    };
                 let mut text_labels = labels;
                 let legend_row_start = text_labels.len();
                 text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+                text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+                    "controller_arm_legend",
+                    "MAGENTA CHAIN = CTRL FK (OBSERVED JOINTS; TCP ENDPOINT IS UNDER CYAN WHEN ALIGNED)",
+                    text_labels.len(),
+                    [1.0, 0.2, 0.9, 1.0],
+                ));
                 world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
                 sync_robot_visual_transforms(
                     world,
@@ -331,6 +530,11 @@ impl SimulatedPreview {
                     &world_node_index,
                 );
                 sync_tcp_debug_markers(world, &debug_markers, &world_node_index);
+                sync_controller_arm_overlay(
+                    world,
+                    controller_arm_chain.as_ref(),
+                    &world_node_index,
+                );
                 if let Some(frames) = frames {
                     sync_debug_frame_roots(world, frames, &world_node_index);
                 }
@@ -396,6 +600,88 @@ fn sync_robot_visual_transforms(
                 rotation: [0.0, 0.0, 0.0],
                 rotation_matrix: Some(visual.rotation_matrix),
             },
+        );
+    }
+}
+
+fn insert_controller_arm_overlay(world: &mut pge_core::WorldState) {
+    let material = world.materials.insert(pge_core::Material {
+        name: Some("PuppyArm controller FK overlay".to_string()),
+        base_color_factor: [1.0, 0.08, 0.82, 1.0],
+        emissive_factor: [0.35, 0.0, 0.25],
+        ..pge_core::Material::default()
+    });
+    let point_mesh = world.meshes.insert(pge_core::Mesh {
+        name: Some("PuppyArm controller FK point".to_string()),
+        source: pge_core::MeshSource::Procedural(pge_core::Geometry::Sphere { radius: 0.012 }),
+        material: Some(material),
+    });
+    for point_name in CONTROLLER_ARM_POINT_NAMES {
+        let mut node = pge_core::Node::new(format!(
+            "debug:{ROBOT_ID}:controller_arm:point:{point_name}"
+        ));
+        node.mesh = Some(point_mesh);
+        node.transform.translation = [0.0, 0.0, -10_000.0];
+        world.nodes.insert(node);
+    }
+    for segment_name in CONTROLLER_ARM_SEGMENT_NAMES {
+        let segment_mesh = world.meshes.insert(pge_core::Mesh {
+            name: Some(format!("PuppyArm controller FK segment {segment_name}")),
+            source: pge_core::MeshSource::Procedural(pge_core::Geometry::Box {
+                size: [0.001, 0.006, 0.006],
+            }),
+            material: Some(material),
+        });
+        let mut node = pge_core::Node::new(format!(
+            "debug:{ROBOT_ID}:controller_arm:segment:{segment_name}"
+        ));
+        node.mesh = Some(segment_mesh);
+        node.transform.translation = [0.0, 0.0, -10_000.0];
+        world.nodes.insert(node);
+    }
+}
+
+fn sync_controller_arm_overlay(
+    world: &mut pge_core::WorldState,
+    chain: Option<&ControllerArmChain>,
+    index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
+) {
+    let Some(chain) = chain else {
+        for point_name in CONTROLLER_ARM_POINT_NAMES {
+            hide_world_node(
+                world,
+                index,
+                &format!("debug:{ROBOT_ID}:controller_arm:point:{point_name}"),
+            );
+        }
+        for segment_name in CONTROLLER_ARM_SEGMENT_NAMES {
+            hide_world_line_segment(
+                world,
+                index,
+                &format!("debug:{ROBOT_ID}:controller_arm:segment:{segment_name}"),
+            );
+        }
+        return;
+    };
+
+    for (point_name, point) in CONTROLLER_ARM_POINT_NAMES.iter().zip(chain.points_world_m) {
+        set_world_node_translation(
+            world,
+            index,
+            &format!("debug:{ROBOT_ID}:controller_arm:point:{point_name}"),
+            point,
+        );
+    }
+    for (segment_name, points) in CONTROLLER_ARM_SEGMENT_NAMES
+        .iter()
+        .zip(chain.points_world_m.windows(2))
+    {
+        set_world_line_segment(
+            world,
+            index,
+            &format!("debug:{ROBOT_ID}:controller_arm:segment:{segment_name}"),
+            points[0],
+            points[1],
         );
     }
 }
@@ -703,7 +989,15 @@ fn line_rotation_matrix(delta: [f32; 3]) -> [[f32; 3]; 3] {
     };
     let y_axis = normalize(cross(reference, x_axis));
     let z_axis = normalize(cross(x_axis, y_axis));
-    [x_axis, y_axis, z_axis]
+    // PGE's `rotation_matrix` is a row-major representation of a matrix
+    // whose columns are the transformed local axes.  Keep the box's local X
+    // axis on the segment direction; returning the axes as rows transposes
+    // the basis and makes arbitrary segments point along unrelated axes.
+    [
+        [x_axis[0], y_axis[0], z_axis[0]],
+        [x_axis[1], y_axis[1], z_axis[1]],
+        [x_axis[2], y_axis[2], z_axis[2]],
+    ]
 }
 
 fn f64_vec3_to_f32(value: [f64; 3]) -> [f32; 3] {
@@ -790,6 +1084,12 @@ fn tick_for_joint_angle(joint: JointCalibration, angle_rad: f64) -> u16 {
     tick.round().rem_euclid(SERVO_FULL_ROTATION_TICKS) as u16
 }
 
+fn option_degrees(value_rad: Option<f64>) -> String {
+    value_rad
+        .map(|value| format!("{:.1}", value.to_degrees()))
+        .unwrap_or_else(|| "NA".to_string())
+}
+
 fn option_i32(value: Option<i32>) -> String {
     value
         .map(|value| value.to_string())
@@ -799,6 +1099,397 @@ fn option_i32(value: Option<i32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puppybot_core::stservo::mock::block_on_ready;
+
+    #[test]
+    fn cached_model_labels_match_robotdreams_state_and_identify_provenance() {
+        let config = PuppybotConfigV1::default();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+        let robot = Puppybot::new_with_config(&config, 0).expect("create PuppyBot controller");
+
+        backend.update_labels(&robot);
+
+        let state = backend.state.lock().expect("simulation state");
+        let robot_state = state
+            .dreams
+            .robot_state(ROBOT_ID)
+            .expect("PuppyBot model state");
+        let telemetry = model_telemetry(&robot_state);
+        let [x, y, z] = telemetry.tcp_world_m.expect("observed model TCP");
+        assert_eq!(
+            label_text(&state.labels, "model_tcp_observed"),
+            format!("MODEL OBS TCP WORLD M X {x:.3} Y {y:.3} Z {z:.3}")
+        );
+        assert_eq!(
+            label_text(&state.labels, "model_joints_observed"),
+            format!(
+                "MODEL OBS JOINT DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
+                option_degrees(telemetry.joint_angles_rad[0]),
+                option_degrees(telemetry.joint_angles_rad[1]),
+                option_degrees(telemetry.joint_angles_rad[2]),
+                option_degrees(telemetry.joint_angles_rad[3]),
+            )
+        );
+        assert!(telemetry.joint_angles_rad.iter().all(Option::is_some));
+        assert!(label_text(&state.labels, "drive").starts_with("CTRL DRIVE"));
+        assert!(
+            state
+                .labels
+                .iter()
+                .filter(|label| label.id.starts_with("joint_"))
+                .all(|label| label.text.starts_with("CTRL J"))
+        );
+    }
+
+    #[test]
+    fn cached_model_labels_follow_live_robotdreams_joint_and_tcp_updates() {
+        let config = PuppybotConfigV1::default();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+        let robot = Puppybot::new_with_config(&config, 0).expect("create PuppyBot controller");
+
+        backend.update_labels(&robot);
+        let initial_joint_label = cached_label_text(&backend, "model_joints_observed");
+        let initial_tcp_label = cached_label_text(&backend, "model_tcp_observed");
+
+        {
+            let mut state = backend.state.lock().expect("simulation state");
+            state
+                .dreams
+                .set_joint_angle("yaw", 0.42)
+                .expect("update model yaw");
+        }
+        backend.update_labels(&robot);
+        let updated_joint_label = cached_label_text(&backend, "model_joints_observed");
+        assert_ne!(updated_joint_label, initial_joint_label);
+        assert!(updated_joint_label.contains("YAW 24.1"));
+
+        {
+            let mut state = backend.state.lock().expect("simulation state");
+            assert!(state.dreams.set_virtual_drive_output(
+                DRIVE_BUS_ID,
+                ROBOT_ID,
+                1,
+                2,
+                45,
+                20,
+                120.0,
+                90.0,
+            ));
+            state.dreams.advance_seconds(1.0);
+        }
+        backend.update_labels(&robot);
+        assert_ne!(
+            cached_label_text(&backend, "model_tcp_observed"),
+            initial_tcp_label
+        );
+    }
+
+    #[test]
+    fn controller_arm_chain_uses_observed_joint_feedback_and_live_frame_transform() {
+        let mut robot = Puppybot::new(0);
+        let angles = [0.2, -0.1, 0.4, -0.3];
+        for (joint, angle) in robot.arm.joints.iter_mut().zip(angles) {
+            joint.has_feedback = true;
+            joint.tick = Some(joint.reference_tick);
+            joint.angle_rad = Some(angle);
+        }
+        let frames = SimulationFrameTransforms {
+            world_from_base: RigidTransform::from_translation_rpy(
+                [0.4, -0.2, 0.1],
+                [0.0, 0.0, std::f64::consts::FRAC_PI_2],
+            ),
+            base_from_arm_base: RigidTransform::from_translation_rpy(
+                [0.03, 0.01, 0.06],
+                [0.0, 0.0, 0.0],
+            ),
+        };
+
+        let chain = controller_arm_chain_world_m(&robot.arm_telemetry(), frames)
+            .expect("observed controller arm chain");
+        let expected = kinematics::arm_chain_points(angles[0], angles[1], angles[2], angles[3]);
+        assert_eq!(
+            chain.points_world_m[4],
+            f64_vec3_to_f32(
+                frames
+                    .world_from_arm_base()
+                    .transform_point(expected.tcp.map(|value| value * 0.001))
+            )
+        );
+
+        robot.arm.joints[2].has_feedback = false;
+        assert_eq!(
+            controller_arm_chain_world_m(&robot.arm_telemetry(), frames),
+            None
+        );
+    }
+
+    #[test]
+    fn runtime_config_controller_tcp_matches_robotdreams_tcp_at_live_feedback_pose() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
+        let config = crate::config::load_runtime_config(&config_path)
+            .expect("load PuppyBot runtime config")
+            .expect("PuppyBot runtime config exists");
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+        let mut robot =
+            Puppybot::new_with_config(&config, 0).expect("create PuppyBot controller from config");
+        // This asymmetric, live-feedback pose is deliberately close to the
+        // simulation screenshot: it exercises every joint calibration and
+        // makes a wrist-versus-TCP mix-up visible.
+        let feedback_ticks = [3000, 2989, 3000, 3418];
+        for (joint, tick) in robot.arm.joints.iter_mut().zip(feedback_ticks) {
+            joint.has_feedback = true;
+            joint.tick = Some(tick);
+            joint.angle_rad = Some(joint.tick_to_angle(tick));
+        }
+
+        let (controller_chain, model_telemetry) = {
+            let mut state = backend.state.lock().expect("simulation state");
+            for (joint, tick) in config.arm.joints.iter().zip(feedback_ticks) {
+                assert!(state.dreams.set_virtual_servo_target(
+                    SERVO_MAIN_BUS_ID,
+                    joint.servo_id,
+                    tick as i16,
+                ));
+            }
+            state.dreams.advance_seconds(3.0);
+            let frames = simulation_frame_transforms(&state.dreams)
+                .expect("RobotDreams resolves PuppyBot arm base frame");
+            let model_telemetry = model_telemetry(
+                &state
+                    .dreams
+                    .robot_state(ROBOT_ID)
+                    .expect("RobotDreams reports PuppyBot model state"),
+            );
+            (
+                controller_arm_chain_world_m(&robot.arm_telemetry(), frames)
+                    .expect("controller chain uses complete feedback"),
+                model_telemetry,
+            )
+        };
+
+        let delta_mm =
+            controller_tcp_model_delta_mm(Some(&controller_chain), Some(&model_telemetry))
+                .expect("both controller and model TCP positions");
+        assert!(
+            delta_mm <= TCP_ALIGNMENT_TOLERANCE_MM,
+            "controller FK TCP must coincide with the cyan RobotDreams TCP: \
+             controller={:?} model={:?} delta_mm={delta_mm:.3}",
+            controller_chain.points_world_m[4],
+            model_telemetry.tcp_world_m,
+        );
+    }
+
+    #[test]
+    fn live_runtime_cached_chain_matches_preview_tcp_marker() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
+        let config = crate::config::load_runtime_config(&config_path)
+            .expect("load PuppyBot runtime config")
+            .expect("PuppyBot runtime config exists");
+        let mut backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+        let mut robot =
+            Puppybot::new_with_config(&config, 0).expect("create PuppyBot controller from config");
+
+        for tick in 1..=8 {
+            block_on_ready(backend.run_once(&mut robot, tick * 20));
+        }
+
+        let snapshot = backend
+            .preview_snapshot
+            .lock()
+            .expect("preview snapshot")
+            .clone();
+        let chain = snapshot
+            .controller_arm_chain
+            .expect("cached controller chain");
+        let marker = snapshot
+            .debug_markers
+            .into_iter()
+            .find(|marker| marker.robot_id == ROBOT_ID)
+            .expect("PuppyBot coordinate marker");
+        let marker_tcp = marker.current_tcp.expect("cyan current TCP marker");
+        let delta_mm = chain.points_world_m[4]
+            .into_iter()
+            .zip(marker_tcp)
+            .map(|(controller, model)| f64::from(controller - model).powi(2))
+            .sum::<f64>()
+            .sqrt()
+            * 1_000.0;
+        assert!(
+            delta_mm <= TCP_ALIGNMENT_TOLERANCE_MM,
+            "live run cached controller FK TCP must match the RobotDreams cyan TCP marker: \
+             controller={:?} marker={marker_tcp:?} delta_mm={delta_mm:.3}",
+            chain.points_world_m[4],
+        );
+
+        let mut world = pge_core::WorldState::new();
+        world
+            .nodes
+            .insert(pge_core::Node::new("debug:puppybot:tcp:current"));
+        insert_controller_arm_overlay(&mut world);
+        let index = index_world_nodes(&world);
+        sync_tcp_debug_markers(&mut world, &[marker], &index);
+        sync_controller_arm_overlay(&mut world, Some(&chain), &index);
+        assert_eq!(
+            marker_translation(&world, &index, "debug:puppybot:tcp:current"),
+            marker_tcp
+        );
+        assert_eq!(
+            marker_translation(&world, &index, "debug:puppybot:controller_arm:point:tcp",),
+            chain.points_world_m[4]
+        );
+    }
+
+    #[test]
+    fn preview_snapshot_is_readable_while_robotdreams_state_is_locked() {
+        let config = PuppybotConfigV1::default();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+
+        // The preview must consume this independent snapshot rather than
+        // waiting for a virtual-servo transaction or RobotDreams physics step
+        // that owns the mutable simulation state.
+        let _simulation_update = backend.state.lock().expect("simulation state");
+        let snapshot = backend
+            .preview_snapshot
+            .try_lock()
+            .expect("preview snapshot must not share the simulation lock");
+        assert!(!snapshot.visual_transforms.is_empty());
+        assert!(
+            snapshot
+                .debug_markers
+                .iter()
+                .any(|marker| marker.robot_id == ROBOT_ID)
+        );
+    }
+
+    #[test]
+    fn controller_tcp_alignment_label_reports_delta_or_missing_data() {
+        let controller = ControllerArmChain {
+            points_world_m: [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.1, -0.2, 0.3],
+            ],
+        };
+        let model = ModelTelemetry {
+            tcp_world_m: Some([0.101, -0.2, 0.3]),
+            joint_angles_rad: [None; 4],
+        };
+        let mut labels = Vec::new();
+        push_controller_tcp_alignment_label(&mut labels, Some(&controller), Some(&model));
+        assert_eq!(
+            label_text(&labels, "controller_tcp_model_delta"),
+            "CTRL FK TCP DELTA TO MODEL MM 1.0 (ALIGNED <= 2.0)"
+        );
+
+        let mismatched_model = ModelTelemetry {
+            tcp_world_m: Some([0.104, -0.2, 0.3]),
+            joint_angles_rad: [None; 4],
+        };
+        labels.clear();
+        push_controller_tcp_alignment_label(
+            &mut labels,
+            Some(&controller),
+            Some(&mismatched_model),
+        );
+        assert_eq!(
+            label_text(&labels, "controller_tcp_model_delta"),
+            "CTRL FK TCP DELTA TO MODEL MM 4.0 (MISMATCH > 2.0)"
+        );
+
+        labels.clear();
+        push_controller_tcp_alignment_label(&mut labels, None, Some(&model));
+        assert_eq!(
+            label_text(&labels, "controller_tcp_model_delta"),
+            "CTRL FK TCP DELTA TO MODEL MM NA"
+        );
+    }
+
+    #[test]
+    fn controller_arm_overlay_updates_segments_and_stays_distinct_from_model_tcp() {
+        let mut world = pge_core::WorldState::new();
+        world
+            .nodes
+            .insert(pge_core::Node::new("debug:puppybot:tcp:current"));
+        insert_controller_arm_overlay(&mut world);
+        let index = index_world_nodes(&world);
+        let controller_tcp = "debug:puppybot:controller_arm:point:tcp";
+        let shoulder_segment = "debug:puppybot:controller_arm:segment:yaw_shoulder";
+        assert!(index.contains_key("debug:puppybot:tcp:current"));
+        assert!(index.contains_key(controller_tcp));
+
+        let first = ControllerArmChain {
+            points_world_m: [
+                [0.0, 0.0, 0.1],
+                [0.0, 0.0, 0.2],
+                [0.1, 0.0, 0.2],
+                [0.2, 0.0, 0.2],
+                [0.25, 0.0, 0.2],
+            ],
+        };
+        sync_controller_arm_overlay(&mut world, Some(&first), &index);
+        assert_eq!(
+            marker_translation(&world, &index, controller_tcp),
+            first.points_world_m[4]
+        );
+        assert!((line_length(&world, &index, shoulder_segment) - 0.1).abs() < 1.0e-6);
+
+        let second = ControllerArmChain {
+            points_world_m: [
+                [0.3, 0.1, 0.1],
+                [0.3, 0.3, 0.1],
+                [0.4, 0.3, 0.1],
+                [0.5, 0.3, 0.1],
+                [0.55, 0.3, 0.1],
+            ],
+        };
+        sync_controller_arm_overlay(&mut world, Some(&second), &index);
+        assert_eq!(
+            marker_translation(&world, &index, controller_tcp),
+            second.points_world_m[4]
+        );
+        assert!((line_length(&world, &index, shoulder_segment) - 0.2).abs() < 1.0e-6);
+
+        sync_controller_arm_overlay(&mut world, None, &index);
+        assert_eq!(
+            marker_translation(&world, &index, controller_tcp),
+            [0.0, 0.0, -10_000.0]
+        );
+    }
+
+    #[test]
+    fn controller_arm_segment_basis_points_local_x_along_segment() {
+        let mut world = pge_core::WorldState::new();
+        insert_controller_arm_overlay(&mut world);
+        let index = index_world_nodes(&world);
+        let entity = "debug:puppybot:controller_arm:segment:shoulder_elbow";
+        let start = [0.1, -0.2, 0.3];
+        let end = [0.4, 0.2, 0.8];
+        set_world_line_segment(&mut world, &index, entity, start, end);
+
+        let node = world
+            .nodes
+            .get(index.get(entity).expect("segment node indexed"))
+            .expect("segment node present");
+        let matrix = node
+            .transform
+            .rotation_matrix
+            .expect("segment has rotation basis");
+        let direction = normalize(sub(end, start));
+        // PGE consumes the first matrix column as the transformed local X axis.
+        assert_eq!([matrix[0][0], matrix[1][0], matrix[2][0]], direction);
+    }
 
     #[test]
     fn runtime_debug_target_marker_uses_full_arm_base_point_transform() {
@@ -1124,5 +1815,37 @@ mod tests {
             pge_core::MeshSource::Procedural(pge_core::Geometry::Box { size }) => size[0],
             _ => panic!("delta mesh should be a box"),
         }
+    }
+
+    fn line_length(
+        world: &pge_core::WorldState,
+        index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
+        entity: &str,
+    ) -> f32 {
+        let node = world
+            .nodes
+            .get(index.get(entity).expect("line node indexed"))
+            .expect("line node present");
+        let mesh = world
+            .meshes
+            .get(&node.mesh.expect("line node has mesh"))
+            .expect("line mesh present");
+        match &mesh.source {
+            pge_core::MeshSource::Procedural(pge_core::Geometry::Box { size }) => size[0],
+            _ => panic!("line mesh should be a box"),
+        }
+    }
+
+    fn label_text<'a>(labels: &'a [RobotDreamsPgeTextLabel], id: &str) -> &'a str {
+        labels
+            .iter()
+            .find(|label| label.id == id)
+            .map(|label| label.text.as_str())
+            .expect("cached label")
+    }
+
+    fn cached_label_text(backend: &SimulatedRuntimeBackend, id: &str) -> String {
+        let state = backend.state.lock().expect("simulation state");
+        label_text(&state.labels, id).to_string()
     }
 }

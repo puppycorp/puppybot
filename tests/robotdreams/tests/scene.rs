@@ -162,9 +162,9 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
         );
         let (expected_zero_offset, expected_direction) = match semantic_name {
             "yaw" => (3716, 1),
-            "shoulder" => (3015, -1),
-            "elbow" => (2088, 1),
-            "wrist" => (3897, -1),
+            "shoulder" => (2983, -1),
+            "elbow" => (3626, 1),
+            "wrist" => (2459, 1),
             _ => unreachable!("unexpected semantic joint"),
         };
         assert_eq!(

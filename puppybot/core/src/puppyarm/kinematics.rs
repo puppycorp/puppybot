@@ -24,6 +24,15 @@ pub struct IkResult {
     pub reachable: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArmChainPoints {
+    pub yaw: [f64; 3],
+    pub shoulder: [f64; 3],
+    pub elbow: [f64; 3],
+    pub wrist: [f64; 3],
+    pub tcp: [f64; 3],
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IkError {
     Unreachable,
@@ -149,6 +158,34 @@ pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
         + ARM_L2_MM * libm::sin(link2_pitch)
         + ARM_L3_MM * libm::sin(tool_pitch);
     (x, y, z)
+}
+
+pub fn arm_chain_points(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> ArmChainPoints {
+    let link1_pitch = shoulder + ARM_L1_PHASE_RAD;
+    let link2_pitch = shoulder - elbow + ARM_L2_PHASE_RAD;
+    let tool_pitch = shoulder - elbow + wrist + ARM_L3_PHASE_RAD;
+    let point = |radial: f64, z: f64| {
+        [
+            radial * libm::cos(yaw) - ARM_YAW_TO_SHOULDER_Y_MM * libm::sin(yaw),
+            radial * libm::sin(yaw) + ARM_YAW_TO_SHOULDER_Y_MM * libm::cos(yaw),
+            z,
+        ]
+    };
+    let shoulder_radial = ARM_YAW_TO_SHOULDER_X_MM;
+    let elbow_radial = shoulder_radial + ARM_L1_MM * libm::cos(link1_pitch);
+    let elbow_z = ARM_YAW_TO_SHOULDER_Z_MM + ARM_L1_MM * libm::sin(link1_pitch);
+    let wrist_radial = elbow_radial + ARM_L2_MM * libm::cos(link2_pitch);
+    let wrist_z = elbow_z + ARM_L2_MM * libm::sin(link2_pitch);
+    let tcp_radial = wrist_radial + ARM_L3_MM * libm::cos(tool_pitch);
+    let tcp_z = wrist_z + ARM_L3_MM * libm::sin(tool_pitch);
+
+    ArmChainPoints {
+        yaw: [0.0, 0.0, 0.0],
+        shoulder: point(shoulder_radial, ARM_YAW_TO_SHOULDER_Z_MM),
+        elbow: point(elbow_radial, elbow_z),
+        wrist: point(wrist_radial, wrist_z),
+        tcp: point(tcp_radial, tcp_z),
+    }
 }
 
 pub fn angle_distance(a: f64, b: f64) -> f64 {

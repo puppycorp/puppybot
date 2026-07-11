@@ -35,6 +35,7 @@ const DEFAULT_WS_BIND: &str = "0.0.0.0:8080";
 const ROBOT_TICK_MS: u64 = 20;
 const UI_RENDER_INTERVAL_MS: u64 = 100;
 const HELD_DRIVE_REFRESH_MS: u64 = 200;
+const HELD_JOINT_JOG_REFRESH_MS: u64 = 200;
 const DEFAULT_ARM_SPEED: i16 = 220;
 const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
@@ -145,6 +146,13 @@ pub(crate) struct AppOptions {
 #[derive(Clone, Copy, Debug)]
 struct HeldDrive {
     command: DriveCommand,
+    last_refresh_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HeldJointJog {
+    joint: usize,
+    direction: i8,
     last_refresh_ms: u64,
 }
 
@@ -551,6 +559,7 @@ pub struct App {
     robot: Puppybot,
     backend: RuntimeBackend,
     held_drive: Option<HeldDrive>,
+    held_joint_jog: Option<HeldJointJog>,
     config_path: PathBuf,
     active_config: PuppybotConfigV1,
     calibration_dirty: bool,
@@ -694,6 +703,7 @@ impl App {
             robot,
             backend,
             held_drive: None,
+            held_joint_jog: None,
             config_path,
             active_config,
             calibration_dirty: false,
@@ -768,6 +778,7 @@ impl App {
         self.last_tick_at = now;
         let now_ms = self.now_ms();
         self.refresh_held_drive(now_ms);
+        self.refresh_held_joint_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
@@ -791,6 +802,33 @@ impl App {
             command: held.command,
             last_refresh_ms: now_ms,
         });
+    }
+
+    fn refresh_held_joint_jog(&mut self, now_ms: u64) {
+        let Some(held) = self.held_joint_jog else {
+            return;
+        };
+        if now_ms.saturating_sub(held.last_refresh_ms) < HELD_JOINT_JOG_REFRESH_MS {
+            return;
+        }
+        let command = ArmCommand::Spin {
+            joint: held.joint,
+            direction: held.direction,
+        };
+        if let Err(err) = self
+            .robot
+            .try_handle_event(ProtocolEvent::Arm(command), now_ms)
+        {
+            log::warn!("held joint jog refresh rejected: {:?}", err);
+            self.held_joint_jog = None;
+            return;
+        }
+        self.held_joint_jog = Some(HeldJointJog {
+            joint: held.joint,
+            direction: held.direction,
+            last_refresh_ms: now_ms,
+        });
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
 
     fn sync_arm_calibration_from_robot(&mut self) {
@@ -1152,7 +1190,7 @@ impl App {
                     1 => 1,
                     _ => return Err(ApiError::bad_request("direction must be -1 or 1")),
                 };
-                self.arm("spin joint", ArmCommand::Spin { joint, direction })
+                self.start_joint_jog("spin joint", joint, direction)
                     .map_err(|err| ApiError::bad_request(format!("spin joint rejected: {err:?}")))
             }
             ["api", "arm", "joints", joint, "stop"] => {
@@ -1600,9 +1638,7 @@ impl App {
                 .width(42)
                 .inx(action_arg)
                 .on_press(JOG_NEGATIVE_ID)
-                .on_release(JOG_STOP_ID)
-                .on_repeat(JOG_NEGATIVE_ID)
-                .repeat_interval(250),
+                .on_release(JOG_STOP_ID),
             secondary_button("Stop")
                 .height(30)
                 .inx(action_arg)
@@ -1612,9 +1648,7 @@ impl App {
                 .width(42)
                 .inx(action_arg)
                 .on_press(JOG_POSITIVE_ID)
-                .on_release(JOG_STOP_ID)
-                .on_repeat(JOG_POSITIVE_ID)
-                .repeat_interval(250),
+                .on_release(JOG_STOP_ID),
             vstack(vec![
                 text(&limit.label).color(limit.accent).text_align("center"),
                 body_text(&limit.detail).text_align("center"),
@@ -2040,8 +2074,11 @@ impl App {
 
     fn stop_robot(&mut self) {
         self.held_drive = None;
+        self.held_joint_jog = None;
         self.robot
             .handle_event(ProtocolEvent::Drive(DriveCommand::Stop), self.now_ms());
+        self.robot
+            .handle_event(ProtocolEvent::Arm(ArmCommand::StopAll), self.now_ms());
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
         self.mark_ui_dirty();
     }
@@ -2049,6 +2086,24 @@ impl App {
     fn apply_event(&mut self, label: &str, event: ProtocolEvent) -> Result<(), ControllerError> {
         if matches!(event, ProtocolEvent::Drive(DriveCommand::Stop)) {
             self.held_drive = None;
+        }
+        match event {
+            ProtocolEvent::Arm(ArmCommand::Stop { joint }) => {
+                if self.held_joint_jog.is_some_and(|held| held.joint == joint) {
+                    self.held_joint_jog = None;
+                }
+            }
+            ProtocolEvent::Arm(
+                ArmCommand::StopAll
+                | ArmCommand::Hold
+                | ArmCommand::GotoTicks(_)
+                | ArmCommand::GotoAngles(_)
+                | ArmCommand::GotoCoords { .. }
+                | ArmCommand::MoveTcp { .. }
+                | ArmCommand::StartTcpJog { .. }
+                | ArmCommand::StartTcpJogAtSpeed { .. },
+            ) => self.held_joint_jog = None,
+            _ => {}
         }
         let reference_calibration = match event {
             ProtocolEvent::Arm(ArmCommand::SetJointReference {
@@ -2255,7 +2310,7 @@ impl App {
         let Some(joint) = Self::joint_arg_to_index(joint_arg) else {
             return;
         };
-        let _ = self.arm("spin joint", ArmCommand::Spin { joint, direction });
+        let _ = self.start_joint_jog("spin joint", joint, direction);
     }
 
     fn set_joint_zero(&mut self, joint_arg: u32) {
@@ -2451,7 +2506,41 @@ impl App {
         frame: TcpFrame,
         direction: [f64; 3],
     ) -> Result<(), ControllerError> {
+        // A free-spin command must never survive a transition into TCP control.
+        // Stop it explicitly before changing the arm mode; `StartTcpJog` itself
+        // only changes the controller mode and does not constitute a per-joint
+        // free-spin stop command.
+        if let Some(held) = self.held_joint_jog.take() {
+            let _ = self.arm(
+                "stop joint jog before tcp jog",
+                ArmCommand::Stop { joint: held.joint },
+            );
+        }
         self.arm(label, ArmCommand::StartTcpJog { frame, direction })
+    }
+
+    fn start_joint_jog(
+        &mut self,
+        label: &str,
+        joint: usize,
+        direction: i8,
+    ) -> Result<(), ControllerError> {
+        let direction = direction.signum();
+        let now_ms = self.now_ms();
+        self.robot.try_handle_event(
+            ProtocolEvent::Arm(ArmCommand::Spin { joint, direction }),
+            now_ms,
+        )?;
+        self.held_joint_jog = Some(HeldJointJog {
+            joint,
+            direction,
+            last_refresh_ms: now_ms,
+        });
+        self.last_command = label.to_string();
+        log::info!("runtime App command: {label}");
+        self.mark_ui_dirty();
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+        Ok(())
     }
 
     fn move_to_goto_angles(&mut self, label: &str) {
@@ -2916,8 +3005,10 @@ impl App {
     fn handle_repeat_id(&mut self, id: u32, inx: Option<u32>) -> bool {
         match id {
             SET_JOINT_ZERO_ID => self.set_joint_zero(event_arg(inx)),
-            JOG_NEGATIVE_ID => self.spin_joint(event_arg(inx), -1),
-            JOG_POSITIVE_ID => self.spin_joint(event_arg(inx), 1),
+            // Joint jog is refreshed by the runtime loop, not by a browser
+            // repeat event. Treat an in-flight repeat from an older client as
+            // handled without issuing another command.
+            JOG_NEGATIVE_ID | JOG_POSITIVE_ID => {}
             GOTO_DEFAULT_ANGLES_ID => self.move_to_default_goto_angles(),
             GOTO_ANGLES_ID => self.move_to_goto_angles("move to target angles"),
             MOVE_TCP_FORWARD_ID => {
@@ -3072,6 +3163,15 @@ impl App {
             }
             ClientEvent::Disconnected { .. } => {
                 self.client_ids.remove(&client_id);
+                // A UI connection may have been holding a free-spin button.
+                // There is no reliable release event after a disconnect, so a
+                // disconnect always stops any active held joint jog.
+                if let Some(held) = self.held_joint_jog {
+                    let _ = self.arm(
+                        "stop joint jog on ui disconnect",
+                        ArmCommand::Stop { joint: held.joint },
+                    );
+                }
                 self.clear_keyboard_drive();
                 if self.client_ids.is_empty() {
                     self.stop_robot();
@@ -3420,6 +3520,97 @@ mod tests {
 
         let response = app.handle_api_request(b"PUT", b"/api/arm/stop", b"");
         assert_eq!(response.status, "405 Method Not Allowed");
+    }
+
+    #[tokio::test]
+    async fn held_joint_jog_is_refreshed_server_side_and_stops_on_release() {
+        let mut app = test_app();
+
+        assert!(app.handle_press_id(JOG_POSITIVE_ID, Some(1)));
+        let held = app.held_joint_jog.expect("joint jog hold created on press");
+        assert_eq!(held.joint, 0);
+        assert_eq!(held.direction, 1);
+
+        let refresh_at = held.last_refresh_ms + HELD_JOINT_JOG_REFRESH_MS;
+        app.refresh_held_joint_jog(refresh_at);
+        let refreshed = app
+            .held_joint_jog
+            .expect("joint jog still held after refresh");
+        assert_eq!(refreshed.last_refresh_ms, refresh_at);
+        assert_eq!(refreshed.joint, 0);
+        assert_eq!(refreshed.direction, 1);
+
+        assert!(app.handle_release_id(JOG_STOP_ID, Some(1)));
+        assert!(app.held_joint_jog.is_none());
+        assert_eq!(app.robot.arm.joints[0].speed, 0);
+    }
+
+    #[tokio::test]
+    async fn api_joint_spin_is_server_held_and_stop_releases_it() {
+        let mut app = test_app();
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/joints/1/spin",
+            br#"{"direction":1}"#,
+        );
+        assert_eq!(response.status, "200 OK");
+        assert!(app
+            .held_joint_jog
+            .is_some_and(|held| held.joint == 1 && held.direction == 1));
+
+        let response = app.handle_api_request(b"POST", b"/api/arm/joints/1/stop", b"");
+        assert_eq!(response.status, "200 OK");
+        assert!(app.held_joint_jog.is_none());
+        assert_eq!(app.robot.arm.joints[1].speed, 0);
+    }
+
+    #[tokio::test]
+    async fn joint_jog_without_server_refresh_expires_at_core_deadman() {
+        let mut app = test_app();
+
+        app.start_joint_jog("test joint jog", 0, 1)
+            .expect("start joint jog");
+        let started_at = app
+            .held_joint_jog
+            .expect("joint jog hold created")
+            .last_refresh_ms;
+        // Simulate a server loop failure: firmware feedback is still healthy, but
+        // the app no longer renews the free-spin command.
+        app.held_joint_jog = None;
+        let expired_at =
+            started_at + puppybot_core::puppyarm::servo_safety::DEADMAN_CMD_TIMEOUT_MS + 1;
+        for joint in 0..JOINT_COUNT {
+            let tick = u16::try_from(app.robot.arm.joints[joint].reference_tick)
+                .expect("simulated reference tick is within servo range");
+            app.robot.arm.record_feedback(joint, tick, expired_at);
+        }
+
+        let commands = app.robot.arm.update(expired_at);
+
+        assert!(commands.iter().all(|command| command.speed == 0));
+        assert!(matches!(
+            app.robot.arm.mode(),
+            puppybot_core::puppyarm::types::ArmMode::Fault
+        ));
+    }
+
+    #[tokio::test]
+    async fn ui_disconnect_stops_a_held_joint_jog_even_with_another_client_connected() {
+        let mut app = test_app();
+        app.client_ids.insert(7);
+        app.client_ids.insert(8);
+        app.start_joint_jog("test joint jog", 0, 1)
+            .expect("start joint jog");
+
+        app.handle_wgui_message(ClientMessage {
+            client_id: 7,
+            event: ClientEvent::Disconnected { id: 7 },
+        })
+        .await;
+
+        assert!(app.held_joint_jog.is_none());
+        assert_eq!(app.robot.arm.joints[0].speed, 0);
     }
 
     #[test]

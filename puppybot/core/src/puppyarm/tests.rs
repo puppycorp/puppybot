@@ -58,6 +58,13 @@ fn assert_close_mm(left: f32, right: f32) {
     assert_close_f32_eps(left, right, COORD_EPS_MM);
 }
 
+fn point_distance(left: [f64; 3], right: [f64; 3]) -> f64 {
+    let dx = left[0] - right[0];
+    let dy = left[1] - right[1];
+    let dz = left[2] - right[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
 fn arm_with_reference_feedback() -> PuppyArm {
     let mut arm = PuppyArm::new(0);
     arm.record_feedback(0, YAW_REFERENCE_TICK, 0);
@@ -136,6 +143,21 @@ fn fk_wrist_ninety_pose_matches_calibrated_cad_model() {
     assert_close(x, 96.24809996115746);
     assert_close(y, -19.150050229126062);
     assert_close(z, 143.80521747238558);
+}
+
+#[test]
+fn calibrated_arm_chain_ends_at_fk_tcp_and_preserves_link_lengths() {
+    let angles = [0.37, -0.22, 0.61, -0.18];
+    let chain = arm_chain_points(angles[0], angles[1], angles[2], angles[3]);
+    let tcp = fk(angles[0], angles[1], angles[2], angles[3]);
+
+    assert_eq!(chain.yaw, [0.0, 0.0, 0.0]);
+    assert_close(chain.tcp[0], tcp.0);
+    assert_close(chain.tcp[1], tcp.1);
+    assert_close(chain.tcp[2], tcp.2);
+    assert_close(point_distance(chain.shoulder, chain.elbow), ARM_L1_MM);
+    assert_close(point_distance(chain.elbow, chain.wrist), ARM_L2_MM);
+    assert_close(point_distance(chain.wrist, chain.tcp), ARM_L3_MM);
 }
 
 #[test]
