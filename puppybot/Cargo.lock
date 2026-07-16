@@ -3042,6 +3042,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pge-video"
+version = "0.1.0"
+dependencies = [
+ "pge-core",
+ "pge-renderer",
+]
+
+[[package]]
 name = "pge-wgpu-renderer"
 version = "0.1.0"
 dependencies = [
@@ -3271,8 +3279,12 @@ dependencies = [
  "mdns-sd",
  "pge-app",
  "pge-core",
+ "pge-renderer",
+ "pge-video",
+ "pge-wgpu-renderer",
  "puppybot-core",
  "robotdreams-core",
+ "serde",
  "serde_json",
  "serialport",
  "sha1 0.11.0",

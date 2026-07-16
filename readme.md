@@ -36,6 +36,56 @@ defaults to `http://127.0.0.1:8081/`. See
 [`puppybot/README.md`](puppybot/README.md) for hardware serial-bus, CLI,
 simulation, calibration, and API examples.
 
+For a deterministic simulation validation image without opening the UI or a
+window, run a finite number of controller/RobotDreams updates and render the
+settled scene through PGE's real offscreen WGPU renderer:
+
+```sh
+cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
+  --sim --screenshot workdir/screenshots/validation.png --frames 120 \
+  --config puppybot/runtime/puppybot.json \
+  --robotdreams-project robotdreams/project.json
+```
+
+`--screenshot` requires `--sim`; `--frames` requires `--screenshot` and must be
+positive. If omitted, `--frames` defaults to 120. The process saves the PNG,
+prints the controller/model TCP delta, and exits without opening a preview
+window or entering the long-running runtime server loop.
+
+Screenshot captures accept an optional orbit camera. The target uses
+RobotDreams world meters; angles use degrees:
+
+```sh
+cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
+  --sim --screenshot workdir/screenshots/rear-high.png --frames 120 \
+  --camera-target 0,0,0.22 --camera-radius 0.68 \
+  --camera-azimuth -140 --camera-elevation 48 \
+  --config puppybot/runtime/puppybot.json \
+  --robotdreams-project robotdreams/project.json
+```
+
+The close validation view remains the default: target `[0, 0, 0.22]` m,
+radius `0.6031221` m, azimuth `-28.78213` degrees, and elevation `31.537512`
+degrees. Camera flags require `--screenshot`; the radius must be positive, all
+values must be finite, and elevation must be strictly between -90 and 90
+degrees. Azimuth is normalized to `[-180, 180)`.
+
+To capture the same automatic-calibration validation scene as a finite video,
+use the `record` subcommand:
+
+```sh
+cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
+  record --sim --out workdir/recordings/validation.mp4 --frames 150 \
+  --config puppybot/runtime/puppybot.json \
+  --robotdreams-project robotdreams/project.json
+```
+
+Recording settles the controller and RobotDreams model for 120 simulation
+ticks, renders exactly the requested number of frames at 50 fps with one PGE
+WGPU renderer, encodes an H.264 MP4 through `gst-launch-1.0`/OpenH264, removes
+its temporary raw frames, prints the final controller/model TCP delta, and
+exits without starting the runtime UI, HTTP, or WebSocket servers.
+
 ## ESP32 Rust firmware
 
 Install the Rust ESP32 toolchain, build, and flash from `puppybot/`:

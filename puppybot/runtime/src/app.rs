@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -22,6 +23,7 @@ use wgui::{
 };
 
 use crate::{
+    capture::{CaptureFailure, CaptureManager},
     config,
     dc_motor_driver::DCMotorDriver,
     env::wgui_bind_addr,
@@ -29,6 +31,7 @@ use crate::{
     sim::{SimulatedPreview, SimulatedRuntimeBackend},
     stservo::{self, RuntimeStServo},
 };
+use puppybot_runtime::sim_calibration::derive_simulation_config;
 
 const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
 const DEFAULT_WS_BIND: &str = "0.0.0.0:8080";
@@ -168,7 +171,8 @@ struct KeyboardDriveState {
 
 pub(crate) struct ApiResponse {
     status: &'static str,
-    body: Vec<u8>,
+    content_type: &'static str,
+    body: Arc<[u8]>,
 }
 
 struct ApiError {
@@ -203,6 +207,20 @@ impl ApiError {
             status: "500 Internal Server Error",
             message: message.into(),
         }
+    }
+
+    fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            status: "409 Conflict",
+            message: message.into(),
+        }
+    }
+}
+
+fn api_capture_failure(error: CaptureFailure) -> ApiError {
+    ApiError {
+        status: error.status,
+        message: error.message,
     }
 }
 
@@ -393,7 +411,10 @@ fn opt_deg(value: Option<f32>) -> String {
 }
 
 fn close_preview_button() -> Item {
-    hstack(vec![primary_button("Close").on_click(CLOSE_COORDINATE_PREVIEW_ID)]).spacing(8)
+    hstack(vec![
+        primary_button("Close").on_click(CLOSE_COORDINATE_PREVIEW_ID),
+    ])
+    .spacing(8)
 }
 
 fn preview_modal(body: Vec<Item>) -> Option<Item> {
@@ -593,6 +614,7 @@ pub struct App {
     ws_clients: HashMap<u64, WsClientState>,
     robot: Puppybot,
     backend: RuntimeBackend,
+    capture_manager: CaptureManager,
     held_drive: Option<HeldDrive>,
     held_joint_jog: Option<HeldJointJog>,
     config_path: PathBuf,
@@ -638,6 +660,10 @@ enum RuntimeBackend {
 }
 
 impl RuntimeBackend {
+    fn is_simulated(&self) -> bool {
+        matches!(self, Self::Simulated(_))
+    }
+
     async fn run_once(&mut self, robot: &mut Puppybot, now_ms: u64) {
         match self {
             Self::Hardware {
@@ -686,14 +712,8 @@ impl App {
                 config_path.display()
             );
         }
-        let active_config = runtime_config.unwrap_or_default();
-        let mut robot = Puppybot::new_with_config(&active_config, 0)
-            .map_err(|err| format!("invalid runtime config: {err}"))?;
-        robot.handle_event(
-            ProtocolEvent::Arm(ArmCommand::SetSpeed(DEFAULT_ARM_SPEED)),
-            0,
-        );
-        let backend = if options.simulated {
+        let mut active_config = runtime_config.unwrap_or_default();
+        let simulation_project_path = if options.simulated {
             if options.servo_device.is_some() {
                 return Err("--sim cannot be combined with --servo-device".to_string());
             }
@@ -704,11 +724,24 @@ impl App {
                 "runtime using RobotDreams simulation project {}",
                 project_path.display()
             );
-            RuntimeBackend::Simulated(SimulatedRuntimeBackend::new(&project_path, &active_config)?)
+            active_config = derive_simulation_config(&project_path, &active_config)
+                .map_err(|err| format!("derive automatic simulation calibration: {err}"))?;
+            Some(project_path)
         } else {
             if options.robotdreams_project.is_some() {
                 return Err("--robotdreams-project requires --sim".to_string());
             }
+            None
+        };
+        let mut robot = Puppybot::new_with_config(&active_config, 0)
+            .map_err(|err| format!("invalid runtime config: {err}"))?;
+        robot.handle_event(
+            ProtocolEvent::Arm(ArmCommand::SetSpeed(DEFAULT_ARM_SPEED)),
+            0,
+        );
+        let backend = if let Some(project_path) = simulation_project_path {
+            RuntimeBackend::Simulated(SimulatedRuntimeBackend::new(project_path, &active_config)?)
+        } else {
             let servo = stservo::open_serial(options.servo_device.as_deref()).ok_or_else(|| {
                 "STServo bus is required; pass --servo-device or set PUPPYBOT_STSERVO_PORT"
                     .to_string()
@@ -738,6 +771,7 @@ impl App {
             ws_clients: HashMap::new(),
             robot,
             backend,
+            capture_manager: CaptureManager::new(),
             held_drive: None,
             held_joint_jog: None,
             config_path,
@@ -817,6 +851,11 @@ impl App {
         self.refresh_held_drive(now_ms);
         self.refresh_held_joint_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
+        if let Some(preview) = self.simulated_preview()
+            && let Ok(state) = preview.capture_state()
+        {
+            self.capture_manager.sample_recording(state);
+        }
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
 
@@ -998,10 +1037,16 @@ impl App {
                     "enabled": true,
                     "markers": markers,
                     "frames": frames,
+                    "captureState": backend
+                        .preview()
+                        .capture_state()
+                        .ok()
+                        .and_then(|state| serde_json::to_value(state.as_ref()).ok()),
                 })
             }
         };
         let state = serde_json::json!({
+            "schema": "puppybot.runtime.state.v1",
             "mode": self.backend.status_value(),
             "timeMs": now_ms,
             "arm": {
@@ -1037,7 +1082,11 @@ impl App {
     fn api_json(status: &'static str, value: serde_json::Value) -> ApiResponse {
         let body = serde_json::to_vec_pretty(&value)
             .unwrap_or_else(|_| b"{\"ok\":false,\"error\":\"json encoding failed\"}\n".to_vec());
-        ApiResponse { status, body }
+        ApiResponse {
+            status,
+            content_type: "application/json; charset=utf-8",
+            body: body.into(),
+        }
     }
 
     fn api_error(error: ApiError) -> ApiResponse {
@@ -1167,19 +1216,36 @@ impl App {
             .map(|(path, _)| path)
             .unwrap_or(target);
 
+        if method == "POST" && path.starts_with("/api/sim/captures/") {
+            let response = self.handle_capture_post(path, body);
+            return match response {
+                Ok(response) => response,
+                Err(error) => Self::api_error(error),
+            };
+        }
+        if method == "GET" && path.starts_with("/api/sim/captures/") {
+            let response = self.handle_capture_get(path);
+            return match response {
+                Ok(response) => response,
+                Err(error) => Self::api_error(error),
+            };
+        }
+
         let response: Result<ApiResponse, ApiError> = match (method, path) {
             ("GET", "/api/config.json") => self
                 .config_json()
                 .map(|body| ApiResponse {
                     status: "200 OK",
-                    body: body.into_bytes(),
+                    content_type: "application/json; charset=utf-8",
+                    body: body.into_bytes().into(),
                 })
                 .map_err(ApiError::internal),
             ("GET", "/api/state") => self
                 .api_state_json()
                 .map(|body| ApiResponse {
                     status: "200 OK",
-                    body: body.into_bytes(),
+                    content_type: "application/json; charset=utf-8",
+                    body: body.into_bytes().into(),
                 })
                 .map_err(ApiError::internal),
             ("GET", _) => Err(ApiError::not_found("unknown api endpoint")),
@@ -1192,6 +1258,98 @@ impl App {
         match response {
             Ok(response) => response,
             Err(error) => Self::api_error(error),
+        }
+    }
+
+    fn handle_capture_post(&self, path: &str, body: &[u8]) -> Result<ApiResponse, ApiError> {
+        if !self.ws_bind_addr.ip().is_loopback() {
+            return Err(ApiError::conflict(
+                "capture creation is disabled on a non-loopback runtime bind",
+            ));
+        }
+        let request = Self::api_request_body(body)?;
+        let preview = self
+            .simulated_preview()
+            .ok_or_else(|| ApiError::conflict("capture requires simulation mode"))?;
+        let project_path = preview.project_path().to_path_buf();
+        let job = match path {
+            "/api/sim/captures/screenshot" => {
+                if request.as_object().is_some_and(|object| !object.is_empty()) {
+                    return Err(ApiError::bad_request(
+                        "screenshot request currently accepts only an empty JSON object",
+                    ));
+                }
+                let state = preview.capture_state().map_err(ApiError::internal)?;
+                self.capture_manager
+                    .enqueue_screenshot(project_path, state)
+                    .map_err(api_capture_failure)?
+            }
+            "/api/sim/captures/record" => {
+                let frames = request
+                    .get("frames")
+                    .and_then(|value| value.as_u64())
+                    .ok_or_else(|| ApiError::bad_request("frames must be a positive integer"))?;
+                let frames = u32::try_from(frames)
+                    .map_err(|_| ApiError::bad_request("frames exceeds supported range"))?;
+                if request
+                    .as_object()
+                    .is_some_and(|object| object.keys().any(|key| key != "frames"))
+                {
+                    return Err(ApiError::bad_request(
+                        "record request accepts only the frames field",
+                    ));
+                }
+                self.capture_manager
+                    .begin_recording(project_path, frames)
+                    .map_err(api_capture_failure)?
+            }
+            _ => return Err(ApiError::not_found("unknown capture endpoint")),
+        };
+        Ok(Self::api_json(
+            "202 Accepted",
+            serde_json::json!({"ok": true, "job": job}),
+        ))
+    }
+
+    fn handle_capture_get(&self, path: &str) -> Result<ApiResponse, ApiError> {
+        let suffix = path
+            .strip_prefix("/api/sim/captures/")
+            .ok_or_else(|| ApiError::not_found("unknown capture endpoint"))?;
+        let segments = suffix.split('/').collect::<Vec<_>>();
+        match segments.as_slice() {
+            [id] => {
+                let status = self
+                    .capture_manager
+                    .status(id)
+                    .map_err(api_capture_failure)?;
+                Ok(Self::api_json(
+                    "200 OK",
+                    serde_json::json!({"ok": true, "job": status}),
+                ))
+            }
+            [id, "state"] => {
+                let body = self
+                    .capture_manager
+                    .state(id)
+                    .map_err(api_capture_failure)?;
+                Ok(ApiResponse {
+                    status: "200 OK",
+                    content_type: "application/json; charset=utf-8",
+                    body,
+                })
+            }
+            [id, "artifact"] => {
+                let (content_type, body) = self
+                    .capture_manager
+                    .artifact(id)
+                    .map_err(api_capture_failure)?;
+                Ok(ApiResponse {
+                    status: "200 OK",
+                    content_type,
+                    body,
+                })
+            }
+            _ => Err(ApiError::not_found("unknown capture endpoint")),
         }
     }
 
@@ -1251,13 +1409,13 @@ impl App {
                 let angle_deg = Self::json_f64(&json, "angleDeg")?;
                 self.set_joint_reference_angle(joint, angle_deg)
                     .map_err(|err| {
-                        ApiError::bad_request(format!("set joint reference rejected: {err:?}"))
+                        ApiError::bad_request(format!("set joint reference rejected: {err}"))
                     })
             }
             ["api", "arm", "joints", joint, "angle-sign", "flip"] => {
                 let joint = Self::api_joint(joint)?;
-                self.flip_joint_angle_sign_for(joint);
-                Ok(())
+                self.flip_joint_angle_sign_for(joint)
+                    .map_err(ApiError::bad_request)
             }
             ["api", "arm", "joints", joint, "limits"] => {
                 let joint = Self::api_joint(joint)?;
@@ -1327,8 +1485,7 @@ impl App {
                 .arm("stop tcp jog", ArmCommand::StopTcpJog)
                 .map_err(|err| ApiError::bad_request(format!("stop tcp jog rejected: {err:?}"))),
             ["api", "calibration", "save"] => {
-                self.save_calibration();
-                Ok(())
+                self.save_calibration().map_err(ApiError::bad_request)
             }
             ["api", "arm", "coordinate-calibration", "flip-forward"] => {
                 self.flip_coordinate_forward_axis();
@@ -1465,20 +1622,29 @@ impl App {
         self.active_config.coordinate
     }
 
-    fn save_calibration(&mut self) {
+    fn save_calibration(&mut self) -> Result<(), String> {
+        if self.backend.is_simulated() {
+            let err = "simulation calibration is automatic and cannot be saved".to_string();
+            self.last_command = err.clone();
+            self.mark_ui_dirty();
+            return Err(err);
+        }
         self.sync_arm_calibration_from_robot();
-        match config::save_runtime_config(&self.config_path, &self.active_config) {
+        let result = match config::save_runtime_config(&self.config_path, &self.active_config) {
             Ok(()) => {
                 self.calibration_dirty = false;
                 self.last_command = format!("saved calibration to {}", self.config_path.display());
                 log::info!("runtime App command: {}", self.last_command);
+                Ok(())
             }
             Err(err) => {
                 self.last_command = format!("save calibration failed: {err}");
                 log::warn!("runtime App save calibration failed: {err}");
+                Err(err)
             }
-        }
+        };
         self.mark_ui_dirty();
+        result
     }
 
     fn render_item(&self) -> Item {
@@ -1504,6 +1670,34 @@ impl App {
             .background_color("#12161c")
             .padding(18)
             .spacing(14)
+    }
+
+    fn calibration_status_metric(&self) -> UiMetric {
+        if self.backend.is_simulated() {
+            UiMetric {
+                label: "Calibration".to_string(),
+                value: "automatic".to_string(),
+                detail: "Simulation calibration: automatic".to_string(),
+                accent: "#3fbf6f",
+                save_action: false,
+            }
+        } else {
+            UiMetric {
+                label: "Config".to_string(),
+                value: if self.calibration_dirty {
+                    "unsaved".to_string()
+                } else {
+                    "saved".to_string()
+                },
+                detail: self.config_path.display().to_string(),
+                accent: if self.calibration_dirty {
+                    "#d89b2f"
+                } else {
+                    "#3fbf6f"
+                },
+                save_action: self.calibration_dirty,
+            }
+        }
     }
 
     fn render_status_cards(&self) -> Item {
@@ -1545,21 +1739,7 @@ impl App {
                 accent: if drive.active { "#ffd166" } else { "#8ea0b7" },
                 save_action: false,
             },
-            UiMetric {
-                label: "Config".to_string(),
-                value: if self.calibration_dirty {
-                    "unsaved".to_string()
-                } else {
-                    "saved".to_string()
-                },
-                detail: self.config_path.display().to_string(),
-                accent: if self.calibration_dirty {
-                    "#d89b2f"
-                } else {
-                    "#3fbf6f"
-                },
-                save_action: self.calibration_dirty,
-            },
+            self.calibration_status_metric(),
             UiMetric {
                 label: "Arm".to_string(),
                 value: if fault_count == 0 {
@@ -1650,8 +1830,7 @@ impl App {
     fn render_joint_row(&self, index: usize, joint: &Joint) -> Item {
         let action_arg = index as u32 + 1;
         let limit = limit_status(joint);
-
-        hstack(vec![
+        let mut children = vec![
             label_text(&format!(
                 "{} (servo {})",
                 ARM_JOINT_LABELS[index], joint.servo_id
@@ -1660,19 +1839,23 @@ impl App {
             body_text(&angle_detail(joint))
                 .min_width(72)
                 .text_align("right"),
-            secondary_button("Calibrate")
-                .height(30)
-                .width(86)
-                .inx(action_arg)
-                .on_click(OPEN_JOINT_CALIBRATION_ID),
+        ];
+        if !self.backend.is_simulated() {
+            children.push(
+                secondary_button("Calibrate")
+                    .height(30)
+                    .width(86)
+                    .inx(action_arg)
+                    .on_click(OPEN_JOINT_CALIBRATION_ID),
+            );
+        }
+        children.extend([
             secondary_button("Zero")
                 .height(30)
                 .width(64)
                 .inx(action_arg)
                 .on_press(SET_JOINT_ZERO_ID)
-                .on_release(SET_JOINT_ZERO_ID)
-                .on_repeat(SET_JOINT_ZERO_ID)
-                .repeat_interval(250),
+                .on_release(SET_JOINT_ZERO_ID),
             dark_button("-")
                 .height(30)
                 .width(42)
@@ -1708,8 +1891,8 @@ impl App {
                 .width(80)
                 .inx(action_arg)
                 .on_click(TOGGLE_JOINT_LIMITS_ID),
-        ])
-        .spacing(8)
+        ]);
+        hstack(children).spacing(8)
     }
 
     fn render_joint_target(&self) -> Item {
@@ -1755,16 +1938,12 @@ impl App {
                     .height(34)
                     .width(88)
                     .on_press(GOTO_DEFAULT_ANGLES_ID)
-                    .on_release(GOTO_ANGLES_ID)
-                    .on_repeat(GOTO_DEFAULT_ANGLES_ID)
-                    .repeat_interval(250),
+                    .on_release(GOTO_ANGLES_ID),
                 primary_button("Move Angles")
                     .height(34)
                     .width(116)
                     .on_press(GOTO_ANGLES_ID)
-                    .on_release(GOTO_ANGLES_ID)
-                    .on_repeat(GOTO_ANGLES_ID)
-                    .repeat_interval(250),
+                    .on_release(GOTO_ANGLES_ID),
             ])
             .spacing(12),
             error_text(&self.goto_angle_error),
@@ -2024,6 +2203,9 @@ impl App {
     }
 
     fn render_calibration_modal(&self) -> Option<Item> {
+        if self.backend.is_simulated() {
+            return None;
+        }
         self.calibration_editor_joint.map(|joint| {
             let (title, detail) = if joint < JOINT_COUNT {
                 let telemetry_joint = &self.robot.arm.joints[joint];
@@ -2119,10 +2301,7 @@ impl App {
 
         let z = kinematics::table_to_shoulder_z(z_table);
         let tool_phi_rad = kinematics::ARM_TOOL_PHI_RAD;
-        let target_angles = self
-            .robot
-            .arm
-            .preview_target_angles(x, y, z, tool_phi_rad);
+        let target_angles = self.robot.arm.preview_target_angles(x, y, z, tool_phi_rad);
 
         body.push(
             label_text(&format!(
@@ -2145,8 +2324,8 @@ impl App {
                 let j = &self.robot.arm.joints[joint];
                 let target_angle_rad = target_angles.map(|angles| angles[joint]);
                 let target_tick = target_angle_rad.map(|rad| j.angle_to_tick(rad));
-                let target_deg = target_angle_rad
-                    .map(|rad| kinematics::wrap_pi(rad).to_degrees() as f32);
+                let target_deg =
+                    target_angle_rad.map(|rad| kinematics::wrap_pi(rad).to_degrees() as f32);
                 subpanel(vec![
                     title_text(ARM_JOINT_LABELS[joint]),
                     label_text(&format!(
@@ -2307,6 +2486,14 @@ impl App {
         payload: &[u8],
         telemetry_enabled: &mut bool,
     ) -> Option<Vec<u8>> {
+        if self.backend.is_simulated() && payload.get(1).copied() == Some(protocol::CMD_CONFIG_SET)
+        {
+            self.last_command =
+                "simulation calibration is automatic; config changes are unavailable".to_string();
+            log::warn!("runtime App rejected simulation config change");
+            self.mark_ui_dirty();
+            return None;
+        }
         let now_ms = self.now_ms();
         let output =
             handle_binary_command_for_robot(&mut self.robot, payload, now_ms, telemetry_enabled);
@@ -2746,6 +2933,13 @@ impl App {
     }
 
     fn open_joint_calibration(&mut self, joint_arg: u32) {
+        if self.backend.is_simulated() {
+            self.last_command =
+                "simulation calibration is automatic and cannot be edited".to_string();
+            self.calibration_editor_joint = None;
+            self.mark_ui_dirty();
+            return;
+        }
         let Some(joint_index) = Self::joint_arg_to_index(joint_arg) else {
             return;
         };
@@ -2766,6 +2960,13 @@ impl App {
     }
 
     fn apply_joint_calibration(&mut self) {
+        if self.backend.is_simulated() {
+            self.last_command =
+                "simulation calibration is automatic and cannot be edited".to_string();
+            self.calibration_editor_joint = None;
+            self.mark_ui_dirty();
+            return;
+        }
         let Some((joint, angle_deg)) = self.parse_calibration_editor() else {
             self.mark_ui_dirty();
             return;
@@ -2777,21 +2978,27 @@ impl App {
         self.mark_ui_dirty();
     }
 
-    fn set_joint_reference_angle(
-        &mut self,
-        joint: usize,
-        angle_deg: f64,
-    ) -> Result<(), ControllerError> {
+    fn set_joint_reference_angle(&mut self, joint: usize, angle_deg: f64) -> Result<(), String> {
+        if self.backend.is_simulated() {
+            let err = "simulation calibration is automatic and cannot be edited".to_string();
+            self.calibration_editor_error = err.clone();
+            self.last_command = err.clone();
+            self.mark_ui_dirty();
+            return Err(err);
+        }
+        if joint >= JOINT_COUNT {
+            return Err("invalid joint".to_string());
+        }
         let arm_joint = &self.robot.arm.joints[joint];
         if let Some(err) = joint_reference_tick_error(arm_joint) {
             self.calibration_editor_error = err;
             self.mark_ui_dirty();
-            return Err(ControllerError::MissingFeedback);
+            return Err("joint reference requires current feedback".to_string());
         }
         let Some(tick) = arm_joint.tick else {
             self.calibration_editor_error = "current tick unavailable".to_string();
             self.mark_ui_dirty();
-            return Err(ControllerError::MissingFeedback);
+            return Err("joint reference requires current feedback".to_string());
         };
 
         self.arm(
@@ -2805,20 +3012,29 @@ impl App {
                 angle_rad: angle_deg.to_radians(),
             },
         )
+        .map_err(|err| format!("{err:?}"))
     }
 
     fn flip_joint_angle_sign(&mut self) {
         let Some(joint) = self.calibration_editor_joint else {
             return;
         };
-        self.flip_joint_angle_sign_for(joint);
+        let _ = self.flip_joint_angle_sign_for(joint);
     }
 
-    fn flip_joint_angle_sign_for(&mut self, joint: usize) {
+    fn flip_joint_angle_sign_for(&mut self, joint: usize) -> Result<(), String> {
+        if self.backend.is_simulated() {
+            let err = "simulation calibration is automatic and its angle sign cannot be flipped"
+                .to_string();
+            self.calibration_editor_error = err.clone();
+            self.last_command = err.clone();
+            self.mark_ui_dirty();
+            return Err(err);
+        }
         if joint >= JOINT_COUNT {
             self.calibration_editor_error = "invalid joint".to_string();
             self.mark_ui_dirty();
-            return;
+            return Err("invalid joint".to_string());
         }
 
         self.sync_arm_calibration_from_robot();
@@ -2837,14 +3053,17 @@ impl App {
                     ARM_JOINT_LABELS[joint].to_lowercase()
                 );
                 log::info!("runtime App command: {}", self.last_command);
+                self.mark_ui_dirty();
+                Ok(())
             }
             Err(err) => {
                 self.calibration_editor_error =
                     format!("invalid calibration after sign flip: {err}");
                 self.last_command = self.calibration_editor_error.clone();
+                self.mark_ui_dirty();
+                Err(self.calibration_editor_error.clone())
             }
         }
-        self.mark_ui_dirty();
     }
 
     fn set_goto_angles_current(&mut self) {
@@ -3024,7 +3243,9 @@ impl App {
 
     fn handle_click_id(&mut self, id: u32, inx: Option<u32>) -> bool {
         match id {
-            SAVE_CALIBRATION_ID => self.save_calibration(),
+            SAVE_CALIBRATION_ID => {
+                let _ = self.save_calibration();
+            }
             DRIVE_STOP_ID => self.stop_drive(),
             OPEN_JOINT_CALIBRATION_ID => self.open_joint_calibration(event_arg(inx)),
             CLOSE_JOINT_CALIBRATION_ID => self.close_joint_calibration(),
@@ -3136,59 +3357,6 @@ impl App {
             }
             MOVE_TCP_STOP_ID => {
                 let _ = self.arm("stop tcp jog", ArmCommand::StopTcpJog);
-            }
-            _ => return false,
-        }
-        true
-    }
-
-    fn handle_repeat_id(&mut self, id: u32, inx: Option<u32>) -> bool {
-        match id {
-            SET_JOINT_ZERO_ID => self.set_joint_zero(event_arg(inx)),
-            // Joint jog is refreshed by the runtime loop, not by a browser
-            // repeat event. Treat an in-flight repeat from an older client as
-            // handled without issuing another command.
-            JOG_NEGATIVE_ID | JOG_POSITIVE_ID => {}
-            GOTO_DEFAULT_ANGLES_ID => self.move_to_default_goto_angles(),
-            GOTO_ANGLES_ID => self.move_to_goto_angles("move to target angles"),
-            MOVE_TCP_FORWARD_ID => {
-                let _ = self.start_tcp_jog("move tcp forward", self.tcp_frame, [1.0, 0.0, 0.0]);
-            }
-            MOVE_TCP_BACK_ID => {
-                let _ = self.start_tcp_jog("move tcp back", self.tcp_frame, [-1.0, 0.0, 0.0]);
-            }
-            MOVE_TCP_LEFT_ID => {
-                let _ = self.start_tcp_jog("move tcp left", self.tcp_frame, [0.0, 1.0, 0.0]);
-            }
-            MOVE_TCP_RIGHT_ID => {
-                let _ = self.start_tcp_jog("move tcp right", self.tcp_frame, [0.0, -1.0, 0.0]);
-            }
-            COORDINATE_FORWARD_ID => {
-                let direction =
-                    self.coordinate_jog_direction(self.coordinate_forward_sign(), 0.0, 0.0);
-                let _ = self.start_tcp_jog("coordinate forward", self.coordinate_frame, direction);
-            }
-            COORDINATE_BACK_ID => {
-                let direction =
-                    self.coordinate_jog_direction(-self.coordinate_forward_sign(), 0.0, 0.0);
-                let _ = self.start_tcp_jog("coordinate back", self.coordinate_frame, direction);
-            }
-            COORDINATE_LEFT_ID => {
-                let direction =
-                    self.coordinate_jog_direction(0.0, self.coordinate_left_sign(), 0.0);
-                let _ = self.start_tcp_jog("coordinate left", self.coordinate_frame, direction);
-            }
-            COORDINATE_RIGHT_ID => {
-                let direction =
-                    self.coordinate_jog_direction(0.0, -self.coordinate_left_sign(), 0.0);
-                let _ = self.start_tcp_jog("coordinate right", self.coordinate_frame, direction);
-            }
-            COORDINATE_UP_ID => {
-                let _ = self.start_tcp_jog("coordinate up", self.coordinate_frame, [0.0, 0.0, 1.0]);
-            }
-            COORDINATE_DOWN_ID => {
-                let _ =
-                    self.start_tcp_jog("coordinate down", self.coordinate_frame, [0.0, 0.0, -1.0]);
             }
             _ => return false,
         }
@@ -3338,10 +3506,11 @@ impl App {
                     log::debug!("unhandled wgui release id={} inx={:?}", event.id, event.inx);
                 }
             }
+            // PuppyBot hold controls are press-to-start and release-to-stop.
+            // Ignore repeats from stale browser clients so they can never
+            // renew a command or clear controller safety state.
             ClientEvent::OnRepeat(event) => {
-                if !self.handle_repeat_id(event.id, event.inx) {
-                    log::debug!("unhandled wgui repeat id={} inx={:?}", event.id, event.inx);
-                }
+                log::debug!("ignored wgui repeat id={} inx={:?}", event.id, event.inx);
             }
             ClientEvent::OnKeyDown(event) => {
                 if !self.set_keyboard_drive_key(&event.keycode, true) {
@@ -3426,7 +3595,7 @@ impl App {
                     .send_http_response(
                         request_id,
                         response.status,
-                        "application/json",
+                        response.content_type,
                         response.body,
                     )
                     .await;
@@ -3509,7 +3678,8 @@ impl App {
 mod tests {
     use super::*;
     use puppybot_core::protocol::{
-        CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_SUBSCRIBE, SUBSCRIPTION_TOPIC_ARM_STATE, command_frame,
+        CMD_CONFIG_GET, CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_SUBSCRIBE,
+        SUBSCRIPTION_TOPIC_ARM_STATE, command_frame,
     };
 
     #[tokio::test]
@@ -3578,8 +3748,245 @@ mod tests {
         .expect("simulated runtime app")
     }
 
+    fn assert_hold_event_contract(value: &serde_json::Value, press_count: &mut usize) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object
+                    .get("press")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some()
+                {
+                    *press_count += 1;
+                    assert!(
+                        object
+                            .get("release")
+                            .and_then(serde_json::Value::as_u64)
+                            .is_some(),
+                        "every press-to-start control must define a release-to-stop event: {object:?}"
+                    );
+                }
+                assert!(
+                    object
+                        .get("repeat")
+                        .and_then(serde_json::Value::as_u64)
+                        .is_none(),
+                    "PuppyBot must not render repeat-command handlers: {object:?}"
+                );
+                for child in object.values() {
+                    assert_hold_event_contract(child, press_count);
+                }
+            }
+            serde_json::Value::Array(array) => {
+                for child in array {
+                    assert_hold_event_contract(child, press_count);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn rendered_hold_controls_pair_press_with_release_and_never_repeat() {
+        let app = test_app();
+        let rendered = serde_json::to_value(app.render_item()).expect("serialize PuppyBot UI");
+        let mut press_count = 0;
+
+        assert_hold_event_contract(&rendered, &mut press_count);
+
+        assert_eq!(press_count, 28, "unexpected PuppyBot hold-control count");
+    }
+
+    #[tokio::test]
+    async fn goto_press_issues_once_stale_repeats_preserve_stall_and_release_stops() {
+        let mut app = test_app();
+        let sequence_before = app.telemetry_seq();
+
+        assert!(app.handle_press_id(GOTO_ANGLES_ID, None));
+        assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(1));
+        let targets_after_press = app.robot.arm.joints.map(|joint| joint.target_tick);
+        assert!(targets_after_press.iter().all(Option::is_some));
+
+        app.robot.arm.joints[0].fault =
+            Some(puppybot_core::puppyarm::servo_safety::SafetyFault::Stall);
+        app.robot.arm.joints[0].stall_since_ms = Some(1234);
+        for (id, inx) in [
+            (GOTO_ANGLES_ID, None),
+            (GOTO_DEFAULT_ANGLES_ID, None),
+            (SET_JOINT_ZERO_ID, Some(1)),
+        ] {
+            app.handle_wgui_message(ClientMessage {
+                client_id: 7,
+                event: ClientEvent::OnRepeat(wgui::OnRepeat { id, inx }),
+            })
+            .await;
+            assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(1));
+            assert_eq!(
+                app.robot.arm.joints.map(|joint| joint.target_tick),
+                targets_after_press
+            );
+            assert_eq!(
+                app.robot.arm.joints[0].fault,
+                Some(puppybot_core::puppyarm::servo_safety::SafetyFault::Stall)
+            );
+            assert_eq!(app.robot.arm.joints[0].stall_since_ms, Some(1234));
+        }
+
+        assert!(app.handle_release_id(GOTO_ANGLES_ID, None));
+        assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(2));
+        assert!(
+            app.robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn default_and_zero_hold_controls_stop_on_release() {
+        let mut default_app = test_app();
+        assert!(default_app.handle_press_id(GOTO_DEFAULT_ANGLES_ID, None));
+        assert!(
+            default_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_some())
+        );
+        assert!(default_app.handle_release_id(GOTO_ANGLES_ID, None));
+        assert!(
+            default_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
+
+        let mut zero_app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick = u16::try_from(zero_app.robot.arm.joints[joint].reference_tick)
+                .expect("reference tick is valid");
+            zero_app.robot.arm.record_feedback(joint, tick, 0);
+        }
+        assert!(zero_app.handle_press_id(SET_JOINT_ZERO_ID, Some(1)));
+        assert!(zero_app.robot.arm.joints[0].target_tick.is_some());
+        assert!(zero_app.handle_release_id(SET_JOINT_ZERO_ID, Some(1)));
+        assert_eq!(zero_app.robot.arm.joints[0].target_tick, None);
+        assert_eq!(zero_app.robot.arm.joints[0].speed, 0);
+    }
+
+    #[tokio::test]
+    async fn simulation_calibration_is_session_only_and_cannot_be_mutated_or_saved() {
+        let mut physical = PuppybotConfigV1::default();
+        for (index, joint) in physical.arm.joints.iter_mut().enumerate() {
+            joint.servo_id = (40 + index) as u8;
+            joint.reference_tick = (100 + index * 700) as i32;
+            joint.reference_angle_rad = -2.0 + index as f64 * 0.6;
+            joint.angle_sign = if index % 2 == 0 { -1 } else { 1 };
+        }
+        let config_path = std::env::temp_dir().join(format!(
+            "puppybot-sim-calibration-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let physical_json = config::runtime_config_json(&physical).expect("physical config JSON");
+        std::fs::write(&config_path, &physical_json).expect("write physical config fixture");
+
+        let mut app = App::with_options(AppOptions {
+            config: Some(config_path.display().to_string()),
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("127.0.0.1:0".parse().unwrap()),
+        })
+        .expect("simulated runtime app");
+        let automatic = app.active_config.arm.joints;
+        assert_ne!(automatic, physical.arm.joints);
+
+        let metric = app.calibration_status_metric();
+        assert_eq!(metric.label, "Calibration");
+        assert_eq!(metric.value, "automatic");
+        assert_eq!(metric.detail, "Simulation calibration: automatic");
+        assert!(!metric.save_action);
+
+        app.open_joint_calibration(1);
+        assert!(app.calibration_editor_joint.is_none());
+        assert!(app.render_calibration_modal().is_none());
+
+        let reference = app.handle_api_request(
+            b"POST",
+            b"/api/arm/joints/1/reference",
+            br#"{"angleDeg":12.0}"#,
+        );
+        assert_eq!(reference.status, "400 Bad Request");
+        let flip = app.handle_api_request(b"POST", b"/api/arm/joints/1/angle-sign/flip", b"");
+        assert_eq!(flip.status, "400 Bad Request");
+        let save = app.handle_api_request(b"POST", b"/api/calibration/save", b"");
+        assert_eq!(save.status, "400 Bad Request");
+
+        let mut telemetry_enabled = false;
+        assert!(
+            app.handle_binary_command(
+                &command_frame(CMD_CONFIG_SET, &[1, 9, 11, 12, 13, 14]),
+                &mut telemetry_enabled,
+            )
+            .is_none()
+        );
+        assert_eq!(app.active_config.arm.joints, automatic);
+        assert_eq!(
+            std::fs::read_to_string(&config_path).expect("physical config remains readable"),
+            physical_json
+        );
+
+        std::fs::remove_file(config_path).expect("remove physical config fixture");
+    }
+
     fn response_json(response: ApiResponse) -> serde_json::Value {
         serde_json::from_slice(&response.body).expect("json response")
+    }
+
+    #[tokio::test]
+    async fn capture_api_accepts_bounded_jobs_only_on_loopback() {
+        let mut app = test_app();
+        let response = app.handle_api_request(b"POST", b"/api/sim/captures/screenshot", br#"{}"#);
+        assert_eq!(response.status, "202 Accepted");
+        assert_eq!(response.content_type, "application/json; charset=utf-8");
+        let body = response_json(response);
+        let status_url = body["job"]["status"].as_str().expect("status url");
+        let response = app.handle_api_request(b"GET", status_url.as_bytes(), b"");
+        assert_eq!(response.status, "200 OK");
+
+        let response =
+            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":0}"#);
+        assert_eq!(response.status, "400 Bad Request");
+        let response =
+            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":251}"#);
+        assert_eq!(response.status, "400 Bad Request");
+        let response =
+            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
+        assert_eq!(response.status, "202 Accepted");
+        let response =
+            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
+        assert_eq!(response.status, "429 Too Many Requests");
+
+        let mut remote = App::with_options(AppOptions {
+            config: None,
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("0.0.0.0:8080".parse().unwrap()),
+        })
+        .expect("remote-bound simulated app");
+        let response =
+            remote.handle_api_request(b"POST", b"/api/sim/captures/screenshot", br#"{}"#);
+        assert_eq!(response.status, "409 Conflict");
     }
 
     #[tokio::test]
@@ -3689,15 +4096,13 @@ mod tests {
     async fn api_joint_spin_is_server_held_and_stop_releases_it() {
         let mut app = test_app();
 
-        let response = app.handle_api_request(
-            b"POST",
-            b"/api/arm/joints/1/spin",
-            br#"{"direction":1}"#,
-        );
+        let response =
+            app.handle_api_request(b"POST", b"/api/arm/joints/1/spin", br#"{"direction":1}"#);
         assert_eq!(response.status, "200 OK");
-        assert!(app
-            .held_joint_jog
-            .is_some_and(|held| held.joint == 1 && held.direction == 1));
+        assert!(
+            app.held_joint_jog
+                .is_some_and(|held| held.joint == 1 && held.direction == 1)
+        );
 
         let response = app.handle_api_request(b"POST", b"/api/arm/joints/1/stop", b"");
         assert_eq!(response.status, "200 OK");

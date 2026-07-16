@@ -26,7 +26,7 @@ fn calibrated_move_pose() -> [f64; JOINT_COUNT] {
         0.0,
         55.0_f64.to_radians(),
         65.0_f64.to_radians(),
-        10.0_f64.to_radians(),
+        (-100.0_f64).to_radians(),
     ]
 }
 
@@ -132,17 +132,37 @@ fn tool_phi_deg(angles_deg: [f32; JOINT_COUNT]) -> f32 {
 #[test]
 fn fk_zero_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
-    assert_close(x, 60.37876135264004);
+    assert_close(x, 7.151499449131592);
     assert_close(y, -19.150050229126062);
-    assert_close(z, 77.18974117225753);
+    assert_close(z, 131.75886045366124);
 }
 
 #[test]
 fn fk_wrist_ninety_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, PI / 2.0);
-    assert_close(x, 96.24809996115746);
+    assert_close(x, 41.67898067975374);
     assert_close(y, -19.150050229126062);
-    assert_close(z, 143.80521747238558);
+    assert_close(z, 90.57795556887714);
+}
+
+#[test]
+fn runtime_reference_pose_places_tcp_beneath_wrist() {
+    let chain = arm_chain_points(0.0, FRAC_PI_2, -FRAC_PI_2, -FRAC_PI_2);
+    let wrist_to_tcp = [
+        chain.tcp[0] - chain.wrist[0],
+        chain.tcp[1] - chain.wrist[1],
+        chain.tcp[2] - chain.wrist[2],
+    ];
+
+    assert!(
+        wrist_to_tcp[0].abs() < 4.0 && wrist_to_tcp[1].abs() < 0.001,
+        "reference-pose TCP must stay horizontally beneath the wrist: {wrist_to_tcp:?}"
+    );
+    assert!(
+        wrist_to_tcp[2] < -37.0,
+        "reference-pose TCP must point downward beneath the wrist: {wrist_to_tcp:?}"
+    );
+    assert_close(point_distance(chain.wrist, chain.tcp), ARM_L3_MM);
 }
 
 #[test]
@@ -1147,13 +1167,8 @@ fn tcp_jog_rejects_invalid_direction() {
 }
 
 #[test]
-fn move_tcp_relative_base_preserves_tool_pitch_with_opposite_radial_branch() {
-    let pose = [
-        0.0,
-        (-30.0_f64).to_radians(),
-        40.0_f64.to_radians(),
-        120.0_f64.to_radians(),
-    ];
+fn move_tcp_relative_base_preserves_tool_pitch() {
+    let pose = calibrated_move_pose();
     let mut relative = arm_with_angle_feedback(pose);
     let current_angles = relative
         .telemetry_snapshot(0)
@@ -1287,12 +1302,7 @@ fn yaw_flat_forward_at_ninety_yaw_moves_positive_y_and_preserves_z() {
 
 #[test]
 fn yaw_flat_left_at_zero_yaw_moves_positive_y_and_preserves_z() {
-    let mut arm = arm_with_angle_feedback([
-        0.0,
-        50.0_f64.to_radians(),
-        40.0_f64.to_radians(),
-        100.0_f64.to_radians(),
-    ]);
+    let mut arm = arm_with_angle_feedback(calibrated_move_pose());
     let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
 
     arm.handle_arm_cmd(
@@ -1390,11 +1400,13 @@ fn yaw_flat_xy_relative_moves_preserve_target_z() {
 #[test]
 fn move_tcp_relative_cardinal_xy_moves_cover_supported_frames() {
     let table_xy_pose = calibrated_move_pose();
+    let flat_shoulder = 110.0_f64.to_radians();
+    let flat_elbow = 14.0_f64.to_radians();
     let flat_tool_pose = [
         0.0,
-        52.0_f64.to_radians(),
-        42.0_f64.to_radians(),
-        63.3004_f64.to_radians(),
+        flat_shoulder,
+        flat_elbow,
+        solve_tip_angle_down(flat_shoulder, flat_elbow, 0.0),
     ];
     let moves = [
         ("forward", 10.0, 0.0, 10.0, 0.0),
@@ -1443,11 +1455,13 @@ fn move_tcp_relative_cardinal_xy_moves_cover_supported_frames() {
 
 #[test]
 fn move_tcp_relative_tool_forward_uses_current_tool_orientation() {
+    let shoulder = 70.0_f64.to_radians();
+    let elbow = 50.0_f64.to_radians();
     let pose = [
         0.0,
-        55.0_f64.to_radians(),
-        65.0_f64.to_radians(),
-        (-6.6996_f64).to_radians(),
+        shoulder,
+        elbow,
+        solve_tip_angle_down(shoulder, elbow, -FRAC_PI_2),
     ];
     let mut relative = arm_with_angle_feedback(pose);
     let mut expected = arm_with_angle_feedback(pose);

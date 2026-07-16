@@ -184,6 +184,208 @@ The response includes the active config path, dirty flag, and normalized config.
 }
 ```
 
+## Simulation capture and replay
+
+Run simulation capture servers on loopback. The runtime command/control API is
+unauthenticated, and capture creation is deliberately rejected when
+`PUPPYBOT_RUNTIME_ADDR` is bound to a non-loopback address. Note that the
+normal runtime default is `0.0.0.0:8080`, so set the address explicitly:
+
+```sh
+PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 \
+  ./scripts/run-runtime.sh --sim --headless \
+  --config runtime/puppybot.json \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+### Live state
+
+`GET /api/state` returns `puppybot.runtime.state.v1` JSON with controller time,
+arm joints and TCP positions, drive output, UI state, simulation frame/marker
+data, and `sim.captureState` when running with `--sim`:
+
+```sh
+mkdir -p workdir/captures
+curl -fsS http://127.0.0.1:8080/api/state \
+  -o workdir/captures/runtime-state.json
+```
+
+The nested capture state uses schema `puppybot.sim.capture-state.v1`. It records
+the RobotDreams project filename and content SHA-1, the active camera and
+resolution, robot/joint/servo values, scene-node transforms, and the overlays
+needed to reproduce the saved pose. It explicitly reports:
+
+- `exactSavedTransforms: true`
+- `poseEquivalentRender: true`
+- `exactVisualReplay: false`
+- `exactDynamicContinuation: false`
+
+In other words, replay uses the exact saved transforms, pose, overlays, and
+camera. It is not a checkpoint of physics, controller internals, servo dynamics,
+or pending commands, and it cannot continue the original run. Pixel-for-pixel
+output is also not promised across renderer, driver, or platform changes.
+
+### Finite screenshots and camera control
+
+Render a real offscreen PGE/WGPU frame after a finite number of simulation
+updates, then exit without opening the preview window or starting the HTTP/UI
+servers:
+
+```sh
+./scripts/run-runtime.sh \
+  --sim --screenshot workdir/captures/settled.png --frames 120 \
+  --config runtime/puppybot.json \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+`--screenshot` requires `--sim`. `--frames` must be positive and defaults to
+120. The command creates parent directories, writes one PNG, prints the final
+controller/model TCP delta, and exits. A custom orbit camera can be selected in
+RobotDreams world meters and degrees:
+
+```sh
+./scripts/run-runtime.sh \
+  --sim --screenshot workdir/captures/rear-high.png --frames 120 \
+  --camera-target 0,0,0.22 --camera-radius 0.68 \
+  --camera-azimuth -140 --camera-elevation 48 \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+Camera values must be finite, radius must be positive, and elevation must be
+strictly between -90 and 90 degrees. Azimuth is normalized to `[-180, 180)`.
+Camera flags require `--screenshot`.
+
+To replay the saved pose and saved camera from either `GET /api/state` or a
+capture job's state artifact, use `--state`. No simulation steps are run:
+
+```sh
+./scripts/run-runtime.sh \
+  --sim --screenshot workdir/captures/replayed.png \
+  --state workdir/captures/runtime-state.json --state-frame 0 \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+`--state` requires `--screenshot`; `--state-frame` is a zero-based index and
+defaults to 0. Replay rejects out-of-range frame indices and a RobotDreams
+project whose content SHA-1 differs from the saved state. `--frames` and
+`--camera-*` cannot be combined with `--state`: the saved pose and camera are
+authoritative.
+
+### Finite MP4 recording
+
+The `record` subcommand renders exactly the requested number of frames at 50
+fps after 120 settling updates, encodes H.264 MP4, removes its temporary raw
+frames, prints the final controller/model TCP delta, and exits:
+
+```sh
+./scripts/run-runtime.sh record \
+  --sim --out workdir/captures/settled.mp4 --frames 150 \
+  --config runtime/puppybot.json \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+`record` requires `--sim` and `--out`. Live recording requires a positive
+`--frames` value and an output path ending in `.mp4`. Encoding requires
+`gst-launch-1.0` and GStreamer plugins providing
+`rawvideoparse`, `videoconvert`, `openh264enc`, `h264parse`, and `mp4mux`.
+Saved-trace and REST recording replay also requires the `pngdec` plugin.
+Failure to launch GStreamer or a nonzero encoder result makes the command fail.
+
+To render a downloaded `puppybot.sim.capture-trace.v1` without running or
+stepping the simulation, replace `--frames` with `--state`:
+
+```sh
+./scripts/run-runtime.sh record \
+  --sim --out workdir/captures/replayed.mp4 \
+  --state workdir/captures/job-trace.json \
+  --robotdreams-project ../robotdreams/project.json
+```
+
+`record --state` accepts both `--state PATH` and `--state=PATH`; it is mutually
+exclusive with `--frames`. Every trace sample supplies its saved transforms,
+overlays, and camera. As with screenshot state replay, this is pose-equivalent
+rendering of saved frames, not dynamic continuation of the original run.
+
+### REST screenshot and recording jobs
+
+Screenshot work is asynchronous. Create an empty screenshot request, extract
+the returned URLs, poll its status, and then fetch the saved state and PNG:
+
+```sh
+BASE=http://127.0.0.1:8080
+poll_capture() {
+  while :; do
+    JOB=$(curl -fsS "$1") || return 1
+    STATUS=$(printf '%s' "$JOB" | jq -r '.job.status')
+    case "$STATUS" in
+      complete) return 0 ;;
+      failed) printf '%s\n' "$JOB" >&2; return 1 ;;
+      *) sleep 0.1 ;;
+    esac
+  done
+}
+
+CREATE=$(curl -fsS -X POST \
+  -H 'content-type: application/json' -d '{}' \
+  "$BASE/api/sim/captures/screenshot")
+STATUS_URL=$(printf '%s' "$CREATE" | jq -r '.job.status')
+STATE_URL=$(printf '%s' "$CREATE" | jq -r '.job.state')
+ARTIFACT_URL=$(printf '%s' "$CREATE" | jq -r '.job.artifact')
+
+poll_capture "$BASE$STATUS_URL"
+curl -fsS "$BASE$STATE_URL" -o workdir/captures/job-state.json
+curl -fsS "$BASE$ARTIFACT_URL" -o workdir/captures/job.png
+```
+
+Create a recording with a required frame count from 1 through 250. At 50 fps,
+the largest request records five seconds:
+
+```sh
+RECORD_CREATE=$(curl -fsS -X POST \
+  -H 'content-type: application/json' -d '{"frames":150}' \
+  "$BASE/api/sim/captures/record")
+RECORD_STATUS=$(printf '%s' "$RECORD_CREATE" | jq -r '.job.status')
+RECORD_STATE=$(printf '%s' "$RECORD_CREATE" | jq -r '.job.state')
+RECORD_ARTIFACT=$(printf '%s' "$RECORD_CREATE" | jq -r '.job.artifact')
+
+poll_capture "$BASE$RECORD_STATUS"
+curl -fsS "$BASE$RECORD_STATE" -o workdir/captures/job-trace.json
+curl -fsS "$BASE$RECORD_ARTIFACT" -o workdir/captures/job.mp4
+```
+
+Recording samples the latest coherent published visual state once per 20 ms
+controller tick. In headless mode, the controller path publishes after each
+simulation update. With an active preview window, publication happens in the
+render callback so each state atomically pairs the rendered pose and camera.
+If that callback is slow or the window is minimized, several controller ticks
+can sample the same published state; the trace can therefore contain repeated
+sequence, simulation time, and camera values. Requested `frames` counts trace
+and output samples, not guaranteed unique simulation advances.
+
+Recording status progresses through `capturing`, `queued`, `rendering`, and
+`complete`, or ends as `failed`. Screenshot jobs use `queued`, `rendering`,
+`complete`, or `failed`. A failed job includes its error string. Fetch state or
+artifact only after `complete`, otherwise the server returns `409 Conflict`.
+Screenshot state is `puppybot.sim.capture-state.v1` JSON with an `image/png`
+artifact. Recording state is `puppybot.sim.capture-trace.v1` JSON with a
+`video/mp4` artifact; download the trace to replay it with `record --state`.
+
+The screenshot request body is currently restricted to an empty JSON object,
+and the HTTP body limit is 8 KiB. Recording requests accept only an integer
+`frames` field; missing, extra, zero, or greater-than-250 values return
+`400 Bad Request`. At most four screenshot jobs may be active, and only one
+recording may capture at a time; saturation returns `429 Too Many Requests`.
+PNG artifacts are capped at 16 MiB, trace JSON at 16 MiB, and MP4 artifacts at
+64 MiB. Retained PNG/MP4 artifacts are capped at 128 MiB total, and only the
+newest eight terminal jobs are retained across both kinds; the oldest terminal
+jobs are evicted until both limits are met. Invalid or evicted IDs return
+`404 Not Found`.
+Capture creation outside simulation mode or through a non-loopback runtime bind
+returns `409 Conflict`. Rendering, encoding, and artifact work run off the
+controller loop, so clients must poll instead of waiting on the creation
+request. REST recording requires the same GStreamer/OpenH264 tools as CLI
+recording; encoder errors leave the job in `failed` with its error message.
+
 ## CLI
 
 The `puppybot` CLI talks to the runtime WebSocket API. By default it connects to

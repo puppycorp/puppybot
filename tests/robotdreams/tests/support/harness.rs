@@ -19,6 +19,10 @@ use robotdreams_core::project::load_model_profile;
 use robotdreams_core::{RigidTransform, RobotDreams};
 use serde_json::Value;
 
+#[path = "../../../../puppybot/runtime/src/sim_calibration.rs"]
+mod sim_calibration;
+use sim_calibration::derive_simulation_config;
+
 pub const MODEL_UP_TOLERANCE_M: f64 = 0.0015;
 
 const SERVO_FULL_ROTATION_TICKS: f64 = 4096.0;
@@ -626,7 +630,8 @@ fn runtime_config() -> PuppybotConfigV1 {
         },
     };
     config.validate().expect("valid PuppyBot runtime config");
-    config
+    derive_simulation_config(project_path(), &config)
+        .expect("derive automatic RobotDreams simulation calibration")
 }
 
 fn joint_value(root: &Value, index: usize) -> JointCalibration {

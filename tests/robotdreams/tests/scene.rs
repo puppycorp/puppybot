@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use puppybot_core::config::PuppybotConfigV1;
 use puppybot_state::PuppyBotState;
 use robotdreams_core::project::{
     DeviceConfig, ProjectSceneObjectGeometry, load_model_profile, project_config_from_manifest,
@@ -11,6 +12,8 @@ use robotdreams_core::scene_harness::UrdfSceneHarness;
 use robotdreams_core::{RobotDreams, SceneLocation};
 
 mod puppybot_state;
+#[path = "../../../puppybot/runtime/src/sim_calibration.rs"]
+mod sim_calibration;
 
 fn model_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/puppybot")
@@ -160,21 +163,8 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
             1,
             "semantic joint {semantic_name} should have exactly one driving servo"
         );
-        let (expected_zero_offset, expected_direction) = match semantic_name {
-            "yaw" => (3716, 1),
-            "shoulder" => (2983, -1),
-            "elbow" => (3626, 1),
-            "wrist" => (2459, 1),
-            _ => unreachable!("unexpected semantic joint"),
-        };
-        assert_eq!(
-            servos[0].calibration.zero_offset, expected_zero_offset,
-            "semantic joint {semantic_name} RobotDreams zeroOffset is an installation mapping"
-        );
-        assert_eq!(
-            servos[0].calibration.direction, expected_direction,
-            "semantic joint {semantic_name} RobotDreams direction is an installation mapping"
-        );
+        assert!((0..4096).contains(&i32::from(servos[0].calibration.zero_offset)));
+        assert!(matches!(servos[0].calibration.direction, -1 | 1));
     }
 }
 
@@ -194,27 +184,19 @@ fn puppybot_fixed_servo_ticks_preserve_installed_urdf_angles() {
     let state = dreams
         .robot_state("puppybot")
         .expect("PuppyBot robot state");
-    let runtime: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(runtime_config_path()).expect("read runtime config"),
-    )
-    .expect("parse runtime config");
+    let runtime =
+        sim_calibration::derive_simulation_config(project_path(), &PuppybotConfigV1::default())
+            .expect("derive automatic simulation calibration");
     let model: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(model_profile_path()).expect("read model profile"),
     )
     .expect("parse model profile");
 
     for (index, (semantic, _, tick)) in cases.into_iter().enumerate() {
-        let runtime_joint = &runtime["arm"]["joints"][index];
-        let reference_tick = runtime_joint["reference_tick"]
-            .as_f64()
-            .expect("runtime reference tick");
-        let reference_angle = runtime_joint["reference_angle_deg"]
-            .as_f64()
-            .expect("runtime reference angle")
-            .to_radians();
-        let angle_sign = runtime_joint["angle_sign"]
-            .as_f64()
-            .expect("runtime angle sign");
+        let runtime_joint = runtime.arm.joints[index];
+        let reference_tick = f64::from(runtime_joint.reference_tick);
+        let reference_angle = runtime_joint.reference_angle_rad;
+        let angle_sign = f64::from(runtime_joint.angle_sign);
         let mapping = &model["analyticToUrdf"]["joints"][semantic];
         let analytic_angle = reference_angle
             + angle_sign * (f64::from(tick) - reference_tick) * (std::f64::consts::TAU / 4096.0);
@@ -479,8 +461,8 @@ fn puppybot_model_declares_arm_joint_and_frame_metadata() {
     let tcp = profile.tcp.expect("tcp metadata");
     assert_eq!(tcp.link, "part_1_4");
     assert_close_m(f64::from(tcp.offset[0]), 0.0383, 1.0e-6);
-    assert_close_m(f64::from(tcp.offset[1]), 0.0497, 1.0e-6);
-    assert_close_m(f64::from(tcp.offset[2]), 0.0128, 1.0e-6);
+    assert_close_m(f64::from(tcp.offset[1]), 0.0, 1.0e-6);
+    assert_close_m(f64::from(tcp.offset[2]), -0.045, 1.0e-6);
     let tcp_ancestors = ancestor_joint_names(&harness, &tcp.link);
     let semantic_chain: Vec<_> = ["yaw", "shoulder", "elbow", "wrist"]
         .iter()

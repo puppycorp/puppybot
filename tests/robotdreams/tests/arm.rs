@@ -1,5 +1,5 @@
 use puppybot_core::drive::DriveCommand;
-use puppybot_core::puppyarm::kinematics::tool_pitch;
+use puppybot_core::puppyarm::kinematics::{solve_tip_angle_down, tool_pitch};
 use puppybot_core::puppyarm::types::{ArmCommand, TcpFrame};
 
 use harness::{
@@ -242,20 +242,24 @@ fn test_harness() -> PuppybotRobotDreamsHarness {
 }
 
 fn test_harness_with_yaw(yaw_rad: f64) -> PuppybotRobotDreamsHarness {
+    let shoulder = 55.0_f64.to_radians();
+    let elbow = 65.0_f64.to_radians();
     PuppybotRobotDreamsHarness::with_arm_pose([
         yaw_rad,
-        55.0_f64.to_radians(),
-        65.0_f64.to_radians(),
-        10.0_f64.to_radians(),
+        shoulder,
+        elbow,
+        solve_tip_angle_down(shoulder, elbow, (-73.3004_f64).to_radians()),
     ])
 }
 
 fn floor_test_harness_with_yaw(yaw_rad: f64) -> PuppybotRobotDreamsHarness {
+    let shoulder = (-20.0_f64).to_radians();
+    let elbow = 70.0_f64.to_radians();
     PuppybotRobotDreamsHarness::with_arm_pose([
         yaw_rad,
-        (-20.0_f64).to_radians(),
-        70.0_f64.to_radians(),
-        60.0_f64.to_radians(),
+        shoulder,
+        elbow,
+        solve_tip_angle_down(shoulder, elbow, (-103.3004_f64).to_radians()),
     ])
 }
 
@@ -616,7 +620,7 @@ fn assert_coordinate_jog_preserves_other_axes(frame: TcpFrame, case: CoordinateB
 }
 
 fn assert_vertical_coordinate_jog_changes_z(frame: TcpFrame, case: CoordinateButtonCase) {
-    const HOLD_CYCLES: usize = 120;
+    const HOLD_CYCLES: usize = 140;
     const SAMPLE_EVERY_CYCLES: usize = 10;
     const MIN_Z_MOVEMENT_M: f64 = 0.005;
     const STOP_SETTLE_CYCLES: usize = 30;

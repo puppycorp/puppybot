@@ -1,6 +1,6 @@
 use super::{
     kinematics::{self, IkError},
-    servo_safety::{align_tick_to_reference, continuous_tick_interval, SafetyFault, TICK_WRAP},
+    servo_safety::{SafetyFault, TICK_WRAP, align_tick_to_reference, continuous_tick_interval},
 };
 use core::f64::consts::PI;
 

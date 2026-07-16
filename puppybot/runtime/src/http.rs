@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use puppybot_core::utility::{base64_encode, eq_ignore_ascii_case, find_bytes, trim_ascii};
 use sha1::{Digest, Sha1};
@@ -56,7 +56,7 @@ pub(crate) enum HttpCommand {
         request_id: u64,
         status: &'static str,
         content_type: &'static str,
-        body: Vec<u8>,
+        body: Arc<[u8]>,
     },
     #[allow(dead_code)]
     Close {
@@ -70,7 +70,7 @@ enum ConnectionCommand {
     HttpResponse {
         status: &'static str,
         content_type: &'static str,
-        body: Vec<u8>,
+        body: Arc<[u8]>,
     },
     Close,
 }
@@ -138,7 +138,7 @@ impl HttpServer {
         request_id: u64,
         status: &'static str,
         content_type: &'static str,
-        body: Vec<u8>,
+        body: impl Into<Arc<[u8]>>,
     ) {
         let _ = self
             .commands
@@ -146,7 +146,7 @@ impl HttpServer {
                 request_id,
                 status,
                 content_type,
-                body,
+                body: body.into(),
             })
             .await;
     }
