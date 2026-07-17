@@ -1,54 +1,31 @@
 # PuppyBot Scenarios
 
-Scenario scripts are host-side "brain process" harnesses. They should talk to
-the same interfaces the real robot uses:
+Scenario scripts are host-side "brain process" harnesses. They talk to:
 
-- PuppyBot Rust runtime WebSocket API for robot control.
-- RobotDreams virtual STServo bus for simulated servo hardware.
+- PuppyBot Rust runtime HTTP/WebSocket API for robot control.
+- The runtime's in-process RobotDreams virtual hardware.
 - A camera/video device for perception.
-- Scenario sensor inputs for completion checks, such as a bin pressure sensor.
-- RobotDreams scenario telemetry for semantic task progress.
+- RobotDreams-owned physics and trigger state for completion checks.
 
-`place_ball_to_bin.robotdreams.json` is the RobotDreams scenario definition for
-the task. The Python harness loads it with `robotdreams scenario load`, then
-resets, observes, and exports sensors through the same first-class scenario
-command group.
+`place_ball_to_bin.robotdreams.json` documents the semantic task. The live
+fixture, physics, and `ball_in_bin` trigger are authored in the canonical
+`../../robotdreams/project.json` manifest.
 
 The current scripts use scripted policy while the video/perception side is being
 connected. The intended next step is a RobotDreams virtual webcam device that a
 Python brain can open exactly like a physical camera.
 
-## Completion Sensors
+## Ball-To-Bin Completion
 
-`place_ball_to_bin.py` waits for a bin pressure signal before marking the
-scenario complete. By default, it asks RobotDreams to export the virtual
-`bin_pressure` sensor to `/tmp/robotdreams-bin-pressure.json`.
+`place_ball_to_bin.py` uses a preprogrammed tool-down Cartesian sequence:
 
-For a real external harness, override the source file:
+`pre-pick -> pick -> Interact -> lift -> transfer -> drop -> Interact -> retreat`
 
-```sh
-python3 scenarios/place_ball_to_bin.py --bin-pressure-file /tmp/bin-pressure.json
-```
-
-The file can contain `true`, `1`, `pressed`, or JSON such as:
-
-```json
-{"pressed": true}
-```
-
-or:
-
-```json
-{"pressure": 0.82}
-```
-
-If no pressure file is provided, the scenario uses RobotDreams' exported virtual
-pressure sensor.
-
-During a run, the script posts task observations to RobotDreams after each
-major robot action and prints the resulting scenario progress. Expected progress
-values include `seekingBall`, `grasped`, `carrying`, `pressureDetected`, and
-`complete`.
+The first `Interact` can attach only near the observed live TCP. The second
+releases the dynamic ball, after which RobotDreams gravity and collision advance
+it independently. Completion requires the `ball_in_bin` trigger to become
+settled and triggered. The runner never supplies ball positions or a synthetic
+sensor value.
 
 ## Run Artifacts
 
@@ -59,19 +36,31 @@ run:
 python3 scenarios/place_ball_to_bin.py --recording-dir workdir/recordings/place-ball-to-bin-001
 ```
 
+The runner refuses an existing non-empty recording directory before starting
+the runtime or writing any artifact. Use a new directory for every invocation
+so logs and capture-job evidence cannot be mixed across runs.
+
 The directory contains:
 
 - `run.json`
-- `scenario.json`
-- `progress.jsonl`
-- `robot_commands.jsonl`
-- `sensor.jsonl`
-- `completion.json`
+- `commands.jsonl`
+- `observations.jsonl`
+- `final-state.json`
+- `capture-trace.json`
+- `run.mp4`
+- `runtime.log`
 - `validation.json`
 
-`validation.json` is intentionally conservative: it can mark the run usable as a
-deterministic E2E test while still marking `usableAsMotionProof` false until
-RobotDreams-derived motion/video evidence is available.
+The runner starts one live 50 fps REST capture before motion. Its trace frames
+include the RobotDreams manipulation and trigger snapshots. `validation.json`
+passes only when trace order proves attach, release, downward physics motion,
+and settled bin detection, GStreamer identifies H.264, and an explicit
+`qtdemux -> h264parse -> openh264dec` pipeline decodes the entire MP4 to a
+240x135 RGB audit stream. The validator requires the exact expected frame count
+and rejects every frame with a large near-black area, implausibly low mean
+brightness, or an abrupt whole-frame brightness discontinuity. Both `run.json`
+and `validation.json` also identify the one completed REST capture job used to
+produce the trace and video.
 
 ## Move-TCP Actor Validation
 

@@ -1066,6 +1066,10 @@ impl App {
                     "enabled": true,
                     "markers": markers,
                     "frames": frames,
+                    "manipulation": backend
+                        .manipulation_state()
+                        .ok()
+                        .and_then(|state| serde_json::to_value(state).ok()),
                     "captureState": backend
                         .preview()
                         .capture_state()
@@ -1392,6 +1396,7 @@ impl App {
 
         match segments.as_slice() {
             ["api", "drive"] => self.api_drive(&json),
+            ["api", "sim", "interact"] => self.api_sim_interact(),
             ["api", "drive", "stop"] => {
                 self.stop_drive();
                 Ok(())
@@ -1539,6 +1544,22 @@ impl App {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn api_sim_interact(&mut self) -> Result<(), ApiError> {
+        let action = match &mut self.backend {
+            RuntimeBackend::Hardware { .. } => {
+                return Err(ApiError::conflict(
+                    "Interact is simulation-only and is unavailable in hardware mode",
+                ));
+            }
+            RuntimeBackend::Simulated(backend) => {
+                backend.tool_action().map_err(ApiError::conflict)?
+            }
+        };
+        self.last_command = format!("Interact: {}", action.result);
+        self.mark_ui_dirty();
         Ok(())
     }
 
@@ -3887,6 +3908,14 @@ mod tests {
         );
         assert!(state["drive"].get("leftSpeed").is_some());
         assert_eq!(state["sim"]["enabled"], true);
+        assert_eq!(state["sim"]["manipulation"]["simulationOnly"], true);
+        assert_eq!(state["sim"]["manipulation"]["action"], "Interact");
+        assert_eq!(state["sim"]["manipulation"]["ball"]["objectId"], "ball");
+        assert_eq!(
+            state["sim"]["manipulation"]["binTrigger"]["source"],
+            "RobotDreams physics trigger"
+        );
+        assert!(state["sim"]["captureState"]["frames"][0]["manipulation"].is_object());
         assert!(state["sim"]["markers"].is_array());
         let marker = &state["sim"]["markers"].as_array().expect("sim markers")[0];
         assert_eq!(marker["targetTcp"], serde_json::Value::Null);
@@ -4220,7 +4249,7 @@ mod tests {
             app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":0}"#);
         assert_eq!(response.status, "400 Bad Request");
         let response =
-            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":251}"#);
+            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":501}"#);
         assert_eq!(response.status, "400 Bad Request");
         let response =
             app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
@@ -4241,6 +4270,28 @@ mod tests {
         let response =
             remote.handle_api_request(b"POST", b"/api/sim/captures/screenshot", br#"{}"#);
         assert_eq!(response.status, "409 Conflict");
+    }
+
+    #[tokio::test]
+    async fn simulation_interact_rejects_pickup_far_from_observed_tcp() {
+        let mut app = test_app();
+        let response = app.handle_api_request(b"POST", b"/api/sim/interact", br#"{}"#);
+        assert_eq!(response.status, "409 Conflict");
+        let body = response_json(response);
+        assert!(
+            body["error"]
+                .as_str()
+                .expect("Interact error")
+                .contains("observed TCP")
+        );
+        let state: serde_json::Value =
+            serde_json::from_str(&app.api_state_json().expect("api state json"))
+                .expect("valid state json");
+        assert_eq!(state["sim"]["manipulation"]["ball"]["attached"], false);
+        assert_eq!(
+            state["sim"]["manipulation"]["lastAction"],
+            serde_json::Value::Null
+        );
     }
 
     #[tokio::test]

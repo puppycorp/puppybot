@@ -1,22 +1,22 @@
 {
   "id": "puppybot-ball-to-bin",
   "name": "PuppyBot Ball To Bin",
-  "robotId": "puppyarm",
+  "robotId": "puppybot",
   "volumes": [
     {
       "id": "bin_drop_zone",
       "shape": {
         "type": "box",
-        "center": [0.38, 0.24, -0.28],
-        "size": [0.28, 0.24, 0.28]
+        "center": [0.157243, 0.075899, 0.285],
+        "size": [0.15, 0.15, 0.08]
       }
     },
     {
       "id": "bin_success_volume",
       "shape": {
         "type": "box",
-        "center": [0.38, 0.08, -0.28],
-        "size": [0.24, 0.2, 0.24]
+        "center": [0.157243, 0.075899, 0.125],
+        "size": [0.15, 0.15, 0.22]
       }
     }
   ],
@@ -24,26 +24,16 @@
     {
       "id": "attach-ball",
       "when": {
-        "type": "all",
-        "conditions": [
-          {
-            "type": "frameNearObject",
-            "frame": "tool",
-            "object": "ball",
-            "distanceM": 0.03
-          },
-          {
-            "type": "servoAtOrPast",
-            "id": 4,
-            "position": 2600
-          }
-        ]
+        "type": "frameNearObject",
+        "frame": "tcp",
+        "object": "ball",
+        "distanceM": 0.035
       },
       "actions": [
         {
           "type": "attachObject",
           "object": "ball",
-          "frame": "tool"
+          "frame": "tcp"
         }
       ]
     },
@@ -58,13 +48,8 @@
           },
           {
             "type": "frameInsideVolume",
-            "frame": "tool",
+            "frame": "tcp",
             "volume": "bin_drop_zone"
-          },
-          {
-            "type": "servoAtOrBefore",
-            "id": 4,
-            "position": 2100
           }
         ]
       },
@@ -72,17 +57,6 @@
         {
           "type": "detachObject",
           "object": "ball"
-        },
-        {
-          "type": "moveObjectToVolumeCenter",
-          "object": "ball",
-          "volume": "bin_success_volume"
-        },
-        {
-          "type": "setPressureSensor",
-          "sensor": "bin_pressure",
-          "pressed": true,
-          "pressure": 1.0
         }
       ]
     }
@@ -98,10 +72,6 @@
         "type": "objectInsideVolume",
         "object": "ball",
         "volume": "bin_success_volume"
-      },
-      {
-        "type": "pressureSensorPressed",
-        "sensor": "bin_pressure"
       }
     ]
   }

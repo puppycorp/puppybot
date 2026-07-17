@@ -34,7 +34,7 @@ use puppybot_core::{
 use robotdreams_core::{
     CoordinateDebugMarkerPositions, RigidTransform, RobotDreams, RobotDreamsPgeFrameOptions,
     RobotDreamsPgeTextLabel, RobotState, VirtualServoJointMapping, coordinate_debug_legend_labels,
-    project::RobotVisualTransform, robotdreams_pge_frame,
+    robotdreams_pge_frame,
 };
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -44,6 +44,9 @@ const SIMULATION_STEP_SECONDS: f32 = 0.02;
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
 const ROBOT_ID: &str = "puppybot";
+const BALL_OBJECT_ID: &str = "ball";
+const BIN_TRIGGER_ID: &str = "ball_in_bin";
+const BALL_PICKUP_TOLERANCE_M: f32 = 0.035;
 const WRIST_CAMERA_ID: &str = "wrist_camera";
 const TCP_CAMERA_WINDOW_TITLE: &str = "PuppyBot TCP Camera";
 const TCP_ALIGNMENT_TOLERANCE_MM: f64 = 2.0;
@@ -63,10 +66,61 @@ const CAPTURE_FOV_DEG: f32 = 55.0;
 const MAX_CAPTURE_WIDTH: u32 = 1920;
 const MAX_CAPTURE_HEIGHT: u32 = 1080;
 const MAX_CAPTURE_PIXELS: u64 = 1920 * 1080;
-const MAX_CAPTURE_TRACE_FRAMES: usize = 250;
+const MAX_CAPTURE_TRACE_FRAMES: usize = 500;
 const MAX_CAPTURE_TRACE_FPS: u32 = 50;
 const SIMULATION_UPS_SAMPLE_INTERVAL: StdDuration = StdDuration::from_secs(1);
 const SIMULATION_UPS_STALE_INTERVAL: StdDuration = StdDuration::from_secs(2);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimManipulationState {
+    pub(crate) simulation_only: bool,
+    pub(crate) action: String,
+    pub(crate) pickup_tolerance_m: f32,
+    pub(crate) ball: SimBallState,
+    pub(crate) bin_trigger: SimBinTriggerState,
+    pub(crate) last_action: Option<SimToolActionResult>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimBallState {
+    pub(crate) object_id: String,
+    pub(crate) center_world_m: [f32; 3],
+    pub(crate) linear_velocity_mps: [f32; 3],
+    pub(crate) motion: String,
+    pub(crate) attached: bool,
+    pub(crate) attached_to: Option<String>,
+    pub(crate) tcp_distance_m: Option<f32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimBinTriggerState {
+    pub(crate) id: String,
+    pub(crate) object_id: String,
+    pub(crate) ball_detected: bool,
+    pub(crate) entered: bool,
+    pub(crate) entry_count: u64,
+    pub(crate) entered_at_sec: Option<f64>,
+    pub(crate) settled: bool,
+    pub(crate) triggered: bool,
+    pub(crate) triggered_at_sec: Option<f64>,
+    pub(crate) settled_time_sec: f32,
+    pub(crate) source: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimToolActionResult {
+    pub(crate) sequence: u64,
+    pub(crate) action: String,
+    pub(crate) result: String,
+    pub(crate) attached: bool,
+    pub(crate) observed_tcp_world_m: [f32; 3],
+    pub(crate) ball_center_world_m: [f32; 3],
+    pub(crate) tcp_distance_m: f32,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +165,8 @@ pub(crate) struct CaptureFrame {
     pub(crate) robots: Vec<CaptureRobot>,
     pub(crate) servos: Vec<CaptureServo>,
     pub(crate) visual_transforms: BTreeMap<String, PgeCoreTransform>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) manipulation: Option<SimManipulationState>,
     pub(crate) overlays: CaptureOverlays,
 }
 
@@ -202,10 +258,10 @@ pub(crate) struct ScreenshotCamera {
 impl Default for ScreenshotCamera {
     fn default() -> Self {
         Self {
-            target: [0.145, -0.015, 0.095],
-            radius_m: 0.20,
-            azimuth_deg: -35.0,
-            elevation_deg: 18.0,
+            target: [0.18, 0.0, 0.12],
+            radius_m: 0.42,
+            azimuth_deg: -48.0,
+            elevation_deg: 24.0,
         }
     }
 }
@@ -226,6 +282,8 @@ struct RobotDreamsRuntimeState {
     labels: Vec<RobotDreamsPgeTextLabel>,
     puppybot_target_tcp_mm: Option<(f32, f32, f32)>,
     controller_arm_chain_world_m: Option<ControllerArmChain>,
+    tool_action_sequence: u64,
+    last_tool_action: Option<SimToolActionResult>,
 }
 
 #[derive(Clone)]
@@ -290,7 +348,7 @@ struct ControllerArmChain {
 #[derive(Clone)]
 struct PreviewSnapshot {
     labels: Vec<RobotDreamsPgeTextLabel>,
-    visual_transforms: Vec<RobotVisualTransform>,
+    visual_transforms: BTreeMap<String, PgeCoreTransform>,
     debug_markers: Vec<CoordinateDebugMarkerPositions>,
     frames: Option<SimulationFrameTransforms>,
     controller_arm_chain: Option<ControllerArmChain>,
@@ -459,6 +517,8 @@ impl SimulatedRuntimeBackend {
             labels: Vec::new(),
             puppybot_target_tcp_mm: None,
             controller_arm_chain_world_m: None,
+            tool_action_sequence: 0,
+            last_tool_action: None,
         }));
         let published_preview = {
             let state_guard = state
@@ -553,6 +613,68 @@ impl SimulatedRuntimeBackend {
             .lock()
             .ok()
             .and_then(|state| simulation_frame_transforms(&state.dreams))
+    }
+
+    pub(crate) fn manipulation_state(&self) -> Result<SimManipulationState, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "RobotDreams simulation state lock poisoned")?;
+        manipulation_state_from_dreams(&state.dreams, state.last_tool_action.clone())
+    }
+
+    pub(crate) fn tool_action(&mut self) -> Result<SimToolActionResult, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "RobotDreams simulation state lock poisoned")?;
+        let tcp = observed_tcp_world_m(&state.dreams)?;
+        let ball = state
+            .dreams
+            .scene_object_state(BALL_OBJECT_ID)
+            .ok_or_else(|| "RobotDreams ball object is unavailable".to_string())?;
+        let ball_center = ball.position;
+        let distance = distance_f32(tcp, ball_center);
+        let attached = ball.attachment.is_some();
+        let result = if attached {
+            state
+                .dreams
+                .detach_scene_object(BALL_OBJECT_ID)
+                .map_err(|err| format!("release ball: {err}"))?;
+            "released"
+        } else {
+            let attached = state
+                .dreams
+                .try_attach_scene_object_to_tcp(
+                    BALL_OBJECT_ID,
+                    ROBOT_ID,
+                    BALL_PICKUP_TOLERANCE_M,
+                    [0.0, 0.0, 0.0],
+                )
+                .map_err(|err| format!("attach ball: {err}"))?;
+            if !attached {
+                return Err(format!(
+                    "Interact rejected: observed TCP is {distance:.4} m from ball; pickup tolerance is {BALL_PICKUP_TOLERANCE_M:.4} m"
+                ));
+            }
+            "attached"
+        };
+        state.tool_action_sequence = state.tool_action_sequence.wrapping_add(1);
+        let ball = state
+            .dreams
+            .scene_object_state(BALL_OBJECT_ID)
+            .ok_or_else(|| "RobotDreams ball object disappeared after Interact".to_string())?;
+        let action = SimToolActionResult {
+            sequence: state.tool_action_sequence,
+            action: "Interact".to_string(),
+            result: result.to_string(),
+            attached: ball.attachment.is_some(),
+            observed_tcp_world_m: tcp,
+            ball_center_world_m: ball.position,
+            tcp_distance_m: distance,
+        };
+        state.last_tool_action = Some(action.clone());
+        Ok(action)
     }
 
     /// Samples the live wrist-camera pose and arm-base frame under one state
@@ -663,6 +785,74 @@ impl SimulatedRuntimeBackend {
     }
 }
 
+fn manipulation_state_from_dreams(
+    dreams: &RobotDreams,
+    last_action: Option<SimToolActionResult>,
+) -> Result<SimManipulationState, String> {
+    let tcp = observed_tcp_world_m(dreams).ok();
+    let ball = dreams
+        .scene_object_state(BALL_OBJECT_ID)
+        .ok_or_else(|| "RobotDreams ball object is unavailable".to_string())?;
+    let attached_to = ball
+        .attachment
+        .as_ref()
+        .map(|attachment| format!("{}:{}", attachment.robot_id, attachment.frame_name));
+    let attached = attached_to.is_some();
+    let motion = match (attached, ball.dynamic) {
+        (true, _) => "attached",
+        (false, true) => "dynamic",
+        (false, false) => "static",
+    };
+    let trigger = dreams
+        .scene_trigger_state(BIN_TRIGGER_ID)
+        .ok_or_else(|| "RobotDreams bin trigger is unavailable".to_string())?;
+    Ok(SimManipulationState {
+        simulation_only: true,
+        action: "Interact".to_string(),
+        pickup_tolerance_m: BALL_PICKUP_TOLERANCE_M,
+        ball: SimBallState {
+            object_id: ball.id.clone(),
+            center_world_m: ball.position,
+            linear_velocity_mps: ball.velocity_mps,
+            motion: motion.to_string(),
+            attached,
+            attached_to,
+            tcp_distance_m: tcp.map(|tcp| distance_f32(tcp, ball.position)),
+        },
+        bin_trigger: SimBinTriggerState {
+            id: trigger.id.clone(),
+            object_id: trigger.object_id.clone(),
+            ball_detected: trigger.inside,
+            entered: trigger.entered,
+            entry_count: trigger.entry_count,
+            entered_at_sec: trigger.entered_at_sec,
+            settled: trigger.settled,
+            triggered: trigger.triggered,
+            triggered_at_sec: trigger.triggered_at_sec,
+            settled_time_sec: trigger.settled_time_sec,
+            source: "RobotDreams physics trigger".to_string(),
+        },
+        last_action,
+    })
+}
+
+fn observed_tcp_world_m(dreams: &RobotDreams) -> Result<[f32; 3], String> {
+    dreams
+        .robot_state(ROBOT_ID)
+        .and_then(|robot| robot.tcp)
+        .and_then(|tcp| tcp.location)
+        .map(|location| location.position.map(|value| value as f32))
+        .ok_or_else(|| "RobotDreams observed PuppyBot TCP is unavailable".to_string())
+}
+
+fn distance_f32(left: [f32; 3], right: [f32; 3]) -> f32 {
+    left.into_iter()
+        .zip(right)
+        .map(|(left, right)| (left - right).powi(2))
+        .sum::<f32>()
+        .sqrt()
+}
+
 pub(crate) async fn capture_simulation_screenshot(
     project_path: &Path,
     config: &PuppybotConfigV1,
@@ -767,7 +957,9 @@ pub(crate) async fn record_simulation_video(
     }
     .await;
 
-    if let Err(err) = fs::remove_dir_all(&frame_dir) {
+    if std::env::var_os("PUPPYBOT_KEEP_TRACE_FRAMES").is_some() {
+        log::info!("kept trace frame directory {}", frame_dir.display());
+    } else if let Err(err) = fs::remove_dir_all(&frame_dir) {
         log::warn!(
             "failed to remove temporary simulation frame directory {}: {err}",
             frame_dir.display()
@@ -919,7 +1111,9 @@ pub(crate) fn render_capture_trace_mp4(
         ))
         .map_err(|err| format!("encode capture trace MP4: {err}"))
     })();
-    if let Err(err) = fs::remove_dir_all(&frame_dir) {
+    if std::env::var_os("PUPPYBOT_KEEP_TRACE_FRAMES").is_some() {
+        log::info!("kept trace frame directory {}", frame_dir.display());
+    } else if let Err(err) = fs::remove_dir_all(&frame_dir) {
         log::warn!(
             "failed to remove trace frame directory {}: {err}",
             frame_dir.display()
@@ -1020,6 +1214,25 @@ struct PreparedCaptureRenderer {
     expected_visual_keys: BTreeSet<String>,
 }
 
+const MAX_STABLE_CAPTURE_RENDER_ATTEMPTS: usize = 3;
+
+fn render_stable_capture_png<F>(mut render: F) -> Result<Vec<u8>, String>
+where
+    F: FnMut() -> Result<Vec<u8>, String>,
+{
+    let mut previous = render()?;
+    for _ in 1..MAX_STABLE_CAPTURE_RENDER_ATTEMPTS {
+        let current = render()?;
+        if current == previous {
+            return Ok(current);
+        }
+        previous = current;
+    }
+    Err(format!(
+        "offscreen capture did not stabilize after {MAX_STABLE_CAPTURE_RENDER_ATTEMPTS} identical-state renders"
+    ))
+}
+
 impl PreparedCaptureRenderer {
     fn new(project_path: &Path, state: &CaptureStateV1) -> Result<Self, String> {
         validate_capture_state(state)?;
@@ -1029,15 +1242,7 @@ impl PreparedCaptureRenderer {
         let mut options = RobotDreamsPgeFrameOptions::default();
         options.resolution = state.camera.resolution;
         let mut frame = robotdreams_pge_frame(&dreams, options);
-        let expected_visual_keys = dreams
-            .model()
-            .map(|model| {
-                preview_visual_bindings(&model.robot_visual_meshes())
-                    .into_iter()
-                    .map(|binding| binding.entity)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let expected_visual_keys = expected_visual_transform_keys(&dreams);
         insert_controller_arm_overlay(&mut frame.world);
         let index = index_world_nodes(&frame.world);
         hide_capture_dynamic_entities(&mut frame.world, &index);
@@ -1069,27 +1274,13 @@ impl PreparedCaptureRenderer {
         for (entity, transform) in &capture_frame.visual_transforms {
             set_world_node_transform(&mut self.frame.world, &self.index, entity, *transform);
         }
-        let debug_markers = capture_frame
-            .overlays
-            .debug_markers
-            .iter()
-            .map(|marker| CoordinateDebugMarkerPositions {
-                robot_id: marker.robot_id.clone(),
-                floor_z: marker.floor_z,
-                current_tcp: marker.current_tcp,
-                target_tcp: marker.target_tcp,
-            })
-            .collect::<Vec<_>>();
-        sync_tcp_debug_markers(&mut self.frame.world, &debug_markers, &self.index);
-        let controller_arm_chain = capture_frame
-            .overlays
-            .controller_arm_world_m
-            .map(|points_world_m| ControllerArmChain { points_world_m });
-        sync_controller_arm_overlay(
-            &mut self.frame.world,
-            controller_arm_chain.as_ref(),
-            &self.index,
-        );
+        // Prepared capture reuses one WGPU mesh cache across the trace. Keep
+        // its procedural geometry immutable: changing the debug delta/arm
+        // cylinder dimensions after cache preparation can evict mesh entries
+        // that draws later in the same frame still reference, producing
+        // incomplete tiles. The authoritative robot and scene-object visuals
+        // still follow their per-frame transforms; these optional diagnostic
+        // overlays remain hidden from `base_world`.
         if let (Some(world_from_base), Some(base_from_arm_base)) = (
             capture_frame.overlays.world_from_base,
             capture_frame.overlays.base_from_arm_base,
@@ -1144,16 +1335,26 @@ impl PreparedCaptureRenderer {
             camera.fov_deg = state.camera.fov_deg;
             camera.resolution = state.camera.resolution;
         }
-        let output = self
-            .renderer
-            .render(&self.frame.world, &self.frame.request)
-            .map_err(|err| format!("render capture state frame {frame_index}: {err}"))?;
-        output
-            .frames
-            .into_iter()
-            .next()
-            .map(|frame| frame.bytes)
-            .ok_or_else(|| "offscreen PGE renderer returned no PNG frame".to_string())
+        // Do not carry a render target/readback buffer across capture frames.
+        // The NVIDIA Vulkan path can return deterministic but incomplete
+        // regions after repeated map/unmap reuse, even though each individual
+        // render call waits for submission. A fresh offscreen renderer makes
+        // the frame's GPU cache, render target, and MAP_READ buffer private to
+        // this immutable capture state.
+        self.renderer = WgpuRenderer::new()
+            .map_err(|err| format!("reset offscreen PGE WGPU renderer: {err}"))?;
+        render_stable_capture_png(|| {
+            let output = self
+                .renderer
+                .render(&self.frame.world, &self.frame.request)
+                .map_err(|err| format!("render capture state frame {frame_index}: {err}"))?;
+            output
+                .frames
+                .into_iter()
+                .next()
+                .map(|frame| frame.bytes)
+                .ok_or_else(|| "offscreen PGE renderer returned no PNG frame".to_string())
+        })
     }
 }
 
@@ -1184,15 +1385,7 @@ fn render_capture_state_png_with_renderer(
     validate_capture_project(project_path, &state.project)?;
     let dreams = RobotDreams::open(project_path)
         .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
-    let expected_visual_keys = dreams
-        .model()
-        .map(|model| {
-            preview_visual_bindings(&model.robot_visual_meshes())
-                .into_iter()
-                .map(|binding| binding.entity)
-                .collect()
-        })
-        .unwrap_or_default();
+    let expected_visual_keys = expected_visual_transform_keys(&dreams);
     validate_visual_transform_keys(capture_frame, &expected_visual_keys)?;
     let labels = capture_frame
         .overlays
@@ -1444,6 +1637,7 @@ fn preview_snapshot_from_state(
     state: &RobotDreamsRuntimeState,
     arm: Option<&PuppyarmTelemetry>,
 ) -> PreviewSnapshot {
+    let robot_snapshot = state.dreams.snapshot();
     let mut debug_markers = state.dreams.coordinate_debug_marker_positions(
         robotdreams_core::CoordinateDebugOverlayOptions::default(),
     );
@@ -1453,23 +1647,32 @@ fn preview_snapshot_from_state(
         state.puppybot_target_tcp_mm,
         frames,
     );
-    let visual_transforms = state
+    let robot_visual_transforms = state
         .dreams
         .model()
         .map(|model| model.robot_visual_transforms())
         .unwrap_or_default();
-    let visual_transform_map = state
+    let mut visual_transforms = state
         .visual_bindings
         .iter()
-        .zip(&visual_transforms)
+        .zip(&robot_visual_transforms)
         .map(|(binding, transform)| {
             (
                 binding.entity.clone(),
                 PgeCoreTransform::matrix(transform.translation, transform.rotation_matrix),
             )
         })
-        .collect();
-    let robot_snapshot = state.dreams.snapshot();
+        .collect::<BTreeMap<_, _>>();
+    for object in &robot_snapshot.scene_objects {
+        visual_transforms.insert(
+            format!("object:{}", object.id),
+            PgeCoreTransform {
+                translation: object.position,
+                rotation: object.rotation,
+                rotation_matrix: None,
+            },
+        );
+    }
     let robots = robot_snapshot
         .robots
         .iter()
@@ -1520,7 +1723,9 @@ fn preview_snapshot_from_state(
         simulation_clock_sec: robot_snapshot.clock_sec,
         robots,
         servos,
-        visual_transforms: visual_transform_map,
+        visual_transforms: visual_transforms.clone(),
+        manipulation: manipulation_state_from_dreams(&state.dreams, state.last_tool_action.clone())
+            .ok(),
         overlays: CaptureOverlays {
             labels: labels
                 .iter()
@@ -1570,7 +1775,7 @@ fn capture_rigid_transform(transform: RigidTransform) -> CaptureRigidTransform {
 fn sync_preview_snapshot_world(
     world: &mut pge_core::WorldState,
     index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
-    visual_bindings: &[PreviewVisualBinding],
+    _visual_bindings: &[PreviewVisualBinding],
     snapshot: &PreviewSnapshot,
     show_diagnostics: bool,
 ) {
@@ -1588,7 +1793,7 @@ fn sync_preview_snapshot_world(
     } else {
         world.text_labels.clear();
     }
-    sync_robot_visual_transforms(world, visual_bindings, &snapshot.visual_transforms, index);
+    sync_visual_transforms(world, &snapshot.visual_transforms, index);
     sync_tcp_debug_markers(world, &snapshot.debug_markers, index);
     sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
     if let Some(frames) = snapshot.frames {
@@ -1740,7 +1945,7 @@ impl SimulatedPreview {
             .snapshot
             .as_ref()
             .clone();
-        let (mut frame, visual_bindings, model_telemetry) = {
+        let (mut frame, model_telemetry) = {
             let state = self
                 .state
                 .lock()
@@ -1748,17 +1953,12 @@ impl SimulatedPreview {
             let mut options = RobotDreamsPgeFrameOptions::default();
             options.text_labels = state.labels.clone();
             let frame = robotdreams_pge_frame(&state.dreams, options);
-            let visual_bindings = state
-                .dreams
-                .model()
-                .map(|model| preview_visual_bindings(&model.robot_visual_meshes()))
-                .unwrap_or_default();
             let model_telemetry = state
                 .dreams
                 .robot_state(ROBOT_ID)
                 .as_ref()
                 .map(model_telemetry);
-            (frame, visual_bindings, model_telemetry)
+            (frame, model_telemetry)
         };
 
         insert_controller_arm_overlay(&mut frame.world);
@@ -1779,9 +1979,8 @@ impl SimulatedPreview {
             [1.0, 0.2, 0.9, 1.0],
         ));
         frame.world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
-        sync_robot_visual_transforms(
+        sync_visual_transforms(
             &mut frame.world,
-            &visual_bindings,
             &snapshot.visual_transforms,
             &world_node_index,
         );
@@ -2166,23 +2365,33 @@ fn preview_visual_bindings(
         .collect()
 }
 
-fn sync_robot_visual_transforms(
+fn expected_visual_transform_keys(dreams: &RobotDreams) -> BTreeSet<String> {
+    let mut keys = dreams
+        .model()
+        .map(|model| {
+            preview_visual_bindings(&model.robot_visual_meshes())
+                .into_iter()
+                .map(|binding| binding.entity)
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    keys.extend(
+        dreams
+            .snapshot()
+            .scene_objects
+            .into_iter()
+            .map(|object| format!("object:{}", object.id)),
+    );
+    keys
+}
+
+fn sync_visual_transforms(
     world: &mut pge_core::WorldState,
-    visual_bindings: &[PreviewVisualBinding],
-    visual_transforms: &[robotdreams_core::project::RobotVisualTransform],
+    visual_transforms: &BTreeMap<String, PgeCoreTransform>,
     index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
 ) {
-    for (binding, visual) in visual_bindings.iter().zip(visual_transforms.iter()) {
-        set_world_node_transform(
-            world,
-            index,
-            &binding.entity,
-            PgeCoreTransform {
-                translation: visual.translation,
-                rotation: [0.0, 0.0, 0.0],
-                rotation_matrix: Some(visual.rotation_matrix),
-            },
-        );
+    for (entity, transform) in visual_transforms {
+        set_world_node_transform(world, index, entity, *transform);
     }
 }
 
@@ -3015,12 +3224,12 @@ mod tests {
     }
 
     #[test]
-    fn default_screenshot_camera_preserves_validated_tight_orbit() {
+    fn default_screenshot_camera_frames_reachable_ball_and_bin_fixture() {
         let camera = ScreenshotCamera::default();
-        assert_eq!(camera.target, [0.145, -0.015, 0.095]);
-        assert_eq!(camera.radius_m, 0.20);
-        assert_eq!(camera.azimuth_deg, -35.0);
-        assert_eq!(camera.elevation_deg, 18.0);
+        assert_eq!(camera.target, [0.18, 0.0, 0.12]);
+        assert_eq!(camera.radius_m, 0.42);
+        assert_eq!(camera.azimuth_deg, -48.0);
+        assert_eq!(camera.elevation_deg, 24.0);
 
         let transform = screenshot_camera_transform(camera);
         let azimuth_rad = camera.azimuth_deg.to_radians();
@@ -3971,6 +4180,28 @@ mod tests {
             invalid.frames.push(frame);
         }
         assert!(validate_capture_trace(&invalid).is_err());
+    }
+
+    #[test]
+    fn stable_capture_gate_retries_warmup_and_rejects_inconsistent_readback() {
+        let mut attempts = vec![
+            Ok(vec![0_u8, 1, 2]),
+            Ok(vec![3_u8, 4, 5]),
+            Ok(vec![3_u8, 4, 5]),
+        ]
+        .into_iter();
+        assert_eq!(
+            render_stable_capture_png(|| attempts.next().expect("bounded render attempt"))
+                .expect("second and third render stabilize"),
+            vec![3_u8, 4, 5]
+        );
+
+        let mut inconsistent = vec![Ok(vec![0_u8]), Ok(vec![1_u8]), Ok(vec![2_u8])].into_iter();
+        let error = render_stable_capture_png(|| {
+            inconsistent.next().expect("bounded inconsistent attempt")
+        })
+        .expect_err("capture must fail closed when identical-state output never stabilizes");
+        assert!(error.contains("did not stabilize after 3 identical-state renders"));
     }
 
     #[test]

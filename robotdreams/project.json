@@ -32,7 +32,16 @@
         "size": [5.0, 5.0, 0.02],
         "position": [0.0, 0.0, -0.011],
         "color": "#162331",
-        "includeInFit": false
+        "includeInFit": false,
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {
+            "shape": "box",
+            "size": [5.0, 5.0, 0.02]
+          }
+        }
       },
       {
         "id": "trashbin",
@@ -40,8 +49,18 @@
         "type": "container",
         "icon": "BIN",
         "asset": "../../RobotDreams/examples/trashbin.gltf",
-        "position": [0.38, 0.28, 0.0],
-        "rotation": [0.0, 0.0, 0.0]
+        "position": [0.157243, 0.075899, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {
+            "shape": "box",
+            "size": [0.18, 0.18, 0.02],
+            "offset": [0.0, 0.0, 0.01]
+          }
+        }
       },
       {
         "id": "ball",
@@ -49,9 +68,32 @@
         "type": "sphere",
         "icon": "SPH",
         "shape": "sphere",
-        "radius": 0.055,
-        "position": [-0.18, 0.34, 0.055],
-        "color": "#d6b24a"
+        "radius": 0.025,
+        "position": [0.276407, -0.070398, 0.025],
+        "color": "#d6b24a",
+        "physics": {
+          "body": "dynamic",
+          "massKg": 0.05,
+          "linearDamping": 0.15,
+          "angularDamping": 0.15,
+          "friction": 0.65,
+          "restitution": 0.08,
+          "collider": {
+            "shape": "sphere",
+            "radius": 0.025
+          }
+        }
+      }
+    ],
+    "triggers": [
+      {
+        "id": "ball_in_bin",
+        "object": "ball",
+        "shape": "box",
+        "position": [0.157243, 0.075899, 0.125],
+        "size": [0.15, 0.15, 0.22],
+        "settleSpeedMps": 0.05,
+        "settleTimeSec": 0.25
       }
     ],
     "cameras": [

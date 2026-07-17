@@ -19,8 +19,8 @@ pub(crate) const MAX_TERMINAL_JOBS: usize = 8;
 pub(crate) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_RECORDING_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const MAX_RETAINED_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
-pub(crate) const MAX_TRACE_JSON_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const MAX_RECORDING_FRAMES: u32 = 250;
+pub(crate) const MAX_TRACE_JSON_BYTES: usize = 96 * 1024 * 1024;
+pub(crate) const MAX_RECORDING_FRAMES: u32 = 500;
 pub(crate) const RECORDING_FPS: u32 = 50;
 
 #[derive(Clone)]

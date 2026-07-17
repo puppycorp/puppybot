@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use puppybot_state::PuppyBotState;
 use robotdreams_core::project::{
-    DeviceConfig, ProjectSceneObjectGeometry, load_model_profile, project_config_from_manifest,
-    resolve_urdf_path,
+    DeviceConfig, ProjectSceneBodyKind, ProjectSceneColliderGeometry, ProjectSceneObjectGeometry,
+    load_model_profile, project_config_from_manifest, resolve_urdf_path,
 };
 use robotdreams_core::scene_harness::UrdfSceneHarness;
 use robotdreams_core::{RobotDreams, SceneLocation};
@@ -121,6 +121,54 @@ fn puppybot_robotdreams_project_resolves_owned_model_and_assets() {
 }
 
 #[test]
+fn puppybot_robotdreams_project_authors_ball_and_bin_physics() {
+    let project = project_config_from_manifest(&project_path()).expect("load PuppyBot project");
+
+    let ball = project
+        .scene
+        .objects
+        .iter()
+        .find(|object| object.id == "ball")
+        .expect("ball object");
+    assert!(matches!(
+        ball.geometry,
+        ProjectSceneObjectGeometry::Sphere { radius } if radius == 0.025
+    ));
+    let ball_physics = ball.physics.as_ref().expect("ball physics");
+    assert_eq!(ball_physics.body_kind, ProjectSceneBodyKind::Dynamic);
+    assert!(matches!(
+        ball_physics.collider.geometry,
+        ProjectSceneColliderGeometry::Sphere { radius } if radius == 0.025
+    ));
+
+    let trashbin = project
+        .scene
+        .objects
+        .iter()
+        .find(|object| object.id == "trashbin")
+        .expect("trashbin object");
+    let bin_physics = trashbin.physics.as_ref().expect("trashbin physics");
+    assert_eq!(bin_physics.body_kind, ProjectSceneBodyKind::Static);
+    assert_eq!(bin_physics.collider.offset, [0.0, 0.0, 0.01]);
+    assert!(matches!(
+        bin_physics.collider.geometry,
+        ProjectSceneColliderGeometry::Box { size } if size == [0.18, 0.18, 0.02]
+    ));
+
+    let trigger = project
+        .scene
+        .triggers
+        .iter()
+        .find(|trigger| trigger.id == "ball_in_bin")
+        .expect("ball-in-bin trigger");
+    assert_eq!(trigger.object_id, "ball");
+    assert_eq!(trigger.position, [0.157243, 0.075899, 0.125]);
+    assert_eq!(trigger.size, [0.15, 0.15, 0.22]);
+    assert_eq!(trigger.settle_speed_mps, 0.05);
+    assert_eq!(trigger.settle_time_sec, 0.25);
+}
+
+#[test]
 fn puppybot_robotdreams_project_opens_from_test_crate_path() {
     let dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
     let model = dreams.model().expect("loaded RobotDreams model");
@@ -221,16 +269,16 @@ fn puppybot_robotdreams_scene_locations_include_trashbin_and_ball() {
 
     assert_scene_location(&trashbin);
     assert_scene_location(&ball);
-    assert_close_m(trashbin.position[0], 0.38, 1.0e-6);
-    assert_close_m(trashbin.position[1], 0.28, 1.0e-6);
+    assert_close_m(trashbin.position[0], 0.157243, 1.0e-6);
+    assert_close_m(trashbin.position[1], 0.075899, 1.0e-6);
     assert_close_m(trashbin.position[2], 0.0, 1.0e-6);
     let trashbin_rotation = trashbin.rotation.expect("trashbin rotation");
     assert_close_m(trashbin_rotation[0], 0.0, 1.0e-6);
     assert_close_m(trashbin_rotation[1], 0.0, 1.0e-6);
     assert_close_m(trashbin_rotation[2], 0.0, 1.0e-6);
-    assert_close_m(ball.position[0], -0.18, 1.0e-6);
-    assert_close_m(ball.position[1], 0.34, 1.0e-6);
-    assert_close_m(ball.position[2], 0.055, 1.0e-6);
+    assert_close_m(ball.position[0], 0.276407, 1.0e-6);
+    assert_close_m(ball.position[1], -0.070398, 1.0e-6);
+    assert_close_m(ball.position[2], 0.025, 1.0e-6);
 }
 
 #[test]
