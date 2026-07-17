@@ -2772,9 +2772,9 @@ mod tests {
             &vec![
                 serde_json::json!(0.0),
                 serde_json::json!(0.0),
-                serde_json::json!(-1.5707964),
+                serde_json::json!(1.5707964),
             ],
-            "wrist camera must retain the confirmed counter-clockwise image roll"
+            "wrist camera must retain the President-selected clockwise 90-degree local yaw"
         );
 
         let dreams = RobotDreams::open(project_path).expect("open PuppyBot RobotDreams project");
@@ -2879,6 +2879,78 @@ mod tests {
             .expect("valid arm-base screen-up");
             assert_eq!(before, expected);
         }
+    }
+
+    #[test]
+    fn tcp_camera_pov_world_direction_turns_with_rover_while_base_command_stays_local() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open simulated runtime backend");
+        let before_base = backend
+            .wrist_camera_jog_direction(TcpCameraJogDirection::Up)
+            .expect("sample wrist-camera screen up");
+        let (before_up, after_up, after_world_from_arm_base) = {
+            let mut state = backend.state.lock().expect("simulation state");
+            let before = state
+                .dreams
+                .camera_spec(WRIST_CAMERA_ID)
+                .expect("initial wrist camera")
+                .transform
+                .rotation_matrix
+                .expect("initial native camera basis");
+            assert!(state.dreams.set_virtual_drive_output(
+                DRIVE_BUS_ID,
+                ROBOT_ID,
+                1,
+                2,
+                45,
+                20,
+                120.0,
+                90.0,
+            ));
+            state.dreams.advance_seconds(1.0);
+            let after = state
+                .dreams
+                .camera_spec(WRIST_CAMERA_ID)
+                .expect("wrist camera after rover turn")
+                .transform
+                .rotation_matrix
+                .expect("turned native camera basis");
+            (
+                [before[0][2], before[1][2], before[2][2]],
+                [after[0][2], after[1][2], after[2][2]],
+                simulation_frame_transforms(&state.dreams)
+                    .expect("live arm-base frame after rover turn")
+                    .world_from_arm_base(),
+            )
+        };
+        let after_base = backend
+            .wrist_camera_jog_direction(TcpCameraJogDirection::Up)
+            .expect("resample wrist-camera screen up after rover turn");
+
+        assert_ne!(
+            before_up, after_up,
+            "rover turn must rotate camera image-up in world"
+        );
+        // Both the camera and arm base are mounted to the rover, so the Base
+        // command is intentionally camera-relative and remains local.  Its
+        // world realization must nevertheless follow the turned image-up axis.
+        let command_world = matrix_vector(after_world_from_arm_base.rotation, after_base);
+        for axis in 0..3 {
+            assert!(
+                (command_world[axis] - f64::from(after_up[axis])).abs() < 1.0e-5,
+                "world command axis {axis} must match rotated screen-up"
+            );
+        }
+        assert!(
+            before_base
+                .iter()
+                .zip(after_base)
+                .all(|(before, after)| (before - after).abs() < 1.0e-5),
+            "arm-base camera direction stays local while its world direction follows the rover"
+        );
     }
 
     #[test]
