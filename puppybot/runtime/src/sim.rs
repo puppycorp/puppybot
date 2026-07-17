@@ -10,7 +10,7 @@ use std::{
 use embassy_time::Duration;
 use pge_app::{
     Node as PgeAppNode, OrbitController, State as PgeAppState, Vec2, Vec3, WindowOverlayLines,
-    WindowRenderConfig, run_windowed_with_overlay,
+    WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
 };
 use pge_core::{ArenaId as PgeCoreArenaId, Node as PgeCoreNode, Transform as PgeCoreTransform};
 use pge_renderer::Renderer;
@@ -44,6 +44,8 @@ const SIMULATION_STEP_SECONDS: f32 = 0.02;
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
 const ROBOT_ID: &str = "puppybot";
+const WRIST_CAMERA_ID: &str = "wrist_camera";
+const TCP_CAMERA_WINDOW_TITLE: &str = "PuppyBot TCP Camera";
 const TCP_ALIGNMENT_TOLERANCE_MM: f64 = 2.0;
 const SCREENSHOT_ARM_SPEED: i16 = 220;
 pub(crate) const RECORDING_FPS: u32 = 50;
@@ -253,6 +255,21 @@ pub(crate) struct SimulationFrameTransforms {
     pub(crate) base_from_arm_base: RigidTransform,
 }
 
+/// A screen-space direction from the mounted RobotDreams wrist camera.
+///
+/// This is deliberately distinct from the core TCP frames: it is a
+/// simulation-owned sensor basis, sampled at gesture start and converted to an
+/// immutable arm-base vector before the arm controller sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TcpCameraJogDirection {
+    Forward,
+    Back,
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ModelTelemetry {
     tcp_world_m: Option<[f64; 3]>,
@@ -277,7 +294,35 @@ struct PreviewSnapshot {
     debug_markers: Vec<CoordinateDebugMarkerPositions>,
     frames: Option<SimulationFrameTransforms>,
     controller_arm_chain: Option<ControllerArmChain>,
+    wrist_camera: Option<ProjectCameraPose>,
     capture_frame: CaptureFrame,
+}
+
+/// The RobotDreams world-space pose and native optics of the project wrist camera.
+/// This is kept in the immutable simulation snapshot so the camera window never
+/// takes the simulation-state mutex or drives simulation/controller state itself.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ProjectCameraPose {
+    transform: PreviewCameraTransform,
+    fov_deg: f32,
+    resolution: [u32; 2],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InteractivePreviewWindowPlan {
+    open_tcp_camera: bool,
+    tcp_camera_resolution: [u32; 2],
+}
+
+fn interactive_preview_window_plan(
+    wrist_camera: Option<ProjectCameraPose>,
+) -> InteractivePreviewWindowPlan {
+    InteractivePreviewWindowPlan {
+        open_tcp_camera: wrist_camera.is_some(),
+        tcp_camera_resolution: wrist_camera
+            .map(|camera| camera.resolution)
+            .unwrap_or(RobotDreamsPgeFrameOptions::default().resolution),
+    }
 }
 
 #[derive(Clone)]
@@ -508,6 +553,22 @@ impl SimulatedRuntimeBackend {
             .lock()
             .ok()
             .and_then(|state| simulation_frame_transforms(&state.dreams))
+    }
+
+    /// Samples the live wrist-camera pose and arm-base frame under one state
+    /// lock, returning a normalized direction in the controller's arm-base
+    /// coordinate system.  A caller must latch this vector for the life of a
+    /// held gesture; continuously re-sampling would create visual servoing and
+    /// lets a moving target rotate away faster than the arm can follow.
+    pub(crate) fn wrist_camera_jog_direction(
+        &self,
+        direction: TcpCameraJogDirection,
+    ) -> Result<[f64; 3], String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "wrist-camera pose unavailable: simulation state lock poisoned")?;
+        wrist_camera_jog_direction(&state.dreams, direction)
     }
 
     fn update_labels(&self, robot: &Puppybot) -> bool {
@@ -1292,6 +1353,93 @@ fn sha1_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn project_camera_pose(dreams: &RobotDreams, camera_id: &str) -> Option<ProjectCameraPose> {
+    let camera = dreams.camera_spec(camera_id)?;
+    let rotation_matrix = camera.transform.rotation_matrix?;
+    let values = camera
+        .transform
+        .translation
+        .into_iter()
+        .chain(rotation_matrix.into_iter().flatten())
+        .chain([camera.fov_deg])
+        .collect::<Vec<_>>();
+    if values.iter().any(|value| !value.is_finite())
+        || !(0.0..180.0).contains(&camera.fov_deg)
+        || camera.resolution.contains(&0)
+    {
+        return None;
+    }
+    Some(ProjectCameraPose {
+        transform: PreviewCameraTransform {
+            translation: camera.transform.translation,
+            rotation_matrix,
+        },
+        fov_deg: camera.fov_deg,
+        resolution: camera.resolution,
+    })
+}
+
+fn wrist_camera_jog_direction(
+    dreams: &RobotDreams,
+    direction: TcpCameraJogDirection,
+) -> Result<[f64; 3], String> {
+    let camera = dreams.camera_spec(WRIST_CAMERA_ID).ok_or_else(|| {
+        "wrist-camera POV jog requires RobotDreams camera:wrist_camera".to_string()
+    })?;
+    let camera_from_local = camera
+        .transform
+        .rotation_matrix
+        .ok_or_else(|| "wrist-camera POV jog requires a valid camera rotation".to_string())?;
+    let world_direction = camera_pov_world_direction(camera_from_local, direction)?;
+    let world_from_arm_base = simulation_frame_transforms(dreams)
+        .ok_or_else(|| "wrist-camera POV jog requires the PuppyBot arm-base frame".to_string())?
+        .world_from_arm_base();
+    let arm_base_from_world = world_from_arm_base.inverse().rotation;
+    normalize_direction(matrix_vector(arm_base_from_world, world_direction))
+        .ok_or_else(|| "wrist-camera POV jog produced an invalid arm-base direction".to_string())
+}
+
+/// RobotDreams normalizes a native camera matrix so its columns are optical
+/// forward, image-left, and image-up.  This applies the authored camera roll;
+/// screen Up/Down must therefore use column 2 rather than world Z.
+fn camera_pov_world_direction(
+    camera_from_local: [[f32; 3]; 3],
+    direction: TcpCameraJogDirection,
+) -> Result<[f64; 3], String> {
+    let (column, sign) = match direction {
+        TcpCameraJogDirection::Forward => (0, 1.0),
+        TcpCameraJogDirection::Back => (0, -1.0),
+        TcpCameraJogDirection::Left => (1, 1.0),
+        TcpCameraJogDirection::Right => (1, -1.0),
+        TcpCameraJogDirection::Up => (2, 1.0),
+        TcpCameraJogDirection::Down => (2, -1.0),
+    };
+    let vector = [
+        sign * f64::from(camera_from_local[0][column]),
+        sign * f64::from(camera_from_local[1][column]),
+        sign * f64::from(camera_from_local[2][column]),
+    ];
+    normalize_direction(vector)
+        .ok_or_else(|| "wrist-camera POV jog produced an invalid camera basis".to_string())
+}
+
+fn matrix_vector(matrix: [[f64; 3]; 3], vector: [f64; 3]) -> [f64; 3] {
+    [
+        matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
+        matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
+        matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2],
+    ]
+}
+
+fn normalize_direction(vector: [f64; 3]) -> Option<[f64; 3]> {
+    let length_squared = vector.into_iter().map(|value| value * value).sum::<f64>();
+    if !length_squared.is_finite() || length_squared <= f64::EPSILON {
+        return None;
+    }
+    let length = length_squared.sqrt();
+    Some(vector.map(|value| value / length))
+}
+
 fn preview_snapshot_from_state(
     state: &RobotDreamsRuntimeState,
     arm: Option<&PuppyarmTelemetry>,
@@ -1366,6 +1514,7 @@ fn preview_snapshot_from_state(
         })
         .unwrap_or_default();
     let labels = state.labels.clone();
+    let wrist_camera = project_camera_pose(&state.dreams, WRIST_CAMERA_ID);
     let capture_frame = CaptureFrame {
         sequence: state.sequence,
         simulation_clock_sec: robot_snapshot.clock_sec,
@@ -1406,6 +1555,7 @@ fn preview_snapshot_from_state(
         debug_markers,
         frames,
         controller_arm_chain: state.controller_arm_chain_world_m,
+        wrist_camera,
         capture_frame,
     }
 }
@@ -1414,6 +1564,35 @@ fn capture_rigid_transform(transform: RigidTransform) -> CaptureRigidTransform {
     CaptureRigidTransform {
         translation_m: transform.translation_m,
         rotation_matrix: transform.rotation,
+    }
+}
+
+fn sync_preview_snapshot_world(
+    world: &mut pge_core::WorldState,
+    index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
+    visual_bindings: &[PreviewVisualBinding],
+    snapshot: &PreviewSnapshot,
+    show_diagnostics: bool,
+) {
+    if show_diagnostics {
+        let mut text_labels = snapshot.labels.clone();
+        let legend_row_start = text_labels.len();
+        text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+            "controller_arm_legend",
+            CONTROLLER_ARM_LEGEND,
+            text_labels.len(),
+            [1.0, 0.2, 0.9, 1.0],
+        ));
+        world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
+    } else {
+        world.text_labels.clear();
+    }
+    sync_robot_visual_transforms(world, visual_bindings, &snapshot.visual_transforms, index);
+    sync_tcp_debug_markers(world, &snapshot.debug_markers, index);
+    sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
+    if let Some(frames) = snapshot.frames {
+        sync_debug_frame_roots(world, frames, index);
     }
 }
 
@@ -1686,7 +1865,7 @@ impl SimulatedPreview {
         let orbit_camera_node_id = orbit_state.nodes.insert(PgeAppNode::default());
         orbit_controller.process(&mut orbit_state, orbit_camera_node_id, 0.0);
 
-        let (mut frame, visual_bindings) = match state.lock() {
+        let (mut frame, tcp_frame, visual_bindings, window_plan) = match state.lock() {
             Ok(state) => {
                 let mut options = options.clone();
                 options.text_labels = state.labels.clone();
@@ -1696,7 +1875,14 @@ impl SimulatedPreview {
                     .model()
                     .map(|model| preview_visual_bindings(&model.robot_visual_meshes()))
                     .unwrap_or_default();
-                (frame, visual_bindings)
+                let wrist_camera = project_camera_pose(&state.dreams, WRIST_CAMERA_ID);
+                let window_plan = interactive_preview_window_plan(wrist_camera);
+                let tcp_frame = wrist_camera.map(|camera| {
+                    let mut tcp_options = RobotDreamsPgeFrameOptions::default();
+                    tcp_options.resolution = camera.resolution;
+                    robotdreams_pge_frame(&state.dreams, tcp_options)
+                });
+                (frame, tcp_frame, visual_bindings, window_plan)
             }
             Err(_) => return Err("RobotDreams preview state lock poisoned before startup".into()),
         };
@@ -1708,16 +1894,68 @@ impl SimulatedPreview {
             &frame.camera_entity.0,
             orbit_camera_transform(&orbit_state, orbit_camera_node_id, &orbit_controller),
         );
+        let main_camera_entity = frame.camera_entity.0.clone();
 
-        run_windowed_with_overlay(
-            frame.world,
-            frame.request,
-            WindowRenderConfig {
+        let initial_snapshot = match published.lock() {
+            Ok(published) => Arc::clone(&published.snapshot),
+            Err(_) => {
+                return Err("RobotDreams preview snapshot lock poisoned before startup".into());
+            }
+        };
+        // The main window refreshes this once per rendered frame. The TCP window only
+        // consumes it, preventing a second render surface from advancing the model.
+        let primary_rendered_snapshot = Arc::new(Mutex::new(Arc::clone(&initial_snapshot)));
+
+        let mut targets = vec![WindowRenderTarget {
+            world: frame.world,
+            request: frame.request,
+            config: WindowRenderConfig {
                 title: "PuppyBot RobotDreams Simulation".to_string(),
                 resolution: options.resolution,
             },
-            ups_overlay,
-            move |world, context| {
+            overlay_lines: ups_overlay,
+        }];
+        let tcp_window = tcp_frame.map(|mut tcp_frame| {
+            insert_controller_arm_overlay(&mut tcp_frame.world);
+            let tcp_index = index_world_nodes(&tcp_frame.world);
+            // RobotDreams emits a real `camera:wrist_camera` node. Select it rather
+            // than the synthetic PGE orbit camera that the primary preview uses.
+            let tcp_camera_entity = format!("camera:{WRIST_CAMERA_ID}");
+            tcp_frame.request.camera_id = Some(pge_core::EntityId(tcp_camera_entity.clone()));
+            if let Some(wrist_camera) = initial_snapshot.wrist_camera {
+                set_world_camera_transform(
+                    &mut tcp_frame.world,
+                    &tcp_index,
+                    &tcp_camera_entity,
+                    wrist_camera.transform,
+                );
+                set_world_camera_projection(
+                    &mut tcp_frame.world,
+                    &tcp_index,
+                    &tcp_camera_entity,
+                    wrist_camera.fov_deg,
+                    wrist_camera.resolution,
+                );
+            }
+            targets.push(WindowRenderTarget {
+                world: tcp_frame.world,
+                request: tcp_frame.request,
+                config: WindowRenderConfig {
+                    title: TCP_CAMERA_WINDOW_TITLE.to_string(),
+                    resolution: window_plan.tcp_camera_resolution,
+                },
+                overlay_lines: WindowOverlayLines::default(),
+            });
+            (tcp_index, tcp_camera_entity)
+        });
+        if !window_plan.open_tcp_camera {
+            log::warn!(
+                "RobotDreams project has no usable {WRIST_CAMERA_ID}; TCP camera window disabled"
+            );
+        }
+
+        let result = run_windows_with_overlay(targets, move |window_index, world, context| {
+            if window_index == 0 {
                 let [dx, dy] = context.input.right_drag_delta_px;
                 if dx != 0.0 || dy != 0.0 {
                     orbit_controller.orbit(Vec2::new(dx, dy));
@@ -1738,50 +1976,27 @@ impl SimulatedPreview {
                         return Ok(false);
                     }
                 };
+                if let Ok(mut latest) = primary_rendered_snapshot.lock() {
+                    *latest = Arc::clone(&rendered_snapshot);
+                }
                 let displayed_ups = simulation_ups
                     .lock()
                     .ok()
                     .and_then(|counter| counter.displayed_at(Instant::now()));
                 ups_overlay_for_update.set(vec![format_simulation_ups(displayed_ups)]);
-                let PreviewSnapshot {
-                    labels,
-                    visual_transforms,
-                    debug_markers,
-                    frames,
-                    controller_arm_chain,
-                    capture_frame: _,
-                } = rendered_snapshot.as_ref().clone();
-                let mut text_labels = labels;
-                let legend_row_start = text_labels.len();
-                text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
-                text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
-                    "controller_arm_legend",
-                    CONTROLLER_ARM_LEGEND,
-                    text_labels.len(),
-                    [1.0, 0.2, 0.9, 1.0],
-                ));
-                world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
-                sync_robot_visual_transforms(
+                sync_preview_snapshot_world(
                     world,
+                    &world_node_index,
                     &visual_bindings,
-                    &visual_transforms,
-                    &world_node_index,
+                    rendered_snapshot.as_ref(),
+                    true,
                 );
-                sync_tcp_debug_markers(world, &debug_markers, &world_node_index);
-                sync_controller_arm_overlay(
-                    world,
-                    controller_arm_chain.as_ref(),
-                    &world_node_index,
-                );
-                if let Some(frames) = frames {
-                    sync_debug_frame_roots(world, frames, &world_node_index);
-                }
                 let camera_transform =
                     orbit_camera_transform(&orbit_state, orbit_camera_node_id, &orbit_controller);
                 set_world_camera_transform(
                     world,
                     &world_node_index,
-                    &frame.camera_entity.0,
+                    &main_camera_entity,
                     camera_transform,
                 );
                 if let Ok(mut published) = published.lock() {
@@ -1794,10 +2009,45 @@ impl SimulatedPreview {
                         published_capture_state(&capture_project, &camera, &rendered_snapshot);
                     published.camera = camera;
                 }
-                Ok(true)
-            },
-        )
-        .map_err(|err| err.to_string())
+                return Ok(true);
+            }
+
+            let Some((tcp_index, tcp_camera_entity)) = tcp_window.as_ref() else {
+                return Ok(false);
+            };
+            let rendered_snapshot = match primary_rendered_snapshot.lock() {
+                Ok(snapshot) => Arc::clone(&snapshot),
+                Err(_) => {
+                    log::warn!("primary simulation preview snapshot lock poisoned");
+                    return Ok(false);
+                }
+            };
+            sync_preview_snapshot_world(
+                world,
+                tcp_index,
+                &visual_bindings,
+                rendered_snapshot.as_ref(),
+                false,
+            );
+            if let Some(wrist_camera) = rendered_snapshot.wrist_camera {
+                set_world_camera_transform(
+                    world,
+                    tcp_index,
+                    tcp_camera_entity,
+                    wrist_camera.transform,
+                );
+                set_world_camera_projection(
+                    world,
+                    tcp_index,
+                    tcp_camera_entity,
+                    wrist_camera.fov_deg,
+                    wrist_camera.resolution,
+                );
+            }
+            Ok(true)
+        });
+        self.window_active.store(false, Ordering::Release);
+        result.map_err(|err| err.to_string())
     }
 }
 
@@ -2295,6 +2545,22 @@ fn set_world_camera_transform(
     }
 }
 
+fn set_world_camera_projection(
+    world: &mut pge_core::WorldState,
+    index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
+    camera_entity: &str,
+    fov_deg: f32,
+    resolution: [u32; 2],
+) {
+    if let Some(node_id) = index.get(camera_entity)
+        && let Some(camera_id) = world.nodes.get(node_id).and_then(|node| node.camera)
+        && let Some(camera) = world.cameras.get_mut(&camera_id)
+    {
+        camera.fov_deg = fov_deg;
+        camera.resolution = resolution;
+    }
+}
+
 fn orbit_camera_transform(
     orbit_state: &PgeAppState,
     camera_node_id: pge_app::ArenaId<PgeAppNode>,
@@ -2484,6 +2750,162 @@ fn option_i32(value: Option<i32>) -> String {
 mod tests {
     use super::*;
     use puppybot_core::stservo::mock::block_on_ready;
+
+    #[test]
+    fn wrist_camera_pose_and_projection_come_from_live_robotdreams_camera_spec() {
+        let project_path = SimulatedRuntimeBackend::default_project_path();
+        let project_json: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&project_path).expect("read PuppyBot RobotDreams project"),
+        )
+        .expect("parse PuppyBot RobotDreams project");
+        let authored_rotation = project_json["scene"]["cameras"]
+            .as_array()
+            .and_then(|cameras| {
+                cameras
+                    .iter()
+                    .find(|camera| camera["id"] == WRIST_CAMERA_ID)
+            })
+            .and_then(|camera| camera["rotation"].as_array())
+            .expect("wrist camera authored rotation");
+        assert_eq!(
+            authored_rotation,
+            &vec![
+                serde_json::json!(0.0),
+                serde_json::json!(0.0),
+                serde_json::json!(-1.5707964),
+            ],
+            "wrist camera must retain the confirmed counter-clockwise image roll"
+        );
+
+        let dreams = RobotDreams::open(project_path).expect("open PuppyBot RobotDreams project");
+        let live_spec = dreams
+            .camera_spec(WRIST_CAMERA_ID)
+            .expect("wrist camera configured in RobotDreams project");
+        let pose = project_camera_pose(&dreams, WRIST_CAMERA_ID)
+            .expect("wrist camera has a valid world-space projection");
+        assert_eq!(pose.transform.translation, live_spec.transform.translation);
+        assert_eq!(
+            pose.transform.rotation_matrix,
+            live_spec
+                .transform
+                .rotation_matrix
+                .expect("native camera rotation")
+        );
+        assert_eq!(pose.fov_deg, live_spec.fov_deg);
+        assert_eq!(pose.resolution, live_spec.resolution);
+
+        let mut options = RobotDreamsPgeFrameOptions::default();
+        options.resolution = pose.resolution;
+        let mut frame = robotdreams_pge_frame(&dreams, options);
+        let index = index_world_nodes(&frame.world);
+        let entity = format!("camera:{WRIST_CAMERA_ID}");
+        frame.request.camera_id = Some(pge_core::EntityId(entity.clone()));
+        set_world_camera_transform(&mut frame.world, &index, &entity, pose.transform);
+        set_world_camera_projection(
+            &mut frame.world,
+            &index,
+            &entity,
+            pose.fov_deg,
+            pose.resolution,
+        );
+        let node = frame
+            .world
+            .nodes
+            .get(index.get(&entity).expect("wrist camera node indexed"))
+            .expect("wrist camera node present");
+        assert_eq!(node.transform.translation, pose.transform.translation);
+        assert_eq!(
+            node.transform.rotation_matrix,
+            Some(pose.transform.rotation_matrix)
+        );
+        let camera = frame
+            .world
+            .cameras
+            .get(&node.camera.expect("wrist camera component"))
+            .expect("wrist camera projection");
+        assert_eq!(camera.fov_deg, live_spec.fov_deg);
+        assert_eq!(camera.resolution, live_spec.resolution);
+    }
+
+    #[test]
+    fn tcp_camera_pov_uses_native_screen_basis_and_live_wrist_pose() {
+        // Native camera columns are optical forward, image-left, image-up.
+        // This is a +90° roll around optical forward: screen axes must rotate
+        // with it rather than being hard-coded to world horizontal/world Z.
+        let rolled = [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]];
+        assert_eq!(
+            camera_pov_world_direction(rolled, TcpCameraJogDirection::Forward).unwrap(),
+            [1.0, 0.0, 0.0]
+        );
+        assert_eq!(
+            camera_pov_world_direction(rolled, TcpCameraJogDirection::Left).unwrap(),
+            [0.0, 0.0, 1.0]
+        );
+        assert_eq!(
+            camera_pov_world_direction(rolled, TcpCameraJogDirection::Up).unwrap(),
+            [0.0, -1.0, 0.0]
+        );
+
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open simulated runtime backend");
+        let before = backend
+            .wrist_camera_jog_direction(TcpCameraJogDirection::Up)
+            .expect("sample live wrist-camera up");
+        {
+            let state = backend.state.lock().expect("simulation state");
+            let camera = state
+                .dreams
+                .camera_spec(WRIST_CAMERA_ID)
+                .expect("live wrist-camera spec");
+            let expected_world = camera_pov_world_direction(
+                camera
+                    .transform
+                    .rotation_matrix
+                    .expect("native wrist-camera basis"),
+                TcpCameraJogDirection::Up,
+            )
+            .expect("valid screen-up basis");
+            let expected = normalize_direction(matrix_vector(
+                simulation_frame_transforms(&state.dreams)
+                    .expect("live arm-base frame")
+                    .world_from_arm_base()
+                    .inverse()
+                    .rotation,
+                expected_world,
+            ))
+            .expect("valid arm-base screen-up");
+            assert_eq!(before, expected);
+        }
+    }
+
+    #[test]
+    fn interactive_preview_opens_tcp_window_only_for_a_valid_wrist_camera() {
+        let pose = ProjectCameraPose {
+            transform: PreviewCameraTransform {
+                translation: [0.1, 0.2, 0.3],
+                rotation_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            },
+            fov_deg: 70.0,
+            resolution: [640, 480],
+        };
+        assert_eq!(
+            interactive_preview_window_plan(Some(pose)),
+            InteractivePreviewWindowPlan {
+                open_tcp_camera: true,
+                tcp_camera_resolution: [640, 480],
+            }
+        );
+        assert_eq!(
+            interactive_preview_window_plan(None),
+            InteractivePreviewWindowPlan {
+                open_tcp_camera: false,
+                tcp_camera_resolution: RobotDreamsPgeFrameOptions::default().resolution,
+            }
+        );
+    }
 
     #[test]
     fn simulation_ups_counter_samples_completed_updates_and_detects_stall() {

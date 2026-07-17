@@ -80,7 +80,7 @@
           "link": "part_1_4"
         },
         "position": [0.0, 0.0, -0.2],
-        "rotation": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, -1.5707964],
         "fov": 70.0,
         "rate": "30 Hz",
         "resolution": [640, 480]

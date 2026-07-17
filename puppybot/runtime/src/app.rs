@@ -28,7 +28,7 @@ use crate::{
     dc_motor_driver::DCMotorDriver,
     env::wgui_bind_addr,
     http, mdns,
-    sim::{SimulatedPreview, SimulatedRuntimeBackend},
+    sim::{SimulatedPreview, SimulatedRuntimeBackend, TcpCameraJogDirection},
     stservo::{self, RuntimeStServo},
 };
 
@@ -80,6 +80,12 @@ const MOVE_TCP_LEFT_ID: u32 = 405;
 const MOVE_TCP_RIGHT_ID: u32 = 406;
 const MOVE_TCP_STOP_ID: u32 = 407;
 const SET_ARM_SPEED_ID: u32 = 408;
+const MOVE_TCP_CAMERA_FORWARD_ID: u32 = 409;
+const MOVE_TCP_CAMERA_BACK_ID: u32 = 410;
+const MOVE_TCP_CAMERA_LEFT_ID: u32 = 411;
+const MOVE_TCP_CAMERA_RIGHT_ID: u32 = 412;
+const MOVE_TCP_CAMERA_UP_ID: u32 = 413;
+const MOVE_TCP_CAMERA_DOWN_ID: u32 = 414;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
@@ -1496,6 +1502,7 @@ impl App {
                 "Coordinate Move is always robot-base relative; no jog frame can be selected",
             )),
             ["api", "arm", "tcp-jog", "start"] => self.api_tcp_jog_start(&json),
+            ["api", "arm", "tcp-camera-jog", "start"] => self.api_tcp_camera_jog_start(&json),
             ["api", "arm", "coordinate-jog", "start"] => self.api_coordinate_jog_start(&json),
             ["api", "arm", "tcp-jog", "stop"] => self
                 .arm("stop tcp jog", ArmCommand::StopTcpJog)
@@ -1601,11 +1608,29 @@ impl App {
         let direction = Self::api_direction(Self::json_str(json, "direction")?)?;
         if direction[2] != 0.0 {
             return Err(ApiError::bad_request(
-                "tcp jog direction must be forward, back, left, or right",
+                "TCP Jog has no vertical control; use Coordinate Move for robot Z or TCP Camera POV in simulation",
             ));
         }
         self.start_tcp_jog("http tcp jog", frame, direction)
             .map_err(|err| ApiError::bad_request(format!("tcp jog rejected: {err:?}")))
+    }
+
+    fn api_tcp_camera_jog_start(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let direction = match Self::json_str(json, "direction")? {
+            "forward" => TcpCameraJogDirection::Forward,
+            "back" | "backward" => TcpCameraJogDirection::Back,
+            "left" => TcpCameraJogDirection::Left,
+            "right" => TcpCameraJogDirection::Right,
+            "up" => TcpCameraJogDirection::Up,
+            "down" => TcpCameraJogDirection::Down,
+            _ => {
+                return Err(ApiError::bad_request(
+                    "direction must be forward, back, left, right, up, or down",
+                ));
+            }
+        };
+        self.start_tcp_camera_jog("http TCP camera POV jog", direction)
+            .map_err(ApiError::conflict)
     }
 
     fn api_coordinate_jog_start(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
@@ -2030,6 +2055,54 @@ impl App {
         ])
     }
 
+    fn render_tcp_camera_jog(&self) -> Item {
+        if !self.backend.is_simulated() {
+            return subpanel(vec![
+                title_text("TCP Camera POV"),
+                label_text("Available only in --sim: requires the live RobotDreams wrist camera."),
+            ]);
+        }
+        subpanel(vec![
+            title_text("TCP Camera POV"),
+            label_text(
+                "Live wrist-camera screen axes. Each press samples and latches one direction in arm-base coordinates.",
+            )
+            .break_words(true),
+            hstack(vec![
+                primary_button("Forward (into view)")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_FORWARD_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Back (away)")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_BACK_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+            ])
+            .spacing(8)
+            .wrap(true),
+            hstack(vec![
+                dark_button("Screen Left")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_LEFT_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Screen Right")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_RIGHT_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Screen Up")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_UP_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Screen Down")
+                    .height(32)
+                    .on_press(MOVE_TCP_CAMERA_DOWN_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+            ])
+            .spacing(8)
+            .wrap(true),
+        ])
+    }
+
     fn render_coordinate_move(&self) -> Item {
         let coordinate_calibration = self.coordinate_calibration();
         let coordinate_detail = self
@@ -2373,6 +2446,7 @@ impl App {
         );
         children.push(self.render_joint_target());
         children.push(self.render_tcp_jog());
+        children.push(self.render_tcp_camera_jog());
         children.push(self.render_coordinate_move());
         children.push(
             hstack(vec![
@@ -2867,6 +2941,29 @@ impl App {
         Ok(())
     }
 
+    fn start_tcp_camera_jog(
+        &mut self,
+        label: &str,
+        camera_direction: TcpCameraJogDirection,
+    ) -> Result<(), String> {
+        let direction = match &self.backend {
+            RuntimeBackend::Simulated(backend) => backend
+                .wrist_camera_jog_direction(camera_direction)
+                .map_err(|error| format!("TCP camera POV jog unavailable: {error}"))?,
+            RuntimeBackend::Hardware { .. } => {
+                return Err(
+                    "TCP camera POV jog requires --sim and the RobotDreams wrist camera"
+                        .to_string(),
+                );
+            }
+        };
+        // The camera vector is sampled above, then intentionally issued as an
+        // immutable Base jog.  Held refreshes re-send that same vector rather
+        // than sampling the moving wrist camera again.
+        self.start_tcp_jog(label, TcpFrame::Base, direction)
+            .map_err(|error| format!("TCP camera POV jog rejected: {error:?}"))
+    }
+
     fn start_joint_jog(
         &mut self,
         label: &str,
@@ -3331,6 +3428,42 @@ impl App {
             }
             MOVE_TCP_RIGHT_ID => {
                 let _ = self.start_tcp_jog("move tcp right", self.tcp_frame, [0.0, -1.0, 0.0]);
+            }
+            MOVE_TCP_CAMERA_FORWARD_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV forward (into view)",
+                    TcpCameraJogDirection::Forward,
+                );
+            }
+            MOVE_TCP_CAMERA_BACK_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV back (away)",
+                    TcpCameraJogDirection::Back,
+                );
+            }
+            MOVE_TCP_CAMERA_LEFT_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV screen left",
+                    TcpCameraJogDirection::Left,
+                );
+            }
+            MOVE_TCP_CAMERA_RIGHT_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV screen right",
+                    TcpCameraJogDirection::Right,
+                );
+            }
+            MOVE_TCP_CAMERA_UP_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV screen up",
+                    TcpCameraJogDirection::Up,
+                );
+            }
+            MOVE_TCP_CAMERA_DOWN_ID => {
+                let _ = self.start_tcp_camera_jog(
+                    "move TCP camera POV screen down",
+                    TcpCameraJogDirection::Down,
+                );
             }
             COORDINATE_FORWARD_ID => {
                 let direction =
@@ -4252,6 +4385,70 @@ mod tests {
                 .iter()
                 .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
         );
+    }
+
+    #[tokio::test]
+    async fn tcp_camera_pov_buttons_and_api_latch_sampled_wrist_camera_axes() {
+        let mut app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+
+        let expected_up = match &app.backend {
+            RuntimeBackend::Simulated(backend) => backend
+                .wrist_camera_jog_direction(TcpCameraJogDirection::Up)
+                .expect("sample wrist-camera up"),
+            RuntimeBackend::Hardware { .. } => unreachable!("test app is simulated"),
+        };
+        assert!(app.handle_press_id(MOVE_TCP_CAMERA_UP_ID, None));
+        let held = app.held_tcp_jog.expect("camera up creates TCP jog hold");
+        assert_eq!(held.frame, TcpFrame::Base);
+        assert_eq!(held.direction, expected_up);
+        let refresh_at = held.last_refresh_ms + HELD_JOINT_JOG_REFRESH_MS;
+        app.refresh_held_tcp_jog(refresh_at);
+        assert!(matches!(
+            app.robot.arm.mode(),
+            ArmMode::TcpJogging {
+                frame: TcpFrame::Base,
+                direction,
+                ..
+            } if direction == expected_up
+        ));
+        assert_eq!(
+            app.held_tcp_jog
+                .expect("camera direction remains held")
+                .direction,
+            expected_up,
+            "refresh must reuse the sampled base vector rather than re-sampling the moving camera"
+        );
+
+        assert!(app.handle_release_id(MOVE_TCP_STOP_ID, None));
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/tcp-camera-jog/start",
+            br#"{"direction":"left"}"#,
+        );
+        assert_eq!(response.status, "200 OK");
+        let expected_left = match &app.backend {
+            RuntimeBackend::Simulated(backend) => backend
+                .wrist_camera_jog_direction(TcpCameraJogDirection::Left)
+                .expect("sample wrist-camera left"),
+            RuntimeBackend::Hardware { .. } => unreachable!("test app is simulated"),
+        };
+        assert!(
+            app.held_tcp_jog.is_some_and(
+                |held| held.frame == TcpFrame::Base && held.direction == expected_left
+            )
+        );
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/tcp-jog/start",
+            br#"{"frame":"base","direction":"up"}"#,
+        );
+        assert_eq!(response.status, "400 Bad Request");
     }
 
     #[tokio::test]
