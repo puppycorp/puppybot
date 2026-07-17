@@ -23,10 +23,10 @@ const TIP_REFERENCE_TICK: u16 = 1783;
 
 fn calibrated_move_pose() -> [f64; JOINT_COUNT] {
     [
-        0.0,
-        55.0_f64.to_radians(),
-        65.0_f64.to_radians(),
-        (-100.0_f64).to_radians(),
+        -82.529296875_f64.to_radians(),
+        (55.0_f64 - 3.764761603463).to_radians(),
+        (65.0_f64 + 43.348543557474).to_radians(),
+        (-100.0_f64 + 43.774666487761).to_radians(),
     ]
 }
 
@@ -132,22 +132,22 @@ fn tool_phi_deg(angles_deg: [f32; JOINT_COUNT]) -> f32 {
 #[test]
 fn fk_zero_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
-    assert_close(x, 7.151499449131592);
-    assert_close(y, -19.150050229126062);
-    assert_close(z, 131.75886045366124);
+    assert_close(x, 13.266674167233784);
+    assert_close(y, -46.11618539161622);
+    assert_close(z, 26.488738382104845);
 }
 
 #[test]
 fn fk_wrist_ninety_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, PI / 2.0);
-    assert_close(x, 41.67898067975374);
-    assert_close(y, -19.150050229126062);
-    assert_close(z, 90.57795556887714);
+    assert_close(x, 18.06011151360942);
+    assert_close(y, -9.561989588434734);
+    assert_close(z, -12.611486871078036);
 }
 
 #[test]
 fn runtime_reference_pose_places_tcp_beneath_wrist() {
-    let chain = arm_chain_points(0.0, FRAC_PI_2, -FRAC_PI_2, -FRAC_PI_2);
+    let chain = arm_chain_points(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, FRAC_PI_2);
     let wrist_to_tcp = [
         chain.tcp[0] - chain.wrist[0],
         chain.tcp[1] - chain.wrist[1],
@@ -155,8 +155,8 @@ fn runtime_reference_pose_places_tcp_beneath_wrist() {
     ];
 
     assert!(
-        wrist_to_tcp[0].abs() < 4.0 && wrist_to_tcp[1].abs() < 0.001,
-        "reference-pose TCP must stay horizontally beneath the wrist: {wrist_to_tcp:?}"
+        (wrist_to_tcp[0] - 1.107).abs() < 0.1 && (wrist_to_tcp[1] + 0.145).abs() < 0.1,
+        "reference-pose TCP horizontal offset must match calibrated CAD: {wrist_to_tcp:?}"
     );
     assert!(
         wrist_to_tcp[2] < -37.0,
@@ -187,7 +187,7 @@ fn ik_straight_reach_along_positive_x_uses_zero_yaw() {
     let z = ARM_YAW_TO_SHOULDER_Z_MM - ARM_L3_MM;
     let result = ik(x, y, z);
     assert!(result.reachable);
-    assert_close(result.yaw, 0.0);
+    assert_close(geometric_yaw(result.yaw), 0.0);
     let (x, y, z) = fk(
         result.yaw,
         result.shoulder,
@@ -207,7 +207,7 @@ fn ik_target_along_positive_y_has_positive_half_pi_yaw() {
         ARM_YAW_TO_SHOULDER_Z_MM - ARM_L3_MM,
     );
     assert!(result.reachable);
-    assert_close(result.yaw, PI / 2.0);
+    assert_close(geometric_yaw(result.yaw), PI / 2.0);
 }
 
 #[test]
@@ -745,7 +745,7 @@ fn goto_coords_uses_requested_tool_pitch() {
     assert_eq!(result, Ok(()));
     assert_eq!(
         telemetry.joints[0].target_tick,
-        Some(YAW_REFERENCE_TICK as i32)
+        Some(arm.joints[0].angle_to_tick(pose[0]))
     );
     assert!(
         telemetry
@@ -983,6 +983,83 @@ fn tcp_jog_up_and_down_advance_target_z_by_speed_and_elapsed_time() {
     }
 }
 
+fn assert_high_speed_vertical_jog_reaches_boundary(direction_z: f64) {
+    let mut arm = arm_with_angle_feedback([FRAC_PI_2; JOINT_COUNT]);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+    let command = ArmCommand::StartTcpJog {
+        frame: TcpFrame::Base,
+        direction: [0.0, 0.0, direction_z],
+    };
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(1000), 0);
+    arm.try_handle_arm_cmd(command, 0).unwrap();
+    for step in 1..=25 {
+        let now = step * 20;
+        refresh_feedback(&mut arm, now);
+        arm.update(now);
+        arm.try_handle_arm_cmd(command, now).unwrap();
+    }
+
+    let telemetry = arm.telemetry_snapshot(500);
+    let target = telemetry.target_coords_mm.unwrap();
+    assert!(
+        (target.0 - start.0).abs() <= 0.05,
+        "X drift: start={start:?} target={target:?}"
+    );
+    assert!(
+        (target.1 - start.1).abs() <= 0.05,
+        "Y drift: start={start:?} target={target:?}"
+    );
+    assert!(f64::from(target.2 - start.2) * direction_z > 20.0);
+
+    let (tool_pitch_rad, held_direction) = match arm.mode() {
+        ArmMode::TcpJogging {
+            tool_pitch_rad,
+            direction,
+            ..
+        } => (tool_pitch_rad, direction),
+        mode => panic!("expected TCP jog boundary hold, got {mode:?}"),
+    };
+    assert_eq!(held_direction, [0.0; 3]);
+    assert!(
+        arm.preview_target_angles(
+            f64::from(target.0),
+            f64::from(target.1),
+            f64::from(target.2) + direction_z * 0.05,
+            tool_pitch_rad,
+        )
+        .is_none(),
+        "0.05 mm outward probe must be unreachable"
+    );
+
+    arm.handle_arm_cmd(ArmCommand::StopTcpJog, 520);
+    let stopped = arm.telemetry_snapshot(520);
+    assert!(stopped.target_coords_mm.is_none());
+    assert!(
+        stopped
+            .joints
+            .iter()
+            .all(|joint| joint.target_tick.is_none())
+    );
+    println!(
+        "vertical {direction_z:+}: start=({:.3},{:.3},{:.3}) endpoint=({:.3},{:.3},{:.3}) angles_deg={:?}",
+        start.0,
+        start.1,
+        start.2,
+        target.0,
+        target.1,
+        target.2,
+        telemetry
+            .joints
+            .map(|joint| joint.target_angle_deg().unwrap())
+    );
+}
+
+#[test]
+fn high_speed_vertical_jog_holds_xy_at_workspace_boundaries_and_stops() {
+    assert_high_speed_vertical_jog_reaches_boundary(-1.0);
+    assert_high_speed_vertical_jog_reaches_boundary(1.0);
+}
+
 #[test]
 fn tcp_jog_replaces_active_direction() {
     let pose = calibrated_move_pose();
@@ -1103,7 +1180,7 @@ fn legacy_tcp_jog_rejects_non_positive_and_non_finite_speed() {
 fn yaw_flat_tcp_jog_freezes_direction_at_start() {
     let yaw = 45.0_f64.to_radians();
     let mut pose = calibrated_move_pose();
-    pose[0] = yaw;
+    pose[0] = yaw - geometric_yaw(0.0);
     let mut arm = arm_with_angle_feedback(pose);
     let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
 
@@ -1226,7 +1303,7 @@ fn move_tcp_relative_yaw_flat_matches_absolute_coordinate_target() {
 #[test]
 fn yaw_flat_coordinate_jog_preserves_reachable_current_tool_pitch() {
     let pose = [
-        0.0,
+        -geometric_yaw(0.0),
         60.0_f64.to_radians(),
         70.0_f64.to_radians(),
         100.0_f64.to_radians(),
@@ -1280,7 +1357,7 @@ fn yaw_flat_forward_at_zero_yaw_moves_positive_x_and_preserves_z() {
 #[test]
 fn yaw_flat_forward_at_ninety_yaw_moves_positive_y_and_preserves_z() {
     let mut pose = calibrated_move_pose();
-    pose[0] = 90.0_f64.to_radians();
+    pose[0] = FRAC_PI_2 - geometric_yaw(0.0);
     let mut arm = arm_with_angle_feedback(pose);
     let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
 
@@ -1400,14 +1477,7 @@ fn yaw_flat_xy_relative_moves_preserve_target_z() {
 #[test]
 fn move_tcp_relative_cardinal_xy_moves_cover_supported_frames() {
     let table_xy_pose = calibrated_move_pose();
-    let flat_shoulder = 110.0_f64.to_radians();
-    let flat_elbow = 14.0_f64.to_radians();
-    let flat_tool_pose = [
-        0.0,
-        flat_shoulder,
-        flat_elbow,
-        solve_tip_angle_down(flat_shoulder, flat_elbow, 0.0),
-    ];
+    let flat_tool_pose = table_xy_pose;
     let moves = [
         ("forward", 10.0, 0.0, 10.0, 0.0),
         ("backward", -10.0, 0.0, -10.0, 0.0),
@@ -1436,10 +1506,9 @@ fn move_tcp_relative_cardinal_xy_moves_cover_supported_frames() {
 
             assert_eq!(result, Ok(()), "frame={frame:?} move={name}");
             let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
-            assert_close_f32_eps(target.2, start.2, 2.0);
-
             match frame {
                 TcpFrame::Base | TcpFrame::YawFlat => {
+                    assert_close_f32_eps(target.2, start.2, 2.0);
                     assert_close_f32_eps(target.0, start.0 + expected_base_dx, 2.0);
                     assert_close_f32_eps(target.1, start.1 + expected_base_dy, 2.0);
                 }

@@ -1,7 +1,6 @@
 use std::{net::SocketAddr, path::PathBuf};
 
 use app::{App, AppOptions};
-use puppybot_runtime::sim_calibration::derive_simulation_config;
 
 mod app;
 mod capture;
@@ -484,12 +483,10 @@ async fn run_record_command(args: RecordArgs) -> Result<(), String> {
     }
     let config_path = config::runtime_config_path(args.config.as_deref());
     let physical_config = config::load_runtime_config(&config_path)?.unwrap_or_default();
-    let simulation_config = derive_simulation_config(&project_path, &physical_config)
-        .map_err(|err| format!("derive automatic simulation calibration: {err}"))?;
     let frames = args.frames.expect("validated record frame count");
     let delta_mm = sim::record_simulation_video(
         &project_path,
-        &simulation_config,
+        &physical_config,
         &PathBuf::from(&out),
         frames,
     )
@@ -569,16 +566,9 @@ async fn main() {
                 std::process::exit(2);
             }
         };
-        let simulation_config = match derive_simulation_config(&project_path, &physical_config) {
-            Ok(config) => config,
-            Err(err) => {
-                eprintln!("derive automatic simulation calibration: {err}");
-                std::process::exit(2);
-            }
-        };
         match sim::capture_simulation_screenshot(
             &project_path,
-            &simulation_config,
+            &physical_config,
             &PathBuf::from(&path),
             screenshot_frames,
             args.camera.resolve(),

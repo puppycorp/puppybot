@@ -700,12 +700,37 @@ impl PuppyArm {
             return Err(ControllerError::InvalidLimit);
         }
         let target_angles = self.target_or_current_angles()?;
+        let (target_angles, target_coords_mm, tool_pitch_rad, holding_boundary) = match self.mode {
+            ArmMode::TcpJogging {
+                target_angles,
+                target_coords_mm,
+                tool_pitch_rad,
+                direction,
+                ..
+            } => (
+                target_angles,
+                target_coords_mm,
+                tool_pitch_rad,
+                direction == [0.0; 3],
+            ),
+            _ => {
+                let tool_pitch_rad =
+                    kinematics::tool_pitch(target_angles[1], target_angles[2], target_angles[3]);
+                let (x, y, z) = kinematics::fk(
+                    target_angles[0],
+                    target_angles[1],
+                    target_angles[2],
+                    target_angles[3],
+                );
+                (target_angles, [x, y, z], tool_pitch_rad, false)
+            }
+        };
         let direction = [
             direction[0] / length,
             direction[1] / length,
             direction[2] / length,
         ];
-        let (frame, direction) = match frame {
+        let (frame, mut direction) = match frame {
             TcpFrame::YawFlat => {
                 let (dx, dy, dz) = Self::yaw_flat_delta_to_base_delta(
                     target_angles,
@@ -717,12 +742,17 @@ impl PuppyArm {
             }
             frame => (frame, direction),
         };
+        if holding_boundary {
+            direction = [0.0; 3];
+        }
         self.mode = ArmMode::TcpJogging {
             frame,
             direction,
             speed_override_mm_s,
             last_step_ms: now,
             target_angles,
+            target_coords_mm,
+            tool_pitch_rad,
         };
         self.last_cmd_ms = now;
         Ok(())
@@ -886,11 +916,31 @@ impl PuppyArm {
     }
 
     pub fn target_coords_mm(&self) -> Option<(f32, f32, f32)> {
+        if let ArmMode::TcpJogging {
+            target_coords_mm, ..
+        } = self.mode
+        {
+            return Some(table_coords((
+                target_coords_mm[0],
+                target_coords_mm[1],
+                target_coords_mm[2],
+            )));
+        }
         self.explicit_target_or_current_angles()
             .map(|angles| table_coords(kinematics::fk(angles[0], angles[1], angles[2], angles[3])))
     }
 
     pub fn effective_target_coords_mm(&self) -> Option<(f32, f32, f32)> {
+        if let ArmMode::TcpJogging {
+            target_coords_mm, ..
+        } = self.mode
+        {
+            return Some(table_coords((
+                target_coords_mm[0],
+                target_coords_mm[1],
+                target_coords_mm[2],
+            )));
+        }
         self.explicit_target_or_current_angles()
             .or_else(|| self.current_angles().ok())
             .map(|angles| table_coords(kinematics::fk(angles[0], angles[1], angles[2], angles[3])))
@@ -1069,7 +1119,9 @@ impl PuppyArm {
             direction,
             speed_override_mm_s,
             last_step_ms,
-            target_angles,
+            target_angles: jog_target_angles,
+            target_coords_mm,
+            tool_pitch_rad,
         } = self.mode
         else {
             return;
@@ -1081,25 +1133,122 @@ impl PuppyArm {
         }
         let speed_mm_s = speed_override_mm_s.unwrap_or(f64::from(self.default_speed.abs()));
         let step_mm = speed_mm_s * elapsed_ms as f64 / 1000.0;
-        let result = self.move_tcp_relative_from_angles(
-            target_angles,
-            frame,
-            direction[0] * step_mm,
-            direction[1] * step_mm,
-            direction[2] * step_mm,
-            now,
-        );
-        if result.is_ok() {
+        if direction == [0.0; 3] {
             self.mode = ArmMode::TcpJogging {
                 frame,
                 direction,
                 speed_override_mm_s,
                 last_step_ms: now,
-                target_angles: result.expect("checked ok above"),
+                target_angles: jog_target_angles,
+                target_coords_mm,
+                tool_pitch_rad,
             };
-        } else {
-            self.mode = ArmMode::Idle;
-            self.refresh_mode_from_motion();
+            return;
+        }
+        let (dx, dy, dz) = match frame {
+            TcpFrame::Base | TcpFrame::YawFlat => (
+                direction[0] * step_mm,
+                direction[1] * step_mm,
+                direction[2] * step_mm,
+            ),
+            TcpFrame::Tool => Self::tool_delta_to_base_delta(
+                jog_target_angles,
+                direction[0] * step_mm,
+                direction[1] * step_mm,
+                direction[2] * step_mm,
+            ),
+        };
+        let next_coords_mm = [
+            target_coords_mm[0] + dx,
+            target_coords_mm[1] + dy,
+            target_coords_mm[2] + dz,
+        ];
+        let result = self
+            .solve_coords_nearest_branch(
+                next_coords_mm[0],
+                next_coords_mm[1],
+                next_coords_mm[2],
+                tool_pitch_rad,
+                jog_target_angles,
+            )
+            .and_then(|angles| {
+                self.goto_checked_angles(angles, now)?;
+                Ok(angles)
+            });
+        match result {
+            Ok(jog_target_angles) => {
+                self.mode = ArmMode::TcpJogging {
+                    frame,
+                    direction,
+                    speed_override_mm_s,
+                    last_step_ms: now,
+                    target_angles: jog_target_angles,
+                    target_coords_mm: next_coords_mm,
+                    tool_pitch_rad,
+                };
+            }
+            Err(ControllerError::Ik(kinematics::IkError::Unreachable)) => {
+                // Do not discard a whole high-speed step at the workspace or
+                // configured joint-limit boundary. Find the furthest reachable
+                // fraction while keeping the original Cartesian start and
+                // direction, then hold that boundary target until release.
+                let mut reachable_fraction = 0.0;
+                let mut unreachable_fraction = 1.0;
+                let mut boundary_coords_mm = target_coords_mm;
+                let mut boundary_angles = jog_target_angles;
+                for _ in 0..14 {
+                    let fraction = (reachable_fraction + unreachable_fraction) * 0.5;
+                    let candidate_coords_mm = [
+                        target_coords_mm[0] + dx * fraction,
+                        target_coords_mm[1] + dy * fraction,
+                        target_coords_mm[2] + dz * fraction,
+                    ];
+                    let candidate = self
+                        .solve_coords_nearest_branch(
+                            candidate_coords_mm[0],
+                            candidate_coords_mm[1],
+                            candidate_coords_mm[2],
+                            tool_pitch_rad,
+                            jog_target_angles,
+                        )
+                        .and_then(|angles| {
+                            self.goto_checked_angles(angles, now)?;
+                            Ok(angles)
+                        });
+                    match candidate {
+                        Ok(angles) => {
+                            reachable_fraction = fraction;
+                            boundary_coords_mm = candidate_coords_mm;
+                            boundary_angles = angles;
+                        }
+                        Err(ControllerError::Ik(kinematics::IkError::Unreachable)) => {
+                            unreachable_fraction = fraction;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if reachable_fraction > 0.0 {
+                    // While the control remains held, keep one exact Cartesian
+                    // endpoint and its joint targets stable. Release still sends
+                    // StopTcpJog, which clears every target and speed.
+                    self.mode = ArmMode::TcpJogging {
+                        frame,
+                        direction: [0.0; 3],
+                        speed_override_mm_s,
+                        last_step_ms: now,
+                        target_angles: boundary_angles,
+                        target_coords_mm: boundary_coords_mm,
+                        tool_pitch_rad,
+                    };
+                } else {
+                    self.mode = ArmMode::Idle;
+                    self.refresh_mode_from_motion();
+                }
+            }
+            Err(_) => {
+                self.mode = ArmMode::Idle;
+                self.refresh_mode_from_motion();
+            }
         }
     }
 
@@ -1109,7 +1258,7 @@ impl PuppyArm {
         dy_mm: f64,
         dz_mm: f64,
     ) -> (f64, f64, f64) {
-        let yaw = angles[0];
+        let yaw = kinematics::geometric_yaw(angles[0]);
         let cos_yaw = libm::cos(yaw);
         let sin_yaw = libm::sin(yaw);
         (
@@ -1126,6 +1275,7 @@ impl PuppyArm {
         dz_mm: f64,
     ) -> (f64, f64, f64) {
         let [yaw, shoulder, elbow, wrist] = angles;
+        let yaw = kinematics::geometric_yaw(yaw);
         let tool_phi = kinematics::tool_pitch(shoulder, elbow, wrist);
         let cos_yaw = libm::cos(yaw);
         let sin_yaw = libm::sin(yaw);

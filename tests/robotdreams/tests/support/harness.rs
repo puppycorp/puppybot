@@ -16,12 +16,12 @@ use puppybot_core::robot::{PuppyBotSystem, Puppybot};
 use puppybot_core::stservo::mock::block_on_ready;
 use puppybot_core::stservo::{SerialBus, StServo};
 use robotdreams_core::project::load_model_profile;
-use robotdreams_core::{RigidTransform, RobotDreams};
+use robotdreams_core::{RigidTransform, RobotDreams, VirtualServoJointMapping};
 use serde_json::Value;
 
 #[path = "../../../../puppybot/runtime/src/sim_calibration.rs"]
 mod sim_calibration;
-use sim_calibration::derive_simulation_config;
+use sim_calibration::derive_simulation_joint_mappings;
 
 pub const MODEL_UP_TOLERANCE_M: f64 = 0.0015;
 
@@ -170,6 +170,23 @@ impl PuppybotRobotDreamsHarness {
         }
     }
 
+    pub fn with_arm_pose_without_physics(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        let config = runtime_config();
+        let state = initialized_state_without_physics(&config, angles_rad);
+        let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
+        let drive_actuator = RobotDreamsDriveActuator::new(Rc::clone(&state));
+        let system = PuppyBotSystem::with_servo_and_drive(
+            Puppybot::new_with_config(&config, 0).expect("simulation PuppyBot config"),
+            StServo::new(bus),
+            drive_actuator,
+        );
+        Self {
+            state,
+            system,
+            cycle: 0,
+        }
+    }
+
     pub fn run_arm_command(&mut self, command: ArmCommand, cycles: usize) {
         let _ = self.run_arm_command_sampled(command, cycles, 0);
     }
@@ -215,6 +232,50 @@ impl PuppybotRobotDreamsHarness {
             self.advance_robotdreams();
             if sample_every_cycles > 0 && (cycle + 1) % sample_every_cycles == 0 {
                 samples.push(self.tcp_position());
+            }
+        }
+        self.advance_robotdreams();
+        samples
+    }
+
+    pub fn run_arm_command_state_sampled(
+        &mut self,
+        command: ArmCommand,
+        cycles: usize,
+        sample_every_cycles: usize,
+    ) -> Vec<(PuppyarmTelemetry, [f64; 3])> {
+        self.prime_feedback();
+        let mut event = Some(ProtocolEvent::Arm(command));
+        let mut samples = Vec::new();
+        for cycle in 0..cycles {
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || event.take()));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            if (cycle + 1) % sample_every_cycles == 0 {
+                samples.push((self.arm_telemetry(), self.tcp_position()));
+            }
+        }
+        self.advance_robotdreams();
+        samples
+    }
+
+    pub fn run_held_arm_command_state_sampled(
+        &mut self,
+        command: ArmCommand,
+        cycles: usize,
+        refresh_every_cycles: usize,
+        sample_every_cycles: usize,
+    ) -> Vec<(PuppyarmTelemetry, [f64; 3])> {
+        self.prime_feedback();
+        let mut samples = Vec::new();
+        for cycle in 0..cycles {
+            let event =
+                ((cycle % refresh_every_cycles) == 0).then_some(ProtocolEvent::Arm(command));
+            block_on_ready(self.system.run_once_at(self.cycle * 20, || event));
+            self.cycle = self.cycle.wrapping_add(1);
+            self.advance_robotdreams();
+            if (cycle + 1) % sample_every_cycles == 0 {
+                samples.push((self.arm_telemetry(), self.tcp_position()));
             }
         }
         self.advance_robotdreams();
@@ -395,6 +456,19 @@ impl PuppybotRobotDreamsHarness {
         self.system.robot().arm_telemetry()
     }
 
+    pub fn preview_target_angles(
+        &self,
+        coords_mm: [f64; 3],
+        tool_pitch_rad: f64,
+    ) -> Option<[f64; JOINT_COUNT]> {
+        self.system.robot().arm.preview_target_angles(
+            coords_mm[0],
+            coords_mm[1],
+            coords_mm[2],
+            tool_pitch_rad,
+        )
+    }
+
     fn prime_feedback(&mut self) {
         for _ in 0..JOINT_COUNT {
             block_on_ready(self.system.run_once_at(self.cycle * 20, || None));
@@ -525,6 +599,7 @@ fn initialized_state(
     angles_rad: [f64; JOINT_COUNT],
 ) -> Rc<RefCell<RobotDreamsSerialBusState>> {
     let mut dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    install_simulation_mappings(&mut dreams, config);
     let bus_id = SERVO_MAIN_BUS_ID.to_string();
     let drive_bus_id = DRIVE_BUS_ID.to_string();
     for (joint, angle_rad) in config.arm.joints.iter().zip(angles_rad) {
@@ -536,6 +611,49 @@ fn initialized_state(
         );
     }
     dreams.advance_seconds(3.0);
+
+    Rc::new(RefCell::new(RobotDreamsSerialBusState {
+        dreams,
+        bus_id,
+        drive_bus_id,
+        read_buf: VecDeque::new(),
+        bus_events: Vec::new(),
+    }))
+}
+
+fn initialized_state_without_physics(
+    config: &PuppybotConfigV1,
+    angles_rad: [f64; JOINT_COUNT],
+) -> Rc<RefCell<RobotDreamsSerialBusState>> {
+    let mut dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    install_simulation_mappings(&mut dreams, config);
+    let bus_id = SERVO_MAIN_BUS_ID.to_string();
+    let drive_bus_id = DRIVE_BUS_ID.to_string();
+    for (joint, angle_rad) in config.arm.joints.iter().zip(angles_rad) {
+        let tick = tick_for_joint_angle(joint, angle_rad);
+        assert!(
+            dreams.set_virtual_servo_target(&bus_id, joint.servo_id, tick as i16),
+            "initialize RobotDreams virtual servo {}",
+            joint.servo_id
+        );
+    }
+
+    let contents = fs::read_to_string(model_profile_path()).expect("read PuppyBot model profile");
+    let profile: Value = serde_json::from_str(&contents).expect("parse PuppyBot model profile");
+    for (semantic, angle_rad) in ["yaw", "shoulder", "elbow", "wrist"]
+        .into_iter()
+        .zip(angles_rad)
+    {
+        let mapping = path_value(&profile, &["analyticToUrdf", "joints", semantic]);
+        let urdf_joint = path_value(mapping, &["joint"])
+            .as_str()
+            .expect("analyticToUrdf joint name");
+        let urdf_angle =
+            angle_rad * f64_value(mapping, &["scale"]) + f64_value(mapping, &["offset"]);
+        dreams
+            .set_joint_angle(urdf_joint, urdf_angle)
+            .unwrap_or_else(|error| panic!("set no-physics {semantic} pose: {error}"));
+    }
 
     Rc::new(RefCell::new(RobotDreamsSerialBusState {
         dreams,
@@ -606,7 +724,7 @@ fn runtime_config_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../puppybot/runtime/puppybot.json")
 }
 
-fn runtime_config() -> PuppybotConfigV1 {
+pub fn runtime_config() -> PuppybotConfigV1 {
     let contents = fs::read_to_string(runtime_config_path()).expect("read PuppyBot runtime config");
     let root: Value = serde_json::from_str(&contents).expect("parse PuppyBot runtime config JSON");
     let config = PuppybotConfigV1 {
@@ -630,8 +748,26 @@ fn runtime_config() -> PuppybotConfigV1 {
         },
     };
     config.validate().expect("valid PuppyBot runtime config");
-    derive_simulation_config(project_path(), &config)
-        .expect("derive automatic RobotDreams simulation calibration")
+    config
+}
+
+pub fn install_simulation_mappings(dreams: &mut RobotDreams, config: &PuppybotConfigV1) {
+    let mappings = derive_simulation_joint_mappings(project_path(), config)
+        .expect("derive RobotDreams session servo mappings");
+    dreams
+        .install_virtual_servo_joint_mappings(mappings.into_iter().map(|mapping| {
+            VirtualServoJointMapping {
+                bus_id: mapping.bus_id,
+                servo_id: mapping.servo_id,
+                reference_tick: mapping.reference_tick,
+                alignment_reference_tick: mapping.alignment_reference_tick,
+                joint_position_at_reference_rad: mapping.joint_position_at_reference_rad,
+                radians_per_tick: mapping.radians_per_tick,
+                ticks_per_turn: mapping.ticks_per_turn,
+                wrapped: mapping.wrapped,
+            }
+        }))
+        .expect("install RobotDreams session servo mappings");
 }
 
 fn joint_value(root: &Value, index: usize) -> JointCalibration {

@@ -98,6 +98,8 @@ pub enum ArmMode {
         speed_override_mm_s: Option<f64>,
         last_step_ms: u64,
         target_angles: [f64; JOINT_COUNT],
+        target_coords_mm: [f64; 3],
+        tool_pitch_rad: f64,
     },
     Holding {
         targets: [i32; JOINT_COUNT],

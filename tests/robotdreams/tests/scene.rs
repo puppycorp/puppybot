@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use puppybot_core::config::PuppybotConfigV1;
 use puppybot_state::PuppyBotState;
 use robotdreams_core::project::{
     DeviceConfig, ProjectSceneObjectGeometry, load_model_profile, project_config_from_manifest,
@@ -11,9 +10,10 @@ use robotdreams_core::project::{
 use robotdreams_core::scene_harness::UrdfSceneHarness;
 use robotdreams_core::{RobotDreams, SceneLocation};
 
+#[path = "support/harness.rs"]
+mod harness;
 mod puppybot_state;
-#[path = "../../../puppybot/runtime/src/sim_calibration.rs"]
-mod sim_calibration;
+use harness::{install_simulation_mappings, runtime_config};
 
 fn model_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/puppybot")
@@ -171,6 +171,8 @@ fn puppybot_robotdreams_virtual_servos_drive_semantic_arm_joints() {
 #[test]
 fn puppybot_fixed_servo_ticks_preserve_installed_urdf_angles() {
     let mut dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    let runtime = runtime_config();
+    install_simulation_mappings(&mut dreams, &runtime);
     let cases = [
         ("yaw", 1_u8, 3200_i16),
         ("shoulder", 2, 2500),
@@ -184,9 +186,6 @@ fn puppybot_fixed_servo_ticks_preserve_installed_urdf_angles() {
     let state = dreams
         .robot_state("puppybot")
         .expect("PuppyBot robot state");
-    let runtime =
-        sim_calibration::derive_simulation_config(project_path(), &PuppybotConfigV1::default())
-            .expect("derive automatic simulation calibration");
     let model: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(model_profile_path()).expect("read model profile"),
     )

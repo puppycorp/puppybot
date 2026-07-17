@@ -1,6 +1,7 @@
 use puppybot_core::drive::DriveCommand;
 use puppybot_core::puppyarm::kinematics::{solve_tip_angle_down, tool_pitch};
 use puppybot_core::puppyarm::types::{ArmCommand, TcpFrame};
+use robotdreams_core::RobotDreams;
 
 use harness::{
     MODEL_UP_TOLERANCE_M, PuppybotRobotDreamsHarness, assert_close_m, distance,
@@ -239,6 +240,132 @@ fn test_harness_for_coordinate_move(case: CoordinateButtonCase) -> PuppybotRobot
 
 fn test_harness() -> PuppybotRobotDreamsHarness {
     test_harness_with_yaw(0.0)
+}
+
+fn reference_default_pose() -> ([f64; 4], [f64; 3], [f64; 3]) {
+    let project =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../robotdreams/project.json");
+    let mut dreams = RobotDreams::open(project).expect("open reference RobotDreams project");
+    let q = [
+        -2133.0 * std::f64::consts::TAU / 4096.0,
+        37.0 * std::f64::consts::TAU / 4096.0,
+        -2568.0 * std::f64::consts::TAU / 4096.0,
+        1485.0 * std::f64::consts::TAU / 4096.0,
+    ];
+    for (joint, angle) in ["revolute_2_3", "revolute_1_1", "revolute_1_2", "revolute_1"]
+        .into_iter()
+        .zip(q)
+    {
+        dreams
+            .set_joint_angle(joint, angle)
+            .unwrap_or_else(|error| panic!("set reference joint {joint}: {error}"));
+    }
+    let tcp = dreams
+        .robot_state("puppybot")
+        .and_then(|state| state.tcp)
+        .and_then(|tcp| tcp.location)
+        .expect("reference TCP")
+        .position;
+    let wrist = dreams
+        .location_of("part_1_4")
+        .expect("reference wrist link")
+        .position;
+    (q, wrist, tcp)
+}
+
+#[test]
+fn default_ninety_pose_converges_to_physical_reference_from_multiple_starts() {
+    const SETTLE_TOLERANCE_RAD: f64 = 8.5 * std::f64::consts::TAU / 4096.0;
+    const POSITION_TOLERANCE_M: f64 = 0.005;
+    let (reference_q, reference_wrist, reference_tcp) = reference_default_pose();
+    let starts = [
+        [0.0, 55.0, 65.0, 10.0],
+        [-45.0, 110.0, 35.0, -30.0],
+        [150.0, 20.0, 125.0, 160.0],
+    ];
+
+    for start_deg in starts {
+        let mut harness = PuppybotRobotDreamsHarness::with_arm_pose(start_deg.map(f64::to_radians));
+        harness.run_arm_command_until_settled(
+            ArmCommand::GotoAngles([std::f64::consts::FRAC_PI_2; 4]),
+            900,
+        );
+        let telemetry = harness.arm_telemetry();
+        for (joint, expected_q) in ["yaw", "shoulder", "elbow", "wrist"]
+            .into_iter()
+            .zip(reference_q)
+        {
+            let actual_q = harness.joint_position_rad(joint);
+            let delta = (actual_q - expected_q + std::f64::consts::PI)
+                .rem_euclid(std::f64::consts::TAU)
+                - std::f64::consts::PI;
+            assert!(
+                delta.abs() <= SETTLE_TOLERANCE_RAD,
+                "Default from {start_deg:?}: {joint} q delta {} deg",
+                delta.to_degrees()
+            );
+        }
+        for joint in telemetry.joints {
+            assert!(
+                (joint.angle_deg().expect("Default feedback angle") - 90.0).abs() <= 0.75,
+                "Default from {start_deg:?} must report 90 degrees: {joint:?}"
+            );
+        }
+        let wrist = harness.location_position("part_1_4");
+        assert!(
+            distance(wrist, reference_wrist) <= POSITION_TOLERANCE_M,
+            "Default wrist transform differs from physical reference for {start_deg:?}: actual={wrist:?} reference={reference_wrist:?} delta_mm={:.3}",
+            distance(wrist, reference_wrist) * 1000.0,
+        );
+        assert!(
+            distance(harness.tcp_position(), reference_tcp) <= POSITION_TOLERANCE_M,
+            "Default TCP differs from physical reference for {start_deg:?}: actual={:?} reference={reference_tcp:?}",
+            harness.tcp_position(),
+        );
+    }
+}
+
+fn assert_vertical_workspace_endpoint_matches_robotdreams(
+    name: &str,
+    target_coords_mm: [f64; 3],
+    target_angles_deg: [f64; 4],
+) {
+    const TARGET_MODEL_TOLERANCE_M: f64 = 0.002;
+    let mut harness =
+        PuppybotRobotDreamsHarness::with_arm_pose_without_physics([std::f64::consts::FRAC_PI_2; 4]);
+    harness.set_urdf_from_analytic_pose(target_angles_deg.map(f64::to_radians));
+    let model_tcp = harness.tcp_position();
+    let world_target = harness.frame_world_transform("armBase").transform_point([
+        target_coords_mm[0] * 0.001,
+        target_coords_mm[1] * 0.001,
+        target_coords_mm[2] * 0.001,
+    ]);
+    assert!(
+        distance(model_tcp, world_target) <= TARGET_MODEL_TOLERANCE_M,
+        "{name} controller target and RobotDreams TCP differ: target={world_target:?} model={model_tcp:?} delta_mm={:.3}",
+        distance(model_tcp, world_target) * 1000.0,
+    );
+    println!(
+        "{name}: controller endpoint={target_coords_mm:?}; RobotDreams TCP={model_tcp:?}; target-model={:.3} mm",
+        distance(model_tcp, world_target) * 1000.0,
+    );
+}
+
+#[test]
+fn vertical_workspace_endpoint_analytic_poses_match_robotdreams_world_tcp() {
+    // The controller boundary/outward-probe/release behavior is covered in
+    // puppybot-core. Down lies below the collision floor, so this verifies the
+    // exact RobotDreams FK/render transform without stepping collision physics.
+    assert_vertical_workspace_endpoint_matches_robotdreams(
+        "down",
+        [160.390, -1.718, -17.983],
+        [90.0, 118.21289, 60.64453, 32.34375],
+    );
+    assert_vertical_workspace_endpoint_matches_robotdreams(
+        "up",
+        [160.390, -1.718, 178.094],
+        [90.0, 92.90039, 109.86328, 106.96289],
+    );
 }
 
 fn test_harness_with_yaw(yaw_rad: f64) -> PuppybotRobotDreamsHarness {

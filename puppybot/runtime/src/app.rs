@@ -31,7 +31,6 @@ use crate::{
     sim::{SimulatedPreview, SimulatedRuntimeBackend},
     stservo::{self, RuntimeStServo},
 };
-use puppybot_runtime::sim_calibration::derive_simulation_config;
 
 const RUNTIME_UI_CSS: &str = include_str!("../wui/runtime.css");
 const DEFAULT_WS_BIND: &str = "0.0.0.0:8080";
@@ -158,6 +157,13 @@ struct HeldDrive {
 struct HeldJointJog {
     joint: usize,
     direction: i8,
+    last_refresh_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HeldTcpJog {
+    frame: TcpFrame,
+    direction: [f64; 3],
     last_refresh_ms: u64,
 }
 
@@ -391,8 +397,8 @@ fn frame_button(label: &str, selected: bool, id: u32, width: u32) -> Item {
 
 fn angle_detail(joint: &Joint) -> String {
     match joint.angle_deg() {
-        Some(angle) => format!("{angle:.1} deg"),
-        None => "-- deg".to_string(),
+        Some(angle) => format!("angle {angle:.1} deg"),
+        None => "angle -- deg".to_string(),
     }
 }
 
@@ -617,6 +623,7 @@ pub struct App {
     capture_manager: CaptureManager,
     held_drive: Option<HeldDrive>,
     held_joint_jog: Option<HeldJointJog>,
+    held_tcp_jog: Option<HeldTcpJog>,
     config_path: PathBuf,
     active_config: PuppybotConfigV1,
     calibration_dirty: bool,
@@ -712,7 +719,7 @@ impl App {
                 config_path.display()
             );
         }
-        let mut active_config = runtime_config.unwrap_or_default();
+        let active_config = runtime_config.unwrap_or_default();
         let simulation_project_path = if options.simulated {
             if options.servo_device.is_some() {
                 return Err("--sim cannot be combined with --servo-device".to_string());
@@ -724,8 +731,6 @@ impl App {
                 "runtime using RobotDreams simulation project {}",
                 project_path.display()
             );
-            active_config = derive_simulation_config(&project_path, &active_config)
-                .map_err(|err| format!("derive automatic simulation calibration: {err}"))?;
             Some(project_path)
         } else {
             if options.robotdreams_project.is_some() {
@@ -774,6 +779,7 @@ impl App {
             capture_manager: CaptureManager::new(),
             held_drive: None,
             held_joint_jog: None,
+            held_tcp_jog: None,
             config_path,
             active_config,
             calibration_dirty: false,
@@ -850,6 +856,7 @@ impl App {
         let now_ms = self.now_ms();
         self.refresh_held_drive(now_ms);
         self.refresh_held_joint_jog(now_ms);
+        self.refresh_held_tcp_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
         if let Some(preview) = self.simulated_preview()
             && let Ok(state) = preview.capture_state()
@@ -903,6 +910,32 @@ impl App {
             joint: held.joint,
             direction: held.direction,
             last_refresh_ms: now_ms,
+        });
+        self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
+    }
+
+    fn refresh_held_tcp_jog(&mut self, now_ms: u64) {
+        let Some(held) = self.held_tcp_jog else {
+            return;
+        };
+        if now_ms.saturating_sub(held.last_refresh_ms) < HELD_JOINT_JOG_REFRESH_MS {
+            return;
+        }
+        let command = ArmCommand::StartTcpJog {
+            frame: held.frame,
+            direction: held.direction,
+        };
+        if let Err(err) = self
+            .robot
+            .try_handle_event(ProtocolEvent::Arm(command), now_ms)
+        {
+            log::warn!("held TCP jog refresh rejected: {:?}", err);
+            self.held_tcp_jog = None;
+            return;
+        }
+        self.held_tcp_jog = Some(HeldTcpJog {
+            last_refresh_ms: now_ms,
+            ..held
         });
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
@@ -985,6 +1018,7 @@ impl App {
             .map(|(index, joint)| {
                 serde_json::json!({
                     "index": index,
+                    "name": ARM_JOINT_LABELS[index].to_ascii_lowercase(),
                     "servoId": joint.servo_id,
                     "tick": joint.tick,
                     "targetTick": joint.target_tick,
@@ -1624,7 +1658,7 @@ impl App {
 
     fn save_calibration(&mut self) -> Result<(), String> {
         if self.backend.is_simulated() {
-            let err = "simulation calibration is automatic and cannot be saved".to_string();
+            let err = "simulation model mapping is session-only and cannot be saved".to_string();
             self.last_command = err.clone();
             self.mark_ui_dirty();
             return Err(err);
@@ -1676,8 +1710,9 @@ impl App {
         if self.backend.is_simulated() {
             UiMetric {
                 label: "Calibration".to_string(),
-                value: "automatic".to_string(),
-                detail: "Simulation calibration: automatic".to_string(),
+                value: "session mapped".to_string(),
+                detail: "Physical controller calibration; RobotDreams mapping is session-only"
+                    .to_string(),
                 accent: "#3fbf6f",
                 save_action: false,
             }
@@ -1899,7 +1934,7 @@ impl App {
         subpanel(vec![
             title_text("Joint Target (deg)"),
             label_text(
-                "Default (90 / 90 / 90 / 90) is a folded transport pose, not a neutral reach home",
+                "Default (90 / 90 / 90 / 90) is the upright-shoulder, horizontal-reach, tool-down reference pose",
             ),
             hstack(vec![
                 field(
@@ -2388,6 +2423,7 @@ impl App {
     fn stop_robot(&mut self) {
         self.held_drive = None;
         self.held_joint_jog = None;
+        self.held_tcp_jog = None;
         self.robot
             .handle_event(ProtocolEvent::Drive(DriveCommand::Stop), self.now_ms());
         self.robot
@@ -2408,6 +2444,7 @@ impl App {
             }
             ProtocolEvent::Arm(
                 ArmCommand::StopAll
+                | ArmCommand::StopTcpJog
                 | ArmCommand::Hold
                 | ArmCommand::GotoTicks(_)
                 | ArmCommand::GotoAngles(_)
@@ -2415,7 +2452,10 @@ impl App {
                 | ArmCommand::MoveTcp { .. }
                 | ArmCommand::StartTcpJog { .. }
                 | ArmCommand::StartTcpJogAtSpeed { .. },
-            ) => self.held_joint_jog = None,
+            ) => {
+                self.held_joint_jog = None;
+                self.held_tcp_jog = None;
+            }
             _ => {}
         }
         let reference_calibration = match event {
@@ -2489,7 +2529,8 @@ impl App {
         if self.backend.is_simulated() && payload.get(1).copied() == Some(protocol::CMD_CONFIG_SET)
         {
             self.last_command =
-                "simulation calibration is automatic; config changes are unavailable".to_string();
+                "simulation model mapping is session-only; config changes are unavailable"
+                    .to_string();
             log::warn!("runtime App rejected simulation config change");
             self.mark_ui_dirty();
             return None;
@@ -2837,7 +2878,13 @@ impl App {
                 ArmCommand::Stop { joint: held.joint },
             );
         }
-        self.arm(label, ArmCommand::StartTcpJog { frame, direction })
+        self.arm(label, ArmCommand::StartTcpJog { frame, direction })?;
+        self.held_tcp_jog = Some(HeldTcpJog {
+            frame,
+            direction,
+            last_refresh_ms: self.now_ms(),
+        });
+        Ok(())
     }
 
     fn start_joint_jog(
@@ -2935,7 +2982,7 @@ impl App {
     fn open_joint_calibration(&mut self, joint_arg: u32) {
         if self.backend.is_simulated() {
             self.last_command =
-                "simulation calibration is automatic and cannot be edited".to_string();
+                "simulation model mapping is session-only and cannot be edited".to_string();
             self.calibration_editor_joint = None;
             self.mark_ui_dirty();
             return;
@@ -2962,7 +3009,7 @@ impl App {
     fn apply_joint_calibration(&mut self) {
         if self.backend.is_simulated() {
             self.last_command =
-                "simulation calibration is automatic and cannot be edited".to_string();
+                "simulation model mapping is session-only and cannot be edited".to_string();
             self.calibration_editor_joint = None;
             self.mark_ui_dirty();
             return;
@@ -2980,7 +3027,7 @@ impl App {
 
     fn set_joint_reference_angle(&mut self, joint: usize, angle_deg: f64) -> Result<(), String> {
         if self.backend.is_simulated() {
-            let err = "simulation calibration is automatic and cannot be edited".to_string();
+            let err = "simulation model mapping is session-only and cannot be edited".to_string();
             self.calibration_editor_error = err.clone();
             self.last_command = err.clone();
             self.mark_ui_dirty();
@@ -3024,8 +3071,9 @@ impl App {
 
     fn flip_joint_angle_sign_for(&mut self, joint: usize) -> Result<(), String> {
         if self.backend.is_simulated() {
-            let err = "simulation calibration is automatic and its angle sign cannot be flipped"
-                .to_string();
+            let err =
+                "simulation model mapping is session-only and its angle sign cannot be flipped"
+                    .to_string();
             self.calibration_editor_error = err.clone();
             self.last_command = err.clone();
             self.mark_ui_dirty();
@@ -3356,6 +3404,7 @@ impl App {
                 let _ = self.arm("stop target angles", ArmCommand::StopAll);
             }
             MOVE_TCP_STOP_ID => {
+                self.held_tcp_jog = None;
                 let _ = self.arm("stop tcp jog", ArmCommand::StopTcpJog);
             }
             _ => return false,
@@ -3479,6 +3528,9 @@ impl App {
                         "stop joint jog on ui disconnect",
                         ArmCommand::Stop { joint: held.joint },
                     );
+                }
+                if self.held_tcp_jog.is_some() {
+                    let _ = self.arm("stop TCP jog on ui disconnect", ArmCommand::StopTcpJog);
                 }
                 self.clear_keyboard_drive();
                 if self.client_ids.is_empty() {
@@ -3684,8 +3736,9 @@ mod tests {
 
     #[tokio::test]
     async fn api_state_json_reports_runtime_state() {
+        let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
         let mut app = App::with_options(AppOptions {
-            config: None,
+            config: Some(config_path.display().to_string()),
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
@@ -3695,6 +3748,7 @@ mod tests {
         .expect("simulated runtime app");
 
         for _ in 0..8 {
+            app.last_tick_at = Instant::now() - Duration::from_millis(ROBOT_TICK_MS);
             app.tick_robot().await;
         }
         let state: serde_json::Value =
@@ -3707,6 +3761,21 @@ mod tests {
             state["arm"]["joints"].as_array().expect("joints").len(),
             JOINT_COUNT
         );
+        for (index, joint) in state["arm"]["joints"]
+            .as_array()
+            .expect("joints")
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(joint["name"], ARM_JOINT_LABELS[index].to_ascii_lowercase());
+            assert_eq!(
+                joint["tick"],
+                app.active_config.arm.joints[index].reference_tick
+            );
+            assert!((joint["angleDeg"].as_f64().expect("controller angle") - 90.0).abs() < 1.0e-9);
+            assert!(joint.get("referenceTick").is_none());
+            assert!(joint.get("urdfAngleDeg").is_none());
+        }
         assert!(state["arm"].get("currentTcpMm").is_some());
         assert!(state["arm"].get("targetTcpMm").is_some());
         assert_eq!(state["arm"]["frame"], "armBase");
@@ -3881,7 +3950,7 @@ mod tests {
     async fn simulation_calibration_is_session_only_and_cannot_be_mutated_or_saved() {
         let mut physical = PuppybotConfigV1::default();
         for (index, joint) in physical.arm.joints.iter_mut().enumerate() {
-            joint.servo_id = (40 + index) as u8;
+            joint.servo_id = (index + 1) as u8;
             joint.reference_tick = (100 + index * 700) as i32;
             joint.reference_angle_rad = -2.0 + index as f64 * 0.6;
             joint.angle_sign = if index % 2 == 0 { -1 } else { 1 };
@@ -3896,6 +3965,9 @@ mod tests {
         ));
         let physical_json = config::runtime_config_json(&physical).expect("physical config JSON");
         std::fs::write(&config_path, &physical_json).expect("write physical config fixture");
+        let persisted = config::load_runtime_config(&config_path)
+            .expect("load round-tripped physical config")
+            .expect("physical config exists");
 
         let mut app = App::with_options(AppOptions {
             config: Some(config_path.display().to_string()),
@@ -3906,13 +3978,16 @@ mod tests {
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
         .expect("simulated runtime app");
-        let automatic = app.active_config.arm.joints;
-        assert_ne!(automatic, physical.arm.joints);
+        let active = app.active_config.arm.joints;
+        assert_eq!(active, persisted.arm.joints);
 
         let metric = app.calibration_status_metric();
         assert_eq!(metric.label, "Calibration");
-        assert_eq!(metric.value, "automatic");
-        assert_eq!(metric.detail, "Simulation calibration: automatic");
+        assert_eq!(metric.value, "session mapped");
+        assert_eq!(
+            metric.detail,
+            "Physical controller calibration; RobotDreams mapping is session-only"
+        );
         assert!(!metric.save_action);
 
         app.open_joint_calibration(1);
@@ -3938,7 +4013,7 @@ mod tests {
             )
             .is_none()
         );
-        assert_eq!(app.active_config.arm.joints, automatic);
+        assert_eq!(app.active_config.arm.joints, active);
         assert_eq!(
             std::fs::read_to_string(&config_path).expect("physical config remains readable"),
             physical_json
@@ -4090,6 +4165,40 @@ mod tests {
         assert!(app.handle_release_id(JOG_STOP_ID, Some(1)));
         assert!(app.held_joint_jog.is_none());
         assert_eq!(app.robot.arm.joints[0].speed, 0);
+    }
+
+    #[tokio::test]
+    async fn held_coordinate_jog_is_refreshed_server_side_and_stops_on_release() {
+        let mut app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+
+        assert!(app.handle_press_id(COORDINATE_DOWN_ID, None));
+        let held = app.held_tcp_jog.expect("TCP jog hold created on press");
+        assert_eq!(held.frame, app.coordinate_frame);
+        assert_eq!(held.direction, [0.0, 0.0, -1.0]);
+
+        let refresh_at = held.last_refresh_ms + HELD_JOINT_JOG_REFRESH_MS;
+        app.refresh_held_tcp_jog(refresh_at);
+        assert_eq!(
+            app.held_tcp_jog
+                .expect("TCP jog still held after refresh")
+                .last_refresh_ms,
+            refresh_at
+        );
+
+        assert!(app.handle_release_id(MOVE_TCP_STOP_ID, None));
+        assert!(app.held_tcp_jog.is_none());
+        assert!(
+            app.robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
     }
 
     #[tokio::test]

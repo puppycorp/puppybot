@@ -33,7 +33,7 @@ use puppybot_core::{
 };
 use robotdreams_core::{
     CoordinateDebugMarkerPositions, RigidTransform, RobotDreams, RobotDreamsPgeFrameOptions,
-    RobotDreamsPgeTextLabel, RobotState, coordinate_debug_legend_labels,
+    RobotDreamsPgeTextLabel, RobotState, VirtualServoJointMapping, coordinate_debug_legend_labels,
     project::RobotVisualTransform, robotdreams_pge_frame,
 };
 use serde::{Deserialize, Serialize};
@@ -368,6 +368,25 @@ impl SimulatedRuntimeBackend {
         };
         let mut dreams = RobotDreams::open(project_path)
             .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
+        let mappings = puppybot_runtime::sim_calibration::derive_simulation_joint_mappings(
+            project_path,
+            config,
+        )
+        .map_err(|err| format!("derive RobotDreams session servo mapping: {err}"))?;
+        dreams
+            .install_virtual_servo_joint_mappings(mappings.into_iter().map(|mapping| {
+                VirtualServoJointMapping {
+                    bus_id: mapping.bus_id,
+                    servo_id: mapping.servo_id,
+                    reference_tick: mapping.reference_tick,
+                    alignment_reference_tick: mapping.alignment_reference_tick,
+                    joint_position_at_reference_rad: mapping.joint_position_at_reference_rad,
+                    radians_per_tick: mapping.radians_per_tick,
+                    ticks_per_turn: mapping.ticks_per_turn,
+                    wrapped: mapping.wrapped,
+                }
+            }))
+            .map_err(|err| format!("install RobotDreams session servo mapping: {err}"))?;
         for joint in config.arm.joints {
             let tick = tick_for_joint_angle(joint, joint.reference_angle_rad);
             if !dreams.set_virtual_servo_target(SERVO_MAIN_BUS_ID, joint.servo_id, tick as i16) {
@@ -377,7 +396,9 @@ impl SimulatedRuntimeBackend {
                 );
             }
         }
-        dreams.advance_seconds(1.0);
+        // The controller uses wheel mode for arm holding, so settle the
+        // session-mapped reference targets before its first zero-speed hold.
+        dreams.advance_seconds(4.0);
 
         let visual_bindings = dreams
             .model()
@@ -537,15 +558,15 @@ impl SimulatedRuntimeBackend {
                         &mut labels,
                         format!("joint_{index}"),
                         format!(
-                            "CTRL J{} ID {} TICK {} TGT {} ANG DEG {}",
-                            index + 1,
+                            "CTRL {} ID {} TICK {} TGT {} ANG DEG {}",
+                            MODEL_JOINT_NAMES[index].to_ascii_uppercase(),
                             joint.servo_id,
                             option_i32(joint.tick),
                             option_i32(joint.target_tick),
                             joint
                                 .angle_deg()
                                 .map(|angle| format!("{angle:.1}"))
-                                .unwrap_or_else(|| "NA".to_string())
+                                .unwrap_or_else(|| "NA".to_string()),
                         ),
                     );
                 }
@@ -1459,7 +1480,7 @@ fn push_model_telemetry_labels(
         labels,
         "model_joints_observed",
         format!(
-            "MODEL OBS JOINT DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
+            "MODEL URDF RAW Q DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
             option_degrees(joint_angles[0]),
             option_degrees(joint_angles[1]),
             option_degrees(joint_angles[2]),
@@ -2545,7 +2566,7 @@ mod tests {
         assert_eq!(
             label_text(&state.labels, "model_joints_observed"),
             format!(
-                "MODEL OBS JOINT DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
+                "MODEL URDF RAW Q DEG YAW {} SHOULDER {} ELBOW {} WRIST {}",
                 option_degrees(telemetry.joint_angles_rad[0]),
                 option_degrees(telemetry.joint_angles_rad[1]),
                 option_degrees(telemetry.joint_angles_rad[2]),
@@ -2554,13 +2575,12 @@ mod tests {
         );
         assert!(telemetry.joint_angles_rad.iter().all(Option::is_some));
         assert!(label_text(&state.labels, "drive").starts_with("CTRL DRIVE"));
-        assert!(
-            state
-                .labels
-                .iter()
-                .filter(|label| label.id.starts_with("joint_"))
-                .all(|label| label.text.starts_with("CTRL J"))
-        );
+        for (index, semantic_name) in MODEL_JOINT_NAMES.iter().enumerate() {
+            assert!(
+                label_text(&state.labels, &format!("joint_{index}"))
+                    .starts_with(&format!("CTRL {}", semantic_name.to_ascii_uppercase()))
+            );
+        }
     }
 
     #[test]
@@ -2648,16 +2668,116 @@ mod tests {
     }
 
     #[test]
+    fn configured_reference_ticks_report_ninety_and_model_mapping_matches_wrap_edges() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
+        let config = crate::config::load_runtime_config(&config_path)
+            .expect("load PuppyBot runtime config")
+            .expect("PuppyBot runtime config exists");
+        assert_eq!(
+            config.arm.joints.map(|joint| joint.reference_tick),
+            [1583, 2946, 1058, 2685]
+        );
+        for joint in config.arm.joints {
+            assert!((joint.reference_angle_rad.to_degrees() - 90.0).abs() < 1.0e-9);
+        }
+
+        let project_path = SimulatedRuntimeBackend::default_project_path();
+        let profile_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/puppybot/robotdreams.json");
+        let profile: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(profile_path).expect("read PuppyBot model profile"),
+        )
+        .expect("parse PuppyBot model profile");
+        let analytic_scales: [f64; JOINT_COUNT] = core::array::from_fn(|index| {
+            profile["analyticToUrdf"]["joints"][MODEL_JOINT_NAMES[index]]["scale"]
+                .as_f64()
+                .expect("analytic-to-URDF scale")
+        });
+        let analytic_offsets: [f64; JOINT_COUNT] = core::array::from_fn(|index| {
+            profile["analyticToUrdf"]["joints"][MODEL_JOINT_NAMES[index]]["offset"]
+                .as_f64()
+                .expect("analytic-to-URDF offset")
+        });
+        let mut backend = SimulatedRuntimeBackend::new(&project_path, &config)
+            .expect("open mapped simulation backend");
+        let mut robot =
+            Puppybot::new_with_config(&config, 0).expect("create physical-calibration controller");
+
+        let verify_pose =
+            |state: &RobotDreamsRuntimeState, robot: &Puppybot, ticks: [i32; JOINT_COUNT]| {
+                let model = model_telemetry(
+                    &state
+                        .dreams
+                        .robot_state(ROBOT_ID)
+                        .expect("RobotDreams model state"),
+                );
+                for index in 0..JOINT_COUNT {
+                    let joint = robot.arm.joints[index];
+                    let controller_angle = joint.tick_to_angle(ticks[index]);
+                    let expected_q =
+                        analytic_scales[index] * controller_angle + analytic_offsets[index];
+                    let actual_q = model.joint_angles_rad[index].expect("model joint angle");
+                    let delta = (actual_q - expected_q + std::f64::consts::PI)
+                        .rem_euclid(std::f64::consts::TAU)
+                        - std::f64::consts::PI;
+                    assert!(
+                        delta.abs() <= std::f64::consts::TAU / 8192.0,
+                        "{} tick {} controller={} expected_q={} actual_q={} delta={delta}",
+                        MODEL_JOINT_NAMES[index],
+                        ticks[index],
+                        controller_angle.to_degrees(),
+                        expected_q.to_degrees(),
+                        actual_q.to_degrees(),
+                    );
+                }
+            };
+
+        {
+            let mut state = backend.state.lock().expect("simulation state");
+            state.dreams.advance_seconds(3.0);
+            verify_pose(
+                &state,
+                &robot,
+                config.arm.joints.map(|joint| joint.reference_tick),
+            );
+        }
+        for tick in 1..=8 {
+            block_on_ready(backend.run_once(&mut robot, tick * 20));
+        }
+        for (telemetry, calibration) in robot
+            .arm_telemetry()
+            .joints
+            .into_iter()
+            .zip(config.arm.joints)
+        {
+            assert!(telemetry.has_feedback, "live servo feedback is present");
+            assert_eq!(telemetry.tick, Some(calibration.reference_tick));
+            assert!(
+                (telemetry.angle_deg().expect("configured controller angle") - 90.0).abs() < 1.0e-9
+            );
+        }
+
+        let asymmetric_ticks = [0, 4095, 17, 4095];
+        {
+            let mut state = backend.state.lock().expect("simulation state");
+            for (joint, tick) in config.arm.joints.iter().zip(asymmetric_ticks) {
+                assert!(state.dreams.set_virtual_servo_target(
+                    SERVO_MAIN_BUS_ID,
+                    joint.servo_id,
+                    tick as i16,
+                ));
+            }
+            state.dreams.advance_seconds(3.0);
+            verify_pose(&state, &robot, asymmetric_ticks);
+        }
+    }
+
+    #[test]
     fn runtime_config_controller_tcp_matches_robotdreams_tcp_at_live_feedback_pose() {
         let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
         let config = crate::config::load_runtime_config(&config_path)
             .expect("load PuppyBot runtime config")
             .expect("PuppyBot runtime config exists");
-        let config = puppybot_runtime::sim_calibration::derive_simulation_config(
-            SimulatedRuntimeBackend::default_project_path(),
-            &config,
-        )
-        .expect("derive automatic simulation calibration");
         let backend =
             SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
                 .expect("open simulated runtime backend");
@@ -2716,11 +2836,6 @@ mod tests {
         let config = crate::config::load_runtime_config(&config_path)
             .expect("load PuppyBot runtime config")
             .expect("PuppyBot runtime config exists");
-        let config = puppybot_runtime::sim_calibration::derive_simulation_config(
-            SimulatedRuntimeBackend::default_project_path(),
-            &config,
-        )
-        .expect("derive automatic simulation calibration");
         let mut backend =
             SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
                 .expect("open simulated runtime backend");

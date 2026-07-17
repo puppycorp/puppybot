@@ -44,22 +44,22 @@
       "yaw": {
         "joint": "revolute_2_3",
         "scale": 1.0,
-        "offset": 0.0
+        "offset": -4.84277734735497
       },
       "shoulder": {
         "joint": "revolute_1_1",
         "scale": 1.0,
-        "offset": -1.5797465231762224
+        "offset": -1.5140390376431279
       },
       "elbow": {
         "joint": "revolute_1_2",
         "scale": 1.0,
-        "offset": -4.753484179063122
+        "offset": -5.5100589900852235
       },
       "wrist": {
         "joint": "revolute_1",
         "scale": 1.0,
-        "offset": -4.812008104790448
+        "offset": 0.70716514321528
       }
     }
   },

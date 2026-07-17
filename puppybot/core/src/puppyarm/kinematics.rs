@@ -9,9 +9,10 @@ pub const Z_ORIGIN_MM: f64 = 0.0;
 pub(crate) const ARM_YAW_TO_SHOULDER_X_MM: f64 = 0.0007026911535341386;
 pub(crate) const ARM_YAW_TO_SHOULDER_Y_MM: f64 = -19.150050229126062;
 pub(crate) const ARM_YAW_TO_SHOULDER_Z_MM: f64 = 20.00000056097148;
-const ARM_L1_PHASE_RAD: f64 = -0.04455098757637516;
-const ARM_L2_PHASE_RAD: f64 = 2.3049867004356583;
-const ARM_L3_PHASE_RAD: f64 = -3.229249704001_398;
+const ARM_YAW_PHASE_RAD: f64 = 1.4404079598246167;
+const ARM_L1_PHASE_RAD: f64 = 0.021156497956719415;
+const ARM_L2_PHASE_RAD: f64 = 3.1272689969908543;
+const ARM_L3_PHASE_RAD: f64 = -3.1709794666200595;
 
 const NEAR_ZERO_XY: f64 = 1.0e-12;
 
@@ -60,6 +61,10 @@ pub fn tool_pitch(shoulder: f64, elbow: f64, wrist: f64) -> f64 {
     wrap_pi(shoulder - elbow + wrist + ARM_L3_PHASE_RAD)
 }
 
+pub fn geometric_yaw(yaw: f64) -> f64 {
+    yaw + ARM_YAW_PHASE_RAD
+}
+
 pub fn tooltip_target_to_wrist_target(
     x: f64,
     y: f64,
@@ -92,7 +97,7 @@ fn ik_branch(
     let radius_squared = x * x + y * y;
     let lateral_squared = ARM_YAW_TO_SHOULDER_Y_MM * ARM_YAW_TO_SHOULDER_Y_MM;
     let radial = radial_sign * libm::sqrt((radius_squared - lateral_squared).max(0.0));
-    let yaw = if radius_squared < NEAR_ZERO_XY {
+    let geometric_yaw = if radius_squared < NEAR_ZERO_XY {
         0.0
     } else {
         libm::atan2(y, x) - libm::atan2(ARM_YAW_TO_SHOULDER_Y_MM, radial)
@@ -118,7 +123,7 @@ fn ik_branch(
     let wrist = solve_tip_angle_down(shoulder, elbow, tool_phi_rad);
 
     IkResult {
-        yaw: wrap_pi(yaw),
+        yaw: wrap_pi(geometric_yaw - ARM_YAW_PHASE_RAD),
         shoulder,
         elbow,
         wrist,
@@ -144,6 +149,7 @@ pub fn ik(x: f64, y: f64, z: f64) -> IkResult {
 }
 
 pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
+    let yaw = geometric_yaw(yaw);
     let link1_pitch = shoulder + ARM_L1_PHASE_RAD;
     let link2_pitch = shoulder - elbow + ARM_L2_PHASE_RAD;
     let tool_pitch = shoulder - elbow + wrist + ARM_L3_PHASE_RAD;
@@ -161,6 +167,7 @@ pub fn fk(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> (f64, f64, f64) {
 }
 
 pub fn arm_chain_points(yaw: f64, shoulder: f64, elbow: f64, wrist: f64) -> ArmChainPoints {
+    let yaw = geometric_yaw(yaw);
     let link1_pitch = shoulder + ARM_L1_PHASE_RAD;
     let link2_pitch = shoulder - elbow + ARM_L2_PHASE_RAD;
     let tool_pitch = shoulder - elbow + wrist + ARM_L3_PHASE_RAD;
