@@ -146,6 +146,8 @@ pub(crate) struct CaptureProject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CaptureCamera {
+    #[serde(default = "default_capture_camera_source")]
+    pub(crate) source: String,
     pub(crate) target_m: [f32; 3],
     pub(crate) eye_m: [f32; 3],
     pub(crate) rotation_matrix: [[f32; 3]; 3],
@@ -155,6 +157,10 @@ pub(crate) struct CaptureCamera {
     pub(crate) fov_deg: f32,
     pub(crate) projection: String,
     pub(crate) resolution: [u32; 2],
+}
+
+fn default_capture_camera_source() -> String {
+    "external".to_string()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -326,6 +332,21 @@ pub(crate) enum TcpCameraJogDirection {
     Right,
     Up,
     Down,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CaptureCameraView {
+    External,
+    Tcp,
+}
+
+impl CaptureCameraView {
+    pub(crate) fn source(self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::Tcp => WRIST_CAMERA_ID,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -957,9 +978,7 @@ pub(crate) async fn record_simulation_video(
     }
     .await;
 
-    if std::env::var_os("PUPPYBOT_KEEP_TRACE_FRAMES").is_some() {
-        log::info!("kept trace frame directory {}", frame_dir.display());
-    } else if let Err(err) = fs::remove_dir_all(&frame_dir) {
+    if let Err(err) = fs::remove_dir_all(&frame_dir) {
         log::warn!(
             "failed to remove temporary simulation frame directory {}: {err}",
             frame_dir.display()
@@ -1111,9 +1130,7 @@ pub(crate) fn render_capture_trace_mp4(
         ))
         .map_err(|err| format!("encode capture trace MP4: {err}"))
     })();
-    if std::env::var_os("PUPPYBOT_KEEP_TRACE_FRAMES").is_some() {
-        log::info!("kept trace frame directory {}", frame_dir.display());
-    } else if let Err(err) = fs::remove_dir_all(&frame_dir) {
+    if let Err(err) = fs::remove_dir_all(&frame_dir) {
         log::warn!(
             "failed to remove trace frame directory {}: {err}",
             frame_dir.display()
@@ -1281,40 +1298,32 @@ impl PreparedCaptureRenderer {
         // incomplete tiles. The authoritative robot and scene-object visuals
         // still follow their per-frame transforms; these optional diagnostic
         // overlays remain hidden from `base_world`.
-        if let (Some(world_from_base), Some(base_from_arm_base)) = (
-            capture_frame.overlays.world_from_base,
-            capture_frame.overlays.base_from_arm_base,
-        ) {
-            sync_debug_frame_roots(
-                &mut self.frame.world,
-                SimulationFrameTransforms {
-                    world_from_base: rigid_transform_from_capture(world_from_base),
-                    base_from_arm_base: rigid_transform_from_capture(base_from_arm_base),
-                },
-                &self.index,
-            );
+        if state.camera.source != WRIST_CAMERA_ID {
+            if let (Some(world_from_base), Some(base_from_arm_base)) = (
+                capture_frame.overlays.world_from_base,
+                capture_frame.overlays.base_from_arm_base,
+            ) {
+                sync_debug_frame_roots(
+                    &mut self.frame.world,
+                    SimulationFrameTransforms {
+                        world_from_base: rigid_transform_from_capture(world_from_base),
+                        base_from_arm_base: rigid_transform_from_capture(base_from_arm_base),
+                    },
+                    &self.index,
+                );
+            }
         }
-        let mut labels = capture_frame
-            .overlays
-            .labels
-            .iter()
-            .map(|label| {
-                RobotDreamsPgeTextLabel::overlay_with_color(
-                    label.id.clone(),
-                    label.text.clone(),
-                    label.row,
-                    label.color,
-                )
-            })
-            .collect::<Vec<_>>();
-        let legend_row_start = labels.len();
-        labels.extend(coordinate_debug_legend_labels(legend_row_start));
-        labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
-            "controller_arm_legend",
-            CONTROLLER_ARM_LEGEND,
-            labels.len(),
-            [1.0, 0.2, 0.9, 1.0],
-        ));
+        let mut labels = capture_labels(capture_frame, &state.camera);
+        if state.camera.source != WRIST_CAMERA_ID {
+            let legend_row_start = labels.len();
+            labels.extend(coordinate_debug_legend_labels(legend_row_start));
+            labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+                "controller_arm_legend",
+                CONTROLLER_ARM_LEGEND,
+                labels.len(),
+                [1.0, 0.2, 0.9, 1.0],
+            ));
+        }
         self.frame.world.text_labels = labels.into_iter().map(pge_text_label).collect();
         set_world_camera_transform(
             &mut self.frame.world,
@@ -1335,14 +1344,10 @@ impl PreparedCaptureRenderer {
             camera.fov_deg = state.camera.fov_deg;
             camera.resolution = state.camera.resolution;
         }
-        // Do not carry a render target/readback buffer across capture frames.
-        // The NVIDIA Vulkan path can return deterministic but incomplete
-        // regions after repeated map/unmap reuse, even though each individual
-        // render call waits for submission. A fresh offscreen renderer makes
-        // the frame's GPU cache, render target, and MAP_READ buffer private to
-        // this immutable capture state.
-        self.renderer = WgpuRenderer::new()
-            .map_err(|err| format!("reset offscreen PGE WGPU renderer: {err}"))?;
+        // Keep one WGPU device and its prepared mesh/render-target caches for
+        // the whole trace. Creating a Vulkan device per source frame exhausts
+        // the driver during normal 380-frame recordings. The identical-state
+        // gate below still rejects a readback that does not stabilize.
         render_stable_capture_png(|| {
             let output = self
                 .renderer
@@ -1387,19 +1392,7 @@ fn render_capture_state_png_with_renderer(
         .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
     let expected_visual_keys = expected_visual_transform_keys(&dreams);
     validate_visual_transform_keys(capture_frame, &expected_visual_keys)?;
-    let labels = capture_frame
-        .overlays
-        .labels
-        .iter()
-        .map(|label| {
-            RobotDreamsPgeTextLabel::overlay_with_color(
-                label.id.clone(),
-                label.text.clone(),
-                label.row,
-                label.color,
-            )
-        })
-        .collect::<Vec<_>>();
+    let labels = capture_labels(capture_frame, &state.camera);
     let mut options = RobotDreamsPgeFrameOptions::default();
     options.resolution = state.camera.resolution;
     options.text_labels = labels.clone();
@@ -1410,45 +1403,49 @@ fn render_capture_state_png_with_renderer(
     for (entity, transform) in &capture_frame.visual_transforms {
         set_world_node_transform(&mut pge_frame.world, &index, entity, *transform);
     }
-    let debug_markers = capture_frame
-        .overlays
-        .debug_markers
-        .iter()
-        .map(|marker| CoordinateDebugMarkerPositions {
-            robot_id: marker.robot_id.clone(),
-            floor_z: marker.floor_z,
-            current_tcp: marker.current_tcp,
-            target_tcp: marker.target_tcp,
-        })
-        .collect::<Vec<_>>();
-    sync_tcp_debug_markers(&mut pge_frame.world, &debug_markers, &index);
-    let controller_arm_chain = capture_frame
-        .overlays
-        .controller_arm_world_m
-        .map(|points_world_m| ControllerArmChain { points_world_m });
-    sync_controller_arm_overlay(&mut pge_frame.world, controller_arm_chain.as_ref(), &index);
-    if let (Some(world_from_base), Some(base_from_arm_base)) = (
-        capture_frame.overlays.world_from_base,
-        capture_frame.overlays.base_from_arm_base,
-    ) {
-        sync_debug_frame_roots(
-            &mut pge_frame.world,
-            SimulationFrameTransforms {
-                world_from_base: rigid_transform_from_capture(world_from_base),
-                base_from_arm_base: rigid_transform_from_capture(base_from_arm_base),
-            },
-            &index,
-        );
+    if state.camera.source != WRIST_CAMERA_ID {
+        let debug_markers = capture_frame
+            .overlays
+            .debug_markers
+            .iter()
+            .map(|marker| CoordinateDebugMarkerPositions {
+                robot_id: marker.robot_id.clone(),
+                floor_z: marker.floor_z,
+                current_tcp: marker.current_tcp,
+                target_tcp: marker.target_tcp,
+            })
+            .collect::<Vec<_>>();
+        sync_tcp_debug_markers(&mut pge_frame.world, &debug_markers, &index);
+        let controller_arm_chain = capture_frame
+            .overlays
+            .controller_arm_world_m
+            .map(|points_world_m| ControllerArmChain { points_world_m });
+        sync_controller_arm_overlay(&mut pge_frame.world, controller_arm_chain.as_ref(), &index);
+        if let (Some(world_from_base), Some(base_from_arm_base)) = (
+            capture_frame.overlays.world_from_base,
+            capture_frame.overlays.base_from_arm_base,
+        ) {
+            sync_debug_frame_roots(
+                &mut pge_frame.world,
+                SimulationFrameTransforms {
+                    world_from_base: rigid_transform_from_capture(world_from_base),
+                    base_from_arm_base: rigid_transform_from_capture(base_from_arm_base),
+                },
+                &index,
+            );
+        }
     }
     let mut all_labels = labels;
-    let legend_row_start = all_labels.len();
-    all_labels.extend(coordinate_debug_legend_labels(legend_row_start));
-    all_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
-        "controller_arm_legend",
-        CONTROLLER_ARM_LEGEND,
-        all_labels.len(),
-        [1.0, 0.2, 0.9, 1.0],
-    ));
+    if state.camera.source != WRIST_CAMERA_ID {
+        let legend_row_start = all_labels.len();
+        all_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        all_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+            "controller_arm_legend",
+            CONTROLLER_ARM_LEGEND,
+            all_labels.len(),
+            [1.0, 0.2, 0.9, 1.0],
+        ));
+    }
     pge_frame.world.text_labels = all_labels.into_iter().map(pge_text_label).collect();
     set_world_camera_transform(
         &mut pge_frame.world,
@@ -1477,6 +1474,25 @@ fn render_capture_state_png_with_renderer(
         .next()
         .map(|frame| frame.bytes)
         .ok_or_else(|| "offscreen PGE renderer returned no PNG frame".to_string())
+}
+
+fn capture_labels(frame: &CaptureFrame, camera: &CaptureCamera) -> Vec<RobotDreamsPgeTextLabel> {
+    if camera.source == WRIST_CAMERA_ID {
+        return Vec::new();
+    }
+    frame
+        .overlays
+        .labels
+        .iter()
+        .map(|label| {
+            RobotDreamsPgeTextLabel::overlay_with_color(
+                label.id.clone(),
+                label.text.clone(),
+                label.row,
+                label.color,
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn save_capture_state_screenshot(
@@ -1930,6 +1946,30 @@ impl SimulatedPreview {
         Ok(Arc::clone(&published.capture_state))
     }
 
+    pub(crate) fn capture_state_for_view(
+        &self,
+        view: CaptureCameraView,
+    ) -> Result<Arc<CaptureStateV1>, String> {
+        let published = self
+            .published
+            .lock()
+            .map_err(|_| "simulation published preview lock poisoned")?;
+        match view {
+            CaptureCameraView::External => Ok(Arc::clone(&published.capture_state)),
+            CaptureCameraView::Tcp => {
+                let wrist_camera = published.snapshot.wrist_camera.ok_or_else(|| {
+                    format!("RobotDreams project has no usable {WRIST_CAMERA_ID}")
+                })?;
+                let camera = capture_camera_from_project_camera(wrist_camera, WRIST_CAMERA_ID);
+                Ok(published_capture_state(
+                    &self.project,
+                    &camera,
+                    &published.snapshot,
+                ))
+            }
+        }
+    }
+
     pub(crate) fn project_path(&self) -> &Path {
         &self.project_path
     }
@@ -2276,6 +2316,7 @@ struct PreviewCameraTransform {
 fn capture_camera_from_screenshot(camera: ScreenshotCamera) -> CaptureCamera {
     let transform = screenshot_camera_transform(camera);
     CaptureCamera {
+        source: CaptureCameraView::External.source().to_string(),
         target_m: camera.target,
         eye_m: transform.translation,
         rotation_matrix: transform.rotation_matrix,
@@ -2301,6 +2342,7 @@ fn capture_camera_from_orbit(
     ];
     let radius_m = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
     CaptureCamera {
+        source: CaptureCameraView::External.source().to_string(),
         target_m,
         eye_m: transform.translation,
         rotation_matrix: transform.rotation_matrix,
@@ -2310,6 +2352,31 @@ fn capture_camera_from_orbit(
         fov_deg: CAPTURE_FOV_DEG,
         projection: "perspective".to_string(),
         resolution,
+    }
+}
+
+fn capture_camera_from_project_camera(camera: ProjectCameraPose, source: &str) -> CaptureCamera {
+    let forward = [
+        camera.transform.rotation_matrix[0][0],
+        camera.transform.rotation_matrix[1][0],
+        camera.transform.rotation_matrix[2][0],
+    ];
+    let target_m = [
+        camera.transform.translation[0] + forward[0],
+        camera.transform.translation[1] + forward[1],
+        camera.transform.translation[2] + forward[2],
+    ];
+    CaptureCamera {
+        source: source.to_string(),
+        target_m,
+        eye_m: camera.transform.translation,
+        rotation_matrix: camera.transform.rotation_matrix,
+        radius_m: 1.0,
+        azimuth_deg: forward[1].atan2(forward[0]).to_degrees(),
+        elevation_deg: forward[2].clamp(-1.0, 1.0).asin().to_degrees(),
+        fov_deg: camera.fov_deg,
+        projection: "perspective".to_string(),
+        resolution: camera.resolution,
     }
 }
 
@@ -4127,6 +4194,15 @@ mod tests {
             SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
                 .expect("simulated backend");
         let first = backend.preview().capture_state().expect("capture state");
+        assert_eq!(first.camera.source, "external");
+        let tcp = backend
+            .preview()
+            .capture_state_for_view(CaptureCameraView::Tcp)
+            .expect("TCP camera capture state");
+        assert_eq!(tcp.camera.source, WRIST_CAMERA_ID);
+        assert_eq!(tcp.camera.resolution, [640, 480]);
+        assert!((tcp.camera.fov_deg - 70.0).abs() <= f32::EPSILON);
+        assert_ne!(tcp.camera.eye_m, first.camera.eye_m);
         let encoded = serde_json::to_vec(first.as_ref()).expect("encode capture state");
         let decoded: CaptureStateV1 =
             serde_json::from_slice(&encoded).expect("decode capture state");

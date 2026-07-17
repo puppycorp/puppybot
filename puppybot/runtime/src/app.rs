@@ -28,7 +28,7 @@ use crate::{
     dc_motor_driver::DCMotorDriver,
     env::wgui_bind_addr,
     http, mdns,
-    sim::{SimulatedPreview, SimulatedRuntimeBackend, TcpCameraJogDirection},
+    sim::{CaptureCameraView, SimulatedPreview, SimulatedRuntimeBackend, TcpCameraJogDirection},
     stservo::{self, RuntimeStServo},
 };
 
@@ -853,8 +853,9 @@ impl App {
         self.refresh_held_joint_jog(now_ms);
         self.refresh_held_tcp_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
-        if let Some(preview) = self.simulated_preview()
-            && let Ok(state) = preview.capture_state()
+        if let Some(view) = self.capture_manager.active_recording_view()
+            && let Some(preview) = self.simulated_preview()
+            && let Ok(state) = preview.capture_state_for_view(view)
         {
             self.capture_manager.sample_recording(state);
         }
@@ -1324,16 +1325,30 @@ impl App {
                     .ok_or_else(|| ApiError::bad_request("frames must be a positive integer"))?;
                 let frames = u32::try_from(frames)
                     .map_err(|_| ApiError::bad_request("frames exceeds supported range"))?;
-                if request
-                    .as_object()
-                    .is_some_and(|object| object.keys().any(|key| key != "frames"))
-                {
+                let view = match request.get("camera") {
+                    None => CaptureCameraView::External,
+                    Some(value) if value.as_str() == Some("external") => {
+                        CaptureCameraView::External
+                    }
+                    Some(value) if value.as_str() == Some("tcp") => CaptureCameraView::Tcp,
+                    Some(_) => {
+                        return Err(ApiError::bad_request(
+                            "camera must be either external or tcp",
+                        ));
+                    }
+                };
+                if request.as_object().is_some_and(|object| {
+                    object.keys().any(|key| key != "frames" && key != "camera")
+                }) {
                     return Err(ApiError::bad_request(
-                        "record request accepts only the frames field",
+                        "record request accepts only the frames and camera fields",
                     ));
                 }
+                preview
+                    .capture_state_for_view(view)
+                    .map_err(ApiError::conflict)?;
                 self.capture_manager
-                    .begin_recording(project_path, frames)
+                    .begin_recording(project_path, frames, view)
                     .map_err(api_capture_failure)?
             }
             _ => return Err(ApiError::not_found("unknown capture endpoint")),
@@ -4251,9 +4266,22 @@ mod tests {
         let response =
             app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":501}"#);
         assert_eq!(response.status, "400 Bad Request");
-        let response =
-            app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/sim/captures/record",
+            br#"{"frames":2,"camera":"unknown"}"#,
+        );
+        assert_eq!(response.status, "400 Bad Request");
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/sim/captures/record",
+            br#"{"frames":2,"camera":"tcp"}"#,
+        );
         assert_eq!(response.status, "202 Accepted");
+        let body = response_json(response);
+        let status_url = body["job"]["status"].as_str().expect("record status url");
+        let response = app.handle_api_request(b"GET", status_url.as_bytes(), b"");
+        assert_eq!(response_json(response)["job"]["camera"], "wrist_camera");
         let response =
             app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
         assert_eq!(response.status, "429 Too Many Requests");

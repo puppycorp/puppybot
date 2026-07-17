@@ -118,6 +118,19 @@ fn puppybot_robotdreams_project_resolves_owned_model_and_assets() {
         project.base_dir.join(asset).exists(),
         "missing scene asset: {asset}"
     );
+
+    let wrist_camera = project
+        .scene
+        .cameras
+        .iter()
+        .find(|camera| camera.id == "wrist_camera")
+        .expect("wrist camera");
+    assert_eq!(wrist_camera.mounted_robot, "puppybot");
+    assert_eq!(wrist_camera.mounted_link, "part_1_4");
+    assert_eq!(wrist_camera.position, [0.12, 0.0, 0.08]);
+    assert_eq!(wrist_camera.rotation, [0.0, 0.0, 3.1415927]);
+    assert_eq!(wrist_camera.resolution, Some([640, 480]));
+    assert_eq!(wrist_camera.fov_deg, 70.0);
 }
 
 #[test]

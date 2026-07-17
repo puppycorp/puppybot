@@ -10,8 +10,8 @@ use std::{
 };
 
 use crate::sim::{
-    CaptureStateV1, CaptureTraceV1, capture_trace_from_states, render_capture_state_png,
-    render_capture_trace_mp4,
+    CaptureCameraView, CaptureStateV1, CaptureTraceV1, capture_trace_from_states,
+    render_capture_state_png, render_capture_trace_mp4,
 };
 
 pub(crate) const MAX_SCREENSHOT_QUEUE: usize = 4;
@@ -38,6 +38,7 @@ struct CaptureStore {
 struct ActiveRecording {
     id: String,
     project_path: PathBuf,
+    view: CaptureCameraView,
     target_frames: u32,
     samples: Vec<Arc<CaptureStateV1>>,
 }
@@ -45,6 +46,7 @@ struct ActiveRecording {
 struct CaptureJob {
     id: String,
     kind: &'static str,
+    camera_source: String,
     status: &'static str,
     created_at_ms: u64,
     updated_at_ms: u64,
@@ -189,6 +191,7 @@ impl CaptureManager {
             store.jobs.push_back(CaptureJob {
                 id: id.clone(),
                 kind: "screenshot",
+                camera_source: state.camera.source.clone(),
                 status: "queued",
                 created_at_ms: now,
                 updated_at_ms: now,
@@ -225,6 +228,7 @@ impl CaptureManager {
         &self,
         project_path: PathBuf,
         frames: u32,
+        view: CaptureCameraView,
     ) -> Result<serde_json::Value, CaptureFailure> {
         if frames == 0 || frames > MAX_RECORDING_FRAMES {
             return Err(CaptureFailure {
@@ -245,6 +249,7 @@ impl CaptureManager {
         store.jobs.push_back(CaptureJob {
             id: id.clone(),
             kind: "record",
+            camera_source: view.source().to_string(),
             status: "capturing",
             created_at_ms: now,
             updated_at_ms: now,
@@ -256,10 +261,18 @@ impl CaptureManager {
         store.active_recording = Some(ActiveRecording {
             id: id.clone(),
             project_path,
+            view,
             target_frames: frames,
             samples: Vec::with_capacity(frames as usize),
         });
         Ok(job_urls(&id))
+    }
+
+    pub(crate) fn active_recording_view(&self) -> Option<CaptureCameraView> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|store| store.active_recording.as_ref().map(|active| active.view))
     }
 
     pub(crate) fn sample_recording(&self, state: Arc<CaptureStateV1>) {
@@ -326,6 +339,7 @@ impl CaptureManager {
         Ok(serde_json::json!({
             "id": job.id,
             "kind": job.kind,
+            "camera": job.camera_source,
             "status": job.status,
             "createdAtMs": job.created_at_ms,
             "updatedAtMs": job.updated_at_ms,

@@ -121,7 +121,7 @@
           "robot": "puppybot",
           "link": "part_1_4"
         },
-        "position": [0.0, 0.0, -0.2],
+        "position": [0.12, 0.0, 0.08],
         "rotation": [0.0, 0.0, 3.14159265],
         "fov": 70.0,
         "rate": "30 Hz",

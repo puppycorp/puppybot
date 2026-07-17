@@ -36,6 +36,21 @@ run:
 python3 scenarios/place_ball_to_bin.py --recording-dir workdir/recordings/place-ball-to-bin-001
 ```
 
+Record the same deterministic task from the moving TCP camera with a clean
+sensor view (no simulator diagnostic overlays):
+
+```sh
+python3 scenarios/place_ball_to_bin.py \
+  --recording-dir workdir/recordings/place-ball-to-bin-tcp-001 \
+  --capture-camera tcp
+```
+
+TCP-camera runs write `tcp-camera.mp4` and
+`tcp-camera-capture-trace.json` so they cannot be mistaken for the default
+external-camera evidence. The trace identifies every frame's camera source,
+pose, FOV, and resolution; validation requires the requested source on every
+frame and audits decoded RGB at the source camera's aspect ratio.
+
 The runner refuses an existing non-empty recording directory before starting
 the runtime or writing any artifact. Use a new directory for every invocation
 so logs and capture-job evidence cannot be mixed across runs.

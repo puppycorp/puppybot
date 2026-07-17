@@ -29,6 +29,8 @@ VISUAL_AUDIT_NEAR_BLACK_MAX = 8
 VISUAL_AUDIT_MAX_NEAR_BLACK_FRACTION = 0.05
 VISUAL_AUDIT_MIN_MEAN_CHANNEL = 25.0
 VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA = 15.0
+TCP_VISUAL_AUDIT_MIN_MEAN_CHANNEL = 10.0
+TCP_VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA = 35.0
 WAYPOINTS = {
     "pre_pick": [230.0, -90.0, 80.0],
     "pick": [230.0, -90.0, -34.0],
@@ -168,15 +170,20 @@ def manipulation(state: dict) -> dict:
     return value
 
 
-def trace_proof(trace_path: Path) -> dict:
+def trace_proof(trace_path: Path, capture_camera: str) -> dict:
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     frames = trace.get("frames")
     if not isinstance(frames, list) or not frames:
         raise RuntimeError("capture trace contains no frames")
     samples: list[dict] = []
+    cameras: list[dict] = []
     transforms_present = True
     transform_matches_state = True
     for index, sample in enumerate(frames):
+        camera = sample.get("camera")
+        if not isinstance(camera, dict):
+            raise RuntimeError(f"capture frame {index} has no camera state")
+        cameras.append(camera)
         frame = sample.get("frame", {})
         state = frame.get("manipulation")
         if not isinstance(state, dict):
@@ -228,6 +235,31 @@ def trace_proof(trace_path: Path) -> dict:
         for sample in samples
         if isinstance(sample["state"].get("lastAction"), dict)
     }
+    expected_camera_source = "wrist_camera" if capture_camera == "tcp" else "external"
+    camera_sources = {camera.get("source") for camera in cameras}
+    camera_positions = [camera.get("eyeM") for camera in cameras]
+    if any(not isinstance(position, list) or len(position) != 3 for position in camera_positions):
+        raise RuntimeError("capture trace contains an invalid camera position")
+    camera_motion_m = max(
+        math.dist(camera_positions[0], position) for position in camera_positions
+    )
+    camera_pov_proof = {
+        "requested": capture_camera,
+        "expectedSource": expected_camera_source,
+        "sources": sorted(str(source) for source in camera_sources),
+        "resolution": cameras[0].get("resolution"),
+        "fovDeg": cameras[0].get("fovDeg"),
+        "motionM": camera_motion_m,
+    }
+    camera_pov_proof["success"] = (
+        camera_sources == {expected_camera_source}
+        and all(camera.get("resolution") == cameras[0].get("resolution") for camera in cameras)
+        and (capture_camera != "tcp" or (
+            cameras[0].get("resolution") == [640, 480]
+            and abs(float(cameras[0].get("fovDeg", 0.0)) - 70.0) <= 1.0e-5
+            and camera_motion_m >= 0.05
+        ))
+    )
     proof = {
         "frameCount": len(samples),
         "firstAttachedFrame": first_attached,
@@ -238,6 +270,7 @@ def trace_proof(trace_path: Path) -> dict:
         "ballTransformPresentEveryFrame": transforms_present,
         "ballTransformMatchesManipulationState": transform_matches_state,
         "interactActionSequences": sorted(value for value in action_sequences if isinstance(value, int)),
+        "cameraPov": camera_pov_proof,
     }
     proof["success"] = (
         carry_distance_m >= 0.10
@@ -246,14 +279,22 @@ def trace_proof(trace_path: Path) -> dict:
         and transforms_present
         and transform_matches_state
         and {1, 2}.issubset(action_sequences)
+        and camera_pov_proof["success"]
     )
     if not proof["success"]:
         raise RuntimeError(f"capture trace proof failed: {proof}")
     return proof
 
 
-def decoded_frame_quality(raw_path: Path, expected_frames: int) -> dict:
-    pixels_per_frame = VISUAL_AUDIT_WIDTH * VISUAL_AUDIT_HEIGHT
+def decoded_frame_quality(
+    raw_path: Path,
+    expected_frames: int,
+    audit_resolution: list[int],
+    minimum_mean_channel: float,
+    maximum_adjacent_mean_delta: float,
+) -> dict:
+    audit_width, audit_height = audit_resolution
+    pixels_per_frame = audit_width * audit_height
     bytes_per_frame = pixels_per_frame * 3
     byte_count = raw_path.stat().st_size
     decoded_frames, trailing_bytes = divmod(byte_count, bytes_per_frame)
@@ -275,7 +316,7 @@ def decoded_frame_quality(raw_path: Path, expected_frames: int) -> dict:
             means.append(mean_channel)
             near_black_fractions.append(near_black_fraction)
             if (
-                mean_channel < VISUAL_AUDIT_MIN_MEAN_CHANNEL
+                mean_channel < minimum_mean_channel
                 or near_black_fraction > VISUAL_AUDIT_MAX_NEAR_BLACK_FRACTION
             ):
                 incomplete_frames.append(frame_index)
@@ -286,18 +327,18 @@ def decoded_frame_quality(raw_path: Path, expected_frames: int) -> dict:
     abrupt_frames = [
         frame_index
         for frame_index, delta in enumerate(adjacent_deltas, start=1)
-        if delta > VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA
+        if delta > maximum_adjacent_mean_delta
     ]
     proof = {
-        "auditResolution": [VISUAL_AUDIT_WIDTH, VISUAL_AUDIT_HEIGHT],
+        "auditResolution": audit_resolution,
         "expectedFrameCount": expected_frames,
         "decodedFrameCount": decoded_frames,
         "decodedByteCount": byte_count,
         "trailingBytes": trailing_bytes,
         "nearBlackChannelMaximum": VISUAL_AUDIT_NEAR_BLACK_MAX,
         "maximumAllowedNearBlackFraction": VISUAL_AUDIT_MAX_NEAR_BLACK_FRACTION,
-        "minimumAllowedMeanChannel": VISUAL_AUDIT_MIN_MEAN_CHANNEL,
-        "maximumAllowedAdjacentMeanDelta": VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA,
+        "minimumAllowedMeanChannel": minimum_mean_channel,
+        "maximumAllowedAdjacentMeanDelta": maximum_adjacent_mean_delta,
         "minimumMeanChannel": min(means) if means else None,
         "maximumMeanChannel": max(means) if means else None,
         "maximumNearBlackFraction": max(near_black_fractions)
@@ -326,7 +367,26 @@ def decoded_frame_quality(raw_path: Path, expected_frames: int) -> dict:
     return proof
 
 
-def video_proof(video_path: Path, expected_frames: int) -> dict:
+def video_proof(
+    video_path: Path,
+    expected_frames: int,
+    source_resolution: list[int],
+    capture_camera: str,
+) -> dict:
+    source_width, source_height = source_resolution
+    audit_width = VISUAL_AUDIT_WIDTH
+    audit_height = round(audit_width * source_height / source_width)
+    audit_resolution = [audit_width, audit_height]
+    minimum_mean_channel = (
+        TCP_VISUAL_AUDIT_MIN_MEAN_CHANNEL
+        if capture_camera == "tcp"
+        else VISUAL_AUDIT_MIN_MEAN_CHANNEL
+    )
+    maximum_adjacent_mean_delta = (
+        TCP_VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA
+        if capture_camera == "tcp"
+        else VISUAL_AUDIT_MAX_ADJACENT_MEAN_DELTA
+    )
     discover = subprocess.run(
         ["gst-discoverer-1.0", str(video_path)],
         text=True,
@@ -335,7 +395,7 @@ def video_proof(video_path: Path, expected_frames: int) -> dict:
     )
     discover_output = discover.stdout + discover.stderr
     with tempfile.TemporaryDirectory(prefix="puppybot-video-audit-") as audit_dir:
-        raw_path = Path(audit_dir) / "decoded-240x135.rgb"
+        raw_path = Path(audit_dir) / f"decoded-{audit_width}x{audit_height}.rgb"
         decode_command = [
             "gst-launch-1.0",
             "-q",
@@ -354,7 +414,7 @@ def video_proof(video_path: Path, expected_frames: int) -> dict:
             "!",
             (
                 "video/x-raw,format=RGB,"
-                f"width={VISUAL_AUDIT_WIDTH},height={VISUAL_AUDIT_HEIGHT},"
+                f"width={audit_width},height={audit_height},"
                 "pixel-aspect-ratio=1/1"
             ),
             "!",
@@ -368,7 +428,13 @@ def video_proof(video_path: Path, expected_frames: int) -> dict:
             timeout=30.0,
         )
         quality = (
-            decoded_frame_quality(raw_path, expected_frames)
+            decoded_frame_quality(
+                raw_path,
+                expected_frames,
+                audit_resolution,
+                minimum_mean_channel,
+                maximum_adjacent_mean_delta,
+            )
             if decode.returncode == 0 and raw_path.exists()
             else {"success": False, "error": "decoded RGB audit artifact was not produced"}
         )
@@ -396,7 +462,7 @@ def video_proof(video_path: Path, expected_frames: int) -> dict:
     return proof
 
 
-def run_demo(api: RuntimeApi, capture_frames: int) -> tuple[dict, dict]:
+def run_demo(api: RuntimeApi, capture_frames: int, capture_camera: str) -> tuple[dict, dict]:
     initial = api.state("initial")
     initial_manipulation = manipulation(initial)
     if initial_manipulation.get("simulationOnly") is not True:
@@ -413,7 +479,10 @@ def run_demo(api: RuntimeApi, capture_frames: int) -> tuple[dict, dict]:
     if not rejected_far:
         raise RuntimeError("Interact incorrectly attached the ball while TCP was far away")
 
-    capture = api.post("/api/sim/captures/record", {"frames": capture_frames})["job"]
+    capture = api.post(
+        "/api/sim/captures/record",
+        {"frames": capture_frames, "camera": capture_camera},
+    )["job"]
     api.move("pick")
     pickup_ball = manipulation(api.state("pickup-aligned"))["ball"]
     if float(pickup_ball.get("tcpDistanceM", 1.0)) > 0.007:
@@ -467,6 +536,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ui-addr", default=DEFAULT_UI_ADDR)
     parser.add_argument("--ws-addr", default=DEFAULT_WS_ADDR)
     parser.add_argument("--capture-frames", type=int, default=DEFAULT_CAPTURE_FRAMES)
+    parser.add_argument("--capture-camera", choices=("external", "tcp"), default="external")
     return parser.parse_args()
 
 
@@ -497,8 +567,11 @@ def main() -> int:
     runtime_log_path = args.artifacts / "runtime.log"
     run_path = args.artifacts / "run.json"
     validation_path = args.artifacts / "validation.json"
-    video_path = args.artifacts / "run.mp4"
-    trace_path = args.artifacts / "capture-trace.json"
+    tcp_capture = args.capture_camera == "tcp"
+    video_path = args.artifacts / ("tcp-camera.mp4" if tcp_capture else "run.mp4")
+    trace_path = args.artifacts / (
+        "tcp-camera-capture-trace.json" if tcp_capture else "capture-trace.json"
+    )
     final_state_path = args.artifacts / "final-state.json"
     started_ms = time.time_ns() // 1_000_000
     run = {
@@ -509,6 +582,7 @@ def main() -> int:
         "waypointsArmBaseMm": WAYPOINTS,
         "action": "Interact",
         "simulationOnly": True,
+        "captureCamera": args.capture_camera,
     }
     write_json(run_path, run)
     env = os.environ.copy()
@@ -532,11 +606,16 @@ def main() -> int:
     video_evidence: dict = {}
     try:
         wait_ready(api, process)
-        final, capture = run_demo(api, args.capture_frames)
+        final, capture = run_demo(api, args.capture_frames, args.capture_camera)
         download(api, capture["job"]["state"], trace_path)
         download(api, capture["job"]["artifact"], video_path)
-        trace_evidence = trace_proof(trace_path)
-        video_evidence = video_proof(video_path, int(trace_evidence["frameCount"]))
+        trace_evidence = trace_proof(trace_path, args.capture_camera)
+        video_evidence = video_proof(
+            video_path,
+            int(trace_evidence["frameCount"]),
+            trace_evidence["cameraPov"]["resolution"],
+            args.capture_camera,
+        )
         write_json(final_state_path, final)
     except Exception as exception:
         error = str(exception)
@@ -555,6 +634,8 @@ def main() -> int:
     capture_job_complete = (
         isinstance(capture_job.get("id"), str)
         and capture_job.get("status") == "complete"
+        and capture_job.get("camera")
+        == ("wrist_camera" if tcp_capture else "external")
     )
     success = (
         error is None
@@ -586,6 +667,9 @@ def main() -> int:
             "videoPresent": video_path.exists() and video_path.stat().st_size > 0,
             "captureJobCompleted": capture_job_complete,
             "captureTraceProvesOrderedPhysicsTask": trace_evidence.get("success") is True,
+            "captureUsesRequestedCameraPov": (
+                trace_evidence.get("cameraPov", {}).get("success") is True
+            ),
             "videoIsPlayableH264": video_evidence.get("success") is True,
             "runtimeExited": process.poll() is not None,
         },
