@@ -13,7 +13,7 @@ use puppybot_core::{
     puppyarm::{
         kinematics::{self, IkError},
         servo_safety::TICK_WRAP,
-        types::{ArmCommand, ControllerError, JOINT_COUNT, Joint, TcpFrame},
+        types::{ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, TcpFrame},
     },
     robot::Puppybot,
 };
@@ -86,8 +86,6 @@ const EDIT_COORDINATE_Y_ID: u32 = 501;
 const EDIT_COORDINATE_Z_ID: u32 = 502;
 const SET_COORDINATES_CURRENT_ID: u32 = 503;
 const MOVE_TO_COORDINATES_ID: u32 = 504;
-const SET_COORDINATE_FRAME_BASE_ID: u32 = 505;
-const SET_COORDINATE_FRAME_YAW_FLAT_ID: u32 = 506;
 const FLIP_COORDINATE_FORWARD_AXIS_ID: u32 = 507;
 const FLIP_COORDINATE_LEFT_AXIS_ID: u32 = 508;
 const ROTATE_COORDINATE_BASE_FRAME_ID: u32 = 509;
@@ -509,13 +507,6 @@ fn frame_label(frame: TcpFrame) -> &'static str {
     }
 }
 
-fn coordinate_jog_frame_label(frame: TcpFrame) -> &'static str {
-    match frame {
-        TcpFrame::Base => "Arm Base",
-        frame => frame_label(frame),
-    }
-}
-
 fn rigid_transform_json(
     transform: robotdreams_core::RigidTransform,
     from_frame: &str,
@@ -634,7 +625,6 @@ pub struct App {
     last_render_at: Instant,
     telemetry_seq: u32,
     tcp_frame: TcpFrame,
-    coordinate_frame: TcpFrame,
     limit_editor_joint: Option<usize>,
     limit_editor_min: String,
     limit_editor_max: String,
@@ -790,7 +780,6 @@ impl App {
             last_render_at: started_at,
             telemetry_seq: 0,
             tcp_frame: TcpFrame::Base,
-            coordinate_frame: TcpFrame::YawFlat,
             limit_editor_joint: None,
             limit_editor_min: String::new(),
             limit_editor_max: String::new(),
@@ -1103,7 +1092,7 @@ impl App {
             },
             "sim": sim,
             "ui": {
-                "coordinateFrame": frame_label(self.coordinate_frame),
+                "coordinateFrame": "Robot Base",
                 "absoluteCoordinateFrame": "Arm Base",
                 "tcpFrame": frame_label(self.tcp_frame),
                 "armSpeed": self.arm_speed.parse::<i16>().ok(),
@@ -1503,16 +1492,9 @@ impl App {
                 self.set_tcp_frame(frame);
                 Ok(())
             }
-            ["api", "arm", "coordinate-frame"] => {
-                let frame = Self::api_frame(&json, "frame")?;
-                if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
-                    return Err(ApiError::bad_request(
-                        "coordinate frame must be base or yawFlat",
-                    ));
-                }
-                self.set_coordinate_frame(frame);
-                Ok(())
-            }
+            ["api", "arm", "coordinate-frame"] => Err(ApiError::bad_request(
+                "Coordinate Move is always robot-base relative; no jog frame can be selected",
+            )),
             ["api", "arm", "tcp-jog", "start"] => self.api_tcp_jog_start(&json),
             ["api", "arm", "coordinate-jog", "start"] => self.api_coordinate_jog_start(&json),
             ["api", "arm", "tcp-jog", "stop"] => self
@@ -1628,9 +1610,9 @@ impl App {
 
     fn api_coordinate_jog_start(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
         let frame = Self::api_frame(json, "frame")?;
-        if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
+        if frame != TcpFrame::Base {
             return Err(ApiError::bad_request(
-                "coordinate jog frame must be base or yawFlat",
+                "coordinate jog frame must be base/armBase; directions are robot-base relative",
             ));
         }
         let direction = match Self::json_str(json, "direction")? {
@@ -1648,7 +1630,7 @@ impl App {
                 ));
             }
         };
-        self.start_tcp_jog("http coordinate jog", frame, direction)
+        self.start_tcp_jog("http coordinate jog", TcpFrame::Base, direction)
             .map_err(|err| ApiError::bad_request(format!("coordinate jog rejected: {err:?}")))
     }
 
@@ -2061,29 +2043,18 @@ impl App {
             title_text("Arm Base (mm)"),
             label_text(&coordinate_detail).break_words(true),
             hstack(vec![
-                label_text("Jog Frame").min_width(72),
-                frame_button(
-                    "Arm Base",
-                    self.coordinate_frame == TcpFrame::Base,
-                    SET_COORDINATE_FRAME_BASE_ID,
-                    92,
-                ),
-                frame_button(
-                    "Yaw-flat",
-                    self.coordinate_frame == TcpFrame::YawFlat,
-                    SET_COORDINATE_FRAME_YAW_FLAT_ID,
-                    96,
-                ),
-                title_text(coordinate_jog_frame_label(self.coordinate_frame)).min_width(76),
-                label_text(frame_detail(self.coordinate_frame))
-                    .grow(1)
-                    .break_words(true),
+                title_text("Robot-relative jog").min_width(128),
+                label_text(
+                    "Forward/back/left/right follow PuppyBot's body, not the camera or arm yaw.",
+                )
+                .grow(1)
+                .break_words(true),
             ])
             .spacing(8)
             .wrap(true),
             hstack(vec![
                 label_text(&format!(
-                    "forward sign {}, left sign {}, base rotation {:.0} deg",
+                    "robot to arm-base calibration: forward sign {}, left sign {}, yaw {:.1} deg",
                     coordinate_calibration.forward_sign,
                     coordinate_calibration.left_sign,
                     coordinate_calibration.base_yaw_offset_deg
@@ -2858,6 +2829,9 @@ impl App {
     }
 
     fn coordinate_jog_direction(&self, dx: f64, dy: f64, dz_table: f64) -> [f64; 3] {
+        // Coordinate Move uses PuppyBot body axes (+X forward, +Y left, +Z up).
+        // The controller consumes arm-base vectors, so the calibrated robot-to-arm
+        // mount transform is applied exactly once before issuing an immutable Base jog.
         let (dx, dy) = rotate_xy_deg(dx, dy, self.coordinate_base_yaw_offset_deg());
         [dx, dy, dz_table]
     }
@@ -2879,9 +2853,15 @@ impl App {
             );
         }
         self.arm(label, ArmCommand::StartTcpJog { frame, direction })?;
+        let (refresh_frame, refresh_direction) = match self.robot.arm.mode() {
+            ArmMode::TcpJogging {
+                frame, direction, ..
+            } => (frame, direction),
+            _ => (frame, direction),
+        };
         self.held_tcp_jog = Some(HeldTcpJog {
-            frame,
-            direction,
+            frame: refresh_frame,
+            direction: refresh_direction,
             last_refresh_ms: self.now_ms(),
         });
         Ok(())
@@ -3143,16 +3123,6 @@ impl App {
         self.mark_ui_dirty();
     }
 
-    fn set_coordinate_frame(&mut self, frame: TcpFrame) {
-        if !matches!(frame, TcpFrame::Base | TcpFrame::YawFlat) {
-            return;
-        }
-        self.coordinate_frame = frame;
-        self.last_command = format!("set coordinate frame {}", frame_label(frame).to_lowercase());
-        log::info!("runtime App command: {}", self.last_command);
-        self.mark_ui_dirty();
-    }
-
     fn set_coordinates_current(&mut self) {
         if let Some((x, y, z)) = self.robot.arm.coords_mm() {
             self.coordinate_x = format!("{x:.1}");
@@ -3312,8 +3282,6 @@ impl App {
             CLOSE_COORDINATE_PREVIEW_ID => {
                 self.coordinate_preview_open = false;
             }
-            SET_COORDINATE_FRAME_BASE_ID => self.set_coordinate_frame(TcpFrame::Base),
-            SET_COORDINATE_FRAME_YAW_FLAT_ID => self.set_coordinate_frame(TcpFrame::YawFlat),
             FLIP_COORDINATE_FORWARD_AXIS_ID => self.flip_coordinate_forward_axis(),
             FLIP_COORDINATE_LEFT_AXIS_ID => self.flip_coordinate_left_axis(),
             ROTATE_COORDINATE_BASE_FRAME_ID => self.rotate_coordinate_base_frame(),
@@ -3367,29 +3335,28 @@ impl App {
             COORDINATE_FORWARD_ID => {
                 let direction =
                     self.coordinate_jog_direction(self.coordinate_forward_sign(), 0.0, 0.0);
-                let _ = self.start_tcp_jog("coordinate forward", self.coordinate_frame, direction);
+                let _ = self.start_tcp_jog("coordinate forward", TcpFrame::Base, direction);
             }
             COORDINATE_BACK_ID => {
                 let direction =
                     self.coordinate_jog_direction(-self.coordinate_forward_sign(), 0.0, 0.0);
-                let _ = self.start_tcp_jog("coordinate back", self.coordinate_frame, direction);
+                let _ = self.start_tcp_jog("coordinate back", TcpFrame::Base, direction);
             }
             COORDINATE_LEFT_ID => {
                 let direction =
                     self.coordinate_jog_direction(0.0, self.coordinate_left_sign(), 0.0);
-                let _ = self.start_tcp_jog("coordinate left", self.coordinate_frame, direction);
+                let _ = self.start_tcp_jog("coordinate left", TcpFrame::Base, direction);
             }
             COORDINATE_RIGHT_ID => {
                 let direction =
                     self.coordinate_jog_direction(0.0, -self.coordinate_left_sign(), 0.0);
-                let _ = self.start_tcp_jog("coordinate right", self.coordinate_frame, direction);
+                let _ = self.start_tcp_jog("coordinate right", TcpFrame::Base, direction);
             }
             COORDINATE_UP_ID => {
-                let _ = self.start_tcp_jog("coordinate up", self.coordinate_frame, [0.0, 0.0, 1.0]);
+                let _ = self.start_tcp_jog("coordinate up", TcpFrame::Base, [0.0, 0.0, 1.0]);
             }
             COORDINATE_DOWN_ID => {
-                let _ =
-                    self.start_tcp_jog("coordinate down", self.coordinate_frame, [0.0, 0.0, -1.0]);
+                let _ = self.start_tcp_jog("coordinate down", TcpFrame::Base, [0.0, 0.0, -1.0]);
             }
             _ => return false,
         }
@@ -3801,7 +3768,7 @@ mod tests {
         assert_eq!(state["sim"]["frames"]["baseFromArmBase"]["toFrame"], "base");
         assert!(state["sim"]["frames"]["worldFromBase"]["translationM"].is_array());
         assert!(state["sim"]["frames"]["baseFromArmBase"]["rotationMatrix"].is_array());
-        assert_eq!(state["ui"]["coordinateFrame"], "Yaw-flat");
+        assert_eq!(state["ui"]["coordinateFrame"], "Robot Base");
         assert_eq!(state["ui"]["absoluteCoordinateFrame"], "Arm Base");
     }
 
@@ -3815,6 +3782,85 @@ mod tests {
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
         .expect("simulated runtime app")
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1.0e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn project_body_vector_to_screen(
+        vector: [f64; 2],
+        screen_right: [f64; 2],
+        screen_up: [f64; 2],
+    ) -> [f64; 2] {
+        [
+            vector[0] * screen_right[0] + vector[1] * screen_right[1],
+            vector[0] * screen_up[0] + vector[1] * screen_up[1],
+        ]
+    }
+
+    #[tokio::test]
+    async fn coordinate_jog_calibration_maps_body_axes_through_arm_base_mount() {
+        let runtime_config = config::load_runtime_config(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json"),
+        )
+        .expect("load PuppyBot runtime config")
+        .expect("PuppyBot runtime config exists");
+        let model: serde_json::Value =
+            serde_json::from_str(include_str!("../../../models/puppybot/robotdreams.json"))
+                .expect("parse PuppyBot RobotDreams model profile");
+        assert_eq!(model["frameMapping"]["core"]["forwardAxis"], "x");
+        assert_eq!(model["frameMapping"]["core"]["leftAxis"], "y");
+        assert_eq!(model["frameMapping"]["core"]["upAxis"], "z");
+        let arm_base_yaw_rad = model["frames"]["armBase"]["rotation"][2]
+            .as_f64()
+            .expect("armBase yaw");
+
+        let mut app = test_app();
+        app.active_config.coordinate = runtime_config.coordinate;
+        let forward_arm = app.coordinate_jog_direction(1.0, 0.0, 0.0);
+        let left_arm = app.coordinate_jog_direction(0.0, 1.0, 0.0);
+        let (forward_body_x, forward_body_y) = rotate_xy_deg(
+            forward_arm[0],
+            forward_arm[1],
+            arm_base_yaw_rad.to_degrees(),
+        );
+        let (left_body_x, left_body_y) =
+            rotate_xy_deg(left_arm[0], left_arm[1], arm_base_yaw_rad.to_degrees());
+
+        // RobotDreams declares body +X forward and +Y left.  The controller
+        // arm-base vectors must transform back to precisely that basis.
+        assert_close(forward_body_x, 1.0);
+        assert_close(forward_body_y, 0.0);
+        assert_close(left_body_x, 0.0);
+        assert_close(left_body_y, 1.0);
+
+        // The same fixed body vectors have the intended screen projection in
+        // the supplied top and side/oblique views.  Camera motion cannot alter
+        // the body vectors that Coordinate Move sends to the controller.
+        let top_forward = project_body_vector_to_screen(
+            [forward_body_x, forward_body_y],
+            [0.0, -1.0],
+            [1.0, 0.0],
+        );
+        let top_left =
+            project_body_vector_to_screen([left_body_x, left_body_y], [0.0, -1.0], [1.0, 0.0]);
+        assert_close(top_forward[0], 0.0);
+        assert_close(top_forward[1], 1.0);
+        assert_close(top_left[0], -1.0);
+        assert_close(top_left[1], 0.0);
+
+        let oblique_forward =
+            project_body_vector_to_screen([forward_body_x, forward_body_y], [1.0, 0.0], [0.0, 1.0]);
+        let oblique_left =
+            project_body_vector_to_screen([left_body_x, left_body_y], [1.0, 0.0], [0.0, 1.0]);
+        assert_close(oblique_forward[0], 1.0);
+        assert_close(oblique_forward[1], 0.0);
+        assert_close(oblique_left[0], 0.0);
+        assert_close(oblique_left[1], 1.0);
     }
 
     fn assert_hold_event_contract(value: &serde_json::Value, press_count: &mut usize) {
@@ -4105,12 +4151,19 @@ mod tests {
         let response = app.handle_api_request(
             b"POST",
             b"/api/arm/coordinate-jog/start",
-            br#"{"direction":"up","frame":"yawFlat"}"#,
+            br#"{"direction":"up","frame":"base"}"#,
         );
         assert_eq!(response.status, "200 OK");
         let body = response_json(response);
         assert_eq!(body["ok"], true);
         assert_eq!(body["state"]["ui"]["lastCommand"], "http coordinate jog");
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/coordinate-jog/start",
+            br#"{"direction":"forward","frame":"yawFlat"}"#,
+        );
+        assert_eq!(response.status, "400 Bad Request");
 
         let response = app.handle_api_request(b"POST", b"/api/arm/tcp-jog/stop", b"");
         assert_eq!(response.status, "200 OK");
@@ -4178,7 +4231,7 @@ mod tests {
 
         assert!(app.handle_press_id(COORDINATE_DOWN_ID, None));
         let held = app.held_tcp_jog.expect("TCP jog hold created on press");
-        assert_eq!(held.frame, app.coordinate_frame);
+        assert_eq!(held.frame, TcpFrame::Base);
         assert_eq!(held.direction, [0.0, 0.0, -1.0]);
 
         let refresh_at = held.last_refresh_ms + HELD_JOINT_JOG_REFRESH_MS;
@@ -4199,6 +4252,39 @@ mod tests {
                 .iter()
                 .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
         );
+    }
+
+    #[tokio::test]
+    async fn held_coordinate_forward_refreshes_immutable_robot_base_direction() {
+        let mut app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+        app.active_config.coordinate.base_yaw_offset_deg = -7.15244988058;
+
+        assert!(app.handle_press_id(COORDINATE_FORWARD_ID, None));
+        let held = app.held_tcp_jog.expect("TCP jog hold created on press");
+        assert_eq!(held.frame, TcpFrame::Base);
+        assert_ne!(held.direction[0], 0.0);
+        assert_ne!(held.direction[1], 0.0);
+
+        let refresh_at = held.last_refresh_ms + HELD_JOINT_JOG_REFRESH_MS;
+        app.refresh_held_tcp_jog(refresh_at);
+        let refreshed = app
+            .held_tcp_jog
+            .expect("TCP jog remains held after refresh");
+        assert_eq!(refreshed.frame, TcpFrame::Base);
+        assert_eq!(refreshed.direction, held.direction);
+        assert!(matches!(
+            app.robot.arm.mode(),
+            ArmMode::TcpJogging {
+                frame: TcpFrame::Base,
+                direction,
+                ..
+            } if direction == held.direction
+        ));
     }
 
     #[tokio::test]

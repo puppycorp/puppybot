@@ -6,7 +6,7 @@ use std::println;
 
 use super::{
     kinematics::*,
-    puppyarm::{ArmCommand, ArmMode, PuppyArm, TcpFrame},
+    puppyarm::{ArmCommand, ArmMode, MAX_TCP_JOG_TARGET_LEAD_MM, PuppyArm, TcpFrame},
     servo_safety::*,
     types::{ControllerError, JOINT_COUNT, Joint},
 };
@@ -99,6 +99,14 @@ fn feedback_ticks(arm: &PuppyArm) -> [Option<i32>; JOINT_COUNT] {
 fn refresh_feedback(arm: &mut PuppyArm, now: u64) {
     for (index, tick) in feedback_ticks(arm).iter().enumerate() {
         arm.record_feedback(index, tick.unwrap() as u16, now);
+    }
+}
+
+fn refresh_feedback_to_targets(arm: &mut PuppyArm, now: u64) {
+    let ticks = target_ticks(arm);
+    for (index, tick) in ticks.iter().enumerate() {
+        let tick = tick.or(arm.joints[index].tick).unwrap();
+        arm.record_feedback(index, tick as u16, now);
     }
 }
 
@@ -928,7 +936,10 @@ fn tcp_jog_advances_target_by_speed_and_elapsed_time() {
         100,
     )
     .unwrap();
-    refresh_feedback(&mut arm, 600);
+    refresh_feedback(&mut arm, 350);
+    arm.update(350);
+    refresh_feedback_to_targets(&mut arm, 350);
+    refresh_feedback(&mut arm, 500);
     arm.update(600);
 
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
@@ -966,7 +977,10 @@ fn tcp_jog_up_and_down_advance_target_z_by_speed_and_elapsed_time() {
             100,
         )
         .unwrap();
-        refresh_feedback(&mut arm, 600);
+        refresh_feedback(&mut arm, 350);
+        arm.update(350);
+        refresh_feedback_to_targets(&mut arm, 350);
+        refresh_feedback(&mut arm, 500);
         arm.update(600);
 
         let target = arm
@@ -983,6 +997,119 @@ fn tcp_jog_up_and_down_advance_target_z_by_speed_and_elapsed_time() {
     }
 }
 
+#[test]
+fn yaw_flat_jog_refreshes_in_its_resolved_base_direction() {
+    let yaw = 45.0_f64.to_radians();
+    let mut pose = calibrated_move_pose();
+    pose[0] = yaw - geometric_yaw(0.0);
+    let mut arm = arm_with_angle_feedback(pose);
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+    let requested = ArmCommand::StartTcpJog {
+        frame: TcpFrame::YawFlat,
+        direction: [0.0, 1.0, 0.0],
+    };
+
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(10), 0);
+    arm.try_handle_arm_cmd(requested, 100).unwrap();
+    let (frame, direction) = match arm.mode() {
+        ArmMode::TcpJogging {
+            frame, direction, ..
+        } => (frame, direction),
+        mode => panic!("expected resolved TCP jog, got {mode:?}"),
+    };
+    assert_eq!(frame, TcpFrame::Base);
+
+    let refresh = ArmCommand::StartTcpJog { frame, direction };
+    let mut points = std::vec::Vec::new();
+    for now in [200, 300, 400] {
+        refresh_feedback(&mut arm, now);
+        arm.update(now);
+        points.push(arm.telemetry_snapshot(now as u32).target_coords_mm.unwrap());
+        refresh_feedback_to_targets(&mut arm, now);
+        arm.try_handle_arm_cmd(refresh, now).unwrap();
+        assert!(matches!(
+            arm.mode(),
+            ArmMode::TcpJogging {
+                frame: TcpFrame::Base,
+                direction: refreshed_direction,
+                ..
+            } if refreshed_direction == direction
+        ));
+    }
+
+    for point in points {
+        let dx = f64::from(point.0 - start.0);
+        let dy = f64::from(point.1 - start.1);
+        let cross_track_mm = (dx * direction[1] - dy * direction[0]).abs();
+        let along_track_mm = dx * direction[0] + dy * direction[1];
+        assert!(
+            cross_track_mm <= 0.05,
+            "Yaw-flat held path must remain a straight base-frame ray: point={point:?} direction={direction:?} cross={cross_track_mm}"
+        );
+        assert!(along_track_mm > 0.0);
+    }
+}
+
+#[test]
+fn tcp_jog_target_lead_is_bounded_while_feedback_lags_and_resumes_after_catchup() {
+    let mut arm = arm_with_angle_feedback(calibrated_move_pose());
+    let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
+    let command = ArmCommand::StartTcpJog {
+        frame: TcpFrame::Base,
+        direction: [1.0, 0.0, 0.0],
+    };
+
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(1000), 0);
+    arm.try_handle_arm_cmd(command, 0).unwrap();
+    for now in [20, 40, 60, 80, 100, 120] {
+        refresh_feedback(&mut arm, now);
+        arm.update(now);
+    }
+    let capped = arm.telemetry_snapshot(120).target_coords_mm.unwrap();
+    let capped_lead = point_distance(
+        [
+            f64::from(capped.0 - start.0),
+            f64::from(capped.1 - start.1),
+            f64::from(capped.2 - start.2),
+        ],
+        [0.0; 3],
+    );
+    assert!(
+        capped_lead <= MAX_TCP_JOG_TARGET_LEAD_MM + 0.01,
+        "target lead {capped_lead} exceeds {MAX_TCP_JOG_TARGET_LEAD_MM} mm"
+    );
+    assert!(
+        capped_lead >= MAX_TCP_JOG_TARGET_LEAD_MM - 0.01,
+        "first high-speed step should use the available lead budget: {capped_lead}"
+    );
+
+    refresh_feedback(&mut arm, 140);
+    arm.update(140);
+    let still_capped = arm.telemetry_snapshot(140).target_coords_mm.unwrap();
+    assert_eq!(
+        still_capped, capped,
+        "target must wait for lagging feedback"
+    );
+
+    refresh_feedback_to_targets(&mut arm, 160);
+    arm.update(160);
+    let resumed = arm.telemetry_snapshot(160).target_coords_mm.unwrap();
+    assert!(
+        resumed.0 > capped.0,
+        "target must resume once feedback catches up: capped={capped:?} resumed={resumed:?}"
+    );
+    let current = arm.telemetry_snapshot(160).coords_mm.unwrap();
+    let resumed_lead = point_distance(
+        [
+            f64::from(resumed.0 - current.0),
+            f64::from(resumed.1 - current.1),
+            f64::from(resumed.2 - current.2),
+        ],
+        [0.0; 3],
+    );
+    assert!(resumed_lead <= MAX_TCP_JOG_TARGET_LEAD_MM + 0.01);
+}
+
 fn assert_high_speed_vertical_jog_reaches_boundary(direction_z: f64) {
     let mut arm = arm_with_angle_feedback([FRAC_PI_2; JOINT_COUNT]);
     let start = arm.telemetry_snapshot(0).coords_mm.unwrap();
@@ -996,6 +1123,7 @@ fn assert_high_speed_vertical_jog_reaches_boundary(direction_z: f64) {
         let now = step * 20;
         refresh_feedback(&mut arm, now);
         arm.update(now);
+        refresh_feedback_to_targets(&mut arm, now);
         arm.try_handle_arm_cmd(command, now).unwrap();
     }
 
@@ -1075,8 +1203,12 @@ fn tcp_jog_replaces_active_direction() {
         100,
     )
     .unwrap();
-    refresh_feedback(&mut arm, 600);
+    refresh_feedback(&mut arm, 350);
+    arm.update(350);
+    refresh_feedback_to_targets(&mut arm, 350);
+    refresh_feedback(&mut arm, 500);
     arm.update(600);
+    refresh_feedback_to_targets(&mut arm, 600);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(40), 600);
     arm.try_handle_arm_cmd(
         ArmCommand::StartTcpJog {
@@ -1086,7 +1218,10 @@ fn tcp_jog_replaces_active_direction() {
         600,
     )
     .unwrap();
-    refresh_feedback(&mut arm, 1100);
+    arm.update(800);
+    refresh_feedback_to_targets(&mut arm, 800);
+    arm.update(1000);
+    refresh_feedback_to_targets(&mut arm, 1000);
     arm.update(1100);
 
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
@@ -1110,13 +1245,20 @@ fn tcp_jog_uses_current_default_speed() {
         100,
     )
     .unwrap();
-    refresh_feedback(&mut arm, 600);
+    refresh_feedback(&mut arm, 350);
+    arm.update(350);
+    refresh_feedback_to_targets(&mut arm, 350);
+    refresh_feedback(&mut arm, 500);
     arm.update(600);
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
     assert_close_mm(target.0, start.0 + 10.0);
 
+    refresh_feedback_to_targets(&mut arm, 600);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(40), 600);
-    refresh_feedback(&mut arm, 1100);
+    arm.update(800);
+    refresh_feedback_to_targets(&mut arm, 800);
+    arm.update(1000);
+    refresh_feedback_to_targets(&mut arm, 1000);
     arm.update(1100);
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
     assert_close_mm(target.0, start.0 + 30.0);
@@ -1138,13 +1280,20 @@ fn legacy_tcp_jog_keeps_requested_speed_when_global_default_changes() {
         100,
     )
     .unwrap();
-    refresh_feedback(&mut arm, 600);
+    refresh_feedback(&mut arm, 350);
+    arm.update(350);
+    refresh_feedback_to_targets(&mut arm, 350);
+    refresh_feedback(&mut arm, 500);
     arm.update(600);
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
     assert_close_mm(target.0, start.0 + 10.0);
 
+    refresh_feedback_to_targets(&mut arm, 600);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(80), 600);
-    refresh_feedback(&mut arm, 1100);
+    arm.update(800);
+    refresh_feedback_to_targets(&mut arm, 800);
+    arm.update(1000);
+    refresh_feedback_to_targets(&mut arm, 1000);
     arm.update(1100);
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();
     assert_close_mm(target.0, start.0 + 20.0);
@@ -1194,9 +1343,12 @@ fn yaw_flat_tcp_jog_freezes_direction_at_start() {
     )
     .unwrap();
 
-    refresh_feedback(&mut arm, 600);
-    arm.update(600);
-    refresh_feedback(&mut arm, 1100);
+    refresh_feedback(&mut arm, 500);
+    arm.update(500);
+    refresh_feedback_to_targets(&mut arm, 500);
+    refresh_feedback(&mut arm, 700);
+    arm.update(900);
+    refresh_feedback_to_targets(&mut arm, 900);
     arm.update(1100);
 
     let target = arm.telemetry_snapshot(0).target_coords_mm.unwrap();

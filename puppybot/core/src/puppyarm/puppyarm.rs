@@ -31,6 +31,11 @@ const TIP_ZERO_TICK: i32 = 1783;
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
 
+/// Keep a held Cartesian jog close enough to observed servo feedback that the
+/// arm can follow its visual target.  The desired point remains exact and is
+/// never reseeded from quantized feedback; only its forward lead is limited.
+pub const MAX_TCP_JOG_TARGET_LEAD_MM: f64 = 8.0;
+
 fn current_targets(joints: &[Joint; JOINT_COUNT]) -> Option<[i32; JOINT_COUNT]> {
     let mut targets = [0; JOINT_COUNT];
     for (index, joint) in joints.iter().enumerate() {
@@ -70,6 +75,49 @@ fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
 
 fn vector_length(vector: [f64; 3]) -> f64 {
     libm::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2])
+}
+
+fn tcp_jog_lead_step_fraction(
+    current_coords_mm: [f64; 3],
+    target_coords_mm: [f64; 3],
+    delta_mm: [f64; 3],
+) -> f64 {
+    let current_lead = [
+        target_coords_mm[0] - current_coords_mm[0],
+        target_coords_mm[1] - current_coords_mm[1],
+        target_coords_mm[2] - current_coords_mm[2],
+    ];
+    if vector_length(current_lead) >= MAX_TCP_JOG_TARGET_LEAD_MM {
+        return 0.0;
+    }
+
+    let candidate = [
+        current_lead[0] + delta_mm[0],
+        current_lead[1] + delta_mm[1],
+        current_lead[2] + delta_mm[2],
+    ];
+    if vector_length(candidate) <= MAX_TCP_JOG_TARGET_LEAD_MM {
+        return 1.0;
+    }
+
+    // The lead norm is continuous over this line segment.  Find the furthest
+    // prefix that keeps the target inside the feedback-lead sphere.
+    let mut lo = 0.0;
+    let mut hi = 1.0;
+    for _ in 0..20 {
+        let fraction = (lo + hi) * 0.5;
+        let candidate = [
+            current_lead[0] + delta_mm[0] * fraction,
+            current_lead[1] + delta_mm[1] * fraction,
+            current_lead[2] + delta_mm[2] * fraction,
+        ];
+        if vector_length(candidate) <= MAX_TCP_JOG_TARGET_LEAD_MM {
+            lo = fraction;
+        } else {
+            hi = fraction;
+        }
+    }
+    lo
 }
 
 fn branch_continuity_score(
@@ -1158,6 +1206,36 @@ impl PuppyArm {
                 direction[2] * step_mm,
             ),
         };
+        let current_coords_mm = match self.current_coords() {
+            Ok((x, y, z)) => [x, y, z],
+            Err(_) => {
+                self.mode = ArmMode::TcpJogging {
+                    frame,
+                    direction,
+                    speed_override_mm_s,
+                    last_step_ms: now,
+                    target_angles: jog_target_angles,
+                    target_coords_mm,
+                    tool_pitch_rad,
+                };
+                return;
+            }
+        };
+        let step_fraction =
+            tcp_jog_lead_step_fraction(current_coords_mm, target_coords_mm, [dx, dy, dz]);
+        if step_fraction <= f64::EPSILON {
+            self.mode = ArmMode::TcpJogging {
+                frame,
+                direction,
+                speed_override_mm_s,
+                last_step_ms: now,
+                target_angles: jog_target_angles,
+                target_coords_mm,
+                tool_pitch_rad,
+            };
+            return;
+        }
+        let (dx, dy, dz) = (dx * step_fraction, dy * step_fraction, dz * step_fraction);
         let next_coords_mm = [
             target_coords_mm[0] + dx,
             target_coords_mm[1] + dy,

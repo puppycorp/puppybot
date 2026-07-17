@@ -44,9 +44,9 @@
     ]
   },
   "coordinate": {
-    "base_yaw_offset_deg": 90.0,
+    "base_yaw_offset_deg": -7.15244988058,
     "forward_sign": 1,
-    "left_sign": -1
+    "left_sign": 1
   },
   "drive": {
     "command_timeout_ms": 500,
