@@ -9,7 +9,7 @@ use std::{
 };
 
 use embassy_time::Duration;
-use image::{GenericImage, GenericImageView, ImageFormat, Rgba};
+use image::{ImageFormat, Rgba};
 use pge_app::{
     Node as PgeAppNode, OrbitController, State as PgeAppState, Vec2, Vec3, WindowOverlayLines,
     WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
@@ -17,8 +17,7 @@ use pge_app::{
 use pge_core::{ArenaId as PgeCoreArenaId, Node as PgeCoreNode, Transform as PgeCoreTransform};
 use pge_renderer::Renderer;
 use pge_video::{
-    Mp4EncodeRequest, RawRgbaMp4EncodeRequest, default_frame_path, default_raw_rgba_frame_path,
-    encode_png_sequence_to_mp4, encode_raw_rgba_sequence_to_mp4,
+    Mp4EncodeRequest, StreamingRgbaMp4Encoder, default_frame_path, encode_png_sequence_to_mp4,
 };
 use pge_wgpu_renderer::WgpuRenderer;
 use puppybot_core::{
@@ -71,7 +70,10 @@ const CAPTURE_FOV_DEG: f32 = 55.0;
 const MAX_CAPTURE_WIDTH: u32 = 1920;
 const MAX_CAPTURE_HEIGHT: u32 = 1080;
 const MAX_CAPTURE_PIXELS: u64 = 1920 * 1080;
-const MAX_CAPTURE_TRACE_FRAMES: usize = 500;
+// A stop-delimited live episode at 50 fps can readily exceed the legacy
+// fixed-clip cap.  The trace contains compact audit state, not RGB frames;
+// its byte cap remains enforced by the capture manager.
+const MAX_CAPTURE_TRACE_FRAMES: usize = 10_000;
 const MAX_CAPTURE_TRACE_FPS: u32 = 50;
 const SIMULATION_UPS_SAMPLE_INTERVAL: StdDuration = StdDuration::from_secs(1);
 const SIMULATION_UPS_STALE_INTERVAL: StdDuration = StdDuration::from_secs(2);
@@ -705,7 +707,9 @@ impl SimulatedRuntimeBackend {
         let ball = state
             .dreams
             .scene_object_state(target_object_id)
-            .ok_or_else(|| format!("RobotDreams {target_name} object disappeared after Interact"))?;
+            .ok_or_else(|| {
+                format!("RobotDreams {target_name} object disappeared after Interact")
+            })?;
         let action = SimToolActionResult {
             sequence: state.tool_action_sequence,
             action: "Interact".to_string(),
@@ -963,74 +967,51 @@ pub(crate) async fn record_simulation_video(
         })?;
     }
 
-    let frame_dir =
-        std::env::temp_dir().join(format!("puppybot-runtime-record-{}", std::process::id()));
-    fs::create_dir(&frame_dir).map_err(|err| {
-        format!(
-            "create temporary simulation frame directory {}: {err}",
-            frame_dir.display()
-        )
-    })?;
-
-    let result = async {
-        let mut robot = Puppybot::new_with_config(config, 0)
-            .map_err(|err| format!("invalid runtime config: {err}"))?;
-        robot.handle_event(
-            ProtocolEvent::Arm(ArmCommand::SetSpeed(SCREENSHOT_ARM_SPEED)),
-            0,
-        );
-        let mut backend = SimulatedRuntimeBackend::new(project_path, config)?;
-        for tick in 1..=RECORDING_SETTLE_FRAMES {
-            backend
-                .run_once(&mut robot, u64::from(tick).saturating_mul(20))
-                .await;
-        }
-        let mut renderer = WgpuRenderer::new()
-            .map_err(|err| format!("create offscreen PGE WGPU renderer: {err}"))?;
-        let mut last_delta_mm = None;
-
-        for index in 0..frames {
-            let tick = RECORDING_SETTLE_FRAMES.saturating_add(index + 1);
-            backend
-                .run_once(&mut robot, u64::from(tick).saturating_mul(20))
-                .await;
-            let (frame, delta_mm) = backend
-                .preview()
-                .offscreen_frame(ScreenshotCamera::default())?;
-            let rgba = renderer
-                .render_rgba(&frame.world, &frame.request)
-                .map_err(|err| format!("render simulation recording frame {index}: {err}"))?;
-            let frame_path = default_raw_rgba_frame_path(&frame_dir, index);
-            fs::write(&frame_path, rgba.bytes).map_err(|err| {
-                format!(
-                    "write simulation recording frame {}: {err}",
-                    frame_path.display()
-                )
-            })?;
-            last_delta_mm = Some(delta_mm);
-        }
-
-        let resolution = RobotDreamsPgeFrameOptions::default().resolution;
-        encode_raw_rgba_sequence_to_mp4(&RawRgbaMp4EncodeRequest::raw_rgba_sequence(
-            &frame_dir,
-            frames,
-            resolution[0],
-            resolution[1],
-            RECORDING_FPS,
-            path,
-        ))
-        .map_err(|err| format!("encode PuppyBot simulation MP4: {err}"))?;
-        last_delta_mm.ok_or_else(|| "simulation recording produced no frames".to_string())
+    let mut robot = Puppybot::new_with_config(config, 0)
+        .map_err(|err| format!("invalid runtime config: {err}"))?;
+    robot.handle_event(
+        ProtocolEvent::Arm(ArmCommand::SetSpeed(SCREENSHOT_ARM_SPEED)),
+        0,
+    );
+    let mut backend = SimulatedRuntimeBackend::new(project_path, config)?;
+    for tick in 1..=RECORDING_SETTLE_FRAMES {
+        backend
+            .run_once(&mut robot, u64::from(tick).saturating_mul(20))
+            .await;
     }
-    .await;
+    let mut renderer =
+        WgpuRenderer::new().map_err(|err| format!("create offscreen PGE WGPU renderer: {err}"))?;
+    let resolution = RobotDreamsPgeFrameOptions::default().resolution;
+    let mut encoder = StreamingRgbaMp4Encoder::start(
+        path,
+        resolution[0],
+        resolution[1],
+        RECORDING_FPS,
+        4_000_000,
+    )
+    .map_err(|err| format!("start PuppyBot streaming MP4 encoder: {err}"))?;
+    let mut last_delta_mm = None;
 
-    if let Err(err) = fs::remove_dir_all(&frame_dir) {
-        log::warn!(
-            "failed to remove temporary simulation frame directory {}: {err}",
-            frame_dir.display()
-        );
+    for index in 0..frames {
+        let tick = RECORDING_SETTLE_FRAMES.saturating_add(index + 1);
+        backend
+            .run_once(&mut robot, u64::from(tick).saturating_mul(20))
+            .await;
+        let (frame, delta_mm) = backend
+            .preview()
+            .offscreen_frame(ScreenshotCamera::default())?;
+        let rgba = renderer
+            .render_rgba(&frame.world, &frame.request)
+            .map_err(|err| format!("render simulation recording frame {index}: {err}"))?;
+        encoder
+            .push_rgba_frame(&rgba.bytes)
+            .map_err(|err| format!("stream PuppyBot simulation frame {index}: {err}"))?;
+        last_delta_mm = Some(delta_mm);
     }
-    result
+    encoder
+        .finish()
+        .map_err(|err| format!("finalize PuppyBot streaming MP4: {err}"))?;
+    last_delta_mm.ok_or_else(|| "simulation recording produced no frames".to_string())
 }
 
 pub(crate) fn parse_capture_state_json(bytes: &[u8]) -> Result<CaptureStateV1, String> {
@@ -1269,7 +1250,7 @@ fn validate_capture_camera(camera: &CaptureCamera) -> Result<(), String> {
     Ok(())
 }
 
-struct PreparedCaptureRenderer {
+pub(crate) struct PreparedCaptureRenderer {
     frame: robotdreams_core::RobotDreamsPgeFrame,
     base_world: pge_core::WorldState,
     index: HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
@@ -1297,7 +1278,7 @@ where
 }
 
 impl PreparedCaptureRenderer {
-    fn new(project_path: &Path, state: &CaptureStateV1) -> Result<Self, String> {
+    pub(crate) fn new(project_path: &Path, state: &CaptureStateV1) -> Result<Self, String> {
         validate_capture_state(state)?;
         validate_capture_project(project_path, &state.project)?;
         let dreams = RobotDreams::open(project_path)
@@ -1407,6 +1388,77 @@ impl PreparedCaptureRenderer {
                 .ok_or_else(|| "offscreen PGE renderer returned no PNG frame".to_string())
         })?;
         draw_detection_boxes_png(png, &capture_frame.detection_boxes)
+    }
+
+    /// Render the captured simulator state directly into raw RGBA pixels for
+    /// a live video encoder.  Unlike `render_png`, this stays on the raw
+    /// readback path and never creates an intermediate image file or PNG.
+    pub(crate) fn render_rgba(
+        &mut self,
+        state: &CaptureStateV1,
+        frame_index: usize,
+    ) -> Result<Vec<u8>, String> {
+        let capture_frame = state.frames.get(frame_index).ok_or_else(|| {
+            format!(
+                "capture frame index {frame_index} is out of range for {} frames",
+                state.frames.len()
+            )
+        })?;
+        self.frame.world = self.base_world.clone();
+        validate_visual_transform_keys(capture_frame, &self.expected_visual_keys)?;
+        for (entity, transform) in &capture_frame.visual_transforms {
+            set_world_node_transform(&mut self.frame.world, &self.index, entity, *transform);
+        }
+        if state.camera.source != WRIST_CAMERA_ID {
+            if let (Some(world_from_base), Some(base_from_arm_base)) = (
+                capture_frame.overlays.world_from_base,
+                capture_frame.overlays.base_from_arm_base,
+            ) {
+                sync_debug_frame_roots(
+                    &mut self.frame.world,
+                    SimulationFrameTransforms {
+                        world_from_base: rigid_transform_from_capture(world_from_base),
+                        base_from_arm_base: rigid_transform_from_capture(base_from_arm_base),
+                    },
+                    &self.index,
+                );
+            }
+        }
+        let mut labels = capture_labels(capture_frame, &state.camera);
+        if state.camera.source != WRIST_CAMERA_ID {
+            let legend_row_start = labels.len();
+            labels.extend(coordinate_debug_legend_labels(legend_row_start));
+            labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+                "controller_arm_legend",
+                CONTROLLER_ARM_LEGEND,
+                labels.len(),
+                [1.0, 0.2, 0.9, 1.0],
+            ));
+        }
+        self.frame.world.text_labels = labels.into_iter().map(pge_text_label).collect();
+        set_world_camera_transform(
+            &mut self.frame.world,
+            &self.index,
+            &self.frame.camera_entity.0,
+            PreviewCameraTransform {
+                translation: state.camera.eye_m,
+                rotation_matrix: state.camera.rotation_matrix,
+            },
+        );
+        if let Some(camera_node) = self
+            .index
+            .get(&self.frame.camera_entity.0)
+            .and_then(|node_id| self.frame.world.nodes.get(node_id))
+            && let Some(camera_id) = camera_node.camera
+            && let Some(camera) = self.frame.world.cameras.get_mut(&camera_id)
+        {
+            camera.fov_deg = state.camera.fov_deg;
+            camera.resolution = state.camera.resolution;
+        }
+        self.renderer
+            .render_rgba(&self.frame.world, &self.frame.request)
+            .map(|frame| frame.bytes)
+            .map_err(|err| format!("render capture state RGBA frame {frame_index}: {err}"))
     }
 }
 
@@ -2052,7 +2104,8 @@ impl SimulatedPreview {
                 let overhead_camera = published.snapshot.overhead_camera.ok_or_else(|| {
                     format!("RobotDreams project has no usable {OVERHEAD_CAMERA_ID}")
                 })?;
-                let camera = capture_camera_from_project_camera(overhead_camera, OVERHEAD_CAMERA_ID);
+                let camera =
+                    capture_camera_from_project_camera(overhead_camera, OVERHEAD_CAMERA_ID);
                 Ok(published_capture_state(
                     &self.project,
                     &camera,

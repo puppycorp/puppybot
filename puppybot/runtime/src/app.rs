@@ -1371,9 +1371,9 @@ impl App {
                         "autonomy camera frames are disabled on a non-loopback runtime bind",
                     ));
                 }
-                let preview = self
-                    .simulated_preview()
-                    .ok_or_else(|| ApiError::conflict("autonomy camera requires simulation mode"))?;
+                let preview = self.simulated_preview().ok_or_else(|| {
+                    ApiError::conflict("autonomy camera requires simulation mode")
+                })?;
                 let (_camera, png) = preview
                     .named_camera_png(CaptureCameraView::Overhead)
                     .map_err(ApiError::internal)?;
@@ -1458,10 +1458,19 @@ impl App {
             "/api/sim/captures/record" => {
                 let frames = request
                     .get("frames")
-                    .and_then(|value| value.as_u64())
-                    .ok_or_else(|| ApiError::bad_request("frames must be a positive integer"))?;
-                let frames = u32::try_from(frames)
-                    .map_err(|_| ApiError::bad_request("frames exceeds supported range"))?;
+                    .map(|value| {
+                        value
+                            .as_u64()
+                            .ok_or_else(|| {
+                                ApiError::bad_request("frames must be a positive integer")
+                            })
+                            .and_then(|frames| {
+                                u32::try_from(frames).map_err(|_| {
+                                    ApiError::bad_request("frames exceeds supported range")
+                                })
+                            })
+                    })
+                    .transpose()?;
                 let sample_every_ticks = request
                     .get("sampleEveryTicks")
                     .and_then(|value| value.as_u64())
@@ -1485,30 +1494,40 @@ impl App {
                     }
                 };
                 if request.as_object().is_some_and(|object| {
-                    object.keys().any(|key| {
-                        key != "frames" && key != "camera" && key != "sampleEveryTicks"
-                    })
+                    object
+                        .keys()
+                        .any(|key| key != "frames" && key != "camera" && key != "sampleEveryTicks")
                 }) {
                     return Err(ApiError::bad_request(
                         "record request accepts only frames, camera, and sampleEveryTicks",
                     ));
                 }
-                preview
+                let initial_state = preview
                     .capture_state_for_view(view)
                     .map_err(ApiError::conflict)?;
                 self.capture_manager
-                    .begin_recording(project_path, frames, view, sample_every_ticks)
+                    .begin_recording(
+                        project_path,
+                        initial_state,
+                        frames,
+                        view,
+                        sample_every_ticks,
+                    )
                     .map_err(api_capture_failure)?
             }
             path if path.ends_with("/stop") => {
                 if request.as_object().is_some_and(|object| !object.is_empty()) {
-                    return Err(ApiError::bad_request("record stop request accepts only an empty JSON object"));
+                    return Err(ApiError::bad_request(
+                        "record stop request accepts only an empty JSON object",
+                    ));
                 }
                 let id = path
                     .strip_prefix("/api/sim/captures/")
                     .and_then(|value| value.strip_suffix("/stop"))
                     .ok_or_else(|| ApiError::not_found("unknown capture endpoint"))?;
-                self.capture_manager.stop_recording(id).map_err(api_capture_failure)?
+                self.capture_manager
+                    .stop_recording(id)
+                    .map_err(api_capture_failure)?
             }
             _ => return Err(ApiError::not_found("unknown capture endpoint")),
         };

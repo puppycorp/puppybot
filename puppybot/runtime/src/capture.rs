@@ -4,15 +4,16 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
-        mpsc::{SyncSender, TrySendError, sync_channel},
+        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::sim::{
-    CaptureCameraView, CaptureStateV1, CaptureTraceV1, capture_trace_from_states,
-    render_capture_state_png, render_capture_trace_mp4,
+    CaptureCameraView, CaptureStateV1, PreparedCaptureRenderer, capture_trace_from_states,
+    render_capture_state_png,
 };
+use pge_video::StreamingRgbaMp4Encoder;
 
 pub(crate) const MAX_SCREENSHOT_QUEUE: usize = 4;
 pub(crate) const MAX_TERMINAL_JOBS: usize = 8;
@@ -20,9 +21,15 @@ pub(crate) const MAX_ARTIFACT_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_RECORDING_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const MAX_RETAINED_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
 pub(crate) const MAX_TRACE_JSON_BYTES: usize = 96 * 1024 * 1024;
-pub(crate) const MAX_RECORDING_FRAMES: u32 = 500;
+// The stopgap queue holds immutable simulator state, never RGB/RGBA pixels.
+// A 50-second episode at 50 FPS needs 2,500 states; 3,000 gives a 60-second
+// hard bound even if rendering cannot drain the queue until the episode ends.
+pub(crate) const MAX_RECORDING_FRAMES: u32 = 3_000;
 pub(crate) const RECORDING_FPS: u32 = 50;
 pub(crate) const MAX_CONCURRENT_RECORDINGS: usize = 2;
+const LIVE_RECORDING_QUEUE: usize = MAX_RECORDING_FRAMES as usize;
+const LIVE_RECORDING_BITRATE: u32 = 4_000_000;
+const LIVE_AUDIT_FPS: u32 = 5;
 
 #[derive(Clone)]
 pub(crate) struct CaptureManager {
@@ -38,13 +45,12 @@ struct CaptureStore {
 
 struct ActiveRecording {
     id: String,
-    project_path: PathBuf,
     view: CaptureCameraView,
-    target_frames: u32,
+    target_frames: Option<u32>,
     sample_every_ticks: u32,
     sampled_ticks: u32,
-    fps: u32,
-    samples: Vec<Arc<CaptureStateV1>>,
+    sample_count: u32,
+    worker: SyncSender<LiveRecordingWork>,
 }
 
 struct CaptureJob {
@@ -66,11 +72,12 @@ enum CaptureWork {
         project_path: PathBuf,
         state: Arc<CaptureStateV1>,
     },
-    Record {
-        id: String,
-        project_path: PathBuf,
-        trace: CaptureTraceV1,
-    },
+}
+
+enum LiveRecordingWork {
+    Frame(Arc<CaptureStateV1>),
+    Finish,
+    Abort(String),
 }
 
 pub(crate) struct CaptureFailure {
@@ -105,37 +112,6 @@ impl CaptureManager {
                                     ));
                                 }
                                 Ok((state_json, Arc::<[u8]>::from(png)))
-                            });
-                            (id, result)
-                        }
-                        CaptureWork::Record { id, project_path, trace } => {
-                            update_job(&worker_store, &id, "rendering", None, None, None);
-                            let state_json = serde_json::to_vec_pretty(&trace)
-                                .map(Vec::into)
-                                .map_err(|err| format!("encode capture trace: {err}"));
-                            let result = state_json.and_then(|state_json: Arc<[u8]>| {
-                                if state_json.len() > MAX_TRACE_JSON_BYTES {
-                                    return Err(format!(
-                                        "capture trace is {} bytes; limit is {MAX_TRACE_JSON_BYTES}",
-                                        state_json.len()
-                                    ));
-                                }
-                                let output = std::env::temp_dir().join(format!(
-                                    "puppybot-{}-{id}.mp4",
-                                    std::process::id()
-                                ));
-                                render_capture_trace_mp4(&project_path, &trace, &output)?;
-                                let bytes = std::fs::read(&output)
-                                    .map_err(|err| format!("read encoded recording: {err}"));
-                                let _ = std::fs::remove_file(&output);
-                                let bytes = bytes?;
-                                if bytes.len() > MAX_RECORDING_ARTIFACT_BYTES {
-                                    return Err(format!(
-                                        "recording artifact is {} bytes; limit is {MAX_RECORDING_ARTIFACT_BYTES}",
-                                        bytes.len()
-                                    ));
-                                }
-                                Ok((state_json, Arc::<[u8]>::from(bytes)))
                             });
                             (id, result)
                         }
@@ -231,22 +207,23 @@ impl CaptureManager {
     pub(crate) fn begin_recording(
         &self,
         project_path: PathBuf,
-        frames: u32,
+        initial_state: Arc<CaptureStateV1>,
+        frames: Option<u32>,
         view: CaptureCameraView,
         sample_every_ticks: u32,
     ) -> Result<serde_json::Value, CaptureFailure> {
-        if frames == 0 || frames > MAX_RECORDING_FRAMES {
+        if frames.is_some_and(|frames| frames == 0 || frames > MAX_RECORDING_FRAMES) {
             return Err(CaptureFailure {
                 status: "400 Bad Request",
-                message: format!("frames must be between 1 and {MAX_RECORDING_FRAMES}"),
+                message: format!(
+                    "frames must be between 1 and {MAX_RECORDING_FRAMES} when supplied"
+                ),
             });
         }
         if sample_every_ticks == 0 || sample_every_ticks > RECORDING_FPS {
             return Err(CaptureFailure {
                 status: "400 Bad Request",
-                message: format!(
-                    "sampleEveryTicks must be between 1 and {RECORDING_FPS}"
-                ),
+                message: format!("sampleEveryTicks must be between 1 and {RECORDING_FPS}"),
             });
         }
         let fps = RECORDING_FPS / sample_every_ticks;
@@ -256,12 +233,14 @@ impl CaptureManager {
         if store.active_recordings.len() >= MAX_CONCURRENT_RECORDINGS {
             return Err(CaptureFailure {
                 status: "429 Too Many Requests",
-                message: format!(
-                    "at most {MAX_CONCURRENT_RECORDINGS} recordings may be active"
-                ),
+                message: format!("at most {MAX_CONCURRENT_RECORDINGS} recordings may be active"),
             });
         }
-        if store.active_recordings.iter().any(|active| active.view == view) {
+        if store
+            .active_recordings
+            .iter()
+            .any(|active| active.view == view)
+        {
             return Err(CaptureFailure {
                 status: "409 Conflict",
                 message: format!("a {} recording is already active", view.source()),
@@ -280,15 +259,28 @@ impl CaptureManager {
             artifact_content_type: "video/mp4",
             error: None,
         });
+        let (worker, receiver) = sync_channel(LIVE_RECORDING_QUEUE);
+        if let Err(error) = spawn_live_recording_worker(
+            Arc::clone(&self.inner),
+            id.clone(),
+            project_path,
+            initial_state,
+            fps,
+            receiver,
+        ) {
+            if let Some(index) = store.jobs.iter().position(|job| job.id == id) {
+                store.jobs.remove(index);
+            }
+            return Err(error);
+        }
         store.active_recordings.push(ActiveRecording {
             id: id.clone(),
-            project_path,
             view,
             target_frames: frames,
             sample_every_ticks,
             sampled_ticks: 0,
-            fps,
-            samples: Vec::with_capacity(frames as usize),
+            sample_count: 0,
+            worker,
         });
         Ok(job_urls(&id))
     }
@@ -297,31 +289,75 @@ impl CaptureManager {
         self.inner
             .lock()
             .ok()
-            .map(|store| store.active_recordings.iter().map(|active| active.view).collect())
+            .map(|store| {
+                store
+                    .active_recordings
+                    .iter()
+                    .map(|active| active.view)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     pub(crate) fn sample_recording(&self, view: CaptureCameraView, state: Arc<CaptureStateV1>) {
-        let completed = {
+        let (completed, failure) = {
             let Ok(mut store) = self.inner.lock() else {
                 return;
             };
-            let Some(index) = store.active_recordings.iter().position(|active| active.view == view) else {
+            let Some(index) = store
+                .active_recordings
+                .iter()
+                .position(|active| active.view == view)
+            else {
                 return;
             };
-            let active = &mut store.active_recordings[index];
-            active.sampled_ticks = active.sampled_ticks.saturating_add(1);
-            if active.sampled_ticks % active.sample_every_ticks != 0 {
-                return;
+            let send = {
+                let active = &mut store.active_recordings[index];
+                active.sampled_ticks = active.sampled_ticks.saturating_add(1);
+                if active.sampled_ticks % active.sample_every_ticks != 0 {
+                    return;
+                }
+                active.worker.try_send(LiveRecordingWork::Frame(state))
+            };
+            match send {
+                Ok(()) => {
+                    let active = &mut store.active_recordings[index];
+                    active.sample_count = active.sample_count.saturating_add(1);
+                    if active
+                        .target_frames
+                        .is_some_and(|target| active.sample_count >= target)
+                    {
+                        (Some(store.active_recordings.remove(index)), None)
+                    } else {
+                        (None, None)
+                    }
+                }
+                Err(TrySendError::Full(_)) => {
+                    let failed = store.active_recordings.remove(index);
+                    (
+                        None,
+                        Some((
+                            failed,
+                            format!(
+                                "live recording state backlog reached its {MAX_RECORDING_FRAMES}-frame episode limit"
+                            ),
+                        )),
+                    )
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    let failed = store.active_recordings.remove(index);
+                    (
+                        None,
+                        Some((failed, "live recording renderer is unavailable".to_string())),
+                    )
+                }
             }
-            active.samples.push(state);
-            if active.samples.len() < active.target_frames as usize {
-                return;
-            }
-            Some(store.active_recordings.remove(index))
         };
         if let Some(completed) = completed {
-            self.queue_recording(completed);
+            self.finish_live_recording(completed);
+        }
+        if let Some((failed, error)) = failure {
+            self.abort_live_recording(failed, error);
         }
     }
 
@@ -337,7 +373,7 @@ impl CaptureManager {
                     status: "409 Conflict",
                     message: "recording is not active".to_string(),
                 })?;
-            if store.active_recordings[index].samples.is_empty() {
+            if store.active_recordings[index].sample_count == 0 {
                 return Err(CaptureFailure {
                     status: "409 Conflict",
                     message: "recording has no samples yet".to_string(),
@@ -345,43 +381,24 @@ impl CaptureManager {
             }
             store.active_recordings.remove(index)
         };
-        self.queue_recording(completed);
+        self.finish_live_recording(completed);
         Ok(job_urls(id))
     }
 
-    fn queue_recording(&self, completed: ActiveRecording) {
+    fn finish_live_recording(&self, completed: ActiveRecording) {
         let id = completed.id.clone();
-        let work = capture_trace_from_states(&completed.samples, completed.fps).map(|trace| {
-            CaptureWork::Record {
-                id: id.clone(),
-                project_path: completed.project_path,
-                trace,
-            }
+        update_job(&self.inner, &id, "encoding", None, None, None);
+        std::thread::spawn(move || {
+            let _ = completed.worker.send(LiveRecordingWork::Finish);
         });
-        match work {
-            Ok(work) => {
-                update_job(&self.inner, &id, "queued", None, None, None);
-                match self.worker.try_send(work) {
-                    Ok(()) => {}
-                    Err(_) => update_job(
-                        &self.inner,
-                        &id,
-                        "failed",
-                        None,
-                        None,
-                        Some("capture renderer queue is full".to_string()),
-                    ),
-                }
-            }
-            Err(error) => update_job(
-                &self.inner,
-                &id,
-                "failed",
-                None,
-                None,
-                Some(error),
-            ),
-        }
+    }
+
+    fn abort_live_recording(&self, failed: ActiveRecording, error: String) {
+        let id = failed.id.clone();
+        update_job(&self.inner, &id, "failed", None, None, Some(error.clone()));
+        std::thread::spawn(move || {
+            let _ = failed.worker.send(LiveRecordingWork::Abort(error));
+        });
     }
 
     pub(crate) fn status(&self, id: &str) -> Result<serde_json::Value, CaptureFailure> {
@@ -454,6 +471,148 @@ impl CaptureManager {
             store.jobs.remove(index);
         }
     }
+}
+
+fn spawn_live_recording_worker(
+    store: Arc<Mutex<CaptureStore>>,
+    id: String,
+    project_path: PathBuf,
+    initial_state: Arc<CaptureStateV1>,
+    fps: u32,
+    receiver: Receiver<LiveRecordingWork>,
+) -> Result<(), CaptureFailure> {
+    let (ready_sender, ready_receiver) = sync_channel::<Result<(), String>>(1);
+    std::thread::Builder::new()
+        .name(format!("puppybot-live-capture-{id}"))
+        .spawn(move || {
+            // Warm the renderer and spawn GStreamer before exposing the capture
+            // as active. At 50 FPS two WGPU devices can take longer than the
+            // eight-frame queue merely to initialize; treating that startup as
+            // ordinary frame work causes a deterministic false queue overflow.
+            let output =
+                std::env::temp_dir().join(format!("puppybot-live-{}-{id}.mp4", std::process::id()));
+            let initialized = (|| {
+                let renderer = PreparedCaptureRenderer::new(&project_path, &initial_state)?;
+                let [width, height] = initial_state.camera.resolution;
+                let encoder = StreamingRgbaMp4Encoder::start(
+                    &output,
+                    width,
+                    height,
+                    fps,
+                    LIVE_RECORDING_BITRATE,
+                )
+                .map_err(|error| format!("start live MP4 encoder: {error}"))?;
+                Ok::<_, String>((renderer, encoder))
+            })();
+            let (renderer, encoder) = match initialized {
+                Ok(initialized) => {
+                    let _ = ready_sender.send(Ok(()));
+                    initialized
+                }
+                Err(error) => {
+                    let _ = ready_sender.send(Err(error.clone()));
+                    update_job(&store, &id, "failed", None, None, Some(error));
+                    return;
+                }
+            };
+            let result = run_live_recording(&store, &id, fps, receiver, renderer, encoder, output);
+            match result {
+                Ok((state_json, artifact)) => update_job(
+                    &store,
+                    &id,
+                    "complete",
+                    Some(state_json),
+                    Some(artifact),
+                    None,
+                ),
+                Err(error) => update_job(&store, &id, "failed", None, None, Some(error)),
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| CaptureFailure {
+            status: "500 Internal Server Error",
+            message: format!("spawn live recording renderer: {error}"),
+        })?;
+    ready_receiver
+        .recv()
+        .map_err(|_| CaptureFailure {
+            status: "500 Internal Server Error",
+            message: "live recording renderer exited during initialization".to_string(),
+        })?
+        .map_err(|message| CaptureFailure {
+            status: "500 Internal Server Error",
+            message,
+        })
+}
+
+fn run_live_recording(
+    store: &Arc<Mutex<CaptureStore>>,
+    id: &str,
+    fps: u32,
+    receiver: Receiver<LiveRecordingWork>,
+    mut renderer: PreparedCaptureRenderer,
+    encoder: StreamingRgbaMp4Encoder,
+    output: PathBuf,
+) -> Result<(Arc<[u8]>, Arc<[u8]>), String> {
+    let audit_stride = (fps / LIVE_AUDIT_FPS).max(1) as usize;
+    let audit_fps = (fps / audit_stride as u32).max(1);
+    let mut audit_states = Vec::new();
+    let mut frame_count = 0usize;
+    let mut encoder = Some(encoder);
+    let result = (|| {
+        loop {
+            match receiver
+                .recv()
+                .map_err(|_| "live recording control channel disconnected".to_string())?
+            {
+                LiveRecordingWork::Frame(state) => {
+                    let raw = renderer.render_rgba(&state, 0)?;
+                    encoder
+                        .as_mut()
+                        .expect("live encoder remains available before finish")
+                        .push_rgba_frame(&raw)
+                        .map_err(|error| format!("stream live MP4 frame {frame_count}: {error}"))?;
+                    if frame_count % audit_stride == 0 {
+                        audit_states.push(Arc::clone(&state));
+                    }
+                    frame_count = frame_count.saturating_add(1);
+                }
+                LiveRecordingWork::Finish => break,
+                LiveRecordingWork::Abort(reason) => return Err(reason),
+            }
+        }
+        if frame_count == 0 {
+            return Err("live recording finished without a frame".to_string());
+        }
+        update_job(store, id, "encoding", None, None, None);
+        encoder
+            .take()
+            .expect("live encoder exists when at least one frame was received")
+            .finish()
+            .map_err(|error| format!("finalize live MP4 encoder: {error}"))?;
+        let trace = capture_trace_from_states(&audit_states, audit_fps)?;
+        let state_json: Arc<[u8]> = serde_json::to_vec_pretty(&trace)
+            .map(Vec::into)
+            .map_err(|error| format!("encode live capture trace: {error}"))?;
+        if state_json.len() > MAX_TRACE_JSON_BYTES {
+            return Err(format!(
+                "live capture trace is {} bytes; limit is {MAX_TRACE_JSON_BYTES}",
+                state_json.len()
+            ));
+        }
+        let bytes =
+            std::fs::read(&output).map_err(|error| format!("read live recording: {error}"))?;
+        if bytes.len() > MAX_RECORDING_ARTIFACT_BYTES {
+            return Err(format!(
+                "live recording artifact is {} bytes; limit is {MAX_RECORDING_ARTIFACT_BYTES}",
+                bytes.len()
+            ));
+        }
+        Ok((state_json, Arc::<[u8]>::from(bytes)))
+    })();
+    let _ = std::fs::remove_file(&output);
+    let _ = std::fs::remove_file(output.with_extension("mp4.partial"));
+    result
 }
 
 fn update_job(

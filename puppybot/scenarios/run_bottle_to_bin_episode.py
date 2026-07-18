@@ -141,13 +141,21 @@ class ContinuousEpisodeCaptures:
         self.jobs: list[dict[str, str]] = []
         self.error: str | None = None
 
+    def fail(self, error: Exception) -> None:
+        self.error = str(error)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        write_json(self.output_dir / "capture-error.json", {
+            "schema": "puppybot.bottle-yolo.continuous-video-error.v1",
+            "error": self.error,
+        })
+
     def start(self) -> None:
         try:
             for clip, camera in (("overhead", "overhead"), ("tcp", "tcp")):
                 created, _ = request(
                     self.base_url + "/api/sim/captures/record",
                     "POST",
-                    {"frames": 500, "camera": camera, "sampleEveryTicks": 10},
+                    {"camera": camera},
                 )
                 job = created.get("job") if isinstance(created, dict) else None
                 if not isinstance(job, dict) or not all(
@@ -156,7 +164,7 @@ class ContinuousEpisodeCaptures:
                     raise RuntimeError(f"continuous {camera} capture returned incomplete job URLs")
                 self.jobs.append({"clip": clip, "camera": camera, **job})
         except Exception as error:
-            self.error = str(error)
+            self.fail(error)
 
     def render_overhead_yolo_overlay(
         self, detection: dict, puppybot_dir: Path, project: Path,
@@ -206,7 +214,7 @@ class ContinuousEpisodeCaptures:
             }
             write_json(manifest_path, manifest)
         except Exception as error:
-            self.error = str(error)
+            self.fail(error)
 
     def stop_and_save(self) -> None:
         if self.error is not None:
@@ -243,11 +251,11 @@ class ContinuousEpisodeCaptures:
                     raise RuntimeError(f"continuous {job['clip']} capture did not complete")
             write_json(self.output_dir / "continuous-video.json", {
                 "schema": "puppybot.bottle-yolo.continuous-video.v1",
-                "source": "one state-machine episode",
+                "source": "one live raw-RGBA encoder stream per camera across one state-machine episode",
                 "clips": saved,
             })
         except Exception as error:
-            self.error = str(error)
+            self.fail(error)
 
 
 def build_fixture(template: Path, output: Path, seed: int) -> list[float]:
@@ -305,6 +313,9 @@ def main() -> int:
     parser.add_argument("--record-continuous-episode", action="store_true",
                         help="record synchronized overhead and TCP views across one complete episode")
     args = parser.parse_args()
+    # The runtime itself starts from `puppybot/`, so its RobotDreams project
+    # argument must not depend on the caller's working directory.
+    args.artifacts = args.artifacts.resolve()
     if args.artifacts.exists() and any(args.artifacts.iterdir()):
         raise RuntimeError("refusing non-empty artifacts directory")
     args.artifacts.mkdir(parents=True)
