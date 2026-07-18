@@ -3275,6 +3275,7 @@ dependencies = [
  "embassy-executor",
  "embassy-time",
  "env_logger",
+ "image",
  "log",
  "mdns-sd",
  "pge-app",

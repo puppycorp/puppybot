@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
@@ -8,6 +9,7 @@ use std::{
 };
 
 use embassy_time::Duration;
+use image::{GenericImage, GenericImageView, ImageFormat, Rgba};
 use pge_app::{
     Node as PgeAppNode, OrbitController, State as PgeAppState, Vec2, Vec3, WindowOverlayLines,
     WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
@@ -44,9 +46,12 @@ const SIMULATION_STEP_SECONDS: f32 = 0.02;
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
 const ROBOT_ID: &str = "puppybot";
+const BOTTLE_OBJECT_ID: &str = "bottle";
 const BALL_OBJECT_ID: &str = "ball";
+const BOTTLE_BIN_TRIGGER_ID: &str = "bottle_in_bin";
 const BIN_TRIGGER_ID: &str = "ball_in_bin";
 const BALL_PICKUP_TOLERANCE_M: f32 = 0.035;
+const OVERHEAD_CAMERA_ID: &str = "overhead_camera";
 const WRIST_CAMERA_ID: &str = "wrist_camera";
 const TCP_CAMERA_WINDOW_TITLE: &str = "PuppyBot TCP Camera";
 const TCP_ALIGNMENT_TOLERANCE_MM: f64 = 2.0;
@@ -173,7 +178,18 @@ pub(crate) struct CaptureFrame {
     pub(crate) visual_transforms: BTreeMap<String, PgeCoreTransform>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) manipulation: Option<SimManipulationState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) detection_boxes: Vec<CaptureDetectionBox>,
     pub(crate) overlays: CaptureOverlays,
+}
+
+/// Optional post-hoc model detections. They are never populated from scene truth.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CaptureDetectionBox {
+    pub(crate) label: String,
+    pub(crate) confidence: f32,
+    pub(crate) xyxy: [f32; 4],
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -337,6 +353,7 @@ pub(crate) enum TcpCameraJogDirection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CaptureCameraView {
     External,
+    Overhead,
     Tcp,
 }
 
@@ -344,6 +361,7 @@ impl CaptureCameraView {
     pub(crate) fn source(self) -> &'static str {
         match self {
             Self::External => "external",
+            Self::Overhead => OVERHEAD_CAMERA_ID,
             Self::Tcp => WRIST_CAMERA_ID,
         }
     }
@@ -373,6 +391,7 @@ struct PreviewSnapshot {
     debug_markers: Vec<CoordinateDebugMarkerPositions>,
     frames: Option<SimulationFrameTransforms>,
     controller_arm_chain: Option<ControllerArmChain>,
+    overhead_camera: Option<ProjectCameraPose>,
     wrist_camera: Option<ProjectCameraPose>,
     capture_frame: CaptureFrame,
 }
@@ -650,32 +669,34 @@ impl SimulatedRuntimeBackend {
             .lock()
             .map_err(|_| "RobotDreams simulation state lock poisoned")?;
         let tcp = observed_tcp_world_m(&state.dreams)?;
+        let target_object_id = manipulation_target_object_id(&state.dreams)?;
+        let target_name = target_object_id;
         let ball = state
             .dreams
-            .scene_object_state(BALL_OBJECT_ID)
-            .ok_or_else(|| "RobotDreams ball object is unavailable".to_string())?;
+            .scene_object_state(target_object_id)
+            .ok_or_else(|| format!("RobotDreams {target_name} object is unavailable"))?;
         let ball_center = ball.position;
         let distance = distance_f32(tcp, ball_center);
         let attached = ball.attachment.is_some();
         let result = if attached {
             state
                 .dreams
-                .detach_scene_object(BALL_OBJECT_ID)
-                .map_err(|err| format!("release ball: {err}"))?;
+                .detach_scene_object(target_object_id)
+                .map_err(|err| format!("release {target_name}: {err}"))?;
             "released"
         } else {
             let attached = state
                 .dreams
                 .try_attach_scene_object_to_tcp(
-                    BALL_OBJECT_ID,
+                    target_object_id,
                     ROBOT_ID,
                     BALL_PICKUP_TOLERANCE_M,
                     [0.0, 0.0, 0.0],
                 )
-                .map_err(|err| format!("attach ball: {err}"))?;
+                .map_err(|err| format!("attach {target_name}: {err}"))?;
             if !attached {
                 return Err(format!(
-                    "Interact rejected: observed TCP is {distance:.4} m from ball; pickup tolerance is {BALL_PICKUP_TOLERANCE_M:.4} m"
+                    "Interact rejected: observed TCP is {distance:.4} m from {target_name}; pickup tolerance is {BALL_PICKUP_TOLERANCE_M:.4} m"
                 ));
             }
             "attached"
@@ -683,8 +704,8 @@ impl SimulatedRuntimeBackend {
         state.tool_action_sequence = state.tool_action_sequence.wrapping_add(1);
         let ball = state
             .dreams
-            .scene_object_state(BALL_OBJECT_ID)
-            .ok_or_else(|| "RobotDreams ball object disappeared after Interact".to_string())?;
+            .scene_object_state(target_object_id)
+            .ok_or_else(|| format!("RobotDreams {target_name} object disappeared after Interact"))?;
         let action = SimToolActionResult {
             sequence: state.tool_action_sequence,
             action: "Interact".to_string(),
@@ -811,9 +832,10 @@ fn manipulation_state_from_dreams(
     last_action: Option<SimToolActionResult>,
 ) -> Result<SimManipulationState, String> {
     let tcp = observed_tcp_world_m(dreams).ok();
+    let target_object_id = manipulation_target_object_id(dreams)?;
     let ball = dreams
-        .scene_object_state(BALL_OBJECT_ID)
-        .ok_or_else(|| "RobotDreams ball object is unavailable".to_string())?;
+        .scene_object_state(target_object_id)
+        .ok_or_else(|| format!("RobotDreams {target_object_id} object is unavailable"))?;
     let attached_to = ball
         .attachment
         .as_ref()
@@ -824,9 +846,10 @@ fn manipulation_state_from_dreams(
         (false, true) => "dynamic",
         (false, false) => "static",
     };
+    let trigger_id = manipulation_bin_trigger_id(dreams)?;
     let trigger = dreams
-        .scene_trigger_state(BIN_TRIGGER_ID)
-        .ok_or_else(|| "RobotDreams bin trigger is unavailable".to_string())?;
+        .scene_trigger_state(trigger_id)
+        .ok_or_else(|| format!("RobotDreams {trigger_id} trigger is unavailable"))?;
     Ok(SimManipulationState {
         simulation_only: true,
         action: "Interact".to_string(),
@@ -855,6 +878,29 @@ fn manipulation_state_from_dreams(
         },
         last_action,
     })
+}
+
+/// New bottle-collection fixtures use `bottle`/`bottle_in_bin`.  The earlier
+/// ball fixture remains supported so existing arm and capture regressions keep
+/// exercising the same simulator-owned interaction contract.
+fn manipulation_target_object_id(dreams: &RobotDreams) -> Result<&'static str, String> {
+    if dreams.scene_object_state(BOTTLE_OBJECT_ID).is_some() {
+        return Ok(BOTTLE_OBJECT_ID);
+    }
+    if dreams.scene_object_state(BALL_OBJECT_ID).is_some() {
+        return Ok(BALL_OBJECT_ID);
+    }
+    Err("RobotDreams fixture has neither bottle nor ball target object".to_string())
+}
+
+fn manipulation_bin_trigger_id(dreams: &RobotDreams) -> Result<&'static str, String> {
+    if dreams.scene_trigger_state(BOTTLE_BIN_TRIGGER_ID).is_some() {
+        return Ok(BOTTLE_BIN_TRIGGER_ID);
+    }
+    if dreams.scene_trigger_state(BIN_TRIGGER_ID).is_some() {
+        return Ok(BIN_TRIGGER_ID);
+    }
+    Err("RobotDreams fixture has neither bottle_in_bin nor ball_in_bin trigger".to_string())
 }
 
 fn observed_tcp_world_m(dreams: &RobotDreams) -> Result<[f32; 3], String> {
@@ -1348,7 +1394,7 @@ impl PreparedCaptureRenderer {
         // the whole trace. Creating a Vulkan device per source frame exhausts
         // the driver during normal 380-frame recordings. The identical-state
         // gate below still rejects a readback that does not stabilize.
-        render_stable_capture_png(|| {
+        let png = render_stable_capture_png(|| {
             let output = self
                 .renderer
                 .render(&self.frame.world, &self.frame.request)
@@ -1359,8 +1405,51 @@ impl PreparedCaptureRenderer {
                 .next()
                 .map(|frame| frame.bytes)
                 .ok_or_else(|| "offscreen PGE renderer returned no PNG frame".to_string())
-        })
+        })?;
+        draw_detection_boxes_png(png, &capture_frame.detection_boxes)
     }
+}
+
+fn draw_detection_boxes_png(
+    png: Vec<u8>,
+    boxes: &[CaptureDetectionBox],
+) -> Result<Vec<u8>, String> {
+    if boxes.is_empty() {
+        return Ok(png);
+    }
+    let mut image = image::load_from_memory(&png)
+        .map_err(|err| format!("decode capture PNG for detection overlay: {err}"))?
+        .to_rgba8();
+    let (width, height) = image.dimensions();
+    for bbox in boxes {
+        let left = bbox.xyxy[0].clamp(0.0, width.saturating_sub(1) as f32) as u32;
+        let top = bbox.xyxy[1].clamp(0.0, height.saturating_sub(1) as f32) as u32;
+        let right = bbox.xyxy[2].clamp(0.0, width.saturating_sub(1) as f32) as u32;
+        let bottom = bbox.xyxy[3].clamp(0.0, height.saturating_sub(1) as f32) as u32;
+        if left >= right || top >= bottom {
+            continue;
+        }
+        let color = Rgba([255, 72, 0, 255]);
+        for thickness in 0..3 {
+            let x0 = left.saturating_sub(thickness);
+            let x1 = (right + thickness).min(width - 1);
+            let y0 = top.saturating_sub(thickness);
+            let y1 = (bottom + thickness).min(height - 1);
+            for x in x0..=x1 {
+                image.put_pixel(x, y0, color);
+                image.put_pixel(x, y1, color);
+            }
+            for y in y0..=y1 {
+                image.put_pixel(x0, y, color);
+                image.put_pixel(x1, y, color);
+            }
+        }
+    }
+    let mut output = Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, ImageFormat::Png)
+        .map_err(|err| format!("encode capture PNG with detection overlay: {err}"))?;
+    Ok(output.into_inner())
 }
 
 pub(crate) fn render_capture_state_png(
@@ -1733,6 +1822,7 @@ fn preview_snapshot_from_state(
         })
         .unwrap_or_default();
     let labels = state.labels.clone();
+    let overhead_camera = project_camera_pose(&state.dreams, OVERHEAD_CAMERA_ID);
     let wrist_camera = project_camera_pose(&state.dreams, WRIST_CAMERA_ID);
     let capture_frame = CaptureFrame {
         sequence: state.sequence,
@@ -1742,6 +1832,7 @@ fn preview_snapshot_from_state(
         visual_transforms: visual_transforms.clone(),
         manipulation: manipulation_state_from_dreams(&state.dreams, state.last_tool_action.clone())
             .ok(),
+        detection_boxes: Vec::new(),
         overlays: CaptureOverlays {
             labels: labels
                 .iter()
@@ -1776,6 +1867,7 @@ fn preview_snapshot_from_state(
         debug_markers,
         frames,
         controller_arm_chain: state.controller_arm_chain_world_m,
+        overhead_camera,
         wrist_camera,
         capture_frame,
     }
@@ -1956,6 +2048,17 @@ impl SimulatedPreview {
             .map_err(|_| "simulation published preview lock poisoned")?;
         match view {
             CaptureCameraView::External => Ok(Arc::clone(&published.capture_state)),
+            CaptureCameraView::Overhead => {
+                let overhead_camera = published.snapshot.overhead_camera.ok_or_else(|| {
+                    format!("RobotDreams project has no usable {OVERHEAD_CAMERA_ID}")
+                })?;
+                let camera = capture_camera_from_project_camera(overhead_camera, OVERHEAD_CAMERA_ID);
+                Ok(published_capture_state(
+                    &self.project,
+                    &camera,
+                    &published.snapshot,
+                ))
+            }
             CaptureCameraView::Tcp => {
                 let wrist_camera = published.snapshot.wrist_camera.ok_or_else(|| {
                     format!("RobotDreams project has no usable {WRIST_CAMERA_ID}")
@@ -1968,6 +2071,19 @@ impl SimulatedPreview {
                 ))
             }
         }
+    }
+
+    /// Render one RGB frame from a named project sensor. Dynamic scene-object
+    /// transforms are kept inside the private capture state and are never
+    /// returned by this autonomy-facing operation.
+    pub(crate) fn named_camera_png(
+        &self,
+        view: CaptureCameraView,
+    ) -> Result<(CaptureCamera, Vec<u8>), String> {
+        let state = self.capture_state_for_view(view)?;
+        let camera = state.camera.clone();
+        let png = render_capture_state_png(&self.project_path, &state, 0)?;
+        Ok((camera, png))
     }
 
     pub(crate) fn project_path(&self) -> &Path {

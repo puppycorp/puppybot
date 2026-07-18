@@ -1,0 +1,9 @@
+{
+  "schema": "puppybot.yolo-model.v1",
+  "model": "../../models/robotdreams-bottle-yolo11n.onnx",
+  "source": "fine-tuned from https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt using scenarios/make_bottle_yolo_dataset.py",
+  "sha256": "9ea9ab66db76436886389fb6ee2962e84f3c4b3db830e1cbd62ea429ddd7eef2",
+  "input": {"width": 640, "height": 640, "layout": "NCHW", "normalization": "rgb/255", "letterbox": 114},
+  "output": {"layout": "1x5x8400", "box": "xywh", "classes": "RobotDreams-bottle-1", "bottleClassIndex": 0, "confidence": 0.04},
+  "license": "Ultralytics AGPL-3.0 or Enterprise; review before proprietary deployment"
+}

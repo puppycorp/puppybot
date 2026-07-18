@@ -22,6 +22,7 @@ pub(crate) const MAX_RETAINED_ARTIFACT_BYTES: usize = 128 * 1024 * 1024;
 pub(crate) const MAX_TRACE_JSON_BYTES: usize = 96 * 1024 * 1024;
 pub(crate) const MAX_RECORDING_FRAMES: u32 = 500;
 pub(crate) const RECORDING_FPS: u32 = 50;
+pub(crate) const MAX_CONCURRENT_RECORDINGS: usize = 2;
 
 #[derive(Clone)]
 pub(crate) struct CaptureManager {
@@ -32,7 +33,7 @@ pub(crate) struct CaptureManager {
 
 struct CaptureStore {
     jobs: VecDeque<CaptureJob>,
-    active_recording: Option<ActiveRecording>,
+    active_recordings: Vec<ActiveRecording>,
 }
 
 struct ActiveRecording {
@@ -40,6 +41,9 @@ struct ActiveRecording {
     project_path: PathBuf,
     view: CaptureCameraView,
     target_frames: u32,
+    sample_every_ticks: u32,
+    sampled_ticks: u32,
+    fps: u32,
     samples: Vec<Arc<CaptureStateV1>>,
 }
 
@@ -78,7 +82,7 @@ impl CaptureManager {
     pub(crate) fn new() -> Self {
         let inner = Arc::new(Mutex::new(CaptureStore {
             jobs: VecDeque::new(),
-            active_recording: None,
+            active_recordings: Vec::new(),
         }));
         let (worker, receiver) = sync_channel::<CaptureWork>(MAX_SCREENSHOT_QUEUE);
         let worker_store = Arc::clone(&inner);
@@ -229,6 +233,7 @@ impl CaptureManager {
         project_path: PathBuf,
         frames: u32,
         view: CaptureCameraView,
+        sample_every_ticks: u32,
     ) -> Result<serde_json::Value, CaptureFailure> {
         if frames == 0 || frames > MAX_RECORDING_FRAMES {
             return Err(CaptureFailure {
@@ -236,13 +241,30 @@ impl CaptureManager {
                 message: format!("frames must be between 1 and {MAX_RECORDING_FRAMES}"),
             });
         }
+        if sample_every_ticks == 0 || sample_every_ticks > RECORDING_FPS {
+            return Err(CaptureFailure {
+                status: "400 Bad Request",
+                message: format!(
+                    "sampleEveryTicks must be between 1 and {RECORDING_FPS}"
+                ),
+            });
+        }
+        let fps = RECORDING_FPS / sample_every_ticks;
         let id = format!("c{:016x}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let now = now_ms();
         let mut store = self.inner.lock().map_err(store_error)?;
-        if store.active_recording.is_some() {
+        if store.active_recordings.len() >= MAX_CONCURRENT_RECORDINGS {
             return Err(CaptureFailure {
                 status: "429 Too Many Requests",
-                message: "one recording is already active".to_string(),
+                message: format!(
+                    "at most {MAX_CONCURRENT_RECORDINGS} recordings may be active"
+                ),
+            });
+        }
+        if store.active_recordings.iter().any(|active| active.view == view) {
+            return Err(CaptureFailure {
+                status: "409 Conflict",
+                message: format!("a {} recording is already active", view.source()),
             });
         }
         evict_terminal_jobs(&mut store);
@@ -258,55 +280,92 @@ impl CaptureManager {
             artifact_content_type: "video/mp4",
             error: None,
         });
-        store.active_recording = Some(ActiveRecording {
+        store.active_recordings.push(ActiveRecording {
             id: id.clone(),
             project_path,
             view,
             target_frames: frames,
+            sample_every_ticks,
+            sampled_ticks: 0,
+            fps,
             samples: Vec::with_capacity(frames as usize),
         });
         Ok(job_urls(&id))
     }
 
-    pub(crate) fn active_recording_view(&self) -> Option<CaptureCameraView> {
+    pub(crate) fn active_recording_views(&self) -> Vec<CaptureCameraView> {
         self.inner
             .lock()
             .ok()
-            .and_then(|store| store.active_recording.as_ref().map(|active| active.view))
+            .map(|store| store.active_recordings.iter().map(|active| active.view).collect())
+            .unwrap_or_default()
     }
 
-    pub(crate) fn sample_recording(&self, state: Arc<CaptureStateV1>) {
+    pub(crate) fn sample_recording(&self, view: CaptureCameraView, state: Arc<CaptureStateV1>) {
         let completed = {
             let Ok(mut store) = self.inner.lock() else {
                 return;
             };
-            let Some(active) = store.active_recording.as_mut() else {
+            let Some(index) = store.active_recordings.iter().position(|active| active.view == view) else {
                 return;
             };
+            let active = &mut store.active_recordings[index];
+            active.sampled_ticks = active.sampled_ticks.saturating_add(1);
+            if active.sampled_ticks % active.sample_every_ticks != 0 {
+                return;
+            }
             active.samples.push(state);
             if active.samples.len() < active.target_frames as usize {
                 return;
             }
-            store.active_recording.take()
+            Some(store.active_recordings.remove(index))
         };
-        let Some(completed) = completed else {
-            return;
+        if let Some(completed) = completed {
+            self.queue_recording(completed);
+        }
+    }
+
+    pub(crate) fn stop_recording(&self, id: &str) -> Result<serde_json::Value, CaptureFailure> {
+        validate_id(id)?;
+        let completed = {
+            let mut store = self.inner.lock().map_err(store_error)?;
+            let index = store
+                .active_recordings
+                .iter()
+                .position(|active| active.id == id)
+                .ok_or_else(|| CaptureFailure {
+                    status: "409 Conflict",
+                    message: "recording is not active".to_string(),
+                })?;
+            if store.active_recordings[index].samples.is_empty() {
+                return Err(CaptureFailure {
+                    status: "409 Conflict",
+                    message: "recording has no samples yet".to_string(),
+                });
+            }
+            store.active_recordings.remove(index)
         };
-        let work = capture_trace_from_states(&completed.samples, RECORDING_FPS).map(|trace| {
+        self.queue_recording(completed);
+        Ok(job_urls(id))
+    }
+
+    fn queue_recording(&self, completed: ActiveRecording) {
+        let id = completed.id.clone();
+        let work = capture_trace_from_states(&completed.samples, completed.fps).map(|trace| {
             CaptureWork::Record {
-                id: completed.id.clone(),
+                id: id.clone(),
                 project_path: completed.project_path,
                 trace,
             }
         });
         match work {
             Ok(work) => {
-                update_job(&self.inner, &completed.id, "queued", None, None, None);
+                update_job(&self.inner, &id, "queued", None, None, None);
                 match self.worker.try_send(work) {
                     Ok(()) => {}
                     Err(_) => update_job(
                         &self.inner,
-                        &completed.id,
+                        &id,
                         "failed",
                         None,
                         None,
@@ -316,7 +375,7 @@ impl CaptureManager {
             }
             Err(error) => update_job(
                 &self.inner,
-                &completed.id,
+                &id,
                 "failed",
                 None,
                 None,

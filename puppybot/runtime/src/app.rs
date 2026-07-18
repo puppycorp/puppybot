@@ -898,11 +898,12 @@ impl App {
         self.refresh_held_joint_jog(now_ms);
         self.refresh_held_tcp_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
-        if let Some(view) = self.capture_manager.active_recording_view()
-            && let Some(preview) = self.simulated_preview()
-            && let Ok(state) = preview.capture_state_for_view(view)
-        {
-            self.capture_manager.sample_recording(state);
+        if let Some(preview) = self.simulated_preview() {
+            for view in self.capture_manager.active_recording_views() {
+                if let Ok(state) = preview.capture_state_for_view(view) {
+                    self.capture_manager.sample_recording(view, state);
+                }
+            }
         }
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
     }
@@ -1158,6 +1159,59 @@ impl App {
         serde_json::to_string_pretty(&state).map_err(|err| err.to_string())
     }
 
+    /// Restricted observation surface for an autonomy policy.  In particular,
+    /// this intentionally omits all RobotDreams scene-object poses,
+    /// manipulation state, capture traces, and trigger state.  Those remain
+    /// available only to the independently run evaluator through `/api/state`.
+    fn api_autonomy_state_json(&self) -> Result<String, String> {
+        let arm = self.robot.arm_telemetry();
+        let drive = self.robot.drive_output();
+        let tuple_json = |value: Option<(f32, f32, f32)>| {
+            value
+                .map(|(x, y, z)| serde_json::json!([x, y, z]))
+                .unwrap_or(serde_json::Value::Null)
+        };
+        let sim = match &self.backend {
+            RuntimeBackend::Hardware { .. } => serde_json::json!({"enabled": false}),
+            RuntimeBackend::Simulated(backend) => {
+                let frames = backend.frame_transforms().map(|frames| {
+                    serde_json::json!({
+                        "worldFromBase": rigid_transform_json(frames.world_from_base, "base", "world"),
+                        "baseFromArmBase": rigid_transform_json(frames.base_from_arm_base, "armBase", "base"),
+                    })
+                });
+                let camera = backend
+                    .preview()
+                    .capture_state_for_view(CaptureCameraView::Overhead)
+                    .ok()
+                    .map(|state| state.camera.clone());
+                serde_json::json!({
+                    "enabled": true,
+                    "frames": frames,
+                    "overheadCamera": camera,
+                })
+            }
+        };
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema": "puppybot.runtime.autonomy-observation.v1",
+            "timeMs": self.now_ms(),
+            "arm": {
+                "frame": "armBase",
+                "unit": "mm",
+                "currentTcpMm": tuple_json(arm.coords_mm),
+                "targetTcpMm": tuple_json(arm.target_coords_mm),
+            },
+            "drive": {
+                "leftSpeed": drive.left_speed,
+                "rightSpeed": drive.right_speed,
+                "steeringAngleDeg": drive.steering_angle_deg,
+                "active": drive.active,
+            },
+            "sim": sim,
+        }))
+        .map_err(|err| err.to_string())
+    }
+
     fn api_json(status: &'static str, value: serde_json::Value) -> ApiResponse {
         let body = serde_json::to_vec_pretty(&value)
             .unwrap_or_else(|_| b"{\"ok\":false,\"error\":\"json encoding failed\"}\n".to_vec());
@@ -1310,6 +1364,31 @@ impl App {
             };
         }
 
+        if method == "GET" && path == "/api/autonomy/cameras/overhead_camera/frame" {
+            let response = (|| {
+                if !self.ws_bind_addr.ip().is_loopback() {
+                    return Err(ApiError::conflict(
+                        "autonomy camera frames are disabled on a non-loopback runtime bind",
+                    ));
+                }
+                let preview = self
+                    .simulated_preview()
+                    .ok_or_else(|| ApiError::conflict("autonomy camera requires simulation mode"))?;
+                let (_camera, png) = preview
+                    .named_camera_png(CaptureCameraView::Overhead)
+                    .map_err(ApiError::internal)?;
+                Ok(ApiResponse {
+                    status: "200 OK",
+                    content_type: "image/png",
+                    body: png.into(),
+                })
+            })();
+            return match response {
+                Ok(response) => response,
+                Err(error) => Self::api_error(error),
+            };
+        }
+
         let response: Result<ApiResponse, ApiError> = match (method, path) {
             ("GET", "/api/config.json") => self
                 .config_json()
@@ -1327,7 +1406,20 @@ impl App {
                     body: body.into_bytes().into(),
                 })
                 .map_err(ApiError::internal),
+            ("GET", "/api/autonomy/state") => self
+                .api_autonomy_state_json()
+                .map(|body| ApiResponse {
+                    status: "200 OK",
+                    content_type: "application/json; charset=utf-8",
+                    body: body.into_bytes().into(),
+                })
+                .map_err(ApiError::internal),
             ("GET", _) => Err(ApiError::not_found("unknown api endpoint")),
+            ("POST", path) if path.starts_with("/api/autonomy/") => {
+                let command_path = path.replacen("/api/autonomy/", "/api/", 1);
+                self.handle_api_command(&command_path, body)
+                    .map(|()| Self::api_json("200 OK", serde_json::json!({"ok": true})))
+            }
             ("POST", _) => self
                 .handle_api_command(path, body)
                 .and_then(|()| self.api_success()),
@@ -1370,31 +1462,53 @@ impl App {
                     .ok_or_else(|| ApiError::bad_request("frames must be a positive integer"))?;
                 let frames = u32::try_from(frames)
                     .map_err(|_| ApiError::bad_request("frames exceeds supported range"))?;
+                let sample_every_ticks = request
+                    .get("sampleEveryTicks")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(1);
+                let sample_every_ticks = u32::try_from(sample_every_ticks).map_err(|_| {
+                    ApiError::bad_request("sampleEveryTicks exceeds supported range")
+                })?;
                 let view = match request.get("camera") {
                     None => CaptureCameraView::External,
                     Some(value) if value.as_str() == Some("external") => {
                         CaptureCameraView::External
                     }
+                    Some(value) if value.as_str() == Some("overhead") => {
+                        CaptureCameraView::Overhead
+                    }
                     Some(value) if value.as_str() == Some("tcp") => CaptureCameraView::Tcp,
                     Some(_) => {
                         return Err(ApiError::bad_request(
-                            "camera must be either external or tcp",
+                            "camera must be external, overhead, or tcp",
                         ));
                     }
                 };
                 if request.as_object().is_some_and(|object| {
-                    object.keys().any(|key| key != "frames" && key != "camera")
+                    object.keys().any(|key| {
+                        key != "frames" && key != "camera" && key != "sampleEveryTicks"
+                    })
                 }) {
                     return Err(ApiError::bad_request(
-                        "record request accepts only the frames and camera fields",
+                        "record request accepts only frames, camera, and sampleEveryTicks",
                     ));
                 }
                 preview
                     .capture_state_for_view(view)
                     .map_err(ApiError::conflict)?;
                 self.capture_manager
-                    .begin_recording(project_path, frames, view)
+                    .begin_recording(project_path, frames, view, sample_every_ticks)
                     .map_err(api_capture_failure)?
+            }
+            path if path.ends_with("/stop") => {
+                if request.as_object().is_some_and(|object| !object.is_empty()) {
+                    return Err(ApiError::bad_request("record stop request accepts only an empty JSON object"));
+                }
+                let id = path
+                    .strip_prefix("/api/sim/captures/")
+                    .and_then(|value| value.strip_suffix("/stop"))
+                    .ok_or_else(|| ApiError::not_found("unknown capture endpoint"))?;
+                self.capture_manager.stop_recording(id).map_err(api_capture_failure)?
             }
             _ => return Err(ApiError::not_found("unknown capture endpoint")),
         };
@@ -1592,6 +1706,19 @@ impl App {
     }
 
     fn api_drive(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        if let (Some(throttle), Some(steering)) = (
+            json.get("throttle").and_then(|value| value.as_i64()),
+            json.get("steering").and_then(|value| value.as_i64()),
+        ) {
+            let throttle = i8::try_from(throttle).map_err(|_| {
+                ApiError::bad_request("throttle must be an integer between -128 and 127")
+            })?;
+            let steering = i8::try_from(steering).map_err(|_| {
+                ApiError::bad_request("steering must be an integer between -128 and 127")
+            })?;
+            self.drive("drive steer", throttle, steering);
+            return Ok(());
+        }
         match Self::json_str(json, "action")? {
             "forward" => self.drive("drive forward", UI_DRIVE_SPEED, 0),
             "back" | "backward" => self.drive("drive back", -UI_DRIVE_SPEED, 0),
@@ -4404,6 +4531,12 @@ mod tests {
         let status_url = body["job"]["status"].as_str().expect("record status url");
         let response = app.handle_api_request(b"GET", status_url.as_bytes(), b"");
         assert_eq!(response_json(response)["job"]["camera"], "wrist_camera");
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/sim/captures/record",
+            br#"{"frames":2,"camera":"overhead"}"#,
+        );
+        assert_eq!(response.status, "202 Accepted");
         let response =
             app.handle_api_request(b"POST", b"/api/sim/captures/record", br#"{"frames":2}"#);
         assert_eq!(response.status, "429 Too Many Requests");

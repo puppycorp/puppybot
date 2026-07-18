@@ -39,6 +39,8 @@ design/*.lck
 *auto_saved_files*
 
 workdir
+# Fine-tuned checkpoints are local build/runtime artifacts, not source release assets.
+models/robotdreams-bottle-yolo11n.onnx
 examples/*/target/
 build
 tests/robotdreams/target/
