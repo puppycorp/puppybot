@@ -533,6 +533,14 @@ def run_demo(api: RuntimeApi, capture_frames: int, capture_camera: str) -> tuple
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", "--recording-dir", dest="artifacts", type=Path, required=True)
+    parser.add_argument(
+        "--runtime-config",
+        type=Path,
+        help=(
+            "explicit runtime config path relative to puppybot/; without this option, plain "
+            "--sim loads runtime/puppybot.sim.json"
+        ),
+    )
     parser.add_argument("--ui-addr", default=DEFAULT_UI_ADDR)
     parser.add_argument("--ws-addr", default=DEFAULT_WS_ADDR)
     parser.add_argument("--capture-frames", type=int, default=DEFAULT_CAPTURE_FRAMES)
@@ -574,6 +582,16 @@ def main() -> int:
     )
     final_state_path = args.artifacts / "final-state.json"
     started_ms = time.time_ns() // 1_000_000
+    environment_runtime_config = os.environ.get("PUPPYBOT_RUNTIME_CONFIG")
+    if args.runtime_config is not None:
+        runtime_config = str(args.runtime_config)
+        runtime_config_source = "cli"
+    elif environment_runtime_config:
+        runtime_config = environment_runtime_config
+        runtime_config_source = "environment"
+    else:
+        runtime_config = "runtime/puppybot.sim.json"
+        runtime_config_source = "simulation-default"
     run = {
         "schema": "puppybot.ball-to-bin.run.v1",
         "status": "running",
@@ -583,15 +601,21 @@ def main() -> int:
         "action": "Interact",
         "simulationOnly": True,
         "captureCamera": args.capture_camera,
+        "runtimeConfig": runtime_config,
+        "runtimeConfigSource": runtime_config_source,
     }
     write_json(run_path, run)
     env = os.environ.copy()
     env["PUPPYBOT_RUNTIME_ADDR"] = args.ws_addr
     runtime_log = runtime_log_path.open("w", encoding="utf-8")
+    runtime_command = [
+        "cargo", "run", "-p", "puppybot-runtime", "--", "--sim", "--headless",
+        "--robotdreams-project", str(project), "--ui-bind", args.ui_addr,
+    ]
+    if args.runtime_config is not None:
+        runtime_command.extend(["--config", str(args.runtime_config)])
     process = subprocess.Popen(
-        ["cargo", "run", "-p", "puppybot-runtime", "--", "--sim", "--headless",
-         "--config", "runtime/puppybot.json",
-         "--robotdreams-project", str(project), "--ui-bind", args.ui_addr],
+        runtime_command,
         cwd=puppybot_dir,
         env=env,
         stdout=runtime_log,

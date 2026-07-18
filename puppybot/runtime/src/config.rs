@@ -17,18 +17,33 @@ use puppybot_core::{
 use serde_json::Value;
 
 pub(crate) const DEFAULT_CONFIG_FILE: &str = "puppybot.json";
+pub(crate) const DEFAULT_SIM_CONFIG_FILE: &str = "puppybot.sim.json";
 pub(crate) const RUNTIME_CONFIG_ENV: &str = "PUPPYBOT_RUNTIME_CONFIG";
 
-pub(crate) fn runtime_config_path(cli_path: Option<&str>) -> PathBuf {
+pub(crate) fn runtime_config_path(cli_path: Option<&str>, simulated: bool) -> PathBuf {
+    resolve_runtime_config_path(
+        cli_path,
+        std::env::var_os(RUNTIME_CONFIG_ENV).as_deref(),
+        simulated,
+    )
+}
+
+fn resolve_runtime_config_path(
+    cli_path: Option<&str>,
+    env_path: Option<&OsStr>,
+    simulated: bool,
+) -> PathBuf {
     cli_path
         .filter(|path| !path.trim().is_empty())
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os(RUNTIME_CONFIG_ENV)
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from)
+        .or_else(|| env_path.filter(|path| !path.is_empty()).map(PathBuf::from))
+        .unwrap_or_else(|| {
+            if simulated {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_SIM_CONFIG_FILE)
+            } else {
+                PathBuf::from(DEFAULT_CONFIG_FILE)
+            }
         })
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_FILE))
 }
 
 pub(crate) fn load_runtime_config(path: &Path) -> Result<Option<PuppybotConfigV1>, String> {
@@ -364,6 +379,9 @@ fn u8_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<u8, Str
 mod tests {
     use super::*;
 
+    const SIMULATION_LIMITS: [(i32, i32); 4] =
+        [(69, 3000), (2000, 3920), (560, 3593), (2400, 3006)];
+
     fn valid_json() -> &'static str {
         r#"{
             "version": 1,
@@ -538,8 +556,32 @@ mod tests {
     #[test]
     fn runtime_config_path_uses_cli_override() {
         assert_eq!(
-            runtime_config_path(Some("custom.json")),
+            runtime_config_path(Some("custom.json"), true),
             PathBuf::from("custom.json")
+        );
+    }
+
+    #[test]
+    fn simulation_without_override_uses_tracked_simulation_profile() {
+        assert_eq!(
+            resolve_runtime_config_path(None, None, true),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_SIM_CONFIG_FILE)
+        );
+    }
+
+    #[test]
+    fn non_simulation_without_override_keeps_physical_default() {
+        assert_eq!(
+            resolve_runtime_config_path(None, None, false),
+            PathBuf::from(DEFAULT_CONFIG_FILE)
+        );
+    }
+
+    #[test]
+    fn environment_override_precedes_simulation_default() {
+        assert_eq!(
+            resolve_runtime_config_path(None, Some(OsStr::new("environment.json")), true),
+            PathBuf::from("environment.json")
         );
     }
 
@@ -566,6 +608,43 @@ mod tests {
         assert!(saved.ends_with('\n'));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn simulation_joint_limits_survive_save_and_restart() {
+        let source_path = resolve_runtime_config_path(None, None, true);
+        let source = load_runtime_config(&source_path)
+            .expect("load simulation runtime config")
+            .expect("simulation runtime config exists");
+        assert_eq!(
+            source
+                .arm
+                .joints
+                .map(|joint| (joint.tick_min, joint.tick_max)),
+            SIMULATION_LIMITS
+        );
+        assert!(source.arm.joints.iter().all(|joint| joint.limit_enabled));
+
+        let restart_path = std::env::temp_dir().join(format!(
+            "saved-puppybot-sim-config-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&restart_path);
+        save_runtime_config(&restart_path, &source).expect("save simulation runtime config");
+        let restarted = load_runtime_config(&restart_path)
+            .expect("reload simulation runtime config")
+            .expect("saved simulation runtime config exists");
+        assert_eq!(restarted, source);
+        assert_eq!(
+            restarted
+                .arm
+                .joints
+                .map(|joint| (joint.tick_min, joint.tick_max)),
+            SIMULATION_LIMITS
+        );
+        assert!(restarted.arm.joints.iter().all(|joint| joint.limit_enabled));
+
+        let _ = std::fs::remove_file(&restart_path);
     }
 
     #[test]

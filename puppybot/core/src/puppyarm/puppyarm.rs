@@ -13,7 +13,8 @@ use crate::{
 };
 
 pub use super::types::{
-    ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, PuppyarmTelemetry, TcpFrame,
+    ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint,
+    JointLimitViolation, PuppyarmTelemetry, TcpFrame,
 };
 
 const YAW_SIGN: f64 = 1.0;
@@ -1017,9 +1018,8 @@ impl PuppyArm {
         tool_phi_rad: f64,
         now: u64,
     ) -> Result<(), ControllerError> {
-        let angles = self
-            .nearest_branch_candidate(x, y, z, tool_phi_rad, self.current_angles().ok())
-            .ok_or(ControllerError::Ik(kinematics::IkError::Unreachable))?;
+        let angles =
+            self.nearest_branch_candidate(x, y, z, tool_phi_rad, self.current_angles().ok())?;
         self.goto_checked_angles(angles, now)
     }
 
@@ -1040,6 +1040,11 @@ impl PuppyArm {
         core::array::from_fn(|index| self.joints[index].angle_to_tick(angles[index]))
     }
 
+    fn cartesian_angles_to_ticks(&self, angles: [f64; JOINT_COUNT]) -> [i32; JOINT_COUNT] {
+        self.angles_to_ticks(angles)
+            .map(servo_safety::canonical_servo_tick)
+    }
+
     fn ticks_within_joint_limits(&self, ticks: &[i32; JOINT_COUNT]) -> bool {
         self.joints
             .iter()
@@ -1047,8 +1052,28 @@ impl PuppyArm {
             .all(|(joint, tick)| servo_safety::tick_within_joint_limits(joint, *tick))
     }
 
-    fn angles_within_joint_limits(&self, angles: [f64; JOINT_COUNT]) -> bool {
-        self.ticks_within_joint_limits(&self.angles_to_ticks(angles))
+    fn cartesian_joint_limit_error(
+        &self,
+        candidate_ticks: [i32; JOINT_COUNT],
+    ) -> Option<CartesianJointLimitError> {
+        let violations = core::array::from_fn(|joint| {
+            let config = &self.joints[joint];
+            (!servo_safety::tick_within_joint_limits(config, candidate_ticks[joint])).then_some(
+                JointLimitViolation {
+                    joint,
+                    requested_tick: candidate_ticks[joint],
+                    tick_min: config.tick_min,
+                    tick_max: config.tick_max,
+                },
+            )
+        });
+        violations
+            .iter()
+            .any(Option::is_some)
+            .then_some(CartesianJointLimitError {
+                candidate_ticks,
+                violations,
+            })
     }
 
     fn goto_checked_angles(
@@ -1056,9 +1081,9 @@ impl PuppyArm {
         angles: [f64; JOINT_COUNT],
         now: u64,
     ) -> Result<(), ControllerError> {
-        let ticks = self.angles_to_ticks(angles);
-        if !self.ticks_within_joint_limits(&ticks) {
-            return Err(ControllerError::Ik(kinematics::IkError::Unreachable));
+        let ticks = self.cartesian_angles_to_ticks(angles);
+        if let Some(error) = self.cartesian_joint_limit_error(ticks) {
+            return Err(ControllerError::CartesianJointLimits(error));
         }
         self.goto_ticks(ticks, now)
     }
@@ -1072,7 +1097,6 @@ impl PuppyArm {
         current_angles: [f64; JOINT_COUNT],
     ) -> Result<[f64; JOINT_COUNT], ControllerError> {
         self.nearest_branch_candidate(x, y, z, tool_phi_rad, Some(current_angles))
-            .ok_or(ControllerError::Ik(kinematics::IkError::Unreachable))
     }
 
     fn nearest_branch_candidate(
@@ -1082,25 +1106,37 @@ impl PuppyArm {
         z: f64,
         tool_phi_rad: f64,
         current_angles: Option<[f64; JOINT_COUNT]>,
-    ) -> Option<[f64; JOINT_COUNT]> {
-        let mut best: Option<([f64; JOINT_COUNT], f64)> = None;
+    ) -> Result<[f64; JOINT_COUNT], ControllerError> {
+        let mut best_valid: Option<([f64; JOINT_COUNT], f64)> = None;
+        let mut best_limited: Option<([i32; JOINT_COUNT], f64)> = None;
         for result in kinematics::ik_with_tool_pitch_branches(x, y, z, tool_phi_rad) {
             if !result.reachable {
                 continue;
             }
             let angles = [result.yaw, result.shoulder, result.elbow, result.wrist];
-            if !self.angles_within_joint_limits(angles) {
-                continue;
-            }
             let score = match current_angles {
                 Some(current) => branch_continuity_score(current, angles),
                 None => 0.0,
             };
-            if best.is_none_or(|(_, best_score)| score < best_score) {
-                best = Some((angles, score));
+            let ticks = self.cartesian_angles_to_ticks(angles);
+            if self.ticks_within_joint_limits(&ticks) {
+                if best_valid.is_none_or(|(_, best_score)| score < best_score) {
+                    best_valid = Some((angles, score));
+                }
+            } else if best_limited.is_none_or(|(_, best_score)| score < best_score) {
+                best_limited = Some((ticks, score));
             }
         }
-        best.map(|(angles, _)| angles)
+        if let Some((angles, _)) = best_valid {
+            return Ok(angles);
+        }
+        if let Some((ticks, _)) = best_limited {
+            return Err(ControllerError::CartesianJointLimits(
+                self.cartesian_joint_limit_error(ticks)
+                    .expect("limited IK candidate has a joint-limit violation"),
+            ));
+        }
+        Err(ControllerError::Ik(kinematics::IkError::Unreachable))
     }
 
     pub fn preview_target_angles(
@@ -1110,6 +1146,17 @@ impl PuppyArm {
         z: f64,
         tool_phi_rad: f64,
     ) -> Option<[f64; JOINT_COUNT]> {
+        self.preview_target_angles_result(x, y, z, tool_phi_rad)
+            .ok()
+    }
+
+    pub fn preview_target_angles_result(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        tool_phi_rad: f64,
+    ) -> Result<[f64; JOINT_COUNT], ControllerError> {
         self.nearest_branch_candidate(x, y, z, tool_phi_rad, self.current_angles().ok())
     }
 
@@ -1265,7 +1312,8 @@ impl PuppyArm {
                     tool_pitch_rad,
                 };
             }
-            Err(ControllerError::Ik(kinematics::IkError::Unreachable)) => {
+            Err(ControllerError::Ik(kinematics::IkError::Unreachable))
+            | Err(ControllerError::CartesianJointLimits(_)) => {
                 // Do not discard a whole high-speed step at the workspace or
                 // configured joint-limit boundary. Find the furthest reachable
                 // fraction while keeping the original Cartesian start and
@@ -1299,7 +1347,8 @@ impl PuppyArm {
                             boundary_coords_mm = candidate_coords_mm;
                             boundary_angles = angles;
                         }
-                        Err(ControllerError::Ik(kinematics::IkError::Unreachable)) => {
+                        Err(ControllerError::Ik(kinematics::IkError::Unreachable))
+                        | Err(ControllerError::CartesianJointLimits(_)) => {
                             unreachable_fraction = fraction;
                         }
                         Err(_) => break,

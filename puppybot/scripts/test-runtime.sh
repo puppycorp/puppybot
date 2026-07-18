@@ -26,7 +26,6 @@ PUPPYBOT_RUNTIME_ADDR="$runtime_addr" \
     "${cargo_cmd[@]}" run -p puppybot-runtime -- \
     --sim \
     --headless \
-    --config runtime/puppybot.json \
     --ui-bind 127.0.0.1:0 \
     >"$runtime_log" 2>&1 &
 runtime_pid="$!"

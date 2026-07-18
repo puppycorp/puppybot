@@ -13,7 +13,10 @@ use puppybot_core::{
     puppyarm::{
         kinematics::{self, IkError},
         servo_safety::TICK_WRAP,
-        types::{ArmCommand, ArmMode, ControllerError, JOINT_COUNT, Joint, TcpFrame},
+        types::{
+            ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint,
+            TcpFrame,
+        },
     },
     robot::Puppybot,
 };
@@ -578,16 +581,56 @@ fn goto_angles_command(command: ArmCommand) -> bool {
     matches!(command, ArmCommand::GotoAngles(_))
 }
 
+fn cartesian_joint_limit_error_text(error: CartesianJointLimitError) -> String {
+    let details = error
+        .violations
+        .iter()
+        .flatten()
+        .map(|violation| {
+            let joint = ARM_JOINT_LABELS
+                .get(violation.joint)
+                .copied()
+                .unwrap_or("Unknown joint");
+            if violation.tick_min < violation.tick_max {
+                if violation.requested_tick < violation.tick_min {
+                    format!(
+                        "{joint} lower limit ({} < {})",
+                        violation.requested_tick, violation.tick_min
+                    )
+                } else {
+                    format!(
+                        "{joint} upper limit ({} > {})",
+                        violation.requested_tick, violation.tick_max
+                    )
+                }
+            } else {
+                format!(
+                    "{joint} wrapped limit (tick {} outside {}..{})",
+                    violation.requested_tick, violation.tick_min, violation.tick_max
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    if details.is_empty() {
+        "blocked by configured joint limits".to_string()
+    } else {
+        format!("blocked by {}", details.join("; "))
+    }
+}
+
 fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<String> {
     match (command, err) {
+        (_, ControllerError::CartesianJointLimits(error)) => {
+            Some(cartesian_joint_limit_error_text(error))
+        }
         (ArmCommand::GotoCoords { x, y, z, .. }, ControllerError::Ik(IkError::Unreachable)) => {
             Some(format!(
-                "target unreachable: {x:.1}, {y:.1}, {:.1} mm",
+                "target geometrically unreachable: {x:.1}, {y:.1}, {:.1} mm",
                 kinematics::shoulder_to_table_z(z)
             ))
         }
         (ArmCommand::MoveTcp { .. }, ControllerError::Ik(IkError::Unreachable)) => {
-            Some("target unreachable from current position".to_string())
+            Some("target geometrically unreachable from current position".to_string())
         }
         (ArmCommand::MoveTcp { .. }, ControllerError::MissingFeedback) => {
             Some("current position unavailable".to_string())
@@ -601,7 +644,9 @@ fn arm_command_error_text(command: ArmCommand, err: ControllerError) -> Option<S
         (ArmCommand::GotoAngles(_), ControllerError::MissingFeedback) => {
             Some("current joint feedback unavailable".to_string())
         }
-        (_, ControllerError::Ik(IkError::Unreachable)) => Some("target unreachable".to_string()),
+        (_, ControllerError::Ik(IkError::Unreachable)) => {
+            Some("target geometrically unreachable".to_string())
+        }
         _ => None,
     }
 }
@@ -705,7 +750,7 @@ impl App {
     pub(crate) fn with_options(options: AppOptions) -> Result<App, String> {
         let started_at = Instant::now();
 
-        let config_path = config::runtime_config_path(options.config.as_deref());
+        let config_path = config::runtime_config_path(options.config.as_deref(), options.simulated);
         let runtime_config = config::load_runtime_config(&config_path)?;
         if runtime_config.is_some() {
             log::info!("loaded runtime config from {}", config_path.display());
@@ -1622,16 +1667,16 @@ impl App {
         self.coordinate_y = format!("{y:.1}");
         self.coordinate_z = format!("{z_table:.1}");
         self.coordinate_error.clear();
-        self.arm(
-            "move to coordinates",
-            ArmCommand::GotoCoords {
-                x,
-                y,
-                z: kinematics::table_to_shoulder_z(z_table),
-                tool_phi_rad,
-            },
-        )
-        .map_err(|err| ApiError::bad_request(format!("move to coordinates rejected: {err:?}")))?;
+        let command = ArmCommand::GotoCoords {
+            x,
+            y,
+            z: kinematics::table_to_shoulder_z(z_table),
+            tool_phi_rad,
+        };
+        self.arm("move to coordinates", command).map_err(|err| {
+            let detail = arm_command_error_text(command, err).unwrap_or_else(|| format!("{err:?}"));
+            ApiError::bad_request(format!("move to coordinates rejected: {detail}"))
+        })?;
         self.sync_goto_angles_from_targets();
         Ok(())
     }
@@ -2416,7 +2461,11 @@ impl App {
 
         let z = kinematics::table_to_shoulder_z(z_table);
         let tool_phi_rad = kinematics::ARM_TOOL_PHI_RAD;
-        let target_angles = self.robot.arm.preview_target_angles(x, y, z, tool_phi_rad);
+        let target_result = self
+            .robot
+            .arm
+            .preview_target_angles_result(x, y, z, tool_phi_rad);
+        let target_angles = target_result.as_ref().ok().copied();
 
         body.push(
             label_text(&format!(
@@ -2426,12 +2475,18 @@ impl App {
             .break_words(true),
         );
 
-        if target_angles.is_none() {
-            body.push(
-                label_text("target unreachable")
-                    .text_align("center")
-                    .break_words(true),
-            );
+        if let Err(error) = target_result {
+            let detail = arm_command_error_text(
+                ArmCommand::GotoCoords {
+                    x,
+                    y,
+                    z,
+                    tool_phi_rad,
+                },
+                error,
+            )
+            .unwrap_or_else(|| format!("target rejected: {error:?}"));
+            body.push(label_text(&detail).text_align("center").break_words(true));
         }
 
         let joints: Vec<Item> = (0..JOINT_COUNT)
@@ -3869,6 +3924,73 @@ mod tests {
         CMD_CONFIG_GET, CMD_CONFIG_SET, CMD_DRIVE_STEER, CMD_SUBSCRIBE,
         SUBSCRIPTION_TOPIC_ARM_STATE, command_frame,
     };
+
+    #[tokio::test]
+    async fn coordinate_api_distinguishes_wrist_limit_from_geometric_unreachable() {
+        let config_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
+        let mut app = App::with_options(AppOptions {
+            config: Some(config_path.display().to_string()),
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("127.0.0.1:0".parse().unwrap()),
+        })
+        .expect("simulated runtime app");
+        for (joint, tick) in [1583, 2894, 857, 2451].into_iter().enumerate() {
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+
+        let limited = app
+            .api_move_coordinates(&serde_json::json!({
+                "xMm": 160.4,
+                "yMm": -1.7,
+                "zMm": 60.0,
+                "toolPhiDeg": -90.0,
+            }))
+            .expect_err("wrist-limited target must be rejected");
+        assert_eq!(limited.status, "400 Bad Request");
+        assert_eq!(
+            limited.message,
+            "move to coordinates rejected: blocked by Wrist lower limit (2391 < 2400)"
+        );
+        assert_eq!(
+            app.coordinate_error,
+            "blocked by Wrist lower limit (2391 < 2400)"
+        );
+
+        let deep_limited = app
+            .api_move_coordinates(&serde_json::json!({
+                "xMm": 160.4,
+                "yMm": -1.7,
+                "zMm": -40.0,
+                "toolPhiDeg": -90.0,
+            }))
+            .expect_err("deep wrist-limited target must be rejected");
+        assert_eq!(
+            deep_limited.message,
+            "move to coordinates rejected: blocked by Wrist lower limit (1965 < 2400)"
+        );
+        assert!(
+            !deep_limited.message.contains("6624"),
+            "diagnostic must not display an out-of-domain servo tick"
+        );
+
+        let geometric = app
+            .api_move_coordinates(&serde_json::json!({
+                "xMm": 1000.0,
+                "yMm": 0.0,
+                "zMm": 0.0,
+                "toolPhiDeg": -90.0,
+            }))
+            .expect_err("geometrically unreachable target must be rejected");
+        assert_eq!(geometric.status, "400 Bad Request");
+        assert_eq!(
+            geometric.message,
+            "move to coordinates rejected: target geometrically unreachable: 1000.0, 0.0, 0.0 mm"
+        );
+    }
 
     #[tokio::test]
     async fn api_state_json_reports_runtime_state() {

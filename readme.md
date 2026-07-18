@@ -27,8 +27,14 @@ history when servicing those historical implementations.
 From `puppybot/`:
 
 ```sh
-./scripts/run-runtime.sh --sim --headless --config runtime/puppybot.json
+./scripts/run-runtime.sh --sim --headless
 ```
+
+Plain `--sim` automatically loads the simulation-only
+`runtime/puppybot.sim.json` profile, independent of the launch directory. It
+keeps the calibrated simulated joint limits enabled without changing the
+physical runtime profile at `runtime/puppybot.json`. An explicit `--config`
+overrides this simulation default.
 
 The command and read API defaults to `http://127.0.0.1:8080` in this example,
 with the Android-compatible WebSocket endpoint at `/ws`. The WGUI dashboard
@@ -43,7 +49,6 @@ settled scene through PGE's real offscreen WGPU renderer:
 ```sh
 cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
   --sim --screenshot workdir/screenshots/validation.png --frames 120 \
-  --config puppybot/runtime/puppybot.json \
   --robotdreams-project robotdreams/project.json
 ```
 
@@ -60,7 +65,6 @@ cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
   --sim --screenshot workdir/screenshots/rear-high.png --frames 120 \
   --camera-target 0,0,0.22 --camera-radius 0.68 \
   --camera-azimuth -140 --camera-elevation 48 \
-  --config puppybot/runtime/puppybot.json \
   --robotdreams-project robotdreams/project.json
 ```
 
@@ -76,7 +80,6 @@ use the `record` subcommand:
 ```sh
 cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
   record --sim --out workdir/recordings/validation.mp4 --frames 150 \
-  --config puppybot/runtime/puppybot.json \
   --robotdreams-project robotdreams/project.json
 ```
 

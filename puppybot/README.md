@@ -103,9 +103,10 @@ PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8082 ./scripts/run-runtime.sh
 ./scripts/run-runtime.sh --ui-bind 127.0.0.1:9090
 ```
 
-At startup the runtime looks for a local `puppybot.json` in the current working
-directory. If the file is missing, it uses built-in defaults. To load another
-file, pass `--config` or set `PUPPYBOT_RUNTIME_CONFIG`:
+Without `--sim`, the runtime looks for a local `puppybot.json` in the current
+working directory and uses built-in defaults if it is missing. With `--sim`, it
+instead loads the checked-in simulation profile described below. To load
+another file in either mode, pass `--config` or set `PUPPYBOT_RUNTIME_CONFIG`:
 
 ```sh
 ./scripts/run-runtime.sh --config ./puppybot.json
@@ -115,6 +116,22 @@ The runtime UI can adjust arm joint soft tick limits live. Click
 `Save Calibration` after testing the new limits to write them to the configured
 JSON file. The runtime writes a normalized `puppybot.json` atomically via a temp
 file and rename.
+
+Cartesian Preview, Move, and API errors distinguish a geometrically unreachable
+target from a raw-reachable target blocked by enabled joint soft limits. Limit
+errors name the affected joint and requested range, for example
+`blocked by Wrist lower limit (2391 < 2400)`. This is diagnostic only and does
+not change target selection or safety enforcement.
+
+Plain `--sim` automatically uses the separate checked-in
+`runtime/puppybot.sim.json` profile regardless of the launch directory. It
+persists the exact UI-calibrated ranges yaw `69..3000`, shoulder
+`2000..3920`, elbow `560..3593`, and wrist `2400..3006`, all enabled; the
+physical `runtime/puppybot.json` calibration remains untouched. Simulation UI
+changes are session-only, so transfer reviewed values to the simulation profile
+in source control and restart with plain `--sim` to verify they persist. An
+explicit `--config` or `PUPPYBOT_RUNTIME_CONFIG` overrides the simulation
+default; non-simulation launches continue to default to `./puppybot.json`.
 
 The runtime WebSocket listener also exposes a read-only JSON view for agents and
 scripts:
@@ -194,7 +211,6 @@ normal runtime default is `0.0.0.0:8080`, so set the address explicitly:
 ```sh
 PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 \
   ./scripts/run-runtime.sh --sim --headless \
-  --config runtime/puppybot.json \
   --robotdreams-project ../robotdreams/project.json
 ```
 
@@ -234,7 +250,6 @@ servers:
 ```sh
 ./scripts/run-runtime.sh \
   --sim --screenshot workdir/captures/settled.png --frames 120 \
-  --config runtime/puppybot.json \
   --robotdreams-project ../robotdreams/project.json
 ```
 
@@ -280,7 +295,6 @@ frames, prints the final controller/model TCP delta, and exits:
 ```sh
 ./scripts/run-runtime.sh record \
   --sim --out workdir/captures/settled.mp4 --frames 150 \
-  --config runtime/puppybot.json \
   --robotdreams-project ../robotdreams/project.json
 ```
 
@@ -445,6 +459,12 @@ dynamic ball and the bin are inside the stationary arm workspace. Pickup is
 accepted only when the observed RobotDreams TCP is within 35 mm. After release,
 gravity moves the ball and RobotDreams' `ball_in_bin` volume must report both
 `settled` and `triggered`; the harness cannot post ball coordinates or success.
+
+The exact calibrated simulation limits reject the old low `pick` waypoint, so
+the default runner now fails safely at that waypoint until the path is retuned.
+`--runtime-config` remains available for explicit historical/configuration
+comparisons, but the accepted path must be retuned rather than restored by
+loosening the calibrated joint limits.
 
 To write the same-run trace, MP4, state observations, commands, and validation:
 

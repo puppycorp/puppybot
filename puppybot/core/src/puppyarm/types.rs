@@ -108,12 +108,27 @@ pub enum ArmMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JointLimitViolation {
+    pub joint: usize,
+    pub requested_tick: i32,
+    pub tick_min: i32,
+    pub tick_max: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CartesianJointLimitError {
+    pub candidate_ticks: [i32; JOINT_COUNT],
+    pub violations: [Option<JointLimitViolation>; JOINT_COUNT],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ControllerError {
     InvalidJoint,
     InvalidServoIds,
     InvalidLimit,
     MissingFeedback,
     Ik(IkError),
+    CartesianJointLimits(CartesianJointLimitError),
 }
 
 impl From<IkError> for ControllerError {

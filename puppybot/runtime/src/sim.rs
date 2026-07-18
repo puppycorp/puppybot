@@ -3028,6 +3028,61 @@ mod tests {
     use puppybot_core::stservo::mock::block_on_ready;
 
     #[test]
+    fn calibrated_simulation_limits_reject_old_ball_to_bin_pick_waypoint() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
+        let config = crate::config::load_runtime_config(&config_path)
+            .expect("load simulation runtime config")
+            .expect("simulation runtime config exists");
+        assert!(config.arm.joints.iter().all(|joint| joint.limit_enabled));
+
+        let mut robot = Puppybot::new_with_config(&config, 0)
+            .expect("create PuppyBot controller from simulation config");
+        for (index, joint) in config.arm.joints.iter().enumerate() {
+            robot
+                .arm
+                .record_feedback(index, joint.reference_tick as u16, 0);
+        }
+
+        robot
+            .arm
+            .try_handle_arm_cmd(
+                ArmCommand::GotoCoords {
+                    x: 230.0,
+                    y: -90.0,
+                    z: kinematics::table_to_shoulder_z(80.0),
+                    tool_phi_rad: -std::f64::consts::FRAC_PI_2,
+                },
+                20,
+            )
+            .expect("old pre-pick waypoint remains inside calibrated limits");
+        let pre_pick = robot.arm_telemetry();
+        for (joint_index, joint) in pre_pick.joints.iter().enumerate() {
+            robot.arm.record_feedback(
+                joint_index,
+                joint.target_tick.expect("pre-pick target tick") as u16,
+                20,
+            );
+        }
+
+        let result = robot.arm.try_handle_arm_cmd(
+            ArmCommand::GotoCoords {
+                x: 230.0,
+                y: -90.0,
+                z: kinematics::table_to_shoulder_z(-34.0),
+                tool_phi_rad: -std::f64::consts::FRAC_PI_2,
+            },
+            40,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(puppybot_core::puppyarm::types::ControllerError::CartesianJointLimits(_))
+            ),
+            "retune the scenario instead of weakening the calibrated simulation limits: {result:?}"
+        );
+    }
+
+    #[test]
     fn wrist_camera_pose_and_projection_come_from_live_robotdreams_camera_spec() {
         let project_path = SimulatedRuntimeBackend::default_project_path();
         let project_json: serde_json::Value = serde_json::from_slice(

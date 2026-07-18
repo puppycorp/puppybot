@@ -50,6 +50,10 @@ fn positive_mod(value: i32, modulus: i32) -> i32 {
     if value < 0 { value + modulus } else { value }
 }
 
+pub fn canonical_servo_tick(tick: i32) -> i32 {
+    positive_mod(tick, TICK_WRAP)
+}
+
 pub fn continuous_tick_interval(min_tick: i32, max_tick: i32) -> (i32, i32) {
     if min_tick <= max_tick {
         (min_tick, max_tick)

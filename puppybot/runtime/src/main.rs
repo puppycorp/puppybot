@@ -72,7 +72,7 @@ enum RuntimeCli {
 }
 
 fn runtime_usage() -> &'static str {
-    "Usage:\n  puppybot-runtime [OPTIONS]\n  puppybot-runtime record --sim --out <PATH.mp4> (--frames <N> | --state <TRACE.json>) [OPTIONS]\n\nRun options:\n  --config <PATH>               Load runtime config JSON, default ./puppybot.json\n  --servo-device <PATH>         Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --sim                         Run with in-process RobotDreams simulation and PGE preview\n  --headless                    Run --sim without a PGE preview window\n  --screenshot <PATH>           Render one real offscreen PGE frame and exit; requires --sim\n  --state <PATH>                Re-render a saved API/capture state without stepping simulation\n  --state-frame <INDEX>         Zero-based state frame to render, default 0\n  --frames <N>                  Simulation updates before screenshot, default 120\n  --camera-target <X,Y,Z>       Screenshot orbit target in meters\n  --camera-radius <M>           Screenshot orbit radius in meters, must be positive\n  --camera-azimuth <DEG>        Screenshot orbit azimuth in degrees\n  --camera-elevation <DEG>      Screenshot elevation, strictly between -90 and 90\n  --robotdreams-project <PATH>  RobotDreams project for --sim, default ../../robotdreams/project.json\n  --ui-bind <ADDR>              Bind the WGUI dashboard, default 127.0.0.1:8081\n\nRecord options:\n  --sim                         Record/replay RobotDreams simulation state (required)\n  --out <PATH.mp4>              Output H.264 MP4 path (required)\n  --frames <N>                  Number of live 50 fps frames to render\n  --state <TRACE.json>          Render an exact saved pose/camera trace without simulation stepping\n  --config <PATH>               Load runtime config JSON, default ./puppybot.json\n  --robotdreams-project <PATH>  RobotDreams project, default ../../robotdreams/project.json\n\n  -h, --help                    Show this help text"
+    "Usage:\n  puppybot-runtime [OPTIONS]\n  puppybot-runtime record --sim --out <PATH.mp4> (--frames <N> | --state <TRACE.json>) [OPTIONS]\n\nRun options:\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --servo-device <PATH>         Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --sim                         Run with RobotDreams; defaults to runtime/puppybot.sim.json\n  --headless                    Run --sim without a PGE preview window\n  --screenshot <PATH>           Render one real offscreen PGE frame and exit; requires --sim\n  --state <PATH>                Re-render a saved API/capture state without stepping simulation\n  --state-frame <INDEX>         Zero-based state frame to render, default 0\n  --frames <N>                  Simulation updates before screenshot, default 120\n  --camera-target <X,Y,Z>       Screenshot orbit target in meters\n  --camera-radius <M>           Screenshot orbit radius in meters, must be positive\n  --camera-azimuth <DEG>        Screenshot orbit azimuth in degrees\n  --camera-elevation <DEG>      Screenshot elevation, strictly between -90 and 90\n  --robotdreams-project <PATH>  RobotDreams project for --sim, default ../../robotdreams/project.json\n  --ui-bind <ADDR>              Bind the WGUI dashboard, default 127.0.0.1:8081\n\nWithout --sim, config defaults to ./puppybot.json. PUPPYBOT_RUNTIME_CONFIG overrides both defaults.\n\nRecord options:\n  --sim                         Record/replay RobotDreams simulation state (required)\n  --out <PATH.mp4>              Output H.264 MP4 path (required)\n  --frames <N>                  Number of live 50 fps frames to render\n  --state <TRACE.json>          Render an exact saved pose/camera trace without simulation stepping\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --robotdreams-project <PATH>  RobotDreams project, default ../../robotdreams/project.json\n\n  -h, --help                    Show this help text"
 }
 
 fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
@@ -481,7 +481,7 @@ async fn run_record_command(args: RecordArgs) -> Result<(), String> {
         );
         return Ok(());
     }
-    let config_path = config::runtime_config_path(args.config.as_deref());
+    let config_path = config::runtime_config_path(args.config.as_deref(), true);
     let physical_config = config::load_runtime_config(&config_path)?.unwrap_or_default();
     let frames = args.frames.expect("validated record frame count");
     let delta_mm = sim::record_simulation_video(
@@ -558,7 +558,7 @@ async fn main() {
                 }
             }
         }
-        let config_path = config::runtime_config_path(args.config.as_deref());
+        let config_path = config::runtime_config_path(args.config.as_deref(), true);
         let physical_config = match config::load_runtime_config(&config_path) {
             Ok(config) => config.unwrap_or_default(),
             Err(err) => {

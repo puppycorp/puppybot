@@ -21,6 +21,28 @@ Python brain can open exactly like a physical camera.
 
 `pre-pick -> pick -> Interact -> lift -> transfer -> drop -> Interact -> retreat`
 
+The checked-in `runtime/puppybot.sim.json` profile persists the exact
+UI-calibrated simulation limits (yaw `69..3000`, shoulder `2000..3920`, elbow
+`560..3593`, wrist `2400..3006`) with all four limits enabled. These values are
+not physical PuppyArm mechanical-limit measurements. The old `pick` waypoint is
+outside this calibrated profile. Plain `--sim` now loads this profile
+automatically, so the default runner fails safely at `pick` until the waypoint
+sequence is retuned. Do not weaken the calibrated limits to preserve an old
+path.
+
+An explicit config can still be selected for diagnostic comparisons:
+
+```sh
+python3 scenarios/place_ball_to_bin.py \
+  --recording-dir workdir/recordings/place-ball-to-bin-retune-001 \
+  --runtime-config runtime/puppybot.json
+```
+
+This override reproduces the historical disabled-limit behavior; it is not the
+current simulation acceptance path. Until retuning is complete, the default
+command is expected to reject the old `pick` waypoint as unreachable rather
+than complete the demo.
+
 The first `Interact` can attach only near the observed live TCP. The second
 releases the dynamic ball, after which RobotDreams gravity and collision advance
 it independently. Completion requires the `ball_in_bin` trigger to become

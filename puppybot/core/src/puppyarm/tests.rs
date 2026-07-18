@@ -8,9 +8,9 @@ use super::{
     kinematics::*,
     puppyarm::{ArmCommand, ArmMode, MAX_TCP_JOG_TARGET_LEAD_MM, PuppyArm, TcpFrame},
     servo_safety::*,
-    types::{ControllerError, JOINT_COUNT, Joint},
+    types::{CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint, JointLimitViolation},
 };
-use crate::config::PuppyArmConfig;
+use crate::config::{JointCalibration, PuppyArmConfig};
 
 const EPS: f64 = 1.0e-6;
 const COORD_EPS_MM: f32 = 1.0;
@@ -84,6 +84,32 @@ fn arm_with_angle_feedback(angles: [f64; JOINT_COUNT]) -> PuppyArm {
         feedback_arm.record_feedback(index, joint.target_tick.unwrap() as u16, 0);
     }
     feedback_arm
+}
+
+fn arm_with_calibrated_simulation_limits() -> PuppyArm {
+    let joint = |servo_id, tick_min, tick_max, reference_tick, angle_sign| JointCalibration {
+        servo_id,
+        tick_min,
+        tick_max,
+        reference_tick,
+        reference_angle_rad: FRAC_PI_2,
+        angle_sign,
+        drive_sign: 1,
+        limit_enabled: true,
+    };
+    let config = PuppyArmConfig {
+        joints: [
+            joint(1, 69, 3000, 1583, 1),
+            joint(2, 2000, 3920, 2946, -1),
+            joint(3, 560, 3593, 1058, 1),
+            joint(4, 2400, 3006, 2685, 1),
+        ],
+    };
+    let mut arm = PuppyArm::new_with_config(&config, 0).expect("calibrated simulation arm");
+    for (joint, tick) in [1583, 2894, 857, 2451].into_iter().enumerate() {
+        arm.record_feedback(joint, tick, 0);
+    }
+    arm
 }
 
 fn target_ticks(arm: &PuppyArm) -> [Option<i32>; JOINT_COUNT] {
@@ -730,6 +756,79 @@ fn try_goto_coords_reports_unreachable_target() {
 
     assert_eq!(result, Err(ControllerError::Ik(IkError::Unreachable)));
     assert!(arm.telemetry_snapshot(0).joints[0].target_tick.is_none());
+}
+
+#[test]
+fn cartesian_target_reports_wrist_limit_separately_from_raw_ik_failure() {
+    let mut arm = arm_with_calibrated_simulation_limits();
+    let current = arm.coords_mm().expect("current TCP from feedback");
+    assert_close_f32_eps(current.0, 160.45659, 0.001);
+    assert_close_f32_eps(current.1, -1.7270516, 0.001);
+    assert_close_f32_eps(current.2, 73.647224, 0.001);
+
+    let expected = CartesianJointLimitError {
+        candidate_ticks: [1583, 2869, 823, 2391],
+        violations: [
+            None,
+            None,
+            None,
+            Some(JointLimitViolation {
+                joint: 3,
+                requested_tick: 2391,
+                tick_min: 2400,
+                tick_max: 3006,
+            }),
+        ],
+    };
+    assert_eq!(
+        arm.preview_target_angles_result(160.4, -1.7, 60.0, ARM_TOOL_PHI_RAD),
+        Err(ControllerError::CartesianJointLimits(expected))
+    );
+    assert_eq!(
+        arm.try_handle_arm_cmd(
+            ArmCommand::GotoCoords {
+                x: 160.4,
+                y: -1.7,
+                z: 60.0,
+                tool_phi_rad: ARM_TOOL_PHI_RAD,
+            },
+            20,
+        ),
+        Err(ControllerError::CartesianJointLimits(expected))
+    );
+
+    let deep_target_error =
+        match arm.preview_target_angles_result(160.4, -1.7, -40.0, ARM_TOOL_PHI_RAD) {
+            Err(ControllerError::CartesianJointLimits(error)) => error,
+            other => panic!("expected canonical joint-limit diagnostic, got {other:?}"),
+        };
+    assert_eq!(deep_target_error.candidate_ticks, [1583, 2528, 737, 1965]);
+    assert!(
+        deep_target_error
+            .candidate_ticks
+            .iter()
+            .all(|tick| (0..TICK_WRAP).contains(tick)),
+        "Cartesian diagnostics must contain physical 12-bit servo ticks"
+    );
+    assert_eq!(
+        deep_target_error.violations,
+        [
+            None,
+            None,
+            None,
+            Some(JointLimitViolation {
+                joint: 3,
+                requested_tick: 1965,
+                tick_min: 2400,
+                tick_max: 3006,
+            }),
+        ]
+    );
+
+    assert_eq!(
+        arm.preview_target_angles_result(1000.0, 0.0, 0.0, ARM_TOOL_PHI_RAD),
+        Err(ControllerError::Ik(IkError::Unreachable))
+    );
 }
 
 #[test]
@@ -1614,7 +1713,11 @@ fn yaw_flat_xy_relative_moves_preserve_target_z() {
                 10,
             );
 
-            if result == Err(ControllerError::Ik(IkError::Unreachable)) {
+            if matches!(
+                result,
+                Err(ControllerError::Ik(IkError::Unreachable))
+                    | Err(ControllerError::CartesianJointLimits(_))
+            ) {
                 continue;
             }
             assert_eq!(result, Ok(()), "pose={pose:?} dx={dx_mm} dy={dy_mm}");
