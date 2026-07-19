@@ -62,12 +62,14 @@ struct RecordArgs {
     frames: Option<u32>,
     state: Option<String>,
     robotdreams_project: Option<String>,
+    quick_grid: bool,
 }
 
 #[derive(Debug, PartialEq)]
 enum RuntimeCli {
     Run(RuntimeArgs),
     Record(RecordArgs),
+    DatasetCapture(RecordArgs),
     Help,
 }
 
@@ -145,7 +147,14 @@ where
 
     if args.peek().is_some_and(|arg| arg == "record") {
         let _ = args.next();
-        return parse_record_args(args);
+        return parse_record_args(args, false);
+    }
+    if args.peek().is_some_and(|arg| arg == "dataset-capture") {
+        let _ = args.next();
+        return parse_record_args(args, true).map(|value| match value {
+            RuntimeCli::Record(args) => RuntimeCli::DatasetCapture(args),
+            other => other,
+        });
     }
 
     while let Some(arg) = args.next() {
@@ -342,7 +351,7 @@ where
     Ok(RuntimeCli::Run(parsed))
 }
 
-fn parse_record_args<I>(args: I) -> Result<RuntimeCli, String>
+fn parse_record_args<I>(args: I, dataset_capture: bool) -> Result<RuntimeCli, String>
 where
     I: IntoIterator<Item = String>,
 {
@@ -352,6 +361,7 @@ where
         match arg.as_str() {
             "-h" | "--help" => return Ok(RuntimeCli::Help),
             "--sim" => parsed.simulated = true,
+            "--quick-grid" if dataset_capture => parsed.quick_grid = true,
             "--out" => {
                 let path = args
                     .next()
@@ -438,10 +448,10 @@ where
     if parsed.out.is_none() {
         return Err("record requires --out <PATH.mp4>".to_string());
     }
-    if parsed.frames.is_none() && parsed.state.is_none() {
+    if !dataset_capture && parsed.frames.is_none() && parsed.state.is_none() {
         return Err("record requires --frames <N> or --state <TRACE.json>".to_string());
     }
-    if parsed.frames.is_some() && parsed.state.is_some() {
+    if !dataset_capture && parsed.frames.is_some() && parsed.state.is_some() {
         return Err("record --frames cannot be combined with --state".to_string());
     }
     Ok(RuntimeCli::Record(parsed))
@@ -498,6 +508,26 @@ async fn run_record_command(args: RecordArgs) -> Result<(), String> {
     Ok(())
 }
 
+async fn run_dataset_capture_command(args: RecordArgs) -> Result<(), String> {
+    let project_path = args
+        .robotdreams_project
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(sim::SimulatedRuntimeBackend::default_project_path);
+    let config_path = config::runtime_config_path(args.config.as_deref(), true);
+    let config = config::load_runtime_config(&config_path)?.unwrap_or_default();
+    let out = args
+        .out
+        .ok_or_else(|| "dataset-capture requires --out <DIRECTORY>".to_string())?;
+    sim::capture_training_dataset_proof(
+        &project_path,
+        &config,
+        &PathBuf::from(out),
+        args.quick_grid,
+    )
+    .await
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     init_logger();
@@ -505,6 +535,13 @@ async fn main() {
         Ok(RuntimeCli::Run(args)) => args,
         Ok(RuntimeCli::Record(args)) => {
             if let Err(err) = run_record_command(args).await {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        Ok(RuntimeCli::DatasetCapture(args)) => {
+            if let Err(err) = run_dataset_capture_command(args).await {
                 eprintln!("{err}");
                 std::process::exit(1);
             }
@@ -828,6 +865,7 @@ mod tests {
                 frames: Some(150),
                 state: None,
                 robotdreams_project: Some("robotdreams/project.json".to_string()),
+                quick_grid: false,
             }))
         );
     }

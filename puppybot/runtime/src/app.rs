@@ -46,6 +46,14 @@ const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
 const UI_LIMIT_STEP_TICKS: i32 = 10;
 const DEFAULT_GOTO_ANGLE_DEG: f64 = 90.0;
+/// Calibrated arm posture for rover driving and TCP-camera search.
+///
+/// The UI reference image suggested shoulder 4.9° / elbow 43.2°, but those
+/// map to five ticks from the shoulder stop and below the elbow lower stop in
+/// `puppybot.sim.json`. These inset values preserve the forward/low view while
+/// keeping at least `DRIVE_SCAN_MIN_LIMIT_MARGIN_TICKS` clearance.
+const DRIVE_SCAN_ANGLES_DEG: [f64; JOINT_COUNT] = [90.0, 12.0, 52.0, 61.5];
+const DRIVE_SCAN_MIN_LIMIT_MARGIN_TICKS: i32 = 60;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
 
 const SAVE_CALIBRATION_ID: u32 = 100;
@@ -73,6 +81,7 @@ const EDIT_GOTO_ANGLE_WRIST_ID: u32 = 303;
 const SET_GOTO_ANGLES_CURRENT_ID: u32 = 304;
 const GOTO_DEFAULT_ANGLES_ID: u32 = 305;
 const GOTO_ANGLES_ID: u32 = 306;
+const GOTO_DRIVE_SCAN_ANGLES_ID: u32 = 307;
 
 const SET_TCP_FRAME_BASE_ID: u32 = 400;
 const SET_TCP_FRAME_TOOL_ID: u32 = 401;
@@ -128,7 +137,12 @@ fn event_arg(inx: Option<u32>) -> u32 {
     inx.unwrap_or(0)
 }
 
-fn ws_bind_addr() -> Result<SocketAddr, String> {
+fn default_ws_bind(simulated: bool) -> &'static str {
+    let _ = simulated;
+    DEFAULT_WS_BIND
+}
+
+fn ws_bind_addr(simulated: bool) -> Result<SocketAddr, String> {
     let bind = match std::env::var("PUPPYBOT_RUNTIME_ADDR") {
         Ok(bind) => bind,
         Err(_) => match std::env::var("PUPPYBOT_HOST_ADDR") {
@@ -136,7 +150,10 @@ fn ws_bind_addr() -> Result<SocketAddr, String> {
                 log::warn!("PUPPYBOT_HOST_ADDR is deprecated; use PUPPYBOT_RUNTIME_ADDR");
                 bind
             }
-            Err(_) => DEFAULT_WS_BIND.to_string(),
+            // The runtime remains network-reachable by default for its UI and
+            // existing control integrations. Simulated camera frames are
+            // separately restricted to loopback TCP peers below.
+            Err(_) => default_ws_bind(simulated).to_string(),
         },
     };
 
@@ -529,6 +546,29 @@ fn rigid_transform_json(
     })
 }
 
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = *chunk.get(1).unwrap_or(&0);
+        let third = *chunk.get(2).unwrap_or(&0);
+        encoded.push(ALPHABET[(first >> 2) as usize] as char);
+        encoded.push(ALPHABET[((first & 0x03) << 4 | (second >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            ALPHABET[((second & 0x0f) << 2 | (third >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            ALPHABET[(third & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
+}
+
 fn frame_detail(frame: TcpFrame) -> &'static str {
     match frame {
         TcpFrame::Base => "moves along robot base axes",
@@ -806,7 +846,7 @@ impl App {
         };
         let ws_bind_addr = match options.ws_bind {
             Some(bind) => bind,
-            None => ws_bind_addr()?,
+            None => ws_bind_addr(options.simulated)?,
         };
         let wgui = Wgui::new(ui_bind);
         wgui.set_css(RUNTIME_UI_CSS);
@@ -899,7 +939,7 @@ impl App {
         self.refresh_held_tcp_jog(now_ms);
         self.backend.run_once(&mut self.robot, now_ms).await;
         if let Some(preview) = self.simulated_preview() {
-            for view in self.capture_manager.active_recording_views() {
+            for view in self.capture_manager.recording_views_due() {
                 if let Ok(state) = preview.capture_state_for_view(view) {
                     self.capture_manager.sample_recording(view, state);
                 }
@@ -1171,6 +1211,28 @@ impl App {
                 .map(|(x, y, z)| serde_json::json!([x, y, z]))
                 .unwrap_or(serde_json::Value::Null)
         };
+        // Joint feedback is proprioception, not scene state: policies need it
+        // to verify that a commanded safe posture has settled and is clear of
+        // calibrated stops. Keep simulator object and manipulation state out
+        // of this restricted observation surface.
+        let joints = arm
+            .joints
+            .iter()
+            .enumerate()
+            .map(|(index, joint)| {
+                serde_json::json!({
+                    "index": index,
+                    "name": ARM_JOINT_LABELS[index].to_ascii_lowercase(),
+                    "tick": joint.tick,
+                    "targetTick": joint.target_tick,
+                    "angleDeg": joint.angle_deg(),
+                    "targetAngleDeg": joint.target_angle_deg(),
+                    "online": joint.online,
+                    "hasFeedback": joint.has_feedback,
+                    "limitReached": joint.limit_reached,
+                })
+            })
+            .collect::<Vec<_>>();
         let sim = match &self.backend {
             RuntimeBackend::Hardware { .. } => serde_json::json!({"enabled": false}),
             RuntimeBackend::Simulated(backend) => {
@@ -1182,13 +1244,13 @@ impl App {
                 });
                 let camera = backend
                     .preview()
-                    .capture_state_for_view(CaptureCameraView::Overhead)
+                    .capture_state_for_view(CaptureCameraView::Tcp)
                     .ok()
                     .map(|state| state.camera.clone());
                 serde_json::json!({
                     "enabled": true,
                     "frames": frames,
-                    "overheadCamera": camera,
+                    "wristCamera": camera,
                 })
             }
         };
@@ -1200,6 +1262,7 @@ impl App {
                 "unit": "mm",
                 "currentTcpMm": tuple_json(arm.coords_mm),
                 "targetTcpMm": tuple_json(arm.target_coords_mm),
+                "joints": joints,
             },
             "drive": {
                 "leftSpeed": drive.left_speed,
@@ -1330,11 +1393,46 @@ impl App {
         }
     }
 
+    /// Compatibility entry point for in-process callers and unit tests. Socket
+    /// HTTP traffic uses `handle_api_request_from_peer` with its actual peer.
     pub(crate) fn handle_api_request(
         &mut self,
         method: &[u8],
         target: &[u8],
         body: &[u8],
+    ) -> ApiResponse {
+        self.handle_api_request_from_peer(
+            method,
+            target,
+            body,
+            "127.0.0.1:0".parse().expect("valid loopback socket"),
+        )
+    }
+
+    fn is_loopback_peer(peer_addr: SocketAddr) -> bool {
+        match peer_addr.ip() {
+            IpAddr::V4(ip) => ip.is_loopback(),
+            IpAddr::V6(ip) => {
+                ip.is_loopback()
+                    || ip
+                        .to_ipv4_mapped()
+                        .is_some_and(|mapped| mapped.is_loopback())
+            }
+        }
+    }
+
+    fn autonomy_camera_access_error(peer_addr: SocketAddr) -> Option<ApiError> {
+        (!Self::is_loopback_peer(peer_addr)).then(|| {
+            ApiError::conflict("autonomy camera frames are available only to loopback clients")
+        })
+    }
+
+    fn handle_api_request_from_peer(
+        &mut self,
+        method: &[u8],
+        target: &[u8],
+        body: &[u8],
+        peer_addr: SocketAddr,
     ) -> ApiResponse {
         let method = match std::str::from_utf8(method) {
             Ok(method) => method,
@@ -1364,18 +1462,129 @@ impl App {
             };
         }
 
-        if method == "GET" && path == "/api/autonomy/cameras/overhead_camera/frame" {
+        if method == "GET" && path == "/api/autonomy/observations/tcp" {
             let response = (|| {
-                if !self.ws_bind_addr.ip().is_loopback() {
-                    return Err(ApiError::conflict(
-                        "autonomy camera frames are disabled on a non-loopback runtime bind",
-                    ));
+                if let Some(error) = Self::autonomy_camera_access_error(peer_addr) {
+                    return Err(error);
+                }
+                let preview = self.simulated_preview().ok_or_else(|| {
+                    ApiError::conflict("autonomy camera requires simulation mode")
+                })?;
+                let observation = preview.atomic_tcp_png().map_err(ApiError::internal)?;
+                let camera = serde_json::to_value(&observation.capture.state.camera)
+                    .map_err(|error| ApiError::internal(error.to_string()))?;
+                let arm = self.robot.arm_telemetry();
+                let tuple_json = |value: Option<(f32, f32, f32)>| {
+                    value
+                        .map(|(x, y, z)| serde_json::json!([x, y, z]))
+                        .unwrap_or(serde_json::Value::Null)
+                };
+                Ok(Self::api_json(
+                    "200 OK",
+                    serde_json::json!({
+                        "schema": "puppybot.runtime.tcp-observation.v1",
+                        "id": self.telemetry_seq,
+                        "timeMs": self.now_ms(),
+                        "image": {
+                            "contentType": "image/png",
+                            "base64": base64_encode(&observation.png),
+                            "sizeBytes": observation.png.len(),
+                        },
+                        "camera": camera,
+                        "frames": {
+                            "worldFromBase": rigid_transform_json(
+                                observation.capture.frames.world_from_base, "base", "world"
+                            ),
+                            "baseFromArmBase": rigid_transform_json(
+                                observation.capture.frames.base_from_arm_base, "armBase", "base"
+                            ),
+                        },
+                        "arm": {
+                            "frame": "armBase",
+                            "unit": "mm",
+                            "currentTcpMm": tuple_json(arm.coords_mm),
+                            "targetTcpMm": tuple_json(arm.target_coords_mm),
+                        },
+                    }),
+                ))
+            })();
+            return match response {
+                Ok(response) => response,
+                Err(error) => Self::api_error(error),
+            };
+        }
+
+        // Low-latency policy sensor.  Unlike the PNG audit route above, this
+        // stays on the raw renderer readback path and reuses one prepared WGPU
+        // renderer for the simulated runtime.  It intentionally exposes no
+        // scene/object transforms or task triggers.
+        if method == "GET" && path == "/api/autonomy/observations/tcp/raw" {
+            let response = (|| {
+                if let Some(error) = Self::autonomy_camera_access_error(peer_addr) {
+                    return Err(error);
+                }
+                let preview = self.simulated_preview().ok_or_else(|| {
+                    ApiError::conflict("autonomy camera requires simulation mode")
+                })?;
+                let observation = preview.atomic_tcp_rgba().map_err(ApiError::internal)?;
+                let camera = serde_json::to_value(&observation.capture.state.camera)
+                    .map_err(|error| ApiError::internal(error.to_string()))?;
+                let [width, height] = observation.capture.state.camera.resolution;
+                let arm = self.robot.arm_telemetry();
+                let tuple_json = |value: Option<(f32, f32, f32)>| {
+                    value
+                        .map(|(x, y, z)| serde_json::json!([x, y, z]))
+                        .unwrap_or(serde_json::Value::Null)
+                };
+                Ok(Self::api_json(
+                    "200 OK",
+                    serde_json::json!({
+                        "schema": "puppybot.runtime.tcp-raw-observation.v1",
+                        "id": self.telemetry_seq,
+                        "timeMs": self.now_ms(),
+                        "image": {
+                            "contentType": "application/x-rgba8",
+                            "pixelFormat": "rgba8",
+                            "width": width,
+                            "height": height,
+                            "strideBytes": width * 4,
+                            "base64": base64_encode(&observation.rgba),
+                            "sizeBytes": observation.rgba.len(),
+                        },
+                        "camera": camera,
+                        "frames": {
+                            "worldFromBase": rigid_transform_json(
+                                observation.capture.frames.world_from_base, "base", "world"
+                            ),
+                            "baseFromArmBase": rigid_transform_json(
+                                observation.capture.frames.base_from_arm_base, "armBase", "base"
+                            ),
+                        },
+                        "arm": {
+                            "frame": "armBase",
+                            "unit": "mm",
+                            "currentTcpMm": tuple_json(arm.coords_mm),
+                            "targetTcpMm": tuple_json(arm.target_coords_mm),
+                        },
+                    }),
+                ))
+            })();
+            return match response {
+                Ok(response) => response,
+                Err(error) => Self::api_error(error),
+            };
+        }
+
+        if method == "GET" && path == "/api/autonomy/cameras/wrist_camera/frame" {
+            let response = (|| {
+                if let Some(error) = Self::autonomy_camera_access_error(peer_addr) {
+                    return Err(error);
                 }
                 let preview = self.simulated_preview().ok_or_else(|| {
                     ApiError::conflict("autonomy camera requires simulation mode")
                 })?;
                 let (_camera, png) = preview
-                    .named_camera_png(CaptureCameraView::Overhead)
+                    .named_camera_png(CaptureCameraView::Tcp)
                     .map_err(ApiError::internal)?;
                 Ok(ApiResponse {
                     status: "200 OK",
@@ -1415,6 +1624,37 @@ impl App {
                 })
                 .map_err(ApiError::internal),
             ("GET", _) => Err(ApiError::not_found("unknown api endpoint")),
+            // Interaction feedback is a control acknowledgement, not a scene
+            // observation.  The attached policy needs to distinguish a
+            // confirmed grasp from the simulation tool's release toggle, but
+            // must never receive the object's position or other judge-only
+            // scene state.
+            ("POST", "/api/autonomy/sim/interact") => self.api_sim_interact().map(|action| {
+                Self::api_json(
+                    "200 OK",
+                    serde_json::json!({
+                        "ok": true,
+                        "interaction": {
+                            "sequence": action.sequence,
+                            "result": action.result,
+                            "attached": action.attached,
+                        },
+                    }),
+                )
+            }),
+            ("POST", "/api/sim/interact") => self.api_sim_interact().and_then(|action| {
+                Ok(Self::api_json(
+                    "200 OK",
+                    serde_json::json!({
+                        "ok": true,
+                        "interaction": {
+                            "sequence": action.sequence,
+                            "result": action.result,
+                            "attached": action.attached,
+                        },
+                    }),
+                ))
+            }),
             ("POST", path) if path.starts_with("/api/autonomy/") => {
                 let command_path = path.replacen("/api/autonomy/", "/api/", 1);
                 self.handle_api_command(&command_path, body)
@@ -1478,6 +1718,12 @@ impl App {
                 let sample_every_ticks = u32::try_from(sample_every_ticks).map_err(|_| {
                     ApiError::bad_request("sampleEveryTicks exceeds supported range")
                 })?;
+                let trace_only = request
+                    .get("mode")
+                    .is_some_and(|value| value.as_str() == Some("trace"));
+                if request.get("mode").is_some() && !trace_only {
+                    return Err(ApiError::bad_request("mode must be trace when supplied"));
+                }
                 let view = match request.get("camera") {
                     None => CaptureCameraView::External,
                     Some(value) if value.as_str() == Some("external") => {
@@ -1494,12 +1740,15 @@ impl App {
                     }
                 };
                 if request.as_object().is_some_and(|object| {
-                    object
-                        .keys()
-                        .any(|key| key != "frames" && key != "camera" && key != "sampleEveryTicks")
+                    object.keys().any(|key| {
+                        key != "frames"
+                            && key != "camera"
+                            && key != "sampleEveryTicks"
+                            && key != "mode"
+                    })
                 }) {
                     return Err(ApiError::bad_request(
-                        "record request accepts only frames, camera, and sampleEveryTicks",
+                        "record request accepts only frames, camera, sampleEveryTicks, and mode",
                     ));
                 }
                 let initial_state = preview
@@ -1512,6 +1761,7 @@ impl App {
                         frames,
                         view,
                         sample_every_ticks,
+                        trace_only,
                     )
                     .map_err(api_capture_failure)?
             }
@@ -1589,7 +1839,7 @@ impl App {
 
         match segments.as_slice() {
             ["api", "drive"] => self.api_drive(&json),
-            ["api", "sim", "interact"] => self.api_sim_interact(),
+            ["api", "sim", "interact"] => self.api_sim_interact().map(|_| ()),
             ["api", "drive", "stop"] => {
                 self.stop_drive();
                 Ok(())
@@ -1679,6 +1929,9 @@ impl App {
                 self.move_to_default_goto_angles();
                 Ok(())
             }
+            ["api", "arm", "poses", "drive-scan"] => self
+                .move_to_drive_scan_pose("move to DRIVE_SCAN pose")
+                .map_err(|err| ApiError::bad_request(format!("DRIVE_SCAN pose rejected: {err:?}"))),
             ["api", "arm", "goto-current"] => {
                 self.set_goto_angles_current();
                 Ok(())
@@ -1753,7 +2006,7 @@ impl App {
         Ok(())
     }
 
-    fn api_sim_interact(&mut self) -> Result<(), ApiError> {
+    fn api_sim_interact(&mut self) -> Result<crate::sim::SimToolActionResult, ApiError> {
         let action = match &mut self.backend {
             RuntimeBackend::Hardware { .. } => {
                 return Err(ApiError::conflict(
@@ -1766,7 +2019,7 @@ impl App {
         };
         self.last_command = format!("Interact: {}", action.result);
         self.mark_ui_dirty();
-        Ok(())
+        Ok(action)
     }
 
     fn api_arm_speed(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
@@ -2207,6 +2460,11 @@ impl App {
                     .height(34)
                     .width(88)
                     .on_press(GOTO_DEFAULT_ANGLES_ID)
+                    .on_release(GOTO_ANGLES_ID),
+                secondary_button("Drive Mode")
+                    .height(34)
+                    .width(180)
+                    .on_press(GOTO_DRIVE_SCAN_ANGLES_ID)
                     .on_release(GOTO_ANGLES_ID),
                 primary_button("Move Angles")
                     .height(34)
@@ -3244,6 +3502,31 @@ impl App {
         self.move_to_goto_angles("move to default target angles");
     }
 
+    /// UI peer to Default: it fills the normal joint-target inputs and uses
+    /// the same press/release motion path, status, and stop behavior.
+    fn move_to_drive_scan_goto_angles(&mut self) {
+        self.goto_angle_yaw = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[0]);
+        self.goto_angle_shoulder = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[1]);
+        self.goto_angle_elbow = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[2]);
+        self.goto_angle_wrist = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[3]);
+        self.goto_angle_error.clear();
+        self.move_to_goto_angles("move to DRIVE_SCAN pose");
+    }
+
+    fn move_to_drive_scan_pose(&mut self, label: &str) -> Result<(), ControllerError> {
+        self.goto_angle_yaw = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[0]);
+        self.goto_angle_shoulder = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[1]);
+        self.goto_angle_elbow = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[2]);
+        self.goto_angle_wrist = format!("{:.1}", DRIVE_SCAN_ANGLES_DEG[3]);
+        self.goto_angle_error.clear();
+        self.arm(
+            label,
+            ArmCommand::GotoAngles(DRIVE_SCAN_ANGLES_DEG.map(f64::to_radians)),
+        )?;
+        self.sync_coordinates_from_target();
+        Ok(())
+    }
+
     fn sync_goto_angles_from_targets(&mut self) {
         let joints = self.robot.arm.joints;
         if let Some(angles) = target_angle_inputs(&joints) {
@@ -3653,6 +3936,7 @@ impl App {
             JOG_NEGATIVE_ID => self.spin_joint(event_arg(inx), -1),
             JOG_POSITIVE_ID => self.spin_joint(event_arg(inx), 1),
             GOTO_DEFAULT_ANGLES_ID => self.move_to_default_goto_angles(),
+            GOTO_DRIVE_SCAN_ANGLES_ID => self.move_to_drive_scan_goto_angles(),
             GOTO_ANGLES_ID => self.move_to_goto_angles("move to target angles"),
             MOVE_TCP_FORWARD_ID => {
                 let _ = self.start_tcp_jog("move tcp forward", self.tcp_frame, [1.0, 0.0, 0.0]);
@@ -3975,11 +4259,13 @@ impl App {
             }
             http::HttpEvent::HttpRequest {
                 request_id,
+                peer_addr,
                 method,
                 target,
                 body,
             } => {
-                let response = self.handle_api_request(&method, &target, &body);
+                let response =
+                    self.handle_api_request_from_peer(&method, &target, &body, peer_addr);
                 server
                     .send_http_response(
                         request_id,
@@ -4071,6 +4357,60 @@ mod tests {
         SUBSCRIPTION_TOPIC_ARM_STATE, command_frame,
     };
 
+    #[test]
+    fn runtime_default_bind_preserves_network_ui() {
+        assert_eq!(default_ws_bind(true), "0.0.0.0:8080");
+        assert_eq!(default_ws_bind(false), "0.0.0.0:8080");
+    }
+
+    #[test]
+    fn autonomy_camera_routes_allow_only_loopback_socket_peers() {
+        for peer in ["127.0.0.1:51734", "[::1]:51734", "[::ffff:127.0.0.1]:51734"] {
+            let peer = peer.parse().expect("valid loopback peer");
+            assert!(App::is_loopback_peer(peer), "must allow {peer}");
+            assert!(App::autonomy_camera_access_error(peer).is_none());
+        }
+
+        for peer in ["192.0.2.25:51734", "[2001:db8::25]:51734"] {
+            let peer = peer.parse().expect("valid remote peer");
+            assert!(!App::is_loopback_peer(peer), "must reject {peer}");
+            let error = App::autonomy_camera_access_error(peer).expect("remote peer denied");
+            assert_eq!(error.status, "409 Conflict");
+            assert_eq!(
+                error.message,
+                "autonomy camera frames are available only to loopback clients"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_peer_cannot_reach_any_autonomy_camera_route_even_on_lan_bind() {
+        let mut app = App::with_options(AppOptions {
+            config: None,
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("0.0.0.0:8080".parse().unwrap()),
+        })
+        .expect("network-bound simulated runtime app");
+        let remote_peer = "192.0.2.25:51734".parse().expect("test remote peer");
+
+        for path in [
+            b"/api/autonomy/observations/tcp".as_slice(),
+            b"/api/autonomy/observations/tcp/raw".as_slice(),
+            b"/api/autonomy/cameras/wrist_camera/frame".as_slice(),
+        ] {
+            let response = app.handle_api_request_from_peer(b"GET", path, b"", remote_peer);
+            assert_eq!(response.status, "409 Conflict", "must deny {path:?}");
+            assert!(
+                String::from_utf8_lossy(&response.body)
+                    .contains("available only to loopback clients"),
+                "must state local-only camera policy"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn coordinate_api_distinguishes_wrist_limit_from_geometric_unreachable() {
         let config_path =
@@ -4136,6 +4476,40 @@ mod tests {
             geometric.message,
             "move to coordinates rejected: target geometrically unreachable: 1000.0, 0.0, 0.0 mm"
         );
+    }
+
+    #[tokio::test]
+    async fn autonomy_state_exposes_arm_proprioception_without_scene_state() {
+        let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
+        let mut app = App::with_options(AppOptions {
+            config: Some(config_path.display().to_string()),
+            servo_device: None,
+            simulated: true,
+            robotdreams_project: None,
+            ui_bind: Some("127.0.0.1:0".parse().unwrap()),
+            ws_bind: Some("127.0.0.1:0".parse().unwrap()),
+        })
+        .expect("simulated runtime app");
+
+        for _ in 0..8 {
+            app.last_tick_at = Instant::now() - Duration::from_millis(ROBOT_TICK_MS);
+            app.tick_robot().await;
+        }
+
+        let state: serde_json::Value =
+            serde_json::from_str(&app.api_autonomy_state_json().expect("autonomy state json"))
+                .expect("valid autonomy state json");
+
+        assert_eq!(state["schema"], "puppybot.runtime.autonomy-observation.v1");
+        let joints = state["arm"]["joints"].as_array().expect("arm joints");
+        assert_eq!(joints.len(), JOINT_COUNT);
+        assert!(joints.iter().all(|joint| {
+            joint["angleDeg"].is_number()
+                && (joint["targetAngleDeg"].is_number() || joint["targetAngleDeg"].is_null())
+                && joint["limitReached"].is_boolean()
+        }));
+        assert!(state["sim"].get("manipulation").is_none());
+        assert!(state["sim"].get("captureState").is_none());
     }
 
     #[tokio::test]
@@ -4227,6 +4601,32 @@ mod tests {
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
         .expect("simulated runtime app")
+    }
+
+    #[test]
+    fn drive_scan_pose_is_inset_from_every_calibrated_sim_limit() {
+        let config_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
+        let config = config::load_runtime_config(&config_path)
+            .expect("load simulation runtime config")
+            .expect("simulation runtime config exists");
+        for (joint, angle_deg) in config.arm.joints.iter().zip(DRIVE_SCAN_ANGLES_DEG) {
+            let sign = if joint.angle_sign < 0 { -1.0 } else { 1.0 };
+            let tick = (f64::from(joint.reference_tick)
+                + sign
+                    * (angle_deg.to_radians() - joint.reference_angle_rad)
+                    * f64::from(TICK_WRAP)
+                    / std::f64::consts::TAU)
+                .round()
+                .rem_euclid(f64::from(TICK_WRAP)) as i32;
+            let clearance = (tick - joint.tick_min).min(joint.tick_max - tick);
+            assert!(
+                clearance >= DRIVE_SCAN_MIN_LIMIT_MARGIN_TICKS,
+                "DRIVE_SCAN angle {angle_deg}° maps to tick {tick}, only {clearance} ticks from {}..{}",
+                joint.tick_min,
+                joint.tick_max,
+            );
+        }
     }
 
     fn assert_close(actual: f64, expected: f64) {
@@ -4403,9 +4803,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_and_zero_hold_controls_stop_on_release() {
+    async fn default_drive_scan_and_zero_hold_controls_stop_on_release() {
         let mut default_app = test_app();
         assert!(default_app.handle_press_id(GOTO_DEFAULT_ANGLES_ID, None));
+        assert_eq!(
+            [
+                default_app.goto_angle_yaw.as_str(),
+                default_app.goto_angle_shoulder.as_str(),
+                default_app.goto_angle_elbow.as_str(),
+                default_app.goto_angle_wrist.as_str(),
+            ],
+            ["90.0", "90.0", "90.0", "90.0"]
+        );
+        assert_eq!(default_app.last_command, "move to default target angles");
         assert!(
             default_app
                 .robot
@@ -4417,6 +4827,38 @@ mod tests {
         assert!(default_app.handle_release_id(GOTO_ANGLES_ID, None));
         assert!(
             default_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
+
+        let mut drive_scan_app = test_app();
+        assert!(drive_scan_app.handle_press_id(GOTO_DRIVE_SCAN_ANGLES_ID, None));
+        assert_eq!(
+            [
+                drive_scan_app.goto_angle_yaw.as_str(),
+                drive_scan_app.goto_angle_shoulder.as_str(),
+                drive_scan_app.goto_angle_elbow.as_str(),
+                drive_scan_app.goto_angle_wrist.as_str(),
+            ],
+            ["90.0", "12.0", "52.0", "61.5"]
+        );
+        assert_eq!(drive_scan_app.last_command, "move to DRIVE_SCAN pose");
+        assert!(
+            drive_scan_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_some())
+        );
+        // DRIVE_SCAN deliberately shares Default's release ID, so it has the
+        // same hold-to-move cancellation and UI settling feedback path.
+        assert!(drive_scan_app.handle_release_id(GOTO_ANGLES_ID, None));
+        assert!(
+            drive_scan_app
                 .robot
                 .arm
                 .joints

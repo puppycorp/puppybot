@@ -33,6 +33,9 @@ pub(crate) enum HttpEvent {
     },
     HttpRequest {
         request_id: u64,
+        /// TCP peer observed by the listening socket. This is transport
+        /// metadata, not a client-supplied forwarded header.
+        peer_addr: SocketAddr,
         method: Vec<u8>,
         target: Vec<u8>,
         body: Vec<u8>,
@@ -362,6 +365,9 @@ async fn app_connection_loop(
     events: mpsc::Sender<HttpEvent>,
     mut commands: mpsc::Receiver<ConnectionCommand>,
 ) -> Result<(), Error> {
+    // Preserve the socket peer rather than trusting HTTP headers such as
+    // X-Forwarded-For. The runtime uses this for local-only sensor routes.
+    let peer_addr = stream.peer_addr()?;
     let mut request = [0u8; MAX_HTTP_REQUEST];
     let request_len = read_http_request_async(&mut stream, &mut request).await?;
     let request = &request[..request_len];
@@ -386,6 +392,7 @@ async fn app_connection_loop(
             let _ = events
                 .send(HttpEvent::HttpRequest {
                     request_id: client_id,
+                    peer_addr,
                     method: method.to_vec(),
                     target: target.to_vec(),
                     body,
@@ -627,10 +634,15 @@ mod tests {
         let request_id = match next_app_event(&mut server).await {
             HttpEvent::HttpRequest {
                 request_id,
+                peer_addr,
                 method,
                 target,
                 body,
             } => {
+                assert!(
+                    peer_addr.ip().is_loopback(),
+                    "test connection must report its loopback peer"
+                );
                 assert_eq!(method, b"GET");
                 assert_eq!(target, b"/api/config.json");
                 assert!(body.is_empty());
@@ -674,6 +686,7 @@ mod tests {
                 method,
                 target,
                 body,
+                ..
             } => {
                 assert_eq!(method, b"GET");
                 assert_eq!(target, b"/api/state");
@@ -736,6 +749,7 @@ mod tests {
                 method,
                 target,
                 body,
+                ..
             } => {
                 assert_eq!(method, b"POST");
                 assert_eq!(target, b"/api/drive");

@@ -1,4 +1,7 @@
 /target/
 /esp32/target/
+/workdir/datasets/tinygrad-bottle-v1/
+/workdir/datasets/tinygrad-bottle-v2/
+/workdir/models/tinygrad-bottle-v1/
 .env
 rustc-ice-*.txt

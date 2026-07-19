@@ -50,7 +50,20 @@ struct ActiveRecording {
     sample_every_ticks: u32,
     sampled_ticks: u32,
     sample_count: u32,
-    worker: SyncSender<LiveRecordingWork>,
+    mode: RecordingMode,
+}
+
+/// A trace-only recording deliberately retains compact simulator state and
+/// does not construct a renderer or video encoder while autonomy is running.
+/// The harness replays it only after the policy/judge have finished.
+enum RecordingMode {
+    Rendered {
+        worker: SyncSender<LiveRecordingWork>,
+    },
+    TraceOnly {
+        fps: u32,
+        states: Vec<Arc<CaptureStateV1>>,
+    },
 }
 
 struct CaptureJob {
@@ -211,6 +224,7 @@ impl CaptureManager {
         frames: Option<u32>,
         view: CaptureCameraView,
         sample_every_ticks: u32,
+        trace_only: bool,
     ) -> Result<serde_json::Value, CaptureFailure> {
         if frames.is_some_and(|frames| frames == 0 || frames > MAX_RECORDING_FRAMES) {
             return Err(CaptureFailure {
@@ -256,23 +270,35 @@ impl CaptureManager {
             updated_at_ms: now,
             state_json: None,
             artifact: None,
-            artifact_content_type: "video/mp4",
+            artifact_content_type: if trace_only {
+                "application/json"
+            } else {
+                "video/mp4"
+            },
             error: None,
         });
-        let (worker, receiver) = sync_channel(LIVE_RECORDING_QUEUE);
-        if let Err(error) = spawn_live_recording_worker(
-            Arc::clone(&self.inner),
-            id.clone(),
-            project_path,
-            initial_state,
-            fps,
-            receiver,
-        ) {
-            if let Some(index) = store.jobs.iter().position(|job| job.id == id) {
-                store.jobs.remove(index);
+        let mode = if trace_only {
+            RecordingMode::TraceOnly {
+                fps,
+                states: Vec::new(),
             }
-            return Err(error);
-        }
+        } else {
+            let (worker, receiver) = sync_channel(LIVE_RECORDING_QUEUE);
+            if let Err(error) = spawn_live_recording_worker(
+                Arc::clone(&self.inner),
+                id.clone(),
+                project_path,
+                initial_state,
+                fps,
+                receiver,
+            ) {
+                if let Some(index) = store.jobs.iter().position(|job| job.id == id) {
+                    store.jobs.remove(index);
+                }
+                return Err(error);
+            }
+            RecordingMode::Rendered { worker }
+        };
         store.active_recordings.push(ActiveRecording {
             id: id.clone(),
             view,
@@ -280,23 +306,26 @@ impl CaptureManager {
             sample_every_ticks,
             sampled_ticks: 0,
             sample_count: 0,
-            worker,
+            mode,
         });
         Ok(job_urls(&id))
     }
 
-    pub(crate) fn active_recording_views(&self) -> Vec<CaptureCameraView> {
-        self.inner
-            .lock()
-            .ok()
-            .map(|store| {
-                store
-                    .active_recordings
-                    .iter()
-                    .map(|active| active.view)
-                    .collect()
+    /// Advance recording sample clocks before the runtime materializes a
+    /// capture state. This is crucial for trace-only recording: at five fps it
+    /// must not build a full camera/scene snapshot on each 50 Hz control tick.
+    pub(crate) fn recording_views_due(&self) -> Vec<CaptureCameraView> {
+        let Ok(mut store) = self.inner.lock() else {
+            return Vec::new();
+        };
+        store
+            .active_recordings
+            .iter_mut()
+            .filter_map(|active| {
+                active.sampled_ticks = active.sampled_ticks.saturating_add(1);
+                (active.sampled_ticks % active.sample_every_ticks == 0).then_some(active.view)
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     pub(crate) fn sample_recording(&self, view: CaptureCameraView, state: Arc<CaptureStateV1>) {
@@ -311,15 +340,33 @@ impl CaptureManager {
             else {
                 return;
             };
-            let send = {
+            let sampled = {
                 let active = &mut store.active_recordings[index];
-                active.sampled_ticks = active.sampled_ticks.saturating_add(1);
-                if active.sampled_ticks % active.sample_every_ticks != 0 {
-                    return;
+                match &mut active.mode {
+                    RecordingMode::Rendered { worker } => worker
+                        .try_send(LiveRecordingWork::Frame(state))
+                        .map_err(|error| match error {
+                            TrySendError::Full(_) => {
+                                "live recording state backlog reached its 3000-frame episode limit"
+                                    .to_string()
+                            }
+                            TrySendError::Disconnected(_) => {
+                                "live recording renderer is unavailable".to_string()
+                            }
+                        }),
+                    RecordingMode::TraceOnly { states, .. } => {
+                        if states.len() >= MAX_RECORDING_FRAMES as usize {
+                            Err(format!(
+                                "trace recording reached its {MAX_RECORDING_FRAMES}-frame episode limit"
+                            ))
+                        } else {
+                            states.push(state);
+                            Ok(())
+                        }
+                    }
                 }
-                active.worker.try_send(LiveRecordingWork::Frame(state))
             };
-            match send {
+            match sampled {
                 Ok(()) => {
                     let active = &mut store.active_recordings[index];
                     active.sample_count = active.sample_count.saturating_add(1);
@@ -332,24 +379,9 @@ impl CaptureManager {
                         (None, None)
                     }
                 }
-                Err(TrySendError::Full(_)) => {
+                Err(error) => {
                     let failed = store.active_recordings.remove(index);
-                    (
-                        None,
-                        Some((
-                            failed,
-                            format!(
-                                "live recording state backlog reached its {MAX_RECORDING_FRAMES}-frame episode limit"
-                            ),
-                        )),
-                    )
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    let failed = store.active_recordings.remove(index);
-                    (
-                        None,
-                        Some((failed, "live recording renderer is unavailable".to_string())),
-                    )
+                    (None, Some((failed, error)))
                 }
             }
         };
@@ -386,19 +418,55 @@ impl CaptureManager {
     }
 
     fn finish_live_recording(&self, completed: ActiveRecording) {
+        if let RecordingMode::TraceOnly { fps, states } = completed.mode {
+            self.finish_trace_recording(completed.id, fps, states);
+            return;
+        }
         let id = completed.id.clone();
         update_job(&self.inner, &id, "encoding", None, None, None);
+        let RecordingMode::Rendered { worker } = completed.mode else {
+            unreachable!("trace recording returned above")
+        };
         std::thread::spawn(move || {
-            let _ = completed.worker.send(LiveRecordingWork::Finish);
+            let _ = worker.send(LiveRecordingWork::Finish);
+        });
+    }
+
+    fn finish_trace_recording(&self, id: String, fps: u32, states: Vec<Arc<CaptureStateV1>>) {
+        update_job(&self.inner, &id, "encoding", None, None, None);
+        let store = Arc::clone(&self.inner);
+        std::thread::spawn(move || {
+            let result = capture_trace_from_states(&states, fps)
+                .and_then(|trace| {
+                    serde_json::to_vec_pretty(&trace)
+                        .map(Arc::<[u8]>::from)
+                        .map_err(|error| format!("encode trace-only capture: {error}"))
+                })
+                .and_then(|state_json| {
+                    if state_json.len() > MAX_TRACE_JSON_BYTES {
+                        Err(format!(
+                            "trace-only capture is {} bytes; limit is {MAX_TRACE_JSON_BYTES}",
+                            state_json.len()
+                        ))
+                    } else {
+                        Ok(state_json)
+                    }
+                });
+            match result {
+                Ok(state_json) => update_job(&store, &id, "complete", Some(state_json), None, None),
+                Err(error) => update_job(&store, &id, "failed", None, None, Some(error)),
+            }
         });
     }
 
     fn abort_live_recording(&self, failed: ActiveRecording, error: String) {
         let id = failed.id.clone();
         update_job(&self.inner, &id, "failed", None, None, Some(error.clone()));
-        std::thread::spawn(move || {
-            let _ = failed.worker.send(LiveRecordingWork::Abort(error));
-        });
+        if let RecordingMode::Rendered { worker } = failed.mode {
+            std::thread::spawn(move || {
+                let _ = worker.send(LiveRecordingWork::Abort(error));
+            });
+        }
     }
 
     pub(crate) fn status(&self, id: &str) -> Result<serde_json::Value, CaptureFailure> {

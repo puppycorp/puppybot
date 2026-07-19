@@ -88,8 +88,10 @@ To use a hardware STServo bus, pass the serial device:
 ./scripts/run-runtime.sh --servo-device /dev/ttyUSB0
 ```
 
-By default it listens on `0.0.0.0:8080`, so the WebSocket URL is
-`ws://<runtime-ip>:8080/ws`. It also advertises
+Without `--sim` it listens on `0.0.0.0:8080` by default, so the WebSocket URL is
+`ws://<runtime-ip>:8080/ws`. A plain `--sim` instead defaults to
+`127.0.0.1:8080`: simulation autonomy commands and TCP-camera frames are
+unauthenticated and intended for an attached local policy process. It also advertises
 `PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the
 bound port. The local WGUI dashboard listens at `http://127.0.0.1:8081/`.
 The dashboard includes drive controls, arm jog controls, arm hold/stop, fault
@@ -132,6 +134,20 @@ changes are session-only, so transfer reviewed values to the simulation profile
 in source control and restart with plain `--sim` to verify they persist. An
 explicit `--config` or `PUPPYBOT_RUNTIME_CONFIG` overrides the simulation
 default; non-simulation launches continue to default to `./puppybot.json`.
+
+Plain `--sim` also opens the checked-in interactive bottle-to-bin RobotDreams
+scene at `scenarios/bottle_to_bin.robotdreams.template.json`: it contains the
+same water-bottle asset, physics, wrist camera, trash bin, and bin trigger as
+the episode runner. Its fixed bottle placement is the runner's seed-42
+placement, so a separately attached detector has a visible target immediately.
+The episode runner still creates a private randomized copy of this scene and
+never gives that sampled position to the policy. To use the earlier general
+ball-and-bin scene, select it explicitly:
+
+```sh
+./scripts/run-runtime.sh --sim \
+  --robotdreams-project ../robotdreams/project.json
+```
 
 The runtime WebSocket listener also exposes a read-only JSON view for agents and
 scripts:
@@ -203,10 +219,11 @@ The response includes the active config path, dirty flag, and normalized config.
 
 ## Simulation capture and replay
 
-Run simulation capture servers on loopback. The runtime command/control API is
-unauthenticated, and capture creation is deliberately rejected when
-`PUPPYBOT_RUNTIME_ADDR` is bound to a non-loopback address. Note that the
-normal runtime default is `0.0.0.0:8080`, so set the address explicitly:
+Run simulation capture servers on loopback. Plain `--sim` uses
+`127.0.0.1:8080` by default. The runtime command/control API is
+unauthenticated, and capture creation is deliberately rejected when an explicit
+`PUPPYBOT_RUNTIME_ADDR` is bound to a non-loopback address. You can still set
+the loopback address explicitly when a shell or service supplies another value:
 
 ```sh
 PUPPYBOT_RUNTIME_ADDR=127.0.0.1:8080 \

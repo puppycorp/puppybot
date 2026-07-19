@@ -9,7 +9,7 @@ use std::{
 };
 
 use embassy_time::Duration;
-use image::{ImageFormat, Rgba};
+use image::{GenericImageView, ImageFormat, Rgba};
 use pge_app::{
     Node as PgeAppNode, OrbitController, State as PgeAppState, Vec2, Vec3, WindowOverlayLines,
     WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
@@ -22,7 +22,7 @@ use pge_video::{
 use pge_wgpu_renderer::WgpuRenderer;
 use puppybot_core::{
     config::{JointCalibration, PuppybotConfigV1},
-    drive::{DriveActuator, DriveOutput},
+    drive::{DriveActuator, DriveCommand, DriveOutput},
     protocol::ProtocolEvent,
     puppyarm::{
         kinematics,
@@ -324,6 +324,12 @@ pub(crate) struct SimulatedRuntimeBackend {
     state: Arc<Mutex<RobotDreamsRuntimeState>>,
     published_preview: Arc<Mutex<PublishedPreview>>,
     simulation_ups: Arc<Mutex<SimulationUpsCounter>>,
+    // The autonomy raw-TCP path must not construct a new Vulkan device for
+    // every control observation.  This renderer is deliberately separate
+    // from the capture worker's renderer: a slow policy cannot starve an
+    // active recording job, while consecutive policy observations still
+    // reuse the same WGPU device and prepared meshes.
+    tcp_observation_renderer: Arc<Mutex<Option<PreparedCaptureRenderer>>>,
     project: CaptureProject,
     project_path: PathBuf,
     window_active: Arc<AtomicBool>,
@@ -443,9 +449,26 @@ pub(crate) struct SimulatedPreview {
     state: Arc<Mutex<RobotDreamsRuntimeState>>,
     published: Arc<Mutex<PublishedPreview>>,
     simulation_ups: Arc<Mutex<SimulationUpsCounter>>,
+    tcp_observation_renderer: Arc<Mutex<Option<PreparedCaptureRenderer>>>,
     project: CaptureProject,
     project_path: PathBuf,
     window_active: Arc<AtomicBool>,
+}
+
+/// A single immutable wrist-camera publication.  The render input and rover
+/// frames come from one published simulation snapshot, so autonomy never
+/// projects an RGB frame using a later odometry pose.
+pub(crate) struct AtomicTcpCapture {
+    pub(crate) state: Arc<CaptureStateV1>,
+    pub(crate) frames: SimulationFrameTransforms,
+}
+
+/// An immutable wrist-camera publication plus raw RGBA pixels rendered from
+/// that exact capture state.  Dynamic scene state remains private inside the
+/// renderer input; callers receive only pixels and calibration/robot frames.
+pub(crate) struct AtomicTcpCaptureRgba {
+    pub(crate) capture: AtomicTcpCapture,
+    pub(crate) rgba: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -585,6 +608,7 @@ impl SimulatedRuntimeBackend {
             state,
             published_preview,
             simulation_ups: Arc::new(Mutex::new(SimulationUpsCounter::default())),
+            tcp_observation_renderer: Arc::new(Mutex::new(None)),
             project,
             project_path: project_path.to_path_buf(),
             window_active: Arc::new(AtomicBool::new(false)),
@@ -594,7 +618,11 @@ impl SimulatedRuntimeBackend {
     }
 
     pub(crate) fn default_project_path() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../robotdreams/project.json")
+        // Plain `--sim` is the interactive bottle-collection scene. The
+        // episode runner starts from this same source before producing its
+        // private randomized fixture.
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../puppybot/scenarios/bottle_to_bin.robotdreams.template.json")
     }
 
     pub(crate) async fn run_once(&mut self, robot: &mut Puppybot, now_ms: u64) {
@@ -620,6 +648,7 @@ impl SimulatedRuntimeBackend {
             state: Arc::clone(&self.state),
             published: Arc::clone(&self.published_preview),
             simulation_ups: Arc::clone(&self.simulation_ups),
+            tcp_observation_renderer: Arc::clone(&self.tcp_observation_renderer),
             project: self.project.clone(),
             project_path: self.project_path.clone(),
             window_active: Arc::clone(&self.window_active),
@@ -942,6 +971,447 @@ pub(crate) async fn capture_simulation_screenshot(
         backend.run_once(&mut robot, frame.saturating_mul(20)).await;
     }
     backend.preview().save_screenshot(path, camera)
+}
+
+/// Training-only capture. This deliberately lives beside the simulator and is
+/// never routed through /api/autonomy: it may read scene truth to create labels.
+pub(crate) async fn capture_training_dataset_proof(
+    project_path: &Path,
+    config: &PuppybotConfigV1,
+    out: &Path,
+    quick_grid: bool,
+) -> Result<(), String> {
+    fs::create_dir_all(out).map_err(|e| format!("create dataset directory: {e}"))?;
+    let asset = training_bottle_asset_bounds(project_path)?;
+    let mut audit = Vec::new();
+    // Retain every qualifying immutable state; the corpus writer must never
+    // mistake the single display winner for the complete candidate set.
+    let mut qualifying: Vec<TrainingCandidateSelection> = Vec::new();
+    let mut selected = None;
+    // A bounded, deterministic training-only grid.  DRIVE_SCAN is the
+    // forward-search posture; DEFAULT is included as the close-arm posture.
+    let candidates = [
+        ("DRIVE_SCAN", 90.0, 12.0, 52.0, 61.5),
+        ("DEFAULT", 0.0, 0.0, 0.0, 0.0),
+        ("YAW_45", 45.0, 12.0, 52.0, 61.5),
+        ("YAW_60", 60.0, 12.0, 52.0, 61.5),
+        ("YAW_75", 75.0, 12.0, 52.0, 61.5),
+        ("YAW_105", 105.0, 12.0, 52.0, 61.5),
+        ("YAW_112", 112.5, 12.0, 52.0, 61.5),
+        ("YAW_120", 120.0, 12.0, 52.0, 61.5),
+        ("YAW_127", 127.5, 12.0, 52.0, 61.5),
+        ("YAW_135", 135.0, 12.0, 52.0, 61.5),
+        ("YAW_142", 142.5, 12.0, 52.0, 61.5),
+        ("YAW_150", 150.0, 12.0, 52.0, 61.5),
+        ("YAW_157", 157.5, 12.0, 52.0, 61.5),
+        ("YAW_165", 165.0, 12.0, 52.0, 61.5),
+    ];
+    let quick_candidates = [
+        ("YAW_127", 127.5, 12.0, 52.0, 61.5),
+        ("YAW_135", 135.0, 12.0, 52.0, 61.5),
+        ("YAW_142", 142.5, 12.0, 52.0, 61.5),
+    ];
+    let candidate_slice = if quick_grid {
+        &quick_candidates[..]
+    } else {
+        &candidates[..]
+    };
+    let steering_slice: &[i8] = if quick_grid {
+        &[-64_i8, -48, -32]
+    } else {
+        &[-80_i8, -48, -24, 0, 24, 48, 80]
+    };
+    for &(pose, yaw, shoulder, elbow, wrist) in candidate_slice {
+        for &steering in steering_slice {
+            if let Some(found) = seek_training_candidate(
+                project_path,
+                config,
+                &asset,
+                pose,
+                [yaw, shoulder, elbow, wrist],
+                steering,
+            )
+            .await?
+            {
+                audit.push(found.audit.clone());
+                let better = selected
+                    .as_ref()
+                    .is_none_or(|best: &TrainingCandidateSelection| found.score > best.score);
+                qualifying.push(found);
+                if better {
+                    selected = qualifying.last().cloned();
+                }
+            } else {
+                audit.push(serde_json::json!({"pose":pose,"steering":steering,"accepted":false}));
+            }
+        }
+    }
+    let selected = selected.ok_or_else(|| {
+        "training-only candidate grid found no high-quality TCP bottle view".to_string()
+    })?;
+    fs::create_dir_all(out.join("candidates"))
+        .map_err(|e| format!("create candidate capture directory: {e}"))?;
+    // Keep a single WGPU device and mesh cache for the complete corpus grid.
+    // Creating a renderer per candidate both exhausted the GPU under a larger
+    // grid and made a capture susceptible to another process initializing the
+    // adapter at the same time.  Each state is still rendered independently;
+    // only the immutable renderer resources are shared.
+    let mut renderer = PreparedCaptureRenderer::new(project_path, &selected.state)?;
+    for (index, candidate) in qualifying.iter().enumerate() {
+        let id = format!("candidate-{index:03}");
+        let dir = out.join("candidates").join(&id);
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("create candidate artifact directory: {e}"))?;
+        let png = renderer.render_png(&candidate.state, 0)?;
+        let (mask, silhouette) = training_bottle_silhouette_mask(&png, candidate.bounds)?;
+        let overlay = draw_detection_boxes_png(
+            png.clone(),
+            &[CaptureDetectionBox {
+                label: "bottle (offline scene label)".to_string(),
+                confidence: 1.0,
+                xyxy: silhouette,
+            }],
+        )?;
+        fs::write(dir.join("tcp.png"), png).map_err(|e| format!("write candidate image: {e}"))?;
+        fs::write(dir.join("tcp-mask.png"), mask)
+            .map_err(|e| format!("write candidate mask: {e}"))?;
+        fs::write(dir.join("tcp-bbox.png"), overlay)
+            .map_err(|e| format!("write candidate overlay: {e}"))?;
+        fs::write(dir.join("manifest.json"), serde_json::to_vec_pretty(&serde_json::json!({"schema":"puppybot.training-only.tcp-dataset.v4","offlineOnly":true,"id":id,"candidate":candidate.audit,"frame":{"image":"tcp.png","bottleMask":"tcp-mask.png","bboxOverlay":"tcp-bbox.png","label":{"class":"bottle","xyxy":silhouette}}})).map_err(|e|e.to_string())?).map_err(|e|format!("write candidate manifest: {e}"))?;
+        let state = serde_json::to_vec_pretty(candidate.state.as_ref())
+            .map_err(|e| format!("encode candidate state: {e}"))?;
+        fs::write(
+            out.join("candidates").join(format!("{id}.state.json")),
+            state,
+        )
+        .map_err(|e| format!("write candidate state: {e}"))?;
+    }
+    let seed_bounds = selected.bounds;
+    let png = renderer.render_png(&selected.state, 0)?;
+    let (mask, bounds) = training_bottle_silhouette_mask(&png, seed_bounds)?;
+    // Independent render-side verification: accept only cyan pixels inside the
+    // projected box. This is offline corpus QA, never autonomy perception.
+    let rendered = image::load_from_memory(&png).map_err(|e| format!("decode dataset png: {e}"))?;
+    let mut matched = 0_u32;
+    for y in bounds[1] as u32..bounds[3] as u32 {
+        for x in bounds[0] as u32..bounds[2] as u32 {
+            let p = rendered.get_pixel(x, y).0;
+            if p[2] > p[0].saturating_add(20) && p[2] > p[1].saturating_add(8) {
+                matched += 1;
+            }
+        }
+    }
+    if matched < 24 {
+        return Err("projected bottle box has no matching rendered bottle pixels".to_string());
+    }
+    let overlay = draw_detection_boxes_png(
+        png.clone(),
+        &[CaptureDetectionBox {
+            label: "bottle (offline scene label)".to_string(),
+            confidence: 1.0,
+            xyxy: bounds,
+        }],
+    )?;
+    fs::write(out.join("tcp-000.png"), png).map_err(|e| format!("write dataset png: {e}"))?;
+    fs::write(out.join("tcp-000-bbox.png"), overlay)
+        .map_err(|e| format!("write dataset overlay: {e}"))?;
+    fs::write(out.join("tcp-000-bottle-mask.png"), mask)
+        .map_err(|e| format!("write training bottle mask: {e}"))?;
+    fs::write(out.join("manifest.json"), serde_json::to_vec_pretty(&serde_json::json!({
+        "schema":"puppybot.training-only.tcp-dataset.v4", "offlineOnly":true,
+        "truth":"RobotDreams scene_object_state; unavailable to autonomy", "camera":selected.state.camera,
+        "candidateCount":qualifying.len(), "candidateAudit":audit, "selectedCandidate":selected.audit, "quickGrid":quick_grid,
+        "frames":[{"image":"tcp-000.png", "bboxOverlay":"tcp-000-bbox.png", "bottleMask":"tcp-000-bottle-mask.png", "label":{"class":"bottle", "xyxy":bounds, "source":"training-only bottle-only rendered-color mask seeded by offline MeshSource::Asset.bounds"}}]
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("write dataset manifest: {e}"))?;
+    Ok(())
+}
+
+fn training_bottle_silhouette_mask(
+    png: &[u8],
+    seed: [f32; 4],
+) -> Result<(Vec<u8>, [f32; 4]), String> {
+    let image = image::load_from_memory(png)
+        .map_err(|e| format!("decode bottle mask source: {e}"))?
+        .to_rgba8();
+    let (width, height) = image.dimensions();
+    let cyan = |p: Rgba<u8>| {
+        let c = p.0;
+        c[2] > c[0].saturating_add(12) && c[2] > c[1].saturating_add(5) && c[2] > 80
+    };
+    let mut queue = VecDeque::new();
+    let mut seen = vec![false; (width * height) as usize];
+    for y in seed[1].max(0.0) as u32..seed[3].min(height as f32) as u32 {
+        for x in seed[0].max(0.0) as u32..seed[2].min(width as f32) as u32 {
+            if cyan(*image.get_pixel(x, y)) {
+                queue.push_back((x, y));
+                break;
+            }
+        }
+        if !queue.is_empty() {
+            break;
+        }
+    }
+    if queue.is_empty() {
+        return Err("offline asset-bounds seed has no bottle-colored pixel".to_string());
+    }
+    let mut mask = image::RgbaImage::new(width, height);
+    let mut b = [width, height, 0, 0];
+    while let Some((x, y)) = queue.pop_front() {
+        let i = (y * width + x) as usize;
+        if seen[i] || !cyan(*image.get_pixel(x, y)) {
+            continue;
+        }
+        seen[i] = true;
+        mask.put_pixel(x, y, Rgba([255, 255, 255, 255]));
+        b[0] = b[0].min(x);
+        b[1] = b[1].min(y);
+        b[2] = b[2].max(x);
+        b[3] = b[3].max(y);
+        for dy in -1_i32..=1 {
+            for dx in -1_i32..=1 {
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx >= 0 && ny >= 0 && nx < width as i32 && ny < height as i32 {
+                    queue.push_back((nx as u32, ny as u32));
+                }
+            }
+        }
+    }
+    if b[2] <= b[0] || b[3] <= b[1] {
+        return Err("bottle-only mask is empty".to_string());
+    }
+    let mut out = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(mask)
+        .write_to(&mut out, ImageFormat::Png)
+        .map_err(|e| format!("encode bottle mask: {e}"))?;
+    Ok((
+        out.into_inner(),
+        [
+            b[0] as f32,
+            b[1] as f32,
+            (b[2] + 1) as f32,
+            (b[3] + 1) as f32,
+        ],
+    ))
+}
+
+#[derive(Clone)]
+struct TrainingCandidateSelection {
+    state: Arc<CaptureStateV1>,
+    bounds: [f32; 4],
+    score: f32,
+    audit: serde_json::Value,
+}
+async fn seek_training_candidate(
+    project_path: &Path,
+    config: &PuppybotConfigV1,
+    asset: &TrainingAssetBounds,
+    pose: &str,
+    angles: [f64; 4],
+    steering: i8,
+) -> Result<Option<TrainingCandidateSelection>, String> {
+    let mut robot = Puppybot::new_with_config(config, 0).map_err(|e| e.to_string())?;
+    let mut backend = SimulatedRuntimeBackend::new(project_path, config)?;
+    robot.handle_event(
+        ProtocolEvent::Arm(ArmCommand::SetSpeed(SCREENSHOT_ARM_SPEED)),
+        0,
+    );
+    robot.handle_event(
+        ProtocolEvent::Arm(ArmCommand::GotoAngles(angles.map(f64::to_radians))),
+        0,
+    );
+    let mut tick = 0;
+    for _ in 0..240 {
+        tick += 1;
+        backend.run_once(&mut robot, tick * 20).await;
+    }
+    const SEEK_WINDOW_TICKS: u64 = 12;
+    const MAX_SEEK_WINDOWS: u32 = 32;
+    let mut examined = Vec::new();
+    let (state, bounds, selected_window, selected_tick) = 'seek: {
+        for window in 1..=MAX_SEEK_WINDOWS {
+            robot.handle_event(
+                ProtocolEvent::Drive(DriveCommand::DriveSteer {
+                    throttle: -16,
+                    steering,
+                }),
+                tick * 20,
+            );
+            for _ in 0..SEEK_WINDOW_TICKS {
+                tick += 1;
+                backend.run_once(&mut robot, tick * 20).await;
+            }
+
+            // This is simulator truth for corpus labelling only.  It is never
+            // returned by /api/autonomy or used by the live policy.
+            let observation = backend.preview().atomic_tcp_capture()?;
+            let object_transform = observation.state.frames[0]
+                .visual_transforms
+                .get("object:bottle")
+                .ok_or_else(|| "dataset capture has no bottle visual transform".to_string())?;
+            let bounds =
+                project_training_asset_bounds(&observation.state.camera, object_transform, &asset);
+            let has_material_box = bounds.is_some_and(|bounds| {
+                materially_in_frame(bounds, observation.state.camera.resolution)
+            });
+            examined.push(serde_json::json!({
+                "window": window,
+                "simulationTick": tick,
+                "projectedXyxy": bounds,
+                "materiallyInFrame": has_material_box,
+            }));
+            if has_material_box {
+                // Stop in the same tick as the first valid window.  Do not
+                // keep driving to seek a prettier or easier label.
+                robot.handle_event(ProtocolEvent::Drive(DriveCommand::Stop), tick * 20);
+                // Preserve the exact offline snapshot and defer all rendering
+                // until the full grid has been selected.  This avoids a WGPU
+                // device allocation for every accepted pose/window.
+                let selected_bounds = bounds.ok_or_else(|| {
+                    "selected dataset projection disappeared before capture".to_string()
+                })?;
+                break 'seek (observation.state, selected_bounds, window, tick);
+            }
+        }
+        robot.handle_event(ProtocolEvent::Drive(DriveCommand::Stop), tick * 20);
+        return Ok(None);
+    };
+    let center = [bounds[0] + bounds[2] - 640.0, bounds[1] + bounds[3] - 480.0];
+    let score = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+        - (center[0] * center[0] + center[1] * center[1]).sqrt();
+    Ok(Some(TrainingCandidateSelection {
+        state,
+        bounds,
+        score,
+        audit: serde_json::json!({"pose":pose,"steering":steering,"accepted":true,"score":score,"selectedWindow":selected_window,"selectedSimulationTick":selected_tick,"driveRefreshBeforeEachWindow":true,"windows":examined}),
+    }))
+}
+
+#[derive(Clone, Copy)]
+struct TrainingAssetBounds {
+    scale: [f32; 3],
+    min: [f32; 3],
+    max: [f32; 3],
+}
+
+fn training_bottle_asset_bounds(project_path: &Path) -> Result<TrainingAssetBounds, String> {
+    let dreams =
+        RobotDreams::open(project_path).map_err(|e| format!("open dataset project: {e}"))?;
+    let frame = robotdreams_pge_frame(&dreams, RobotDreamsPgeFrameOptions::default());
+    let index = index_world_nodes(&frame.world);
+    let node = frame
+        .world
+        .nodes
+        .get(
+            index
+                .get("object:bottle")
+                .ok_or_else(|| "dataset world has no bottle node".to_string())?,
+        )
+        .ok_or_else(|| "dataset bottle node missing".to_string())?;
+    let mesh = frame
+        .world
+        .meshes
+        .get(
+            &node
+                .mesh
+                .ok_or_else(|| "dataset bottle has no visual mesh".to_string())?,
+        )
+        .ok_or_else(|| "dataset bottle mesh missing".to_string())?;
+    match &mesh.source {
+        pge_core::MeshSource::Asset {
+            scale,
+            bounds: Some(bounds),
+            ..
+        } => Ok(TrainingAssetBounds {
+            scale: *scale,
+            min: bounds.min,
+            max: bounds.max,
+        }),
+        _ => Err("dataset bottle visual asset has no mesh bounds".to_string()),
+    }
+}
+
+fn project_training_asset_bounds(
+    camera: &CaptureCamera,
+    object_transform: &PgeCoreTransform,
+    asset: &TrainingAssetBounds,
+) -> Option<[f32; 4]> {
+    let mut bounds = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    let focal_length =
+        camera.resolution[1] as f32 * 0.5 / (camera.fov_deg.to_radians() * 0.5).tan();
+    let rotation = object_transform.rotation_matrix.unwrap_or_else(|| {
+        let (sx, cx) = object_transform.rotation[0].sin_cos();
+        let (sy, cy) = object_transform.rotation[1].sin_cos();
+        let (sz, cz) = object_transform.rotation[2].sin_cos();
+        [
+            [cy * cz, cz * sx * sy - cx * sz, sx * sz + cx * cz * sy],
+            [cy * sz, cx * cz + sx * sy * sz, cx * sy * sz - cz * sx],
+            [-sy, cy * sx, cx * cy],
+        ]
+    });
+    for x in [asset.min[0], asset.max[0]] {
+        for y in [asset.min[1], asset.max[1]] {
+            for z in [asset.min[2], asset.max[2]] {
+                let local = [x * asset.scale[0], y * asset.scale[1], z * asset.scale[2]];
+                let world = [0, 1, 2].map(|i| {
+                    object_transform.translation[i]
+                        + (0..3).map(|j| rotation[i][j] * local[j]).sum::<f32>()
+                });
+                let delta = [
+                    world[0] - camera.eye_m[0],
+                    world[1] - camera.eye_m[1],
+                    world[2] - camera.eye_m[2],
+                ];
+                let camera_space = [0, 1, 2].map(|i| {
+                    (0..3)
+                        .map(|j| camera.rotation_matrix[j][i] * delta[j])
+                        .sum::<f32>()
+                });
+                if camera_space[0] <= 0.0 {
+                    continue;
+                }
+                let px = (camera.resolution[0] as f32 - 1.0) * 0.5
+                    - focal_length * camera_space[1] / camera_space[0];
+                let py = (camera.resolution[1] as f32 - 1.0) * 0.5
+                    - focal_length * camera_space[2] / camera_space[0];
+                bounds[0] = bounds[0].min(px);
+                bounds[1] = bounds[1].min(py);
+                bounds[2] = bounds[2].max(px);
+                bounds[3] = bounds[3].max(py);
+            }
+        }
+    }
+    if !bounds[0].is_finite() {
+        return None;
+    }
+    let width = camera.resolution[0] as f32;
+    let height = camera.resolution[1] as f32;
+    Some([
+        bounds[0].clamp(0.0, width),
+        bounds[1].clamp(0.0, height),
+        bounds[2].clamp(0.0, width),
+        bounds[3].clamp(0.0, height),
+    ])
+}
+
+fn materially_in_frame(bounds: [f32; 4], _resolution: [u32; 2]) -> bool {
+    // The fixed wrist fixture deliberately brings the bottle into frame from
+    // the left edge.  A full 3D box therefore need not be fully visible, but
+    // a clipped sliver is not a usable label.  Require a substantial visible
+    // area instead of pretending edge truncation cannot occur.
+    const MIN_VISIBLE_WIDTH_PX: f32 = 32.0;
+    const MIN_VISIBLE_HEIGHT_PX: f32 = 32.0;
+    const MIN_VISIBLE_AREA_PX: f32 = 1024.0;
+    let width = bounds[2] - bounds[0];
+    let height = bounds[3] - bounds[1];
+    width >= MIN_VISIBLE_WIDTH_PX
+        && height >= MIN_VISIBLE_HEIGHT_PX
+        && width * height >= MIN_VISIBLE_AREA_PX
 }
 
 pub(crate) async fn record_simulation_video(
@@ -2082,6 +2552,54 @@ fn format_simulation_ups(ups: Option<f64>) -> String {
 }
 
 impl SimulatedPreview {
+    pub(crate) fn atomic_tcp_capture(&self) -> Result<AtomicTcpCapture, String> {
+        let published = self
+            .published
+            .lock()
+            .map_err(|_| "simulation published preview lock poisoned")?;
+        let wrist_camera = published
+            .snapshot
+            .wrist_camera
+            .ok_or_else(|| format!("RobotDreams project has no usable {WRIST_CAMERA_ID}"))?;
+        let frames = published.snapshot.frames.ok_or_else(|| {
+            "RobotDreams project has no published rover frame transforms".to_string()
+        })?;
+        let camera = capture_camera_from_project_camera(wrist_camera, WRIST_CAMERA_ID);
+        Ok(AtomicTcpCapture {
+            state: published_capture_state(&self.project, &camera, &published.snapshot),
+            frames,
+        })
+    }
+
+    pub(crate) fn atomic_tcp_png(&self) -> Result<AtomicTcpCapturePng, String> {
+        let capture = self.atomic_tcp_capture()?;
+        let png = render_capture_state_png(&self.project_path, &capture.state, 0)?;
+        Ok(AtomicTcpCapturePng { capture, png })
+    }
+
+    /// Render one wrist-camera frame without PNG encoding or per-request WGPU
+    /// construction.  The capture state and frame transforms are materialized
+    /// before rendering, so the returned pixels and calibration identify the
+    /// same simulator instant even while the simulation continues to tick.
+    pub(crate) fn atomic_tcp_rgba(&self) -> Result<AtomicTcpCaptureRgba, String> {
+        let capture = self.atomic_tcp_capture()?;
+        let mut renderer = self
+            .tcp_observation_renderer
+            .lock()
+            .map_err(|_| "TCP observation renderer lock poisoned")?;
+        if renderer.is_none() {
+            *renderer = Some(PreparedCaptureRenderer::new(
+                &self.project_path,
+                &capture.state,
+            )?);
+        }
+        let rgba = renderer
+            .as_mut()
+            .expect("TCP observation renderer initialized above")
+            .render_rgba(&capture.state, 0)?;
+        Ok(AtomicTcpCaptureRgba { capture, rgba })
+    }
+
     pub(crate) fn capture_state(&self) -> Result<Arc<CaptureStateV1>, String> {
         let published = self
             .published
@@ -2457,6 +2975,11 @@ impl SimulatedPreview {
         self.window_active.store(false, Ordering::Release);
         result.map_err(|err| err.to_string())
     }
+}
+
+pub(crate) struct AtomicTcpCapturePng {
+    pub(crate) capture: AtomicTcpCapture,
+    pub(crate) png: Vec<u8>,
 }
 
 fn published_capture_state(

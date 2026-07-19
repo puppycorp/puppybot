@@ -1,13 +1,13 @@
 {
   "format": "robotdreams.project.v1",
-  "name": "PuppyBot Seeded Bottle To Bin",
+  "name": "PuppyBot Bottle To Bin",
   "modelProfile": "../../models/puppybot/robotdreams.json",
   "robots": [{"id": "puppybot", "name": "PuppyBot", "model": {"type": "urdf", "path": "../../models/puppybot/final2/urdf/final2.urdf"}, "base": {"translation": [0.0, 0.0, 0.0]}, "jointNames": {"revolute_2_3": "yaw", "revolute_1_1": "shoulder", "revolute_1_2": "elbow", "revolute_1": "wrist"}}],
   "scene": {
     "objects": [
       {"id": "floor_5m", "name": "Floor 5m", "type": "floor", "shape": "box", "size": [5.0, 5.0, 0.02], "position": [0.0, 0.0, -0.011], "color": "#162331", "includeInFit": false, "physics": {"body": "static", "friction": 0.8, "restitution": 0.05, "collider": {"shape": "box", "size": [5.0, 5.0, 0.02]}}},
       {"id": "trashbin", "name": "Trash Bin", "type": "container", "asset": "../../../RobotDreams/examples/trashbin.gltf", "position": [-0.52, 0.32, 0.0], "rotation": [0.0, 0.0, 0.0], "physics": {"body": "static", "friction": 0.8, "restitution": 0.05, "collider": {"shape": "box", "size": [0.18, 0.18, 0.02], "offset": [0.0, 0.0, 0.01]}}},
-    {"id": "bottle", "name": "Water Bottle", "type": "bottle", "asset": "../../models/water-bottle.glb", "shape": "cylinder", "radius": 0.035, "height": 0.20, "position": [0.0, 0.30, 0.10], "rotation": [0.0, 1.57079633, 0.0], "scale": [0.30, 0.30, 0.30], "color": "#3e9ee8", "physics": {"body": "dynamic", "massKg": 0.08, "linearDamping": 0.15, "angularDamping": 0.15, "friction": 0.65, "restitution": 0.05, "collider": {"shape": "cylinder", "radius": 0.035, "height": 0.20}}}
+    {"id": "bottle", "name": "Water Bottle", "type": "bottle", "asset": "../../models/water-bottle.glb", "shape": "cylinder", "radius": 0.035, "height": 0.20, "position": [0.14836561, 0.13100043, 0.10], "rotation": [0.0, 1.57079633, 0.0], "scale": [0.30, 0.30, 0.30], "color": "#3e9ee8", "physics": {"body": "dynamic", "massKg": 0.08, "linearDamping": 0.15, "angularDamping": 0.15, "friction": 0.65, "restitution": 0.05, "collider": {"shape": "cylinder", "radius": 0.035, "height": 0.20}}}
     ],
     "triggers": [{"id": "bottle_in_bin", "object": "bottle", "shape": "box", "position": [-0.52, 0.32, 0.125], "size": [0.18, 0.18, 0.22], "settleSpeedMps": 0.05, "settleTimeSec": 0.25}],
     "cameras": [{"id": "overhead_camera", "name": "Search Camera", "type": "camera", "mountedOn": {"robot": "puppybot", "link": "root"}, "position": [-0.25, 0.0, 1.20], "rotation": [0.0, -0.47, 0.0], "fov": 45.0, "rate": "30 Hz", "resolution": [640, 480]}, {"id": "wrist_camera", "name": "TCP Camera", "type": "camera", "mountedOn": {"robot": "puppybot", "link": "part_1_4"}, "position": [0.12, 0.0, 0.08], "rotation": [0.0, 0.0, 3.14159265], "fov": 70.0, "rate": "30 Hz", "resolution": [640, 480]}],

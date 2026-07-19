@@ -45,6 +45,7 @@ examples/*/target/
 build
 tests/robotdreams/target/
 .env
+.venv/
 
 design
 .gradle

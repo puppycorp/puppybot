@@ -1,0 +1,6 @@
+{
+  "schema": "puppybot.tinygrad-bottle-config.v1",
+  "runtime": {"engine": "native Tinygrad submodule", "input": [3, 120, 160], "threshold": 0.95},
+  "training": {"datasetSeed": 20260718, "frames": 300, "validationFraction": 0.2, "steps": 160, "batchSize": 8, "learningRate": 0.003, "positiveWeight": 18.0},
+  "policyBoundary": "Runtime consumes TCP RGB only. Simulator object truth and label mattes are offline corpus-generation inputs only."
+}

@@ -1,6 +1,9 @@
-# Runtime-only dependency for bottle_to_bin_yolo.py.  The scenario consumes a
+# Runtime dependencies for bottle_to_bin_yolo.py. The scenario consumes a
 # pinned ONNX export of an official Ultralytics YOLO checkpoint; preserve the
-# checkpoint provenance and licensing in yolo11n-model-manifest.json.
+# checkpoint provenance and licensing in yolo11n-model-manifest.json. The
+# attach preview needs GUI-capable OpenCV; do not substitute its headless
+# package because that cannot create the local operator window.
 onnxruntime==1.23.2
 numpy==2.5.1
 Pillow==11.0.0
+opencv-python==5.0.0.93
