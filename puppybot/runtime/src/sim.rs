@@ -14,7 +14,10 @@ use pge_app::{
     Node as PgeAppNode, OrbitController, State as PgeAppState, Vec2, Vec3, WindowOverlayLines,
     WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
 };
-use pge_core::{ArenaId as PgeCoreArenaId, Node as PgeCoreNode, Transform as PgeCoreTransform};
+use pge_core::{
+    ArenaId as PgeCoreArenaId, ColliderDebugOverlay as PgeCoreColliderDebugOverlay,
+    Node as PgeCoreNode, Transform as PgeCoreTransform,
+};
 use pge_renderer::Renderer;
 use pge_video::{
     Mp4EncodeRequest, StreamingRgbaMp4Encoder, default_frame_path, encode_png_sequence_to_mp4,
@@ -438,6 +441,10 @@ pub(crate) struct SimulatedRuntimeBackend {
     project: CaptureProject,
     project_path: PathBuf,
     window_active: Arc<AtomicBool>,
+    /// Controls whether each immutable renderer snapshot carries RobotDreams'
+    /// current live-collider overlay. This is render-only; it is never read by
+    /// the physics worker.
+    debug_collision_overlay_active: Arc<AtomicBool>,
     pub(crate) servo: StServo<RobotDreamsSerialBus>,
     pub(crate) drive_actuator: RobotDreamsDriveActuator,
 }
@@ -506,6 +513,11 @@ struct PreviewSnapshot {
     controller_arm_chain: Option<ControllerArmChain>,
     overhead_camera: Option<ProjectCameraPose>,
     wrist_camera: Option<ProjectCameraPose>,
+    /// Backend-owned Rapier colliders are not scene nodes, so their
+    /// wireframes must be copied from RobotDreams for every rendered
+    /// simulation snapshot. Keeping this alongside visual transforms avoids
+    /// displaying a collider at the pose it had when the window opened.
+    collider_debug: Option<PgeCoreColliderDebugOverlay>,
     capture_frame: CaptureFrame,
 }
 
@@ -689,6 +701,7 @@ impl SimulatedRuntimeBackend {
             .model()
             .map(|model| preview_visual_bindings(&model.robot_visual_meshes()))
             .unwrap_or_default();
+        let debug_collision_overlay_active = Arc::new(AtomicBool::new(false));
         let state = Arc::new(Mutex::new(RobotDreamsRuntimeState {
             dreams,
             sequence: 0,
@@ -706,7 +719,7 @@ impl SimulatedRuntimeBackend {
             let state_guard = state
                 .lock()
                 .map_err(|_| "RobotDreams simulation state lock poisoned at startup")?;
-            let snapshot = Arc::new(preview_snapshot_from_state(&state_guard, None));
+            let snapshot = Arc::new(preview_snapshot_from_state(&state_guard, None, false));
             let camera = capture_camera_from_screenshot(ScreenshotCamera::default());
             Arc::new(Mutex::new(PublishedPreview {
                 capture_state: published_capture_state(&project, &camera, &snapshot),
@@ -729,6 +742,7 @@ impl SimulatedRuntimeBackend {
             project,
             project_path: project_path.to_path_buf(),
             window_active: Arc::new(AtomicBool::new(false)),
+            debug_collision_overlay_active,
             servo: StServo::new(bus).with_timeout(Duration::from_millis(200)),
             drive_actuator,
         })
@@ -769,6 +783,8 @@ impl SimulatedRuntimeBackend {
         debug_collision_overlay: bool,
     ) -> SimulatedPreview {
         let debug_collision_overlay = debug_collision_overlay || debug_collider_overlay_enabled();
+        self.debug_collision_overlay_active
+            .store(debug_collision_overlay, Ordering::Release);
         let debug_coordinate_overlay = debug_coordinate_overlay_enabled();
         SimulatedPreview {
             state: Arc::clone(&self.state),
@@ -963,7 +979,11 @@ impl SimulatedRuntimeBackend {
                 state.labels = labels;
                 state.puppybot_target_tcp_mm = arm.target_coords_mm;
                 state.controller_arm_chain_world_m = controller_arm_chain;
-                Some(preview_snapshot_from_state(&state, Some(&arm)))
+                Some(preview_snapshot_from_state(
+                    &state,
+                    Some(&arm),
+                    self.debug_collision_overlay_active.load(Ordering::Acquire),
+                ))
             }
             Err(_) => {
                 log::warn!("RobotDreams simulation state lock poisoned while updating labels");
@@ -2446,6 +2466,7 @@ fn normalize_direction(vector: [f64; 3]) -> Option<[f64; 3]> {
 fn preview_snapshot_from_state(
     state: &RobotDreamsRuntimeState,
     arm: Option<&PuppyarmTelemetry>,
+    include_collider_debug: bool,
 ) -> PreviewSnapshot {
     let robot_snapshot = state.dreams.snapshot();
     let mut debug_markers = state.dreams.coordinate_debug_marker_positions(
@@ -2574,6 +2595,7 @@ fn preview_snapshot_from_state(
         controller_arm_chain: state.controller_arm_chain_world_m,
         overhead_camera,
         wrist_camera,
+        collider_debug: include_collider_debug.then(|| state.dreams.pge_collider_debug_overlay()),
         capture_frame,
     }
 }
@@ -2593,6 +2615,13 @@ fn sync_preview_snapshot_world(
     show_coordinate_diagnostics: bool,
     show_controller_arm_overlay: bool,
 ) {
+    if let Some(collider_debug) = &snapshot.collider_debug {
+        // RobotDreams owns the Rapier bodies, including their current world
+        // pose. These wireframes therefore cannot be kept in the initial PGE
+        // world: doing so leaves a yellow collider behind when its dynamic
+        // object or articulated link moves.
+        world.collider_debug = collider_debug.clone();
+    }
     if show_coordinate_diagnostics || show_controller_arm_overlay {
         let mut text_labels = snapshot.labels.clone();
         if show_coordinate_diagnostics {
@@ -4969,6 +4998,102 @@ mod tests {
             cached_label_text(&backend, "model_tcp_observed"),
             initial_tcp_label
         );
+    }
+
+    #[test]
+    fn debug_collider_overlay_snapshot_follows_live_rapier_pose() {
+        let config = PuppybotConfigV1::default();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open simulated runtime backend");
+        let robot = Puppybot::new_with_config(&config, 0).expect("create PuppyBot controller");
+
+        // The interactive preview opts into a render-only copy of the current
+        // Rapier debug metadata. Normal simulation snapshots do not pay for
+        // cloning this large diagnostic overlay.
+        let _preview = backend.preview_with_debug_collision_overlay(true);
+        backend.update_labels(&robot);
+        let initial = backend
+            .published_preview
+            .lock()
+            .expect("published preview")
+            .snapshot
+            .collider_debug
+            .clone()
+            .expect("debug preview publishes collider metadata");
+        let initial_vehicle = initial
+            .wireframes
+            .iter()
+            .find(|wireframe| wireframe.id == "vehicle:puppybot:0")
+            .expect("vehicle Rapier wireframe")
+            .transform;
+
+        {
+            let mut state = backend.state.lock().expect("simulation state");
+            assert!(state.dreams.set_virtual_drive_output(
+                DRIVE_BUS_ID,
+                ROBOT_ID,
+                1,
+                2,
+                45,
+                20,
+                120.0,
+                90.0,
+            ));
+            state.dreams.advance_seconds(1.0);
+        }
+        backend.update_labels(&robot);
+        let refreshed = backend
+            .published_preview
+            .lock()
+            .expect("published preview")
+            .snapshot
+            .collider_debug
+            .clone()
+            .expect("refreshed collider metadata");
+        let refreshed_vehicle = refreshed
+            .wireframes
+            .iter()
+            .find(|wireframe| wireframe.id == "vehicle:puppybot:0")
+            .expect("refreshed vehicle Rapier wireframe")
+            .transform;
+        assert_ne!(refreshed_vehicle, initial_vehicle);
+
+        let mut world = pge_core::WorldState::default();
+        sync_preview_snapshot_world(
+            &mut world,
+            &HashMap::new(),
+            &[],
+            &PreviewSnapshot {
+                labels: Vec::new(),
+                visual_transforms: BTreeMap::new(),
+                debug_markers: Vec::new(),
+                frames: None,
+                controller_arm_chain: None,
+                overhead_camera: None,
+                wrist_camera: None,
+                collider_debug: Some(refreshed.clone()),
+                capture_frame: CaptureFrame {
+                    sequence: 0,
+                    simulation_clock_sec: 0.0,
+                    robots: Vec::new(),
+                    servos: Vec::new(),
+                    visual_transforms: BTreeMap::new(),
+                    manipulation: None,
+                    detection_boxes: Vec::new(),
+                    overlays: CaptureOverlays {
+                        labels: Vec::new(),
+                        debug_markers: Vec::new(),
+                        controller_arm_world_m: None,
+                        world_from_base: None,
+                        base_from_arm_base: None,
+                    },
+                },
+            },
+            false,
+            false,
+        );
+        assert_eq!(world.collider_debug, refreshed);
     }
 
     #[test]
