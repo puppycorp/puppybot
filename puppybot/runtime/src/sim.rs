@@ -15,7 +15,7 @@ use pge_app::{
     WindowRenderConfig, WindowRenderTarget, run_windows_with_overlay,
 };
 use pge_core::{
-    ArenaId as PgeCoreArenaId, ColliderDebugOverlay as PgeCoreColliderDebugOverlay,
+    ArenaId as PgeCoreArenaId, ColliderWireframePose as PgeCoreColliderWireframePose,
     Node as PgeCoreNode, Transform as PgeCoreTransform,
 };
 use pge_renderer::Renderer;
@@ -442,8 +442,8 @@ pub(crate) struct SimulatedRuntimeBackend {
     project_path: PathBuf,
     window_active: Arc<AtomicBool>,
     /// Controls whether each immutable renderer snapshot carries RobotDreams'
-    /// current live-collider overlay. This is render-only; it is never read by
-    /// the physics worker.
+    /// compact live-collider pose frame. It is render-only; it is never read
+    /// by the physics worker.
     debug_collision_overlay_active: Arc<AtomicBool>,
     pub(crate) servo: StServo<RobotDreamsSerialBus>,
     pub(crate) drive_actuator: RobotDreamsDriveActuator,
@@ -513,11 +513,11 @@ struct PreviewSnapshot {
     controller_arm_chain: Option<ControllerArmChain>,
     overhead_camera: Option<ProjectCameraPose>,
     wrist_camera: Option<ProjectCameraPose>,
-    /// Backend-owned Rapier colliders are not scene nodes, so their
-    /// wireframes must be copied from RobotDreams for every rendered
-    /// simulation snapshot. Keeping this alongside visual transforms avoids
-    /// displaying a collider at the pose it had when the window opened.
-    collider_debug: Option<PgeCoreColliderDebugOverlay>,
+    /// Poses for the immutable debug-wireframe layouts in the PGE world. The
+    /// complete shape topology is created once when the debug preview opens;
+    /// publishing this compact map keeps it current without copying 599
+    /// wireframe shapes into every simulation snapshot.
+    collider_debug_transforms: Option<BTreeMap<String, PgeCoreTransform>>,
     capture_frame: CaptureFrame,
 }
 
@@ -2595,7 +2595,8 @@ fn preview_snapshot_from_state(
         controller_arm_chain: state.controller_arm_chain_world_m,
         overhead_camera,
         wrist_camera,
-        collider_debug: include_collider_debug.then(|| state.dreams.pge_collider_debug_overlay()),
+        collider_debug_transforms: include_collider_debug
+            .then(|| state.dreams.pge_collider_debug_transforms()),
         capture_frame,
     }
 }
@@ -2615,12 +2616,22 @@ fn sync_preview_snapshot_world(
     show_coordinate_diagnostics: bool,
     show_controller_arm_overlay: bool,
 ) {
-    if let Some(collider_debug) = &snapshot.collider_debug {
-        // RobotDreams owns the Rapier bodies, including their current world
-        // pose. These wireframes therefore cannot be kept in the initial PGE
-        // world: doing so leaves a yellow collider behind when its dynamic
-        // object or articulated link moves.
-        world.collider_debug = collider_debug.clone();
+    if let Some(transforms) = &snapshot.collider_debug_transforms {
+        let colors_by_id = world
+            .collider_debug
+            .wireframes
+            .iter()
+            .map(|wireframe| (wireframe.id.as_str(), wireframe.color))
+            .collect::<HashMap<_, _>>();
+        let pose_frame = transforms
+            .iter()
+            .filter_map(|(id, transform)| {
+                colors_by_id
+                    .get(id.as_str())
+                    .map(|color| PgeCoreColliderWireframePose::new(id, *transform, *color))
+            })
+            .collect();
+        world.set_collider_wireframe_pose_frame(pose_frame);
     }
     if show_coordinate_diagnostics || show_controller_arm_overlay {
         let mut text_labels = snapshot.labels.clone();
@@ -5018,15 +5029,13 @@ mod tests {
             .lock()
             .expect("published preview")
             .snapshot
-            .collider_debug
+            .collider_debug_transforms
             .clone()
             .expect("debug preview publishes collider metadata");
         let initial_vehicle = initial
-            .wireframes
-            .iter()
-            .find(|wireframe| wireframe.id == "vehicle:puppybot:0")
-            .expect("vehicle Rapier wireframe")
-            .transform;
+            .get("vehicle:puppybot:0")
+            .copied()
+            .expect("vehicle Rapier transform");
 
         {
             let mut state = backend.state.lock().expect("simulation state");
@@ -5048,18 +5057,26 @@ mod tests {
             .lock()
             .expect("published preview")
             .snapshot
-            .collider_debug
+            .collider_debug_transforms
             .clone()
             .expect("refreshed collider metadata");
         let refreshed_vehicle = refreshed
-            .wireframes
-            .iter()
-            .find(|wireframe| wireframe.id == "vehicle:puppybot:0")
-            .expect("refreshed vehicle Rapier wireframe")
-            .transform;
+            .get("vehicle:puppybot:0")
+            .copied()
+            .expect("refreshed vehicle Rapier transform");
         assert_ne!(refreshed_vehicle, initial_vehicle);
 
-        let mut world = pge_core::WorldState::default();
+        let mut world = {
+            let state = backend.state.lock().expect("simulation state");
+            robotdreams_pge_frame(
+                &state.dreams,
+                RobotDreamsPgeFrameOptions {
+                    debug_collision_overlay: true,
+                    ..puppybot_simulation_frame_options()
+                },
+            )
+            .world
+        };
         sync_preview_snapshot_world(
             &mut world,
             &HashMap::new(),
@@ -5072,7 +5089,7 @@ mod tests {
                 controller_arm_chain: None,
                 overhead_camera: None,
                 wrist_camera: None,
-                collider_debug: Some(refreshed.clone()),
+                collider_debug_transforms: Some(refreshed.clone()),
                 capture_frame: CaptureFrame {
                     sequence: 0,
                     simulation_clock_sec: 0.0,
@@ -5093,7 +5110,17 @@ mod tests {
             false,
             false,
         );
-        assert_eq!(world.collider_debug, refreshed);
+        assert_eq!(world.collider_debug.pose_frame.len(), refreshed.len());
+        assert_eq!(
+            world
+                .collider_debug
+                .pose_frame
+                .iter()
+                .find(|pose| pose.id == "vehicle:puppybot:0")
+                .expect("published vehicle pose")
+                .transform,
+            refreshed_vehicle
+        );
     }
 
     #[test]
