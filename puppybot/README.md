@@ -165,9 +165,12 @@ overlay in the normal simulation window, opt in with:
 ```
 
 This renders color-coded wireframes for dynamic and static scene bodies, the
-vehicle profile, and reviewed PGE-generated robot-link profiles. It is off by
-default, does not change camera fitting or physics, and does not enable arm
-physics. It also applies to `--screenshot` when both options are provided.
+vehicle profile, and reviewed PGE-generated robot-link profiles, plus the
+purple PuppyArm controller-FK point/segment chain. The purple chain shows the
+arm pose computed from observed controller joints; it is a diagnostic, not a
+second physics collider. It is off by default, does not change camera fitting
+or physics, and does not enable arm physics. It also applies to `--screenshot`
+and the TCP camera when the debug flag is present.
 `PUPPYBOT_DEBUG_COLLIDER_OVERLAY=1` remains an equivalent legacy opt-in for
 existing headless capture workflows.
 

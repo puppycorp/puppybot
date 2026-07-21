@@ -87,6 +87,15 @@ fn debug_coordinate_overlay_enabled() -> bool {
     )
 }
 
+/// The controller's observed-joint FK chain is useful beside collision shapes,
+/// but it is independent from RobotDreams' coordinate grid and frame markers.
+fn controller_arm_overlay_enabled(
+    debug_collision_overlay: bool,
+    debug_coordinate_overlay: bool,
+) -> bool {
+    debug_collision_overlay || debug_coordinate_overlay
+}
+
 fn puppybot_simulation_frame_options() -> RobotDreamsPgeFrameOptions {
     let mut options = RobotDreamsPgeFrameOptions::default();
     options.debug_coordinate_overlay = debug_coordinate_overlay_enabled();
@@ -490,6 +499,9 @@ pub(crate) struct SimulatedPreview {
     /// Explicit diagnostic opt-in; the normal simulator does not render the
     /// RobotDreams coordinate grid or TCP/frame markers.
     debug_coordinate_overlay: bool,
+    /// Controller-observed FK chain. This shares the collider-debug opt-in but
+    /// must not make the coordinate grid or frame markers visible.
+    debug_controller_arm_overlay: bool,
 }
 
 /// A single immutable wrist-camera publication.  The render input and rover
@@ -688,6 +700,8 @@ impl SimulatedRuntimeBackend {
         &self,
         debug_collision_overlay: bool,
     ) -> SimulatedPreview {
+        let debug_collision_overlay = debug_collision_overlay || debug_collider_overlay_enabled();
+        let debug_coordinate_overlay = debug_coordinate_overlay_enabled();
         SimulatedPreview {
             state: Arc::clone(&self.state),
             published: Arc::clone(&self.published_preview),
@@ -696,8 +710,12 @@ impl SimulatedRuntimeBackend {
             project: self.project.clone(),
             project_path: self.project_path.clone(),
             window_active: Arc::clone(&self.window_active),
-            debug_collision_overlay: debug_collision_overlay || debug_collider_overlay_enabled(),
-            debug_coordinate_overlay: debug_coordinate_overlay_enabled(),
+            debug_collision_overlay,
+            debug_coordinate_overlay,
+            debug_controller_arm_overlay: controller_arm_overlay_enabled(
+                debug_collision_overlay,
+                debug_coordinate_overlay,
+            ),
         }
     }
 
@@ -1775,6 +1793,8 @@ pub(crate) struct PreparedCaptureRenderer {
     index: HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
     renderer: WgpuRenderer,
     expected_visual_keys: BTreeSet<String>,
+    debug_coordinate_overlay: bool,
+    debug_controller_arm_overlay: bool,
 }
 
 const MAX_STABLE_CAPTURE_RENDER_ATTEMPTS: usize = 3;
@@ -1807,7 +1827,12 @@ impl PreparedCaptureRenderer {
         options.resolution = state.camera.resolution;
         let mut frame = robotdreams_pge_frame(&dreams, options);
         let expected_visual_keys = expected_visual_transform_keys(&dreams);
-        if debug_coordinate_overlay_enabled() {
+        let debug_coordinate_overlay = debug_coordinate_overlay_enabled();
+        let debug_controller_arm_overlay = controller_arm_overlay_enabled(
+            debug_collider_overlay_enabled(),
+            debug_coordinate_overlay,
+        );
+        if debug_controller_arm_overlay {
             insert_controller_arm_overlay(&mut frame.world);
         }
         let index = index_world_nodes(&frame.world);
@@ -1821,6 +1846,8 @@ impl PreparedCaptureRenderer {
             index,
             renderer,
             expected_visual_keys,
+            debug_coordinate_overlay,
+            debug_controller_arm_overlay,
         })
     }
 
@@ -1847,7 +1874,7 @@ impl PreparedCaptureRenderer {
         // incomplete tiles. The authoritative robot and scene-object visuals
         // still follow their per-frame transforms; these optional diagnostic
         // overlays remain hidden from `base_world`.
-        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+        if self.debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
             if let (Some(world_from_base), Some(base_from_arm_base)) = (
                 capture_frame.overlays.world_from_base,
                 capture_frame.overlays.base_from_arm_base,
@@ -1863,9 +1890,11 @@ impl PreparedCaptureRenderer {
             }
         }
         let mut labels = capture_labels(capture_frame, &state.camera);
-        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+        if self.debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
             let legend_row_start = labels.len();
             labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        }
+        if self.debug_controller_arm_overlay {
             labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
                 "controller_arm_legend",
                 CONTROLLER_ARM_LEGEND,
@@ -1874,6 +1903,17 @@ impl PreparedCaptureRenderer {
             ));
         }
         self.frame.world.text_labels = labels.into_iter().map(pge_text_label).collect();
+        if self.debug_controller_arm_overlay {
+            let controller_arm_chain = capture_frame
+                .overlays
+                .controller_arm_world_m
+                .map(|points_world_m| ControllerArmChain { points_world_m });
+            sync_controller_arm_overlay(
+                &mut self.frame.world,
+                controller_arm_chain.as_ref(),
+                &self.index,
+            );
+        }
         set_world_camera_transform(
             &mut self.frame.world,
             &self.index,
@@ -1931,7 +1971,7 @@ impl PreparedCaptureRenderer {
         for (entity, transform) in &capture_frame.visual_transforms {
             set_world_node_transform(&mut self.frame.world, &self.index, entity, *transform);
         }
-        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+        if self.debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
             if let (Some(world_from_base), Some(base_from_arm_base)) = (
                 capture_frame.overlays.world_from_base,
                 capture_frame.overlays.base_from_arm_base,
@@ -1947,9 +1987,11 @@ impl PreparedCaptureRenderer {
             }
         }
         let mut labels = capture_labels(capture_frame, &state.camera);
-        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+        if self.debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
             let legend_row_start = labels.len();
             labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        }
+        if self.debug_controller_arm_overlay {
             labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
                 "controller_arm_legend",
                 CONTROLLER_ARM_LEGEND,
@@ -1958,6 +2000,17 @@ impl PreparedCaptureRenderer {
             ));
         }
         self.frame.world.text_labels = labels.into_iter().map(pge_text_label).collect();
+        if self.debug_controller_arm_overlay {
+            let controller_arm_chain = capture_frame
+                .overlays
+                .controller_arm_world_m
+                .map(|points_world_m| ControllerArmChain { points_world_m });
+            sync_controller_arm_overlay(
+                &mut self.frame.world,
+                controller_arm_chain.as_ref(),
+                &self.index,
+            );
+        }
         set_world_camera_transform(
             &mut self.frame.world,
             &self.index,
@@ -2061,7 +2114,10 @@ fn render_capture_state_png_with_renderer(
     options.resolution = state.camera.resolution;
     options.text_labels = labels.clone();
     let mut pge_frame = robotdreams_pge_frame(&dreams, options);
-    if debug_coordinate_overlay_enabled() {
+    let debug_coordinate_overlay = debug_coordinate_overlay_enabled();
+    let debug_controller_arm_overlay =
+        controller_arm_overlay_enabled(debug_collider_overlay_enabled(), debug_coordinate_overlay);
+    if debug_controller_arm_overlay {
         insert_controller_arm_overlay(&mut pge_frame.world);
     }
     let index = index_world_nodes(&pge_frame.world);
@@ -2069,7 +2125,7 @@ fn render_capture_state_png_with_renderer(
     for (entity, transform) in &capture_frame.visual_transforms {
         set_world_node_transform(&mut pge_frame.world, &index, entity, *transform);
     }
-    if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+    if debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
         let debug_markers = capture_frame
             .overlays
             .debug_markers
@@ -2082,11 +2138,6 @@ fn render_capture_state_png_with_renderer(
             })
             .collect::<Vec<_>>();
         sync_tcp_debug_markers(&mut pge_frame.world, &debug_markers, &index);
-        let controller_arm_chain = capture_frame
-            .overlays
-            .controller_arm_world_m
-            .map(|points_world_m| ControllerArmChain { points_world_m });
-        sync_controller_arm_overlay(&mut pge_frame.world, controller_arm_chain.as_ref(), &index);
         if let (Some(world_from_base), Some(base_from_arm_base)) = (
             capture_frame.overlays.world_from_base,
             capture_frame.overlays.base_from_arm_base,
@@ -2101,10 +2152,19 @@ fn render_capture_state_png_with_renderer(
             );
         }
     }
+    if debug_controller_arm_overlay {
+        let controller_arm_chain = capture_frame
+            .overlays
+            .controller_arm_world_m
+            .map(|points_world_m| ControllerArmChain { points_world_m });
+        sync_controller_arm_overlay(&mut pge_frame.world, controller_arm_chain.as_ref(), &index);
+    }
     let mut all_labels = labels;
-    if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
+    if debug_coordinate_overlay && state.camera.source != WRIST_CAMERA_ID {
         let legend_row_start = all_labels.len();
         all_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+    }
+    if debug_controller_arm_overlay {
         all_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
             "controller_arm_legend",
             CONTROLLER_ARM_LEGEND,
@@ -2462,29 +2522,36 @@ fn sync_preview_snapshot_world(
     index: &HashMap<String, PgeCoreArenaId<PgeCoreNode>>,
     _visual_bindings: &[PreviewVisualBinding],
     snapshot: &PreviewSnapshot,
-    show_diagnostics: bool,
+    show_coordinate_diagnostics: bool,
+    show_controller_arm_overlay: bool,
 ) {
-    if show_diagnostics {
+    if show_coordinate_diagnostics || show_controller_arm_overlay {
         let mut text_labels = snapshot.labels.clone();
-        let legend_row_start = text_labels.len();
-        text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
-        text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
-            "controller_arm_legend",
-            CONTROLLER_ARM_LEGEND,
-            text_labels.len(),
-            [1.0, 0.2, 0.9, 1.0],
-        ));
+        if show_coordinate_diagnostics {
+            let legend_row_start = text_labels.len();
+            text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        }
+        if show_controller_arm_overlay {
+            text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+                "controller_arm_legend",
+                CONTROLLER_ARM_LEGEND,
+                text_labels.len(),
+                [1.0, 0.2, 0.9, 1.0],
+            ));
+        }
         world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
     } else {
         world.text_labels.clear();
     }
     sync_visual_transforms(world, &snapshot.visual_transforms, index);
-    if show_diagnostics {
+    if show_coordinate_diagnostics {
         sync_tcp_debug_markers(world, &snapshot.debug_markers, index);
-        sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
         if let Some(frames) = snapshot.frames {
             sync_debug_frame_roots(world, frames, index);
         }
+    }
+    if show_controller_arm_overlay {
+        sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
     }
 }
 
@@ -2747,7 +2814,7 @@ impl SimulatedPreview {
             (frame, model_telemetry)
         };
 
-        if self.debug_coordinate_overlay {
+        if self.debug_controller_arm_overlay {
             insert_controller_arm_overlay(&mut frame.world);
         }
         let world_node_index = index_world_nodes(&frame.world);
@@ -2761,6 +2828,8 @@ impl SimulatedPreview {
         if self.debug_coordinate_overlay {
             let legend_row_start = text_labels.len();
             text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+        }
+        if self.debug_controller_arm_overlay {
             text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
                 "controller_arm_legend",
                 CONTROLLER_ARM_LEGEND,
@@ -2776,14 +2845,16 @@ impl SimulatedPreview {
         );
         if self.debug_coordinate_overlay {
             sync_tcp_debug_markers(&mut frame.world, &snapshot.debug_markers, &world_node_index);
+            if let Some(frames) = snapshot.frames {
+                sync_debug_frame_roots(&mut frame.world, frames, &world_node_index);
+            }
+        }
+        if self.debug_controller_arm_overlay {
             sync_controller_arm_overlay(
                 &mut frame.world,
                 snapshot.controller_arm_chain.as_ref(),
                 &world_node_index,
             );
-            if let Some(frames) = snapshot.frames {
-                sync_debug_frame_roots(&mut frame.world, frames, &world_node_index);
-            }
         }
 
         let delta_mm = controller_tcp_model_delta_mm(
@@ -2837,6 +2908,7 @@ impl SimulatedPreview {
         let ups_overlay_for_update = ups_overlay.clone();
         let capture_project = self.project.clone();
         let debug_coordinate_overlay = self.debug_coordinate_overlay;
+        let debug_controller_arm_overlay = self.debug_controller_arm_overlay;
         let mut options = puppybot_simulation_frame_options();
         options.debug_collision_overlay = self.debug_collision_overlay;
         let target = options.target;
@@ -2880,7 +2952,7 @@ impl SimulatedPreview {
             }
             Err(_) => return Err("RobotDreams preview state lock poisoned before startup".into()),
         };
-        if self.debug_coordinate_overlay {
+        if self.debug_controller_arm_overlay {
             insert_controller_arm_overlay(&mut frame.world);
         }
         let world_node_index = index_world_nodes(&frame.world);
@@ -2912,7 +2984,7 @@ impl SimulatedPreview {
             overlay_lines: ups_overlay,
         }];
         let tcp_window = tcp_frame.map(|mut tcp_frame| {
-            if self.debug_coordinate_overlay {
+            if self.debug_controller_arm_overlay {
                 insert_controller_arm_overlay(&mut tcp_frame.world);
             }
             let tcp_index = index_world_nodes(&tcp_frame.world);
@@ -2988,6 +3060,7 @@ impl SimulatedPreview {
                     &visual_bindings,
                     rendered_snapshot.as_ref(),
                     debug_coordinate_overlay,
+                    debug_controller_arm_overlay,
                 );
                 let camera_transform =
                     orbit_camera_transform(&orbit_state, orbit_camera_node_id, &orbit_controller);
@@ -3026,6 +3099,7 @@ impl SimulatedPreview {
                 &visual_bindings,
                 rendered_snapshot.as_ref(),
                 false,
+                debug_controller_arm_overlay,
             );
             if let Some(wrist_camera) = rendered_snapshot.wrist_camera {
                 set_world_camera_transform(
@@ -4633,6 +4707,34 @@ mod tests {
         assert!(
             index.contains_key("object:floor_5m"),
             "hiding the coordinate grid must preserve the visual/physical floor"
+        );
+    }
+
+    #[test]
+    fn controller_fk_overlay_is_enabled_by_collider_debug_without_coordinate_grid() {
+        assert!(controller_arm_overlay_enabled(true, false));
+        assert!(controller_arm_overlay_enabled(false, true));
+        assert!(!controller_arm_overlay_enabled(false, false));
+
+        let config = runtime_simulation_config();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open canonical simulation fixture");
+        let state = backend.state.lock().expect("RobotDreams simulation state");
+        let mut options = puppybot_simulation_frame_options();
+        options.debug_coordinate_overlay = false;
+        options.debug_collision_overlay = true;
+        let mut frame = robotdreams_pge_frame(&state.dreams, options);
+        insert_controller_arm_overlay(&mut frame.world);
+        let index = index_world_nodes(&frame.world);
+
+        assert!(
+            index.contains_key("debug:puppybot:controller_arm:point:shoulder"),
+            "collider-debug view must contain the controller-FK chain"
+        );
+        assert!(
+            !index.contains_key("debug:puppybot:frame:base"),
+            "controller-FK chain must not restore the coordinate grid or frame markers"
         );
     }
 
