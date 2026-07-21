@@ -1,0 +1,63 @@
+{
+  "format": "puppybot.physics-profile.v1",
+  "name": "PuppyBot PGE-generated lower-body collision profile",
+  "hardwareRevision": "prototype-unmeasured",
+  "status": "prototype-only",
+  "source": "PGE pge-collision 0.1.0 generated a four-box reviewed profile from models/puppybot/final2/meshes/lowerbody.gltf. Each PGE local candidate offset was then transformed through the URDF root -> lowerbody fixed joint [-0.00981731, -0.0205488, -0.0165409].",
+  "generation": {
+    "tool": "pge-collision",
+    "toolVersion": "0.1.0",
+    "inputMesh": "../models/puppybot/final2/meshes/lowerbody.gltf",
+    "inputFrame": "lowerbody",
+    "outputFrame": "puppybot root",
+    "selection": "compoundBoxes",
+    "maximumColliders": 4,
+    "reviewStatus": "candidate geometry reviewed for simulator prototype only"
+  },
+  "vehicleParameters": {
+    "centerOfMass": [0.0, 0.0, 0.06],
+    "maxWheelSpeedMps": 0.4,
+    "calibrationProvenance": {
+      "wheelRadiusM": {
+        "value": 0.0325,
+        "source": "models/puppybot/final2/meshes/wheel_outer.gltf POSITION accessor radial bounds are +/-0.0324999988 m; URDF uses this mesh at scale 1.",
+        "status": "CAD nominal outer radius; verify loaded rolling radius before hardware prediction"
+      }
+    },
+    "motor": {
+      "wheelRadiusM": 0.0325,
+      "gearRatio": 1.0,
+      "stallTorqueNm": 0.45,
+      "noLoadRpm": 120.0,
+      "brakeTorqueNm": 0.25,
+      "rollingResistanceN": 0.4
+    },
+    "source": "Explicit RobotDreams prototype motor and vehicle assumptions mirrored by the PuppyBot dynamic-vehicle manifests; not hardware measurements."
+  },
+  "colliders": [
+    {
+      "shape": "box",
+      "size": [0.14, 0.06167069, 0.037],
+      "offset": [-0.00981731, -0.079139883, 0.0019591],
+      "rotation": [0.0, 0.0, 0.0]
+    },
+    {
+      "shape": "box",
+      "size": [0.14, 0.107620224, 0.0222],
+      "offset": [-0.00981731, -0.023643961, -0.0054409],
+      "rotation": [0.0, 0.0, 0.0]
+    },
+    {
+      "shape": "box",
+      "size": [0.14, 0.113091394, 0.037],
+      "offset": [-0.00981731, 0.000570454, 0.0019591],
+      "rotation": [0.0, 0.0, 0.0]
+    },
+    {
+      "shape": "box",
+      "size": [0.13, 0.0671, 0.037],
+      "offset": [-0.00981731, 0.06371615, 0.0019591],
+      "rotation": [0.0, 0.0, 0.0]
+    }
+  ]
+}

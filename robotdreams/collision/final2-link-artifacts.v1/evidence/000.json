@@ -1,0 +1,49 @@
+{
+  "link": "bolt",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          -1.48488e-19,
+          -0.005
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/bolt.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 5,
+        "primitive_count": 5,
+        "source_vertex_count": 466,
+        "triangle_count": 464,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 464,
+    "covered_triangle_count": 464,
+    "conservative_volume": 6.711018e-07,
+    "bounds_volume_ratio": 0.65039676,
+    "collider_count": 4,
+    "compound_generation_path": "Exact"
+  }
+}

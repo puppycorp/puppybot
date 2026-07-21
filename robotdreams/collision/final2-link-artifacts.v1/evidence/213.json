@@ -1,0 +1,49 @@
+{
+  "link": "\u91d1\u5c5e\u8235\u76d8_\u4ece\u52a8__v2",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.000558805,
+          0.02515,
+          0.00998437
+        ],
+        "rotation_rpy_rad": [
+          3.14159,
+          1.51489,
+          3.14159
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/_________v2_1.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 13,
+        "primitive_count": 13,
+        "source_vertex_count": 2132,
+        "triangle_count": 2148,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 2148,
+    "covered_triangle_count": 2148,
+    "conservative_volume": 1.0266375e-06,
+    "bounds_volume_ratio": 0.83246696,
+    "collider_count": 4,
+    "compound_generation_path": "Exact"
+  }
+}

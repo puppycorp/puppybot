@@ -18,6 +18,7 @@ struct RuntimeArgs {
     servo_device: Option<String>,
     simulated: bool,
     headless: bool,
+    debug_collider_overlay: bool,
     screenshot: Option<String>,
     state: Option<String>,
     state_frame: Option<usize>,
@@ -74,7 +75,7 @@ enum RuntimeCli {
 }
 
 fn runtime_usage() -> &'static str {
-    "Usage:\n  puppybot-runtime [OPTIONS]\n  puppybot-runtime record --sim --out <PATH.mp4> (--frames <N> | --state <TRACE.json>) [OPTIONS]\n\nRun options:\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --servo-device <PATH>         Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --sim                         Run with RobotDreams; defaults to runtime/puppybot.sim.json\n  --headless                    Run --sim without a PGE preview window\n  --screenshot <PATH>           Render one real offscreen PGE frame and exit; requires --sim\n  --state <PATH>                Re-render a saved API/capture state without stepping simulation\n  --state-frame <INDEX>         Zero-based state frame to render, default 0\n  --frames <N>                  Simulation updates before screenshot, default 120\n  --camera-target <X,Y,Z>       Screenshot orbit target in meters\n  --camera-radius <M>           Screenshot orbit radius in meters, must be positive\n  --camera-azimuth <DEG>        Screenshot orbit azimuth in degrees\n  --camera-elevation <DEG>      Screenshot elevation, strictly between -90 and 90\n  --robotdreams-project <PATH>  RobotDreams project for --sim, default ../../robotdreams/project.json\n  --ui-bind <ADDR>              Bind the WGUI dashboard, default 127.0.0.1:8081\n\nWithout --sim, config defaults to ./puppybot.json. PUPPYBOT_RUNTIME_CONFIG overrides both defaults.\n\nRecord options:\n  --sim                         Record/replay RobotDreams simulation state (required)\n  --out <PATH.mp4>              Output H.264 MP4 path (required)\n  --frames <N>                  Number of live 50 fps frames to render\n  --state <TRACE.json>          Render an exact saved pose/camera trace without simulation stepping\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --robotdreams-project <PATH>  RobotDreams project, default ../../robotdreams/project.json\n\n  -h, --help                    Show this help text"
+    "Usage:\n  puppybot-runtime [OPTIONS]\n  puppybot-runtime record --sim --out <PATH.mp4> (--frames <N> | --state <TRACE.json>) [OPTIONS]\n\nRun options:\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --servo-device <PATH>         Use an STServo serial device, overriding PUPPYBOT_STSERVO_PORT\n  --sim                         Run with RobotDreams; defaults to runtime/puppybot.sim.json\n  --headless                    Run --sim without a PGE preview window\n  --debug-collider-overlay      Show every PGE collider wireframe in the simulation view\n  --screenshot <PATH>           Render one real offscreen PGE frame and exit; requires --sim\n  --state <PATH>                Re-render a saved API/capture state without stepping simulation\n  --state-frame <INDEX>         Zero-based state frame to render, default 0\n  --frames <N>                  Simulation updates before screenshot, default 120\n  --camera-target <X,Y,Z>       Screenshot orbit target in meters\n  --camera-radius <M>           Screenshot orbit radius in meters, must be positive\n  --camera-azimuth <DEG>        Screenshot orbit azimuth in degrees\n  --camera-elevation <DEG>      Screenshot elevation, strictly between -90 and 90\n  --robotdreams-project <PATH>  RobotDreams project for --sim, default ../../robotdreams/project.json\n  --ui-bind <ADDR>              Bind the WGUI dashboard, default 127.0.0.1:8081\n\nWithout --sim, config defaults to ./puppybot.json. PUPPYBOT_RUNTIME_CONFIG overrides both defaults.\n\nRecord options:\n  --sim                         Record/replay RobotDreams simulation state (required)\n  --out <PATH.mp4>              Output H.264 MP4 path (required)\n  --frames <N>                  Number of live 50 fps frames to render\n  --state <TRACE.json>          Render an exact saved pose/camera trace without simulation stepping\n  --config <PATH>               Load runtime config JSON; overrides environment/default\n  --robotdreams-project <PATH>  RobotDreams project, default ../../robotdreams/project.json\n\n  -h, --help                    Show this help text"
 }
 
 fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
@@ -165,6 +166,9 @@ where
             }
             "--headless" => {
                 parsed.headless = true;
+            }
+            "--debug-collider-overlay" => {
+                parsed.debug_collider_overlay = true;
             }
             "--screenshot" => {
                 let Some(path) = args.next() else {
@@ -323,6 +327,9 @@ where
 
     if parsed.headless && !parsed.simulated {
         return Err("--headless requires --sim".to_string());
+    }
+    if parsed.debug_collider_overlay && !parsed.simulated {
+        return Err("--debug-collider-overlay requires --sim".to_string());
     }
     if parsed.screenshot.is_some() && !parsed.simulated {
         return Err("--screenshot requires --sim".to_string());
@@ -609,6 +616,7 @@ async fn main() {
             &PathBuf::from(&path),
             screenshot_frames,
             args.camera.resolve(),
+            args.debug_collider_overlay,
         )
         .await
         {
@@ -637,6 +645,7 @@ async fn main() {
         servo_device: args.servo_device,
         simulated: args.simulated,
         robotdreams_project: args.robotdreams_project.map(PathBuf::from),
+        debug_collision_overlay: args.debug_collider_overlay,
         ui_bind,
         ws_bind: None,
     };
@@ -708,6 +717,7 @@ mod tests {
                 servo_device: Some("/dev/ttyUSB0".to_string()),
                 simulated: false,
                 headless: false,
+                debug_collider_overlay: false,
                 screenshot: None,
                 state: None,
                 state_frame: None,
@@ -728,6 +738,7 @@ mod tests {
                 servo_device: None,
                 simulated: true,
                 headless: false,
+                debug_collider_overlay: false,
                 screenshot: None,
                 state: None,
                 state_frame: None,
@@ -740,6 +751,20 @@ mod tests {
     }
 
     #[test]
+    fn runtime_args_enable_collider_overlay_only_for_simulation() {
+        let RuntimeCli::Run(args) = parse_runtime_args(["--sim", "--debug-collider-overlay"])
+            .expect("parse collider overlay option")
+        else {
+            panic!("expected run command");
+        };
+        assert!(args.debug_collider_overlay);
+        assert_eq!(
+            parse_runtime_args(["--debug-collider-overlay"]),
+            Err("--debug-collider-overlay requires --sim".to_string())
+        );
+    }
+
+    #[test]
     fn runtime_args_accept_headless_simulation() {
         assert_eq!(
             parse_runtime_args(["--sim", "--headless"]),
@@ -748,6 +773,7 @@ mod tests {
                 servo_device: None,
                 simulated: true,
                 headless: true,
+                debug_collider_overlay: false,
                 screenshot: None,
                 state: None,
                 state_frame: None,
@@ -773,6 +799,7 @@ mod tests {
                 servo_device: None,
                 simulated: true,
                 headless: false,
+                debug_collider_overlay: false,
                 screenshot: Some("workdir/screenshots/aligned.png".to_string()),
                 state: None,
                 state_frame: None,

@@ -1,0 +1,49 @@
+{
+  "link": "serialbus_driver_board",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0185,
+          0.014,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/serialbus_driver_board.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 14,
+        "primitive_count": 14,
+        "source_vertex_count": 956,
+        "triangle_count": 948,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "BoundsFallback": {
+        "reason": "IncompleteSourceCoverage"
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 948,
+    "covered_triangle_count": 948,
+    "conservative_volume": 2.9239998e-05,
+    "bounds_volume_ratio": 1.0,
+    "collider_count": 1,
+    "compound_generation_path": "Exact"
+  }
+}

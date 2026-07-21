@@ -1,0 +1,58 @@
+{
+  "link": "wheel_base",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.000148035,
+          0.0159993,
+          -0.004
+        ],
+        "rotation_rpy_rad": [
+          1.14643e-18,
+          5.30357e-21,
+          -0.0092523
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/wheel_base.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 39,
+        "primitive_count": 39,
+        "source_vertex_count": 3553,
+        "triangle_count": 5126,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 5126,
+    "covered_triangle_count": 5126,
+    "conservative_volume": 1.4316646e-05,
+    "bounds_volume_ratio": 1.0002553,
+    "collider_count": 1,
+    "compound_generation_path": {
+      "BoundsFallback": {
+        "reason": {
+          "PartitionLimit": {
+            "connected_partition_count": 39,
+            "maximum_exact_partitions": 32
+          }
+        }
+      }
+    }
+  }
+}

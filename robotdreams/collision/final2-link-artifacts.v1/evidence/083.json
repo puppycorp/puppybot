@@ -1,0 +1,58 @@
+{
+  "link": "esp32_wroom_30pins_c_type_44",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/esp32_Wroom_30pins_C_Type_44.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 37,
+        "primitive_count": 37,
+        "source_vertex_count": 883,
+        "triangle_count": 814,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 814,
+    "covered_triangle_count": 814,
+    "conservative_volume": 2.1091946e-09,
+    "bounds_volume_ratio": 1.0045693,
+    "collider_count": 1,
+    "compound_generation_path": {
+      "BoundsFallback": {
+        "reason": {
+          "PartitionLimit": {
+            "connected_partition_count": 37,
+            "maximum_exact_partitions": 32
+          }
+        }
+      }
+    }
+  }
+}

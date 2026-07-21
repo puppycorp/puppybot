@@ -149,6 +149,28 @@ ball-and-bin scene, select it explicitly:
   --robotdreams-project ../robotdreams/project.json
 ```
 
+The normal simulator, TCP camera, screenshots, and recordings intentionally
+hide RobotDreams' coordinate grid and TCP/frame markers. The floor and physics
+colliders remain active. For calibration-only inspection, opt in explicitly:
+
+```sh
+PUPPYBOT_DEBUG_COORDINATE_OVERLAY=1 ./scripts/run-runtime.sh --sim
+```
+
+To inspect every live RobotDreams collider through PGE's generic collision
+overlay in the normal simulation window, opt in with:
+
+```sh
+./scripts/run-runtime.sh --sim --debug-collider-overlay
+```
+
+This renders color-coded wireframes for dynamic and static scene bodies, the
+vehicle profile, and reviewed PGE-generated robot-link profiles. It is off by
+default, does not change camera fitting or physics, and does not enable arm
+physics. It also applies to `--screenshot` when both options are provided.
+`PUPPYBOT_DEBUG_COLLIDER_OVERLAY=1` remains an equivalent legacy opt-in for
+existing headless capture workflows.
+
 The runtime WebSocket listener also exposes a read-only JSON view for agents and
 scripts:
 

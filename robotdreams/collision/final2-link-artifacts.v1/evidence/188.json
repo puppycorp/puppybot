@@ -1,0 +1,49 @@
+{
+  "link": "step_down_xl4015_5a_voltage_regulator_1",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/Step_Down_XL4015_5A_VOLTAGE_REGULATOR_1.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 26,
+        "primitive_count": 26,
+        "source_vertex_count": 592,
+        "triangle_count": 540,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "BoundsFallback": {
+        "reason": "IncompleteSourceCoverage"
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 540,
+    "covered_triangle_count": 540,
+    "conservative_volume": 8.999999e-07,
+    "bounds_volume_ratio": 1.0,
+    "collider_count": 1,
+    "compound_generation_path": "Exact"
+  }
+}

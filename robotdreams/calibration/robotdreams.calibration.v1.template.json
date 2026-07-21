@@ -1,0 +1,26 @@
+{
+  "format": "robotdreams.calibration.v1",
+  "hardware_revision": "REPLACE_WITH_AS_BUILT_REVISION",
+  "provenance": {
+    "measured_at": "REPLACE_WITH_ISO_8601_TIMESTAMP",
+    "operator": "REPLACE_WITH_OPERATOR",
+    "method": "REPLACE_WITH_MEASUREMENT_METHOD_AND_FIXTURE",
+    "source": "REPLACE_WITH_LAB_NOTEBOOK_RAW_TRACE_AND_PHOTO_LOCATION"
+  },
+  "vehicle": {
+    "mass_kg": null,
+    "center_of_mass_m": [null, null, null],
+    "wheel_radius_m": null,
+    "gear_ratio": null,
+    "motor_stall_torque_nm": null,
+    "motor_no_load_rpm": null
+  },
+  "servos": [
+    {
+      "servo_id": null,
+      "max_speed_ticks_per_sec": null
+    }
+  ],
+  "drive_trace": [],
+  "servo_trace": []
+}

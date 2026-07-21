@@ -33,9 +33,9 @@ use puppybot_core::{
     stservo::{SerialBus, StServo},
 };
 use robotdreams_core::{
-    CoordinateDebugMarkerPositions, RigidTransform, RobotDreams, RobotDreamsPgeFrameOptions,
-    RobotDreamsPgeTextLabel, RobotState, VirtualServoJointMapping, coordinate_debug_legend_labels,
-    robotdreams_pge_frame,
+    CoordinateDebugMarkerPositions, KinematicColliderMotionConfig, RigidTransform, RobotDreams,
+    RobotDreamsPgeFrameOptions, RobotDreamsPgeTextLabel, RobotState, VirtualServoJointMapping,
+    coordinate_debug_legend_labels, robotdreams_pge_frame,
 };
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -61,6 +61,38 @@ const MODEL_JOINT_NAMES: [&str; 4] = ["yaw", "shoulder", "elbow", "wrist"];
 const CONTROLLER_ARM_POINT_NAMES: [&str; 5] = ["yaw", "shoulder", "elbow", "wrist", "tcp"];
 const CONTROLLER_ARM_SEGMENT_NAMES: [&str; 4] =
     ["yaw_shoulder", "shoulder_elbow", "elbow_wrist", "wrist_tcp"];
+
+/// Rendering-only inspection mode for the complete PGE collider overlay.
+/// RobotDreams exports live scene, vehicle, and reviewed-link shapes to PGE;
+/// enabling it cannot alter simulation state or enable arm physics.
+fn debug_collider_overlay_enabled() -> bool {
+    matches!(
+        std::env::var("PUPPYBOT_DEBUG_COLLIDER_OVERLAY")
+            .ok()
+            .as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
+
+/// Coordinate frames, TCP markers, and the base grid are diagnostics.  Keep
+/// them out of the normal simulator views so the physical scene is what users
+/// inspect by default.  They remain available for calibration work through an
+/// explicit environment opt-in.
+fn debug_coordinate_overlay_enabled() -> bool {
+    matches!(
+        std::env::var("PUPPYBOT_DEBUG_COORDINATE_OVERLAY")
+            .ok()
+            .as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
+
+fn puppybot_simulation_frame_options() -> RobotDreamsPgeFrameOptions {
+    let mut options = RobotDreamsPgeFrameOptions::default();
+    options.debug_coordinate_overlay = debug_coordinate_overlay_enabled();
+    options
+}
+
 const CONTROLLER_ARM_POINT_RADIUS_M: f32 = 0.012;
 const PUPPYBOT_CURRENT_TCP_MARKER_RADIUS_M: f32 = 0.009;
 const CONTROLLER_ARM_LEGEND: &str = "CYAN CENTER = MODEL CURRENT TCP; MAGENTA CHAIN = CTRL FK (OBSERVED JOINTS; CONCENTRIC TCP POINT VISIBLE AS MAGENTA RING WHEN ALIGNED)";
@@ -453,6 +485,11 @@ pub(crate) struct SimulatedPreview {
     project: CaptureProject,
     project_path: PathBuf,
     window_active: Arc<AtomicBool>,
+    /// Render-only. This is deliberately not fed into RobotDreams physics.
+    debug_collision_overlay: bool,
+    /// Explicit diagnostic opt-in; the normal simulator does not render the
+    /// RobotDreams coordinate grid or TCP/frame markers.
+    debug_coordinate_overlay: bool,
 }
 
 /// A single immutable wrist-camera publication.  The render input and rover
@@ -644,6 +681,13 @@ impl SimulatedRuntimeBackend {
     }
 
     pub(crate) fn preview(&self) -> SimulatedPreview {
+        self.preview_with_debug_collision_overlay(false)
+    }
+
+    pub(crate) fn preview_with_debug_collision_overlay(
+        &self,
+        debug_collision_overlay: bool,
+    ) -> SimulatedPreview {
         SimulatedPreview {
             state: Arc::clone(&self.state),
             published: Arc::clone(&self.published_preview),
@@ -652,6 +696,8 @@ impl SimulatedRuntimeBackend {
             project: self.project.clone(),
             project_path: self.project_path.clone(),
             window_active: Arc::clone(&self.window_active),
+            debug_collision_overlay: debug_collision_overlay || debug_collider_overlay_enabled(),
+            debug_coordinate_overlay: debug_coordinate_overlay_enabled(),
         }
     }
 
@@ -959,6 +1005,7 @@ pub(crate) async fn capture_simulation_screenshot(
     path: &Path,
     frames: u64,
     camera: ScreenshotCamera,
+    debug_collision_overlay: bool,
 ) -> Result<f64, String> {
     let mut robot = Puppybot::new_with_config(config, 0)
         .map_err(|err| format!("invalid runtime config: {err}"))?;
@@ -970,7 +1017,9 @@ pub(crate) async fn capture_simulation_screenshot(
     for frame in 1..=frames {
         backend.run_once(&mut robot, frame.saturating_mul(20)).await;
     }
-    backend.preview().save_screenshot(path, camera)
+    backend
+        .preview_with_debug_collision_overlay(debug_collision_overlay)
+        .save_screenshot(path, camera)
 }
 
 /// Training-only capture. This deliberately lives beside the simulator and is
@@ -1297,7 +1346,7 @@ struct TrainingAssetBounds {
 fn training_bottle_asset_bounds(project_path: &Path) -> Result<TrainingAssetBounds, String> {
     let dreams =
         RobotDreams::open(project_path).map_err(|e| format!("open dataset project: {e}"))?;
-    let frame = robotdreams_pge_frame(&dreams, RobotDreamsPgeFrameOptions::default());
+    let frame = robotdreams_pge_frame(&dreams, puppybot_simulation_frame_options());
     let index = index_world_nodes(&frame.world);
     let node = frame
         .world
@@ -1753,11 +1802,14 @@ impl PreparedCaptureRenderer {
         validate_capture_project(project_path, &state.project)?;
         let dreams = RobotDreams::open(project_path)
             .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
-        let mut options = RobotDreamsPgeFrameOptions::default();
+        let mut options = puppybot_simulation_frame_options();
+        options.debug_collision_overlay = debug_collider_overlay_enabled();
         options.resolution = state.camera.resolution;
         let mut frame = robotdreams_pge_frame(&dreams, options);
         let expected_visual_keys = expected_visual_transform_keys(&dreams);
-        insert_controller_arm_overlay(&mut frame.world);
+        if debug_coordinate_overlay_enabled() {
+            insert_controller_arm_overlay(&mut frame.world);
+        }
         let index = index_world_nodes(&frame.world);
         hide_capture_dynamic_entities(&mut frame.world, &index);
         let base_world = frame.world.clone();
@@ -1795,7 +1847,7 @@ impl PreparedCaptureRenderer {
         // incomplete tiles. The authoritative robot and scene-object visuals
         // still follow their per-frame transforms; these optional diagnostic
         // overlays remain hidden from `base_world`.
-        if state.camera.source != WRIST_CAMERA_ID {
+        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
             if let (Some(world_from_base), Some(base_from_arm_base)) = (
                 capture_frame.overlays.world_from_base,
                 capture_frame.overlays.base_from_arm_base,
@@ -1811,7 +1863,7 @@ impl PreparedCaptureRenderer {
             }
         }
         let mut labels = capture_labels(capture_frame, &state.camera);
-        if state.camera.source != WRIST_CAMERA_ID {
+        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
             let legend_row_start = labels.len();
             labels.extend(coordinate_debug_legend_labels(legend_row_start));
             labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
@@ -1879,7 +1931,7 @@ impl PreparedCaptureRenderer {
         for (entity, transform) in &capture_frame.visual_transforms {
             set_world_node_transform(&mut self.frame.world, &self.index, entity, *transform);
         }
-        if state.camera.source != WRIST_CAMERA_ID {
+        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
             if let (Some(world_from_base), Some(base_from_arm_base)) = (
                 capture_frame.overlays.world_from_base,
                 capture_frame.overlays.base_from_arm_base,
@@ -1895,7 +1947,7 @@ impl PreparedCaptureRenderer {
             }
         }
         let mut labels = capture_labels(capture_frame, &state.camera);
-        if state.camera.source != WRIST_CAMERA_ID {
+        if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
             let legend_row_start = labels.len();
             labels.extend(coordinate_debug_legend_labels(legend_row_start));
             labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
@@ -2004,17 +2056,20 @@ fn render_capture_state_png_with_renderer(
     let expected_visual_keys = expected_visual_transform_keys(&dreams);
     validate_visual_transform_keys(capture_frame, &expected_visual_keys)?;
     let labels = capture_labels(capture_frame, &state.camera);
-    let mut options = RobotDreamsPgeFrameOptions::default();
+    let mut options = puppybot_simulation_frame_options();
+    options.debug_collision_overlay = debug_collider_overlay_enabled();
     options.resolution = state.camera.resolution;
     options.text_labels = labels.clone();
     let mut pge_frame = robotdreams_pge_frame(&dreams, options);
-    insert_controller_arm_overlay(&mut pge_frame.world);
+    if debug_coordinate_overlay_enabled() {
+        insert_controller_arm_overlay(&mut pge_frame.world);
+    }
     let index = index_world_nodes(&pge_frame.world);
     hide_capture_dynamic_entities(&mut pge_frame.world, &index);
     for (entity, transform) in &capture_frame.visual_transforms {
         set_world_node_transform(&mut pge_frame.world, &index, entity, *transform);
     }
-    if state.camera.source != WRIST_CAMERA_ID {
+    if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
         let debug_markers = capture_frame
             .overlays
             .debug_markers
@@ -2047,7 +2102,7 @@ fn render_capture_state_png_with_renderer(
         }
     }
     let mut all_labels = labels;
-    if state.camera.source != WRIST_CAMERA_ID {
+    if debug_coordinate_overlay_enabled() && state.camera.source != WRIST_CAMERA_ID {
         let legend_row_start = all_labels.len();
         all_labels.extend(coordinate_debug_legend_labels(legend_row_start));
         all_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
@@ -2424,10 +2479,12 @@ fn sync_preview_snapshot_world(
         world.text_labels.clear();
     }
     sync_visual_transforms(world, &snapshot.visual_transforms, index);
-    sync_tcp_debug_markers(world, &snapshot.debug_markers, index);
-    sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
-    if let Some(frames) = snapshot.frames {
-        sync_debug_frame_roots(world, frames, index);
+    if show_diagnostics {
+        sync_tcp_debug_markers(world, &snapshot.debug_markers, index);
+        sync_controller_arm_overlay(world, snapshot.controller_arm_chain.as_ref(), index);
+        if let Some(frames) = snapshot.frames {
+            sync_debug_frame_roots(world, frames, index);
+        }
     }
 }
 
@@ -2677,7 +2734,9 @@ impl SimulatedPreview {
                 .state
                 .lock()
                 .map_err(|_| "RobotDreams preview state lock poisoned before screenshot")?;
-            let mut options = RobotDreamsPgeFrameOptions::default();
+            let mut options = puppybot_simulation_frame_options();
+            options.debug_coordinate_overlay = self.debug_coordinate_overlay;
+            options.debug_collision_overlay = self.debug_collision_overlay;
             options.text_labels = state.labels.clone();
             let frame = robotdreams_pge_frame(&state.dreams, options);
             let model_telemetry = state
@@ -2688,7 +2747,9 @@ impl SimulatedPreview {
             (frame, model_telemetry)
         };
 
-        insert_controller_arm_overlay(&mut frame.world);
+        if self.debug_coordinate_overlay {
+            insert_controller_arm_overlay(&mut frame.world);
+        }
         let world_node_index = index_world_nodes(&frame.world);
         set_world_camera_transform(
             &mut frame.world,
@@ -2697,28 +2758,32 @@ impl SimulatedPreview {
             screenshot_camera_transform(camera),
         );
         let mut text_labels = snapshot.labels;
-        let legend_row_start = text_labels.len();
-        text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
-        text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
-            "controller_arm_legend",
-            CONTROLLER_ARM_LEGEND,
-            text_labels.len(),
-            [1.0, 0.2, 0.9, 1.0],
-        ));
+        if self.debug_coordinate_overlay {
+            let legend_row_start = text_labels.len();
+            text_labels.extend(coordinate_debug_legend_labels(legend_row_start));
+            text_labels.push(RobotDreamsPgeTextLabel::overlay_with_color(
+                "controller_arm_legend",
+                CONTROLLER_ARM_LEGEND,
+                text_labels.len(),
+                [1.0, 0.2, 0.9, 1.0],
+            ));
+        }
         frame.world.text_labels = text_labels.into_iter().map(pge_text_label).collect();
         sync_visual_transforms(
             &mut frame.world,
             &snapshot.visual_transforms,
             &world_node_index,
         );
-        sync_tcp_debug_markers(&mut frame.world, &snapshot.debug_markers, &world_node_index);
-        sync_controller_arm_overlay(
-            &mut frame.world,
-            snapshot.controller_arm_chain.as_ref(),
-            &world_node_index,
-        );
-        if let Some(frames) = snapshot.frames {
-            sync_debug_frame_roots(&mut frame.world, frames, &world_node_index);
+        if self.debug_coordinate_overlay {
+            sync_tcp_debug_markers(&mut frame.world, &snapshot.debug_markers, &world_node_index);
+            sync_controller_arm_overlay(
+                &mut frame.world,
+                snapshot.controller_arm_chain.as_ref(),
+                &world_node_index,
+            );
+            if let Some(frames) = snapshot.frames {
+                sync_debug_frame_roots(&mut frame.world, frames, &world_node_index);
+            }
         }
 
         let delta_mm = controller_tcp_model_delta_mm(
@@ -2771,7 +2836,9 @@ impl SimulatedPreview {
         ups_overlay.set(vec![format_simulation_ups(None)]);
         let ups_overlay_for_update = ups_overlay.clone();
         let capture_project = self.project.clone();
-        let options = RobotDreamsPgeFrameOptions::default();
+        let debug_coordinate_overlay = self.debug_coordinate_overlay;
+        let mut options = puppybot_simulation_frame_options();
+        options.debug_collision_overlay = self.debug_collision_overlay;
         let target = options.target;
         let elevation_rad = options.camera_elevation_deg.to_radians();
         let eye = [
@@ -2804,7 +2871,8 @@ impl SimulatedPreview {
                 let wrist_camera = project_camera_pose(&state.dreams, WRIST_CAMERA_ID);
                 let window_plan = interactive_preview_window_plan(wrist_camera);
                 let tcp_frame = wrist_camera.map(|camera| {
-                    let mut tcp_options = RobotDreamsPgeFrameOptions::default();
+                    let mut tcp_options = puppybot_simulation_frame_options();
+                    tcp_options.debug_collision_overlay = self.debug_collision_overlay;
                     tcp_options.resolution = camera.resolution;
                     robotdreams_pge_frame(&state.dreams, tcp_options)
                 });
@@ -2812,7 +2880,9 @@ impl SimulatedPreview {
             }
             Err(_) => return Err("RobotDreams preview state lock poisoned before startup".into()),
         };
-        insert_controller_arm_overlay(&mut frame.world);
+        if self.debug_coordinate_overlay {
+            insert_controller_arm_overlay(&mut frame.world);
+        }
         let world_node_index = index_world_nodes(&frame.world);
         set_world_camera_transform(
             &mut frame.world,
@@ -2842,7 +2912,9 @@ impl SimulatedPreview {
             overlay_lines: ups_overlay,
         }];
         let tcp_window = tcp_frame.map(|mut tcp_frame| {
-            insert_controller_arm_overlay(&mut tcp_frame.world);
+            if self.debug_coordinate_overlay {
+                insert_controller_arm_overlay(&mut tcp_frame.world);
+            }
             let tcp_index = index_world_nodes(&tcp_frame.world);
             // RobotDreams emits a real `camera:wrist_camera` node. Select it rather
             // than the synthetic PGE orbit camera that the primary preview uses.
@@ -2915,7 +2987,7 @@ impl SimulatedPreview {
                     &world_node_index,
                     &visual_bindings,
                     rendered_snapshot.as_ref(),
-                    true,
+                    debug_coordinate_overlay,
                 );
                 let camera_transform =
                     orbit_camera_transform(&orbit_state, orbit_camera_node_id, &orbit_controller);
@@ -3719,6 +3791,429 @@ mod tests {
     use super::*;
     use puppybot_core::stservo::mock::block_on_ready;
 
+    fn dynamic_pickup_regression_fixture(
+        bottle_position: [f32; 3],
+        bin_position: [f32; 2],
+        bottle_support_size_xy: [f32; 2],
+        bottle_support_offset_xy: [f32; 2],
+        bottle_linear_damping: f32,
+        bottle_angular_damping: f32,
+        label: &str,
+    ) -> PathBuf {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let puppybot_root = manifest_dir
+            .join("../..")
+            .canonicalize()
+            .expect("resolve PuppyBot project root");
+        let projects_root = puppybot_root
+            .parent()
+            .expect("PuppyBot project is under projects/");
+        let template_path = SimulatedRuntimeBackend::default_project_path();
+        let mut fixture: serde_json::Value = serde_json::from_slice(
+            &fs::read(&template_path).expect("read bottle-to-bin fixture template"),
+        )
+        .expect("parse bottle-to-bin fixture template");
+
+        fixture["modelProfile"] = serde_json::json!(
+            puppybot_root
+                .join("models/puppybot/robotdreams.json")
+                .to_string_lossy()
+        );
+        fixture["robots"][0]["model"]["path"] = serde_json::json!(
+            puppybot_root
+                .join("models/puppybot/final2/urdf/final2.urdf")
+                .to_string_lossy()
+        );
+        fixture["robots"][0]["physics"]["vehicle"]["collisionProfile"] = serde_json::json!(
+            puppybot_root
+                .join("robotdreams/puppybot-physics-prototype.json")
+                .to_string_lossy()
+        );
+        fixture["robots"][0]["physics"]["linkCollisionProfile"] = serde_json::json!(
+            puppybot_root
+                .join("robotdreams/collision/final2-link-collision-profile.v1.json")
+                .to_string_lossy()
+        );
+
+        let bottle_support_top_z = bottle_position[2] - 0.10;
+        assert!(
+            bottle_support_top_z > 0.0,
+            "pickup regression requires an above-floor dynamic bottle target"
+        );
+        let bottle_support_height = bottle_support_top_z + 0.001;
+        let bottle_support_position = [
+            bottle_position[0] + bottle_support_offset_xy[0],
+            bottle_position[1] + bottle_support_offset_xy[1],
+            (bottle_support_top_z - 0.001) * 0.5,
+        ];
+        let bin_center = [bin_position[0], bin_position[1], 0.0];
+        let object_positions = [
+            ("bottle", bottle_position),
+            ("pickup_pedestal", bottle_support_position),
+            ("trashbin", bin_center),
+            (
+                "trashbin_wall_front",
+                [bin_position[0] + 0.084, bin_position[1], 0.09],
+            ),
+            (
+                "trashbin_wall_back",
+                [bin_position[0] - 0.084, bin_position[1], 0.09],
+            ),
+            (
+                "trashbin_wall_left",
+                [bin_position[0], bin_position[1] + 0.084, 0.09],
+            ),
+            (
+                "trashbin_wall_right",
+                [bin_position[0], bin_position[1] - 0.084, 0.09],
+            ),
+        ];
+        for object in fixture["scene"]["objects"]
+            .as_array_mut()
+            .expect("fixture scene objects")
+        {
+            let id = object["id"].as_str().expect("fixture object id").to_owned();
+            if let Some((_, position)) = object_positions
+                .iter()
+                .find(|(candidate, _)| *candidate == &id)
+            {
+                object["position"] = serde_json::json!(position);
+            }
+            match id.as_str() {
+                "bottle" => {
+                    object["asset"] = serde_json::json!(
+                        puppybot_root
+                            .join("models/water-bottle.glb")
+                            .to_string_lossy()
+                    );
+                    object["physics"]["linearDamping"] = serde_json::json!(bottle_linear_damping);
+                    object["physics"]["angularDamping"] = serde_json::json!(bottle_angular_damping);
+                }
+                "trashbin" => {
+                    object["asset"] = serde_json::json!(
+                        projects_root
+                            .join("RobotDreams/examples/trashbin.gltf")
+                            .to_string_lossy()
+                    );
+                }
+                "pickup_pedestal" => {
+                    let size = [
+                        bottle_support_size_xy[0],
+                        bottle_support_size_xy[1],
+                        bottle_support_height,
+                    ];
+                    object["size"] = serde_json::json!(size);
+                    object["physics"]["collider"]["size"] = serde_json::json!(size);
+                }
+                _ => {}
+            }
+        }
+        fixture["scene"]["triggers"][0]["position"] =
+            serde_json::json!([bin_position[0], bin_position[1], 0.125]);
+
+        let unique = format!(
+            "puppybot-dynamic-pickup-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after Unix epoch")
+                .as_nanos()
+        );
+        let directory = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&directory).expect("create temporary RobotDreams fixture directory");
+        let fixture_path = directory.join("fixture.robotdreams.json");
+        fs::write(
+            &fixture_path,
+            serde_json::to_vec_pretty(&fixture).expect("serialize dynamic pickup fixture"),
+        )
+        .expect("write temporary RobotDreams fixture");
+        fixture_path
+    }
+
+    fn runtime_simulation_config() -> PuppybotConfigV1 {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
+        crate::config::load_runtime_config(&config_path)
+            .expect("load simulation runtime config")
+            .expect("simulation runtime config exists")
+    }
+
+    fn run_runtime_steps(
+        backend: &mut SimulatedRuntimeBackend,
+        robot: &mut Puppybot,
+        now_ms: &mut u64,
+        steps: usize,
+    ) {
+        for _ in 0..steps {
+            block_on_ready(backend.run_once(robot, *now_ms));
+            *now_ms += (SIMULATION_STEP_SECONDS * 1000.0) as u64;
+        }
+    }
+
+    fn command_pickup_arm(robot: &mut Puppybot, table_z_mm: f64, now_ms: u64) {
+        command_contact_arm(robot, 230.0, -90.0, table_z_mm, now_ms);
+    }
+
+    fn command_contact_arm(
+        robot: &mut Puppybot,
+        x_mm: f64,
+        y_mm: f64,
+        table_z_mm: f64,
+        now_ms: u64,
+    ) {
+        robot
+            .try_handle_event(
+                ProtocolEvent::Arm(ArmCommand::GotoCoords {
+                    x: x_mm,
+                    y: y_mm,
+                    z: kinematics::table_to_shoulder_z(table_z_mm),
+                    tool_phi_rad: -std::f64::consts::FRAC_PI_2,
+                }),
+                now_ms,
+            )
+            .expect("pickup command must pass the runtime arm range check");
+    }
+
+    fn observed_tcp(backend: &SimulatedRuntimeBackend) -> [f32; 3] {
+        let state = backend.state.lock().expect("RobotDreams simulation state");
+        observed_tcp_world_m(&state.dreams).expect("read observed TCP from RobotDreams")
+    }
+
+    #[test]
+    fn reviewed_arm_profiles_report_rapier_contact_with_dynamic_bottle() {
+        const CONTACT_DROP_VIDEO_FPS: u32 = 2;
+        const CONTACT_PUSH_STEPS: usize = 500;
+        let config = runtime_simulation_config();
+        let fixture = dynamic_pickup_regression_fixture(
+            [0.205, -0.020, 0.240],
+            [5.0, 5.0],
+            [0.13, 0.20],
+            [-0.021, 0.0],
+            1.0,
+            8.0,
+            "reviewed-arm-knockoff",
+        );
+        let mut backend = SimulatedRuntimeBackend::new(&fixture, &config)
+            .expect("open canonical dynamic bottle fixture");
+        let mut robot = Puppybot::new_with_config(&config, 0)
+            .expect("create PuppyBot controller for contact probe");
+        let mut now_ms = 20;
+        robot
+            .try_handle_event(ProtocolEvent::Arm(ArmCommand::SetSpeed(2)), now_ms)
+            .expect("set a bounded contact-probe arm speed");
+
+        // Put the visual/servo arm into a clear pre-contact pose before any
+        // live articulated collider exists. The subsequent capped sweep is
+        // intentionally small, avoiding a target-pose depenetration impulse.
+        command_contact_arm(&mut robot, 230.0, -60.0, 0.0, now_ms);
+        run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 250);
+        {
+            let mut state = backend.state.lock().expect("RobotDreams simulation state");
+            let pre_contact_bottle = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("pre-contact dynamic bottle state")
+                .clone();
+            let pre_contact_speed_mps = pre_contact_bottle
+                .velocity_mps
+                .iter()
+                .map(|component| component * component)
+                .sum::<f32>()
+                .sqrt();
+            assert!(
+                pre_contact_bottle.position[2] > 0.14 && pre_contact_speed_mps < 0.03,
+                "the bottle must remain stably supported before contact is enabled: {pre_contact_bottle:?}"
+            );
+            state
+                .dreams
+                .set_kinematic_collider_motion_config(KinematicColliderMotionConfig {
+                    maximum_linear_speed_mps: 0.20,
+                    maximum_angular_speed_rps: 2.0,
+                    maximum_substep_seconds: 1.0 / 120.0,
+                })
+                .expect("configure capped reviewed-link collider sweep");
+            let enabled_links = state
+                .dreams
+                .enable_nearest_robot_link_collision_profiles(ROBOT_ID, BOTTLE_OBJECT_ID, 8)
+                .expect("enable the nearest reviewed contact profiles");
+            assert!(
+                !enabled_links.is_empty(),
+                "the bottle must have a nearest reviewed PGE collider shape"
+            );
+        }
+        run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 1);
+        {
+            let state = backend.state.lock().expect("RobotDreams simulation state");
+            assert!(
+                state
+                    .dreams
+                    .scene_object_robot_link_contacts(BOTTLE_OBJECT_ID)
+                    .is_empty(),
+                "enabling the capped profiles must not begin from a bottle overlap"
+            );
+        }
+
+        command_contact_arm(&mut robot, 160.0, -60.0, 0.0, now_ms);
+        let output_path = std::env::var_os("PUPPYBOT_CONTACT_DROP_VIDEO").map(PathBuf::from);
+        let record_requested = output_path.is_some();
+        let mut recorder = output_path.as_ref().map(|path| {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create contact-drop recording directory");
+            }
+            let options = RobotDreamsPgeFrameOptions {
+                debug_collision_overlay: true,
+                ..RobotDreamsPgeFrameOptions::default()
+            };
+            let renderer = WgpuRenderer::new().expect("create contact-drop WGPU renderer");
+            let encoder = StreamingRgbaMp4Encoder::start(
+                &path,
+                options.resolution[0],
+                options.resolution[1],
+                CONTACT_DROP_VIDEO_FPS,
+                4_000_000,
+            )
+            .expect("start contact-drop MP4 encoder");
+            (options, renderer, encoder)
+        });
+        let mut recorded_frames = 0_u32;
+        let mut contacts = BTreeSet::new();
+        let mut first_contact_step = None;
+        let mut retreat_commanded = false;
+        for step in 0..1_000 {
+            run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 1);
+            let state = backend.state.lock().expect("RobotDreams simulation state");
+            let bottle = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("dynamic bottle state");
+            assert!(
+                bottle.attachment.is_none(),
+                "contact probe must never use the rigid pickup attachment"
+            );
+            if !contacts.is_empty() && first_contact_step.is_none() {
+                first_contact_step = Some(step);
+            }
+            contacts.extend(
+                state
+                    .dreams
+                    .scene_object_robot_link_contacts(BOTTLE_OBJECT_ID)
+                    .into_iter()
+                    .map(|contact| contact.link_name),
+            );
+            if let Some((options, renderer, encoder)) = recorder.as_mut()
+                && step % 25 == 0
+            {
+                let mut frame = robotdreams_pge_frame(&state.dreams, options.clone());
+                let index = index_world_nodes(&frame.world);
+                // Hold a close inspection view through the physical push, then
+                // widen modestly once the bottle has left the support so its
+                // floor rest remains visible.
+                let camera = if step < 550 {
+                    ScreenshotCamera {
+                        target: [0.25, -0.02, 0.16],
+                        radius_m: 0.28,
+                        azimuth_deg: 45.0,
+                        elevation_deg: 24.0,
+                    }
+                } else {
+                    ScreenshotCamera {
+                        target: [0.28, -0.02, 0.10],
+                        radius_m: 0.48,
+                        azimuth_deg: 45.0,
+                        elevation_deg: 20.0,
+                    }
+                };
+                set_world_camera_transform(
+                    &mut frame.world,
+                    &index,
+                    &frame.camera_entity.0,
+                    screenshot_camera_transform(camera),
+                );
+                let rgba = renderer
+                    .render_rgba(&frame.world, &frame.request)
+                    .expect("render contact-drop video frame");
+                encoder
+                    .push_rgba_frame(&rgba.bytes)
+                    .expect("encode contact-drop video frame");
+                recorded_frames += 1;
+            }
+            drop(state);
+            if first_contact_step
+                .is_some_and(|contact_step| step >= contact_step + CONTACT_PUSH_STEPS)
+                && !retreat_commanded
+            {
+                robot
+                    .try_handle_event(
+                        ProtocolEvent::Arm(ArmCommand::GotoCoords {
+                            x: 230.0,
+                            y: -60.0,
+                            z: kinematics::table_to_shoulder_z(20.0),
+                            tool_phi_rad: -std::f64::consts::FRAC_PI_2,
+                        }),
+                        now_ms,
+                    )
+                    .expect("retreat command must pass the runtime arm range check");
+                retreat_commanded = true;
+            }
+        }
+        if let Some((_, _, encoder)) = recorder.take() {
+            encoder.finish().expect("finalize contact-drop MP4 encoder");
+        }
+        if record_requested {
+            assert_eq!(recorded_frames, 40, "contact-drop recording frame count");
+        }
+        let final_state = backend
+            .manipulation_state()
+            .expect("read contact-probe manipulation state");
+        let final_bottle = {
+            let state = backend.state.lock().expect("RobotDreams simulation state");
+            state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("final dynamic bottle state")
+                .clone()
+        };
+        assert!(
+            !contacts.is_empty(),
+            "moving reviewed arm profiles must produce Rapier contact against the dynamic bottle"
+        );
+        assert!(
+            first_contact_step.is_some(),
+            "the episode must record the first Rapier contact frame"
+        );
+        assert!(
+            retreat_commanded,
+            "the arm must retreat after Rapier contact"
+        );
+        assert!(
+            !final_state.ball.attached,
+            "the contact episode must not create a rigid bottle attachment: {final_state:?}"
+        );
+        assert!(
+            final_bottle.position[2] < 0.15,
+            "the post-contact dynamic bottle must leave the raised support and settle near the floor: {final_bottle:?}"
+        );
+        assert!(
+            (final_bottle.position[0] - 0.205).abs() > 0.12,
+            "the bottle must leave the narrow support horizontally: {final_bottle:?}"
+        );
+        let final_speed_mps = final_bottle
+            .velocity_mps
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
+        assert!(
+            final_speed_mps < 0.05,
+            "the bottle must settle on the floor before the episode ends: {final_bottle:?}"
+        );
+        fs::remove_dir_all(
+            fixture
+                .parent()
+                .expect("temporary reviewed-arm fixture directory"),
+        )
+        .expect("remove temporary reviewed-arm fixture directory");
+    }
+
     #[test]
     fn calibrated_simulation_limits_reject_old_ball_to_bin_pick_waypoint() {
         let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
@@ -4057,6 +4552,88 @@ mod tests {
         for (actual, expected) in transform.translation.into_iter().zip(expected) {
             assert!((actual - expected).abs() < 1.0e-5, "{actual} != {expected}");
         }
+    }
+
+    #[test]
+    fn pge_collider_overlay_exports_every_canonical_simulation_collider_class() {
+        let config = runtime_simulation_config();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open canonical simulation fixture");
+        let state = backend.state.lock().expect("RobotDreams simulation state");
+
+        let hidden = robotdreams_pge_frame(&state.dreams, RobotDreamsPgeFrameOptions::default());
+        assert!(
+            hidden.world.collider_wireframes().is_empty(),
+            "the generic PGE collider overlay stays off unless requested"
+        );
+
+        let frame = robotdreams_pge_frame(
+            &state.dreams,
+            RobotDreamsPgeFrameOptions {
+                debug_collision_overlay: true,
+                ..RobotDreamsPgeFrameOptions::default()
+            },
+        );
+        let wireframes = frame.world.collider_wireframes();
+        assert!(frame.world.collider_debug.enabled);
+        assert!(
+            wireframes.iter().any(|wireframe| {
+                wireframe.id == "scene-object:bottle"
+                    && wireframe.category == "sceneDynamicCollider"
+            }),
+            "the dynamic bottle Rapier collider must use PGE's generic overlay"
+        );
+        assert!(
+            wireframes.iter().any(|wireframe| {
+                wireframe.id == "scene-object:floor_5m"
+                    && wireframe.category == "sceneStaticCollider"
+            }),
+            "the static floor Rapier collider must use PGE's generic overlay"
+        );
+        assert!(
+            wireframes.iter().any(|wireframe| {
+                wireframe.id == "vehicle:puppybot:0" && wireframe.category == "vehicleCollider"
+            }),
+            "the dynamic vehicle profile must use PGE's generic overlay"
+        );
+        assert!(
+            wireframes.iter().any(|wireframe| {
+                wireframe.id.starts_with("reviewed-link:puppybot:")
+                    && wireframe.category == "reviewedLinkProfile"
+            }),
+            "reviewed PGE-generated link shapes must remain part of the generic overlay"
+        );
+    }
+
+    #[test]
+    fn canonical_simulation_frame_hides_coordinate_grid_without_debug_opt_in() {
+        let config = runtime_simulation_config();
+        let backend =
+            SimulatedRuntimeBackend::new(SimulatedRuntimeBackend::default_project_path(), &config)
+                .expect("open canonical simulation fixture");
+        let state = backend.state.lock().expect("RobotDreams simulation state");
+        let mut options = puppybot_simulation_frame_options();
+        options.debug_coordinate_overlay = false;
+        let frame = robotdreams_pge_frame(&state.dreams, options);
+        let index = index_world_nodes(&frame.world);
+
+        assert!(
+            !index.contains_key("debug:puppybot:frame:base"),
+            "the normal PuppyBot simulation must not render RobotDreams' coordinate grid"
+        );
+        assert!(
+            !frame
+                .world
+                .text_labels
+                .iter()
+                .any(|label| label.entity.0.starts_with("label:coordinate_debug_")),
+            "the normal PuppyBot simulation must not render coordinate-debug legends"
+        );
+        assert!(
+            index.contains_key("object:floor_5m"),
+            "hiding the coordinate grid must preserve the visual/physical floor"
+        );
     }
 
     #[test]
@@ -4796,6 +5373,243 @@ mod tests {
             marker_translation(&world, &index, "debug:puppybot:tcp:target"),
             expected_target
         );
+    }
+
+    #[test]
+    fn dynamic_bottle_fixture_keeps_pickup_release_on_robotdreams_physics() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open dynamic PuppyBot bottle fixture");
+        let (seeded_position, attached_position, released_position, released_velocity) = {
+            let mut state = backend.state.lock().expect("simulation state");
+            let seeded_position = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("seeded dynamic bottle state")
+                .position;
+            assert!(
+                state
+                    .dreams
+                    .try_attach_scene_object_to_tcp(
+                        BOTTLE_OBJECT_ID,
+                        ROBOT_ID,
+                        10.0,
+                        [0.0, 0.0, 0.20],
+                    )
+                    .expect("attach dynamic bottle to observed TCP"),
+                "the bottle fixture must retain RobotDreams TCP pickup support"
+            );
+            assert!(
+                state.dreams.vehicle_physics_state(ROBOT_ID).is_some(),
+                "the bottle fixture must create a dynamic vehicle body"
+            );
+            let attached_position = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("attached bottle state");
+            assert!(attached_position.attachment.is_some());
+            let attached_position = attached_position.position;
+            state
+                .dreams
+                .detach_scene_object(BOTTLE_OBJECT_ID)
+                .expect("release bottle back to RobotDreams physics");
+            let released_position = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("released bottle state")
+                .position;
+            state.dreams.advance_seconds(SIMULATION_STEP_SECONDS);
+            let released = state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("falling bottle state");
+            (
+                seeded_position,
+                attached_position,
+                released_position,
+                (released.position, released.velocity_mps),
+            )
+        };
+
+        assert_ne!(
+            seeded_position, attached_position,
+            "TCP attachment must move the bottle from its seeded dynamic pose"
+        );
+        assert!(
+            released_velocity.0[2] < released_position[2] && released_velocity.1[2] < 0.0,
+            "released bottle must resume gravity-driven RobotDreams motion"
+        );
+    }
+
+    #[test]
+    fn dynamic_bottle_pickup_release_reaches_bin_through_runtime_interfaces() {
+        const ARM_SETTLE_STEPS: usize = 250;
+        const DRIVE_STEPS: usize = 100;
+
+        let config = runtime_simulation_config();
+        let mut pickup_target: Option<(f64, [f32; 3])> = None;
+        for table_z_mm in [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0] {
+            let mut candidate_backend = SimulatedRuntimeBackend::new(
+                SimulatedRuntimeBackend::default_project_path(),
+                &config,
+            )
+            .expect("open independent dynamic PuppyBot arm candidate fixture");
+            let mut candidate_robot = Puppybot::new_with_config(&config, 0)
+                .expect("create PuppyBot controller for independent arm candidate");
+            let mut candidate_now_ms = 20;
+            command_pickup_arm(&mut candidate_robot, table_z_mm, candidate_now_ms);
+            run_runtime_steps(
+                &mut candidate_backend,
+                &mut candidate_robot,
+                &mut candidate_now_ms,
+                ARM_SETTLE_STEPS,
+            );
+            let tcp = observed_tcp(&candidate_backend);
+            match pickup_target {
+                Some((_, best_tcp)) if best_tcp[2] <= tcp[2] => {}
+                _ => pickup_target = Some((table_z_mm, tcp)),
+            }
+        }
+        let (pickup_table_z_mm, pickup_tcp) =
+            pickup_target.expect("at least one calibrated pickup target");
+        assert!(
+            pickup_tcp[2] > 0.10,
+            "selected runtime arm target must leave room for the physical pickup pedestal: {pickup_tcp:?}"
+        );
+
+        let probe_fixture = dynamic_pickup_regression_fixture(
+            pickup_tcp,
+            [5.0, 5.0],
+            [0.20, 0.20],
+            [0.0, 0.0],
+            0.15,
+            0.15,
+            "drive-probe",
+        );
+        let mut drive_probe_backend = SimulatedRuntimeBackend::new(&probe_fixture, &config)
+            .expect("open drive probe fixture");
+        let mut drive_probe_robot = Puppybot::new_with_config(&config, 0)
+            .expect("create PuppyBot controller for drive probe");
+        let mut drive_probe_now_ms = 20;
+        command_pickup_arm(
+            &mut drive_probe_robot,
+            pickup_table_z_mm,
+            drive_probe_now_ms,
+        );
+        run_runtime_steps(
+            &mut drive_probe_backend,
+            &mut drive_probe_robot,
+            &mut drive_probe_now_ms,
+            ARM_SETTLE_STEPS,
+        );
+        for _ in 0..DRIVE_STEPS {
+            drive_probe_robot
+                .try_handle_event(
+                    ProtocolEvent::Drive(DriveCommand::DriveSteer {
+                        throttle: 45,
+                        steering: 0,
+                    }),
+                    drive_probe_now_ms,
+                )
+                .expect("issue virtual drive command for bin placement probe");
+            run_runtime_steps(
+                &mut drive_probe_backend,
+                &mut drive_probe_robot,
+                &mut drive_probe_now_ms,
+                1,
+            );
+        }
+        let bin_tcp = observed_tcp(&drive_probe_backend);
+        drive_probe_robot
+            .try_handle_event(ProtocolEvent::Drive(DriveCommand::Stop), drive_probe_now_ms)
+            .expect("stop virtual drive placement probe");
+
+        let fixture_path = dynamic_pickup_regression_fixture(
+            pickup_tcp,
+            [bin_tcp[0], bin_tcp[1]],
+            [0.20, 0.20],
+            [0.0, 0.0],
+            0.15,
+            0.15,
+            "pickup-to-bin",
+        );
+        let mut backend = SimulatedRuntimeBackend::new(&fixture_path, &config)
+            .expect("open pickup-to-bin fixture");
+        let mut robot = Puppybot::new_with_config(&config, 0)
+            .expect("create PuppyBot controller for pickup-to-bin");
+        let mut now_ms = 20;
+        command_pickup_arm(&mut robot, pickup_table_z_mm, now_ms);
+        run_runtime_steps(&mut backend, &mut robot, &mut now_ms, ARM_SETTLE_STEPS);
+
+        let before_pickup = backend
+            .manipulation_state()
+            .expect("read runtime pickup range state");
+        let pickup_distance = before_pickup
+            .ball
+            .tcp_distance_m
+            .expect("RobotDreams exposes the TCP-to-bottle range");
+        assert!(
+            pickup_distance <= before_pickup.pickup_tolerance_m,
+            "the runtime must verify pickup range before attachment: \
+             distance {pickup_distance:.4} m, tolerance {:.4} m, target {pickup_tcp:?}, state {before_pickup:?}",
+            before_pickup.pickup_tolerance_m,
+        );
+        let attached = backend
+            .tool_action()
+            .expect("attach through runtime tool interface");
+        assert_eq!(attached.result, "attached");
+        assert!(attached.attached);
+
+        for _ in 0..DRIVE_STEPS {
+            robot
+                .try_handle_event(
+                    ProtocolEvent::Drive(DriveCommand::DriveSteer {
+                        throttle: 45,
+                        steering: 0,
+                    }),
+                    now_ms,
+                )
+                .expect("issue virtual drive command while carrying bottle");
+            run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 1);
+        }
+        robot
+            .try_handle_event(ProtocolEvent::Drive(DriveCommand::Stop), now_ms)
+            .expect("stop virtual drive at bin");
+        run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 5);
+
+        let released = backend
+            .tool_action()
+            .expect("release through runtime tool interface");
+        assert_eq!(released.result, "released");
+        assert!(!released.attached);
+        run_runtime_steps(&mut backend, &mut robot, &mut now_ms, 250);
+
+        let final_state = backend
+            .manipulation_state()
+            .expect("read runtime bin trigger state");
+        assert!(
+            final_state.bin_trigger.triggered,
+            "released bottle must trigger the physical bin: {final_state:?}"
+        );
+        assert!(
+            final_state.bin_trigger.settled,
+            "bottle must settle in the physical bin before the regression passes: {final_state:?}"
+        );
+
+        fs::remove_dir_all(
+            probe_fixture
+                .parent()
+                .expect("temporary drive probe fixture directory"),
+        )
+        .expect("remove temporary drive probe fixture");
+        fs::remove_dir_all(
+            fixture_path
+                .parent()
+                .expect("temporary pickup-to-bin fixture directory"),
+        )
+        .expect("remove temporary pickup-to-bin fixture");
     }
 
     #[test]

@@ -1,0 +1,58 @@
+{
+  "link": "ge_27",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/GE_27.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 418,
+        "primitive_count": 418,
+        "source_vertex_count": 45380,
+        "triangle_count": 44580,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 44580,
+    "covered_triangle_count": 44580,
+    "conservative_volume": 5.6668932e-06,
+    "bounds_volume_ratio": 1.000321,
+    "collider_count": 1,
+    "compound_generation_path": {
+      "BoundsFallback": {
+        "reason": {
+          "TriangleLimit": {
+            "source_triangle_count": 44580,
+            "maximum_exact_triangles": 20000
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "link": "xg_ziji_16_1",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/XG_ZIJI_16.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 219,
+        "primitive_count": 219,
+        "source_vertex_count": 12950,
+        "triangle_count": 16166,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "Compound": {
+        "candidate_index": 0
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 16166,
+    "covered_triangle_count": 16166,
+    "conservative_volume": 1.5765536e-05,
+    "bounds_volume_ratio": 1.0002546,
+    "collider_count": 1,
+    "compound_generation_path": {
+      "BoundsFallback": {
+        "reason": {
+          "PartitionLimit": {
+            "connected_partition_count": 219,
+            "maximum_exact_partitions": 32
+          }
+        }
+      }
+    }
+  }
+}

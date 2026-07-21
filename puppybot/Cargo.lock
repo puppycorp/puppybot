@@ -3019,6 +3019,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pge-collision"
+version = "0.1.0"
+dependencies = [
+ "gltf",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pge-core"
 version = "0.1.0"
 dependencies = [
@@ -3256,6 +3265,15 @@ dependencies = [
  "puppybot-core",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "puppybot-collision-tools"
+version = "0.1.0"
+dependencies = [
+ "pge-collision",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

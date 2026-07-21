@@ -18,6 +18,18 @@ from pathlib import Path
 
 
 BIN_XY = [-0.52, 0.32]
+BOTTLE_CENTER_Z_M = 0.1922
+# The lowest range-checked virtual-arm TCP is 92.2 mm above the floor bottle.
+# Keep the dynamic bottle at that measured centre height on a static support;
+# the seeded X/Y distribution remains unchanged for camera-policy evaluation.
+PICKUP_PEDESTAL_HEIGHT_M = BOTTLE_CENTER_Z_M - 0.10 + 0.001
+PICKUP_PEDESTAL_CENTER_Z_M = (BOTTLE_CENTER_Z_M - 0.10 - 0.001) * 0.5
+BIN_WALL_OFFSETS = {
+    "trashbin_wall_front": [0.084, 0.0, 0.09],
+    "trashbin_wall_back": [-0.084, 0.0, 0.09],
+    "trashbin_wall_left": [0.0, 0.084, 0.09],
+    "trashbin_wall_right": [0.0, -0.084, 0.09],
+}
 
 
 def write_json(path: Path, value: object) -> None:
@@ -542,6 +554,10 @@ def build_fixture(template: Path, output: Path, seed: int) -> list[float]:
     robotdreams_project = puppybot_project.parent / "RobotDreams"
     project["modelProfile"] = str((puppybot_project / "models/puppybot/robotdreams.json").resolve())
     project["robots"][0]["model"]["path"] = str((puppybot_project / "models/puppybot/final2/urdf/final2.urdf").resolve())
+    vehicle = project["robots"][0].get("physics", {}).get("vehicle", {})
+    collision_profile = vehicle.get("collisionProfile")
+    if isinstance(collision_profile, str):
+        vehicle["collisionProfile"] = str((template.parent / collision_profile).resolve())
     rng = random.Random(seed)
     # Judge-only sample from the calibrated overlap of the home wrist camera's
     # floor footprint and the arm's post-dock reach annulus.  The policy never
@@ -552,11 +568,16 @@ def build_fixture(template: Path, output: Path, seed: int) -> list[float]:
     bottle_xy = [rng.uniform(0.11, 0.17), rng.uniform(0.13, 0.17)]
     for item in project["scene"]["objects"]:
         if item["id"] == "bottle":
-            item["position"] = [*bottle_xy, 0.10]
+            item["position"] = [*bottle_xy, BOTTLE_CENTER_Z_M]
             item["asset"] = str((puppybot_project / "models/water-bottle.glb").resolve())
+        elif item["id"] == "pickup_pedestal":
+            item["position"] = [*bottle_xy, PICKUP_PEDESTAL_CENTER_Z_M]
         elif item["id"] == "trashbin":
             item["position"] = [*BIN_XY, 0.0]
             item["asset"] = str((robotdreams_project / "examples/trashbin.gltf").resolve())
+        elif item["id"] in BIN_WALL_OFFSETS:
+            offset = BIN_WALL_OFFSETS[item["id"]]
+            item["position"] = [BIN_XY[0] + offset[0], BIN_XY[1] + offset[1], offset[2]]
     for trigger in project["scene"]["triggers"]:
         if trigger["id"] == "bottle_in_bin":
             trigger["position"] = [*BIN_XY, 0.125]

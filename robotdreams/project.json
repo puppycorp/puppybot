@@ -13,6 +13,32 @@
       "base": {
         "translation": [0.0, 0.0, 0.0]
       },
+      "physics": {
+        "vehicle": {
+          "mode": "dynamic",
+          "massKg": 2.4,
+          "centerOfMass": [0.0, 0.0, 0.06],
+          "linearDamping": 0.35,
+          "angularDamping": 0.75,
+          "wheelbaseM": 0.22,
+          "trackWidthM": 0.18,
+          "maxWheelSpeedMps": 0.4,
+          "maxDriveForceN": 6.0,
+          "lateralGripNPerMps": 40.0,
+          "steeringResponseDegPerSec": 360.0,
+          "motor": {
+            "wheelRadiusM": 0.0325,
+            "gearRatio": 1.0,
+            "stallTorqueNm": 0.45,
+            "noLoadRpm": 120.0,
+            "brakeTorqueNm": 0.25,
+            "rollingResistanceN": 0.4
+          },
+          "colliders": [],
+          "collisionProfile": "puppybot-physics-prototype.json"
+        },
+        "linkCollisionProfile": "collision/final2-link-collision-profile.v1.json"
+      },
       "jointNames": {
         "revolute_2_3": "yaw",
         "revolute_1_1": "shoulder",
@@ -82,6 +108,70 @@
             "shape": "sphere",
             "radius": 0.025
           }
+        }
+      },
+      {
+        "id": "trashbin_wall_front",
+        "name": "Trash Bin Front Wall Collider",
+        "type": "physicsWall",
+        "shape": "box",
+        "size": [0.012, 0.18, 0.18],
+        "position": [0.241243, 0.075899, 0.09],
+        "color": "#162331",
+        "includeInFit": false,
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {"shape": "box", "size": [0.012, 0.18, 0.18]}
+        }
+      },
+      {
+        "id": "trashbin_wall_back",
+        "name": "Trash Bin Back Wall Collider",
+        "type": "physicsWall",
+        "shape": "box",
+        "size": [0.012, 0.18, 0.18],
+        "position": [0.073243, 0.075899, 0.09],
+        "color": "#162331",
+        "includeInFit": false,
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {"shape": "box", "size": [0.012, 0.18, 0.18]}
+        }
+      },
+      {
+        "id": "trashbin_wall_left",
+        "name": "Trash Bin Left Wall Collider",
+        "type": "physicsWall",
+        "shape": "box",
+        "size": [0.18, 0.012, 0.18],
+        "position": [0.157243, 0.159899, 0.09],
+        "color": "#162331",
+        "includeInFit": false,
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {"shape": "box", "size": [0.18, 0.012, 0.18]}
+        }
+      },
+      {
+        "id": "trashbin_wall_right",
+        "name": "Trash Bin Right Wall Collider",
+        "type": "physicsWall",
+        "shape": "box",
+        "size": [0.18, 0.012, 0.18],
+        "position": [0.157243, -0.008101, 0.09],
+        "color": "#162331",
+        "includeInFit": false,
+        "physics": {
+          "body": "static",
+          "friction": 0.8,
+          "restitution": 0.05,
+          "collider": {"shape": "box", "size": [0.18, 0.012, 0.18]}
         }
       }
     ],

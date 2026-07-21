@@ -167,6 +167,8 @@ pub(crate) struct AppOptions {
     pub(crate) servo_device: Option<String>,
     pub(crate) simulated: bool,
     pub(crate) robotdreams_project: Option<PathBuf>,
+    /// Rendering-only option for the interactive simulation preview.
+    pub(crate) debug_collision_overlay: bool,
     pub(crate) ui_bind: Option<SocketAddr>,
     pub(crate) ws_bind: Option<SocketAddr>,
 }
@@ -702,6 +704,7 @@ pub struct App {
     ws_clients: HashMap<u64, WsClientState>,
     robot: Puppybot,
     backend: RuntimeBackend,
+    debug_collision_overlay: bool,
     capture_manager: CaptureManager,
     held_drive: Option<HeldDrive>,
     held_joint_jog: Option<HeldJointJog>,
@@ -857,6 +860,7 @@ impl App {
             ws_clients: HashMap::new(),
             robot,
             backend,
+            debug_collision_overlay: options.debug_collision_overlay,
             capture_manager: CaptureManager::new(),
             held_drive: None,
             held_joint_jog: None,
@@ -898,7 +902,9 @@ impl App {
     pub(crate) fn simulated_preview(&self) -> Option<SimulatedPreview> {
         match &self.backend {
             RuntimeBackend::Hardware { .. } => None,
-            RuntimeBackend::Simulated(backend) => Some(backend.preview()),
+            RuntimeBackend::Simulated(backend) => {
+                Some(backend.preview_with_debug_collision_overlay(self.debug_collision_overlay))
+            }
         }
     }
 
@@ -4390,6 +4396,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("0.0.0.0:8080".parse().unwrap()),
         })
@@ -4420,6 +4427,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
@@ -4486,6 +4494,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
@@ -4520,6 +4529,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
@@ -4597,6 +4607,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
@@ -4907,6 +4918,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("127.0.0.1:0".parse().unwrap()),
         })
@@ -5007,6 +5019,7 @@ mod tests {
             servo_device: None,
             simulated: true,
             robotdreams_project: None,
+            debug_collision_overlay: false,
             ui_bind: Some("127.0.0.1:0".parse().unwrap()),
             ws_bind: Some("0.0.0.0:8080".parse().unwrap()),
         })

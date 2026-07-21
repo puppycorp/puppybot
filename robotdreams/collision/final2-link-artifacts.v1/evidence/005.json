@@ -1,0 +1,49 @@
+{
+  "link": "esp32_wroom_30pins_c_type_100",
+  "sourceAssets": [
+    {
+      "asset_id": "visual-0",
+      "asset_to_link": {
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_rpy_rad": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "provenance": {
+        "source_path": "models/puppybot/final2/meshes/esp32_Wroom_30pins_C_Type_100.gltf",
+        "format": "Gltf",
+        "scene_index": 0,
+        "node_instance_count": 14,
+        "primitive_count": 14,
+        "source_vertex_count": 288,
+        "triangle_count": 260,
+        "node_transforms_applied": true
+      }
+    }
+  ],
+  "selectionEvidence": {
+    "decision": {
+      "BoundsFallback": {
+        "reason": "IncompleteSourceCoverage"
+      }
+    },
+    "maximum_colliders": 4,
+    "source_triangle_count": 260,
+    "covered_triangle_count": 260,
+    "conservative_volume": 2.7131075e-09,
+    "bounds_volume_ratio": 1.0,
+    "collider_count": 1,
+    "compound_generation_path": "Exact"
+  }
+}
