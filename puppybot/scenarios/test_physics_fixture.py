@@ -18,6 +18,17 @@ assert SPEC is not None and SPEC.loader is not None
 episode = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(episode)
 
+BOTTLE_COMPOUND_COLLIDER = {
+    "shape": "compound",
+    "children": [
+        {"shape": "cylinder", "radius": 0.042, "height": 0.028, "offset": [0.0, -0.086, 0.0], "rotation": [0.0, 0.0, 0.0]},
+        {"shape": "cylinder", "radius": 0.040, "height": 0.102, "offset": [0.0, -0.021, 0.0], "rotation": [0.0, 0.0, 0.0]},
+        {"shape": "cylinder", "radius": 0.034, "height": 0.028, "offset": [0.0, 0.044, 0.0], "rotation": [0.0, 0.0, 0.0]},
+        {"shape": "cylinder", "radius": 0.023, "height": 0.030, "offset": [0.0, 0.073, 0.0], "rotation": [0.0, 0.0, 0.0]},
+        {"shape": "cylinder", "radius": 0.025, "height": 0.024, "offset": [0.0, 0.088, 0.0], "rotation": [0.0, 0.0, 0.0]},
+    ],
+}
+
 
 class PhysicsFixtureTests(unittest.TestCase):
     def test_dynamic_vehicle_profile_is_complete(self) -> None:
@@ -70,12 +81,17 @@ class PhysicsFixtureTests(unittest.TestCase):
         self.assertTrue(Path(project["robots"][0]["physics"]["linkCollisionProfile"]).is_file())
         objects = {item["id"]: item for item in project["scene"]["objects"]}
         self.assertEqual(objects["bottle"]["physics"]["body"], "dynamic")
-        self.assertEqual(objects["bottle"]["physics"]["collider"]["shape"], "cylinder")
+        self.assertEqual(objects["bottle"]["physics"]["collider"]["shape"], "compound")
         self.assertEqual(objects["bottle"]["rotation"], [1.57079633, 0.0, 0.0])
         self.assertNotIn("visualTransform", objects["bottle"])
         self.assertEqual(objects["bottle"]["scale"], [0.76793, 0.76793, 0.76793])
         self.assertEqual(objects["bottle"]["radius"], 0.042)
-        self.assertEqual(objects["bottle"]["physics"]["collider"], {"shape": "cylinder", "radius": 0.042, "height": 0.20})
+        self.assertEqual(objects["bottle"]["physics"]["centerOfMass"], [0.0, -0.025, 0.0])
+        self.assertEqual(objects["bottle"]["physics"]["linearDamping"], 0.08)
+        self.assertEqual(objects["bottle"]["physics"]["angularDamping"], 0.12)
+        self.assertEqual(objects["bottle"]["physics"]["friction"], 0.55)
+        self.assertEqual(objects["bottle"]["physics"]["restitution"], 0.03)
+        self.assertEqual(objects["bottle"]["physics"]["collider"], BOTTLE_COMPOUND_COLLIDER)
         self.assertEqual(objects["bottle"]["position"][2], episode.BOTTLE_CENTER_Z_M)
         self.assertEqual(
             objects["pickup_pedestal"]["position"],
@@ -104,7 +120,8 @@ class PhysicsFixtureTests(unittest.TestCase):
         self.assertNotIn("visualTransform", bottle)
         self.assertEqual(bottle["scale"], [0.76793, 0.76793, 0.76793])
         self.assertEqual(bottle["radius"], 0.042)
-        self.assertEqual(bottle["physics"]["collider"], {"shape": "cylinder", "radius": 0.042, "height": 0.20})
+        self.assertEqual(bottle["physics"]["centerOfMass"], [0.0, -0.025, 0.0])
+        self.assertEqual(bottle["physics"]["collider"], BOTTLE_COMPOUND_COLLIDER)
         self.assertEqual(bottle["physics"]["body"], "dynamic")
         self.assertFalse(pedestal["includeInFit"])
         self.assertEqual(pedestal["physics"]["body"], "static")

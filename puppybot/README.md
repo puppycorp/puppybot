@@ -140,6 +140,11 @@ scene at `scenarios/bottle_to_bin.robotdreams.template.json`: it contains the
 same water-bottle asset, physics, wrist camera, trash bin, and bin trigger as
 the episode runner. Its fixed bottle placement is the runner's seed-42
 placement, so a separately attached detector has a visible target immediately.
+The dynamic bottle uses a five-part authored compound collider (base, body,
+shoulder, neck, and cap) and a lower centre of mass, so yaw-only arm contact
+can push it from the pedestal rather than treating the visible bottle as one
+featureless cylinder. The 80 g mass and damping values are repeatable scene
+prototype tuning, not measured properties of a particular physical bottle.
 The episode runner still creates a private randomized copy of this scene and
 never gives that sampled position to the policy. To use the earlier general
 ball-and-bin scene, select it explicitly:

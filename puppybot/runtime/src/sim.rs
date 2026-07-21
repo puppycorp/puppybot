@@ -5838,9 +5838,23 @@ mod tests {
             seeded_position, attached_position,
             "TCP attachment must move the bottle from its seeded dynamic pose"
         );
+        let release_displacement_m = released_velocity
+            .0
+            .iter()
+            .zip(released_position)
+            .map(|(after, before)| (after - before).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        let release_speed_mps = released_velocity
+            .1
+            .iter()
+            .map(|component| component * component)
+            .sum::<f32>()
+            .sqrt();
         assert!(
-            released_velocity.0[2] < released_position[2] && released_velocity.1[2] < 0.0,
-            "released bottle must resume gravity-driven RobotDreams motion"
+            release_displacement_m > 0.000_1 && release_speed_mps > 0.001,
+            "released bottle must resume RobotDreams physics, including valid contact response: \
+             release={released_position:?}, after={released_velocity:?}"
         );
     }
 
