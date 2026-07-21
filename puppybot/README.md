@@ -157,6 +157,12 @@ colliders remain active. For calibration-only inspection, opt in explicitly:
 PUPPYBOT_DEBUG_COORDINATE_OVERLAY=1 ./scripts/run-runtime.sh --sim
 ```
 
+After its virtual servos settle at the reference pose, normal `--sim` makes the
+clear reviewed collision shapes in PuppyBot's moving-arm subtree live in
+RobotDreams physics. The arm can therefore make physical Rapier contact with a
+dynamic bottle; shapes that already overlap an object at startup are excluded
+to avoid a false depenetration impulse.
+
 To inspect every live RobotDreams collider through PGE's generic collision
 overlay in the normal simulation window, opt in with:
 
@@ -169,7 +175,8 @@ vehicle profile, and reviewed PGE-generated robot-link profiles, plus the
 purple PuppyArm controller-FK point/segment chain. The purple chain shows the
 arm pose computed from observed controller joints; it is a diagnostic, not a
 second physics collider. It is off by default, does not change camera fitting
-or physics, and does not enable arm physics. It also applies to `--screenshot`
+or physics, and does not enable arm physics: normal simulation contact is
+configured independently at backend startup. It also applies to `--screenshot`
 and the TCP camera when the debug flag is present.
 `PUPPYBOT_DEBUG_COLLIDER_OVERLAY=1` remains an equivalent legacy opt-in for
 existing headless capture workflows.
