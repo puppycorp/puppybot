@@ -558,6 +558,11 @@ def build_fixture(template: Path, output: Path, seed: int) -> list[float]:
     collision_profile = vehicle.get("collisionProfile")
     if isinstance(collision_profile, str):
         vehicle["collisionProfile"] = str((template.parent / collision_profile).resolve())
+    link_collision_profile = project["robots"][0].get("physics", {}).get("linkCollisionProfile")
+    if isinstance(link_collision_profile, str):
+        project["robots"][0]["physics"]["linkCollisionProfile"] = str(
+            (template.parent / link_collision_profile).resolve()
+        )
     rng = random.Random(seed)
     # Judge-only sample from the calibrated overlap of the home wrist camera's
     # floor footprint and the arm's post-dock reach annulus.  The policy never

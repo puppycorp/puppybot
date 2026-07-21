@@ -67,12 +67,15 @@ class PhysicsFixtureTests(unittest.TestCase):
         vehicle = project["robots"][0]["physics"]["vehicle"]
         self.assertEqual(vehicle["mode"], "dynamic")
         self.assertTrue(Path(vehicle["collisionProfile"]).is_file())
+        self.assertTrue(Path(project["robots"][0]["physics"]["linkCollisionProfile"]).is_file())
         objects = {item["id"]: item for item in project["scene"]["objects"]}
         self.assertEqual(objects["bottle"]["physics"]["body"], "dynamic")
         self.assertEqual(objects["bottle"]["physics"]["collider"]["shape"], "cylinder")
-        self.assertEqual(objects["bottle"]["rotation"], [0.0, 1.57079633, 0.0])
-        self.assertEqual(objects["bottle"]["visualTransform"]["translation"], [0.0609339, 0.0, 0.0])
-        self.assertEqual(objects["bottle"]["visualTransform"]["rotation"], [0.0, 0.0, 1.57079633])
+        self.assertEqual(objects["bottle"]["rotation"], [1.57079633, 0.0, 0.0])
+        self.assertNotIn("visualTransform", objects["bottle"])
+        self.assertEqual(objects["bottle"]["scale"], [0.76793, 0.76793, 0.76793])
+        self.assertEqual(objects["bottle"]["radius"], 0.042)
+        self.assertEqual(objects["bottle"]["physics"]["collider"], {"shape": "cylinder", "radius": 0.042, "height": 0.20})
         self.assertEqual(objects["bottle"]["position"][2], episode.BOTTLE_CENTER_Z_M)
         self.assertEqual(
             objects["pickup_pedestal"]["position"],
@@ -97,9 +100,11 @@ class PhysicsFixtureTests(unittest.TestCase):
         pedestal = objects["pickup_pedestal"]
 
         self.assertEqual(bottle["position"][2], episode.BOTTLE_CENTER_Z_M)
-        self.assertEqual(bottle["rotation"], [0.0, 1.57079633, 0.0])
-        self.assertEqual(bottle["visualTransform"]["translation"], [0.0609339, 0.0, 0.0])
-        self.assertEqual(bottle["visualTransform"]["rotation"], [0.0, 0.0, 1.57079633])
+        self.assertEqual(bottle["rotation"], [1.57079633, 0.0, 0.0])
+        self.assertNotIn("visualTransform", bottle)
+        self.assertEqual(bottle["scale"], [0.76793, 0.76793, 0.76793])
+        self.assertEqual(bottle["radius"], 0.042)
+        self.assertEqual(bottle["physics"]["collider"], {"shape": "cylinder", "radius": 0.042, "height": 0.20})
         self.assertEqual(bottle["physics"]["body"], "dynamic")
         self.assertFalse(pedestal["includeInFit"])
         self.assertEqual(pedestal["physics"]["body"], "static")
