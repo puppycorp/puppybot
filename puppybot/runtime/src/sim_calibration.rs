@@ -5,8 +5,8 @@ use puppybot_core::{
     puppyarm::{servo_safety::TICK_WRAP, types::JOINT_COUNT},
 };
 use robotdreams_core::project::{
-    DeviceConfig, ModelProfile, ProjectConfig, ProjectRobotConfig, load_model_profile,
-    project_config_for_input_path,
+    load_model_profile, project_config_for_input_path, DeviceConfig, ModelProfile, ProjectConfig,
+    ProjectRobotConfig,
 };
 use serde_json::Value;
 
@@ -86,11 +86,14 @@ fn analytic_mapping(
         format!("RobotDreams model profile is missing analyticToUrdf.joints.{semantic_name}")
     })?;
     let mapping = json_object(mapping, &format!("analyticToUrdf.joints.{semantic_name}"))?;
-    let mapped_joint = mapping.get("joint").and_then(Value::as_str).ok_or_else(|| {
-        format!(
+    let mapped_joint = mapping
+        .get("joint")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            format!(
             "RobotDreams model profile analyticToUrdf.joints.{semantic_name}.joint must be a string"
         )
-    })?;
+        })?;
     if mapped_joint != urdf_joint {
         return Err(format!(
             "RobotDreams {semantic_name} mapping is ambiguous: jointNames selects '{urdf_joint}' but analyticToUrdf selects '{mapped_joint}'"

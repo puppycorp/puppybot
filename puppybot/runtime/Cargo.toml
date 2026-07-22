@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 embassy-executor = { version = "0.10.0", features = [
     "embassy-time-driver",
     "executor-thread",
@@ -16,15 +17,15 @@ image = "0.25"
 log = "0.4"
 mdns-sd = "0.20"
 puppybot-core = { path = "../core", default-features = false, features = ["runtime"] }
-robotdreams-core = { path = "../../../RobotDreams/core" }
-pge-app = { path = "../../../pge/pge-app" }
-pge-core = { path = "../../../pge/pge-core" }
-pge-renderer = { path = "../../../pge/pge-renderer" }
-pge-video = { path = "../../../pge/pge-video" }
-pge-wgpu-renderer = { path = "../../../pge/pge-wgpu-renderer" }
+robotdreams-core = { git = "https://github.com/puppycorp/RobotDreams.git", rev = "e1349a0575082b811a1ef756f2b6bc913b0f2c96" }
+pge-app = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-core = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-video = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-wgpu-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
 serialport = { version = "4.7", default-features = false }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 sha1 = { version = "0.11.0", default-features = false }
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
-wgui = { path = "../../../wgui/wgui" }
+wgui = { git = "https://github.com/J45k4/wgui.git", rev = "f0393ea9ffbb862a479ea6fd2354824e3f4a76e4" }

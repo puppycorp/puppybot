@@ -8,9 +8,9 @@ rust-version = "1.88"
 
 [dependencies]
 puppybot-core = { path = "../../puppybot/core", default-features = false, features = ["runtime"] }
-pge-core = { git = "https://github.com/puppycorp/pge.git", rev = "d0c0e7231b92af47c9dd2daa2cb53b2ceae61c6a" }
-pge-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "d0c0e7231b92af47c9dd2daa2cb53b2ceae61c6a" }
-pge-video = { git = "https://github.com/puppycorp/pge.git", rev = "d0c0e7231b92af47c9dd2daa2cb53b2ceae61c6a" }
-pge-wgpu-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "d0c0e7231b92af47c9dd2daa2cb53b2ceae61c6a" }
-robotdreams-core = { path = "../../../RobotDreams/core" }
+pge-core = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-video = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+pge-wgpu-renderer = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
+robotdreams-core = { git = "https://github.com/puppycorp/RobotDreams.git", rev = "e1349a0575082b811a1ef756f2b6bc913b0f2c96" }
 serde_json = "1"

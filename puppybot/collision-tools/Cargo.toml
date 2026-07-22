@@ -9,6 +9,6 @@ name = "puppybot-pge-link-collider-report"
 path = "src/main.rs"
 
 [dependencies]
-pge-collision = { path = "../../../pge/pge-collision" }
+pge-collision = { git = "https://github.com/puppycorp/pge.git", rev = "b4c98639d80aa02b3b4f335f56979f50544e34d2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

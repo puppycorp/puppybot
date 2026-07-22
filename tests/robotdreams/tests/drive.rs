@@ -2,8 +2,8 @@ use puppybot_core::drive::DriveCommand;
 use puppybot_core::stservo::angle_to_position;
 
 use harness::{
-    PuppybotRobotDreamsHarness, RobotDreamsBusEvent, RuntimeLikePuppybotRobotDreamsHarness,
-    assert_close_m, distance,
+    assert_close_m, distance, PuppybotRobotDreamsHarness, RobotDreamsBusEvent,
+    RuntimeLikePuppybotRobotDreamsHarness,
 };
 
 #[path = "support/harness.rs"]
@@ -28,8 +28,17 @@ fn test_harness() -> PuppybotRobotDreamsHarness {
     ])
 }
 
-fn runtime_like_test_harness() -> RuntimeLikePuppybotRobotDreamsHarness {
-    RuntimeLikePuppybotRobotDreamsHarness::with_arm_pose([
+fn unobstructed_drive_test_harness() -> PuppybotRobotDreamsHarness {
+    PuppybotRobotDreamsHarness::with_arm_pose_on_unobstructed_drive_lane([
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::FRAC_PI_2,
+    ])
+}
+
+fn unobstructed_runtime_like_test_harness() -> RuntimeLikePuppybotRobotDreamsHarness {
+    RuntimeLikePuppybotRobotDreamsHarness::with_arm_pose_on_unobstructed_drive_lane([
         0.0,
         std::f64::consts::FRAC_PI_2,
         std::f64::consts::FRAC_PI_2,
@@ -71,7 +80,7 @@ fn assert_front_steering_joints(harness: &PuppybotRobotDreamsHarness, expected_r
 
 #[test]
 fn drive_forward_x_increases_z_no_change() {
-    let mut harness = test_harness();
+    let mut harness = unobstructed_drive_test_harness();
     let start = harness.base_position();
     harness.clear_bus_events();
 
@@ -88,7 +97,7 @@ fn drive_forward_x_increases_z_no_change() {
 
 #[test]
 fn runtime_like_drive_forward_x_increases_z_no_change() {
-    let mut harness = runtime_like_test_harness();
+    let mut harness = unobstructed_runtime_like_test_harness();
     let start = harness.base_position();
 
     harness.run_repeated_drive_command(drive_steer(50, 0), 50);
@@ -185,7 +194,7 @@ fn drive_forward_does_not_write_arm_yaw_servo_1() {
 
 #[test]
 fn drive_back_x_decreases_z_no_change() {
-    let mut harness = test_harness();
+    let mut harness = unobstructed_drive_test_harness();
     let start = harness.base_position();
 
     harness.run_repeated_drive_command(drive_steer(-50, 0), 50);
@@ -199,31 +208,51 @@ fn drive_back_x_decreases_z_no_change() {
 }
 
 #[test]
-fn drive_forward_positive_steering_yaw_increases() {
-    let mut harness = test_harness();
+fn drive_forward_positive_right_steering_yaw_decreases() {
+    let mut harness = unobstructed_drive_test_harness();
     let start_yaw = harness.base_yaw();
 
     harness.run_repeated_drive_command(drive_steer(50, 50), 50);
     let moved_yaw = harness.base_yaw();
 
     assert!(
-        moved_yaw > start_yaw + 0.1,
-        "positive steering should increase ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
+        moved_yaw < start_yaw - 0.1,
+        "positive/right steering should decrease ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
     );
 }
 
 #[test]
-fn drive_backward_positive_steering_yaw_decreases() {
-    let mut harness = test_harness();
+fn drive_backward_positive_right_steering_yaw_increases() {
+    let mut harness = unobstructed_drive_test_harness();
     let start_yaw = harness.base_yaw();
 
     harness.run_repeated_drive_command(drive_steer(-50, 50), 50);
     let moved_yaw = harness.base_yaw();
 
     assert!(
-        moved_yaw < start_yaw - 0.1,
-        "positive steering while reversing should decrease ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
+        moved_yaw > start_yaw + 0.1,
+        "positive/right steering while reversing should increase ROS yaw: start_yaw={start_yaw:.6} moved_yaw={moved_yaw:.6}"
     );
+}
+
+#[test]
+fn drive_forward_into_canonical_bin_wall_is_blocked() {
+    let mut harness = test_harness();
+    let start = harness.base_position();
+
+    harness.run_repeated_drive_command(drive_steer(50, 0), 50);
+    let moved = harness.base_position();
+
+    harness.assert_no_bus_errors();
+    assert!(
+        moved[0] > start[0] + 0.001,
+        "the live vehicle should reach the canonical bin wall: start={start:?} moved={moved:?}"
+    );
+    assert!(
+        moved[0] < start[0] + 0.05,
+        "the live vehicle must not pass through the canonical bin wall: start={start:?} moved={moved:?}"
+    );
+    assert_close_m(moved[2], start[2], DRIVE_Z_TOLERANCE_M);
 }
 
 #[test]

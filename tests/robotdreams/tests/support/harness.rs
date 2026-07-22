@@ -5,13 +5,14 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use puppybot_core::config::{
     CoordinateCalibration, JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
 };
 use puppybot_core::drive::{DriveActuator, DriveCommand, DriveConfig, DriveOutput};
 use puppybot_core::protocol::ProtocolEvent;
-use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT, PuppyarmTelemetry};
+use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, PuppyarmTelemetry, JOINT_COUNT};
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
 use puppybot_core::stservo::mock::block_on_ready;
 use puppybot_core::stservo::{SerialBus, StServo};
@@ -29,6 +30,20 @@ const SERVO_FULL_ROTATION_TICKS: f64 = 4096.0;
 const SIMULATION_STEP_SECONDS: f32 = 0.02;
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
+const DRIVE_CLEAR_LANE_REMOVED_OBJECTS: [&str; 5] = [
+    "trashbin",
+    "trashbin_wall_front",
+    "trashbin_wall_back",
+    "trashbin_wall_left",
+    "trashbin_wall_right",
+];
+static DRIVE_PROJECT_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Copy)]
+enum SimulationProject {
+    Canonical,
+    UnobstructedDriveLane,
+}
 
 struct RobotDreamsSerialBusState {
     dreams: RobotDreams,
@@ -154,8 +169,19 @@ pub struct RuntimeLikePuppybotRobotDreamsHarness {
 
 impl PuppybotRobotDreamsHarness {
     pub fn with_arm_pose(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        Self::with_arm_pose_for_project(angles_rad, SimulationProject::Canonical)
+    }
+
+    pub fn with_arm_pose_on_unobstructed_drive_lane(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        Self::with_arm_pose_for_project(angles_rad, SimulationProject::UnobstructedDriveLane)
+    }
+
+    fn with_arm_pose_for_project(
+        angles_rad: [f64; JOINT_COUNT],
+        project: SimulationProject,
+    ) -> Self {
         let config = runtime_config();
-        let state = initialized_state(&config, angles_rad);
+        let state = initialized_state(&config, angles_rad, project);
         let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
         let drive_actuator = RobotDreamsDriveActuator::new(Rc::clone(&state));
         let system = PuppyBotSystem::with_servo_and_drive(
@@ -535,8 +561,19 @@ impl PuppybotRobotDreamsHarness {
 
 impl RuntimeLikePuppybotRobotDreamsHarness {
     pub fn with_arm_pose(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        Self::with_arm_pose_for_project(angles_rad, SimulationProject::Canonical)
+    }
+
+    pub fn with_arm_pose_on_unobstructed_drive_lane(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        Self::with_arm_pose_for_project(angles_rad, SimulationProject::UnobstructedDriveLane)
+    }
+
+    fn with_arm_pose_for_project(
+        angles_rad: [f64; JOINT_COUNT],
+        project: SimulationProject,
+    ) -> Self {
         let config = runtime_config();
-        let state = initialized_state(&config, angles_rad);
+        let state = initialized_state(&config, angles_rad, project);
         let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
         let drive_actuator = RobotDreamsDriveActuator::new(Rc::clone(&state));
         Self {
@@ -597,8 +634,13 @@ impl RuntimeLikePuppybotRobotDreamsHarness {
 fn initialized_state(
     config: &PuppybotConfigV1,
     angles_rad: [f64; JOINT_COUNT],
+    project: SimulationProject,
 ) -> Rc<RefCell<RobotDreamsSerialBusState>> {
-    let mut dreams = RobotDreams::open(project_path()).expect("open PuppyBot RobotDreams project");
+    let (path, remove_after_open) = simulation_project_path(project);
+    let mut dreams = RobotDreams::open(&path).expect("open PuppyBot RobotDreams project");
+    if remove_after_open {
+        fs::remove_file(path).expect("remove unobstructed PuppyBot drive project");
+    }
     install_simulation_mappings(&mut dreams, config);
     let bus_id = SERVO_MAIN_BUS_ID.to_string();
     let drive_bus_id = DRIVE_BUS_ID.to_string();
@@ -674,6 +716,63 @@ pub fn model_profile_path() -> PathBuf {
 
 pub fn project_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../robotdreams/project.json")
+}
+
+fn simulation_project_path(project: SimulationProject) -> (PathBuf, bool) {
+    match project {
+        SimulationProject::Canonical => (project_path(), false),
+        SimulationProject::UnobstructedDriveLane => (unobstructed_drive_project_path(), true),
+    }
+}
+
+fn unobstructed_drive_project_path() -> PathBuf {
+    let source_path = project_path();
+    let contents = fs::read_to_string(&source_path).expect("read canonical PuppyBot project");
+    let mut project: Value =
+        serde_json::from_str(&contents).expect("parse canonical PuppyBot project");
+    project["modelProfile"] = Value::String(model_profile_path().display().to_string());
+    project["robots"][0]["model"]["path"] = Value::String(
+        model_dir()
+            .join("final2/urdf/final2.urdf")
+            .display()
+            .to_string(),
+    );
+    project["robots"][0]["physics"]["vehicle"]["collisionProfile"] = Value::String(
+        source_path
+            .parent()
+            .expect("canonical project parent")
+            .join("puppybot-physics-prototype.json")
+            .display()
+            .to_string(),
+    );
+    project["robots"][0]["physics"]["linkCollisionProfile"] = Value::String(
+        source_path
+            .parent()
+            .expect("canonical project parent")
+            .join("collision/final2-link-collision-profile.v1.json")
+            .display()
+            .to_string(),
+    );
+    let objects = project["scene"]["objects"]
+        .as_array_mut()
+        .expect("canonical project scene objects");
+    objects.retain(|object| {
+        object["id"]
+            .as_str()
+            .is_none_or(|id| !DRIVE_CLEAR_LANE_REMOVED_OBJECTS.contains(&id))
+    });
+
+    let sequence = DRIVE_PROJECT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "puppybot-unobstructed-drive-{}-{sequence}.robotdreams.json",
+        std::process::id()
+    ));
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&project).expect("serialize unobstructed PuppyBot drive project"),
+    )
+    .expect("write unobstructed PuppyBot drive project");
+    path
 }
 
 pub fn puppybot_model_up_axis() -> usize {
