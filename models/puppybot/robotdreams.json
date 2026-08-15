@@ -54,7 +54,7 @@
       "elbow": {
         "joint": "revolute_1_2",
         "scale": 1.0,
-        "offset": -5.5100589900852235
+        "offset": -2.3684663364954304
       },
       "wrist": {
         "joint": "revolute_1",

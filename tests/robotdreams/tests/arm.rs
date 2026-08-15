@@ -359,12 +359,12 @@ fn vertical_workspace_endpoint_analytic_poses_match_robotdreams_world_tcp() {
     assert_vertical_workspace_endpoint_matches_robotdreams(
         "down",
         [160.390, -1.718, -17.983],
-        [90.0, 118.21289, 60.64453, 32.34375],
+        [90.0, 118.21289, -119.35547, 32.34375],
     );
     assert_vertical_workspace_endpoint_matches_robotdreams(
         "up",
         [160.390, -1.718, 178.094],
-        [90.0, 92.90039, 109.86328, 106.96289],
+        [90.0, 92.90039, -70.13672, 106.96289],
     );
 }
 

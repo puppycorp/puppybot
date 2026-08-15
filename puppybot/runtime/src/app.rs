@@ -2440,7 +2440,7 @@ impl App {
         subpanel(vec![
             title_text("Joint Target (deg)"),
             label_text(
-                "Default (90 / 90 / 90 / 90) is the upright-shoulder, horizontal-reach, tool-down reference pose",
+                "Default (90 / 90 / 90 / 90) is the upright-shoulder, horizontal-reach, tool-up reference pose",
             ),
             hstack(vec![
                 field(
@@ -2716,7 +2716,8 @@ impl App {
                 primary_button("Move")
                     .height(34)
                     .width(88)
-                    .on_click(MOVE_TO_COORDINATES_ID),
+                    .on_press(MOVE_TO_COORDINATES_ID)
+                    .on_release(MOVE_TO_COORDINATES_ID),
             ])
             .spacing(8)
             .wrap(true),
@@ -4041,7 +4042,6 @@ impl App {
             SET_TCP_FRAME_BASE_ID => self.set_tcp_frame(TcpFrame::Base),
             SET_TCP_FRAME_TOOL_ID => self.set_tcp_frame(TcpFrame::Tool),
             SET_COORDINATES_CURRENT_ID => self.set_coordinates_current(),
-            MOVE_TO_COORDINATES_ID => self.move_to_coordinates(),
             PREVIEW_COORDINATES_ID => {
                 self.coordinate_preview_open = true;
             }
@@ -4092,6 +4092,7 @@ impl App {
             GOTO_DRIVE_SCAN_ANGLES_ID => self.move_to_drive_scan_goto_angles(),
             GOTO_UP_ANGLES_ID => self.move_to_up_goto_angles(),
             GOTO_ANGLES_ID => self.move_to_goto_angles("move to target angles"),
+            MOVE_TO_COORDINATES_ID => self.move_to_coordinates(),
             MOVE_TCP_FORWARD_ID => {
                 let direction = self.tcp_jog_direction([1.0, 0.0, 0.0]);
                 let _ = self.start_tcp_jog("move tcp forward", self.tcp_frame, direction);
@@ -4191,6 +4192,9 @@ impl App {
             SET_JOINT_ZERO_ID | JOG_STOP_ID => self.stop_joint(event_arg(inx)),
             GOTO_ANGLES_ID => {
                 let _ = self.arm("stop target angles", ArmCommand::StopAll);
+            }
+            MOVE_TO_COORDINATES_ID => {
+                let _ = self.arm("stop coordinate target", ArmCommand::StopAll);
             }
             MOVE_TCP_STOP_ID => {
                 self.held_tcp_jog = None;
@@ -4946,7 +4950,7 @@ mod tests {
 
         assert_hold_event_contract(&rendered, &mut press_count);
 
-        assert_eq!(press_count, 38, "unexpected PuppyBot hold-control count");
+        assert_eq!(press_count, 39, "unexpected PuppyBot hold-control count");
     }
 
     #[tokio::test]
@@ -4987,6 +4991,31 @@ mod tests {
 
         assert!(app.handle_release_id(GOTO_ANGLES_ID, None));
         assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(2));
+        assert!(
+            app.robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn coordinate_move_press_starts_target_and_release_stops() {
+        let mut app = test_app();
+
+        assert!(app.handle_press_id(MOVE_TO_COORDINATES_ID, None));
+        assert_eq!(app.last_command, "move to coordinates");
+        assert!(
+            app.robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_some())
+        );
+
+        assert!(app.handle_release_id(MOVE_TO_COORDINATES_ID, None));
+        assert_eq!(app.last_command, "stop coordinate target");
         assert!(
             app.robot
                 .arm
@@ -5047,6 +5076,14 @@ mod tests {
                 .joints
                 .iter()
                 .all(|joint| joint.target_tick.is_some())
+        );
+        assert!(
+            up_app
+                .robot
+                .arm
+                .target_coords_mm()
+                .is_some_and(|(_, _, z)| z > 350.0),
+            "Up must target a high positive base-frame Z"
         );
         assert!(up_app.handle_release_id(GOTO_ANGLES_ID, None));
         assert!(

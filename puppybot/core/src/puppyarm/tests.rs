@@ -24,9 +24,9 @@ const TIP_REFERENCE_TICK: u16 = 1783;
 fn calibrated_move_pose() -> [f64; JOINT_COUNT] {
     [
         -82.529296875_f64.to_radians(),
-        (55.0_f64 - 3.764761603463).to_radians(),
-        (65.0_f64 + 43.348543557474).to_radians(),
-        (-100.0_f64 + 43.774666487761).to_radians(),
+        70.0_f64.to_radians(),
+        100.0_f64.to_radians(),
+        0.0,
     ]
 }
 
@@ -87,22 +87,24 @@ fn arm_with_angle_feedback(angles: [f64; JOINT_COUNT]) -> PuppyArm {
 }
 
 fn arm_with_calibrated_simulation_limits() -> PuppyArm {
-    let joint = |servo_id, tick_min, tick_max, reference_tick, angle_sign| JointCalibration {
-        servo_id,
-        tick_min,
-        tick_max,
-        reference_tick,
-        reference_angle_rad: FRAC_PI_2,
-        angle_sign,
-        drive_sign: 1,
-        limit_enabled: true,
+    let joint = |servo_id, tick_min, tick_max, reference_tick, reference_angle_rad, angle_sign| {
+        JointCalibration {
+            servo_id,
+            tick_min,
+            tick_max,
+            reference_tick,
+            reference_angle_rad,
+            angle_sign,
+            drive_sign: 1,
+            limit_enabled: true,
+        }
     };
     let config = PuppyArmConfig {
         joints: [
-            joint(1, 69, 3000, 1583, 1),
-            joint(2, 2000, 3920, 2946, -1),
-            joint(3, 560, 3593, 1058, 1),
-            joint(4, 2400, 3006, 2685, 1),
+            joint(1, 69, 3000, 1583, FRAC_PI_2, 1),
+            joint(2, 2000, 3920, 2946, FRAC_PI_2, -1),
+            joint(3, 560, 3593, 1058, -FRAC_PI_2, 1),
+            joint(4, 2400, 3006, 2685, FRAC_PI_2, 1),
         ],
     };
     let mut arm = PuppyArm::new_with_config(&config, 0).expect("calibrated simulation arm");
@@ -166,21 +168,29 @@ fn tool_phi_deg(angles_deg: [f32; JOINT_COUNT]) -> f32 {
 #[test]
 fn fk_zero_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
-    assert_close(x, 13.266674167233784);
-    assert_close(y, -46.11618539161622);
-    assert_close(z, 26.488738382104845);
+    assert_close(x, 63.44578937934318);
+    assert_close(y, 336.54391218549074);
+    assert_close(z, 19.815466954639493);
 }
 
 #[test]
 fn fk_wrist_ninety_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, PI / 2.0);
-    assert_close(x, 18.06011151360942);
-    assert_close(y, -9.561989588434734);
-    assert_close(z, -12.611486871078036);
+    assert_close(x, 58.65235203296755);
+    assert_close(y, 299.98971638230927);
+    assert_close(z, 58.91569220782238);
 }
 
 #[test]
-fn runtime_reference_pose_places_tcp_beneath_wrist() {
+fn fk_up_pose_reports_high_positive_z() {
+    let (_, _, z) = fk(0.0, PI / 2.0, 0.0, 0.0);
+    let (_, _, tilted_z) = fk(0.0, 70.0_f64.to_radians(), 0.0, 0.0);
+    assert_close(z, 361.9356202974086);
+    assert!(z > tilted_z, "raising the straight arm must increase Z");
+}
+
+#[test]
+fn runtime_reference_pose_places_tcp_above_wrist() {
     let chain = arm_chain_points(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, FRAC_PI_2);
     let wrist_to_tcp = [
         chain.tcp[0] - chain.wrist[0],
@@ -189,12 +199,12 @@ fn runtime_reference_pose_places_tcp_beneath_wrist() {
     ];
 
     assert!(
-        (wrist_to_tcp[0] - 1.107).abs() < 0.1 && (wrist_to_tcp[1] + 0.145).abs() < 0.1,
+        (wrist_to_tcp[0] + 1.107).abs() < 0.1 && (wrist_to_tcp[1] - 0.145).abs() < 0.1,
         "reference-pose TCP horizontal offset must match calibrated CAD: {wrist_to_tcp:?}"
     );
     assert!(
-        wrist_to_tcp[2] < -37.0,
-        "reference-pose TCP must point downward beneath the wrist: {wrist_to_tcp:?}"
+        wrist_to_tcp[2] > 37.0,
+        "reference-pose TCP must point upward above the wrist: {wrist_to_tcp:?}"
     );
     assert_close(point_distance(chain.wrist, chain.tcp), ARM_L3_MM);
 }
@@ -979,9 +989,8 @@ fn move_tcp_relative_from_ninety_pose_does_not_flip_elbow_wrist_branch() {
 }
 
 #[test]
-fn move_tcp_relative_base_down_from_ninety_pose_preserves_tool_pitch() {
-    let ninety = [FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, FRAC_PI_2];
-    let mut arm = arm_with_angle_feedback(ninety);
+fn move_tcp_relative_base_down_from_calibrated_pose_preserves_tool_pitch() {
+    let mut arm = arm_with_angle_feedback(calibrated_move_pose());
     let before = arm.telemetry_snapshot(0);
     let start = before.coords_mm.unwrap();
     let current_angles = before.joints.map(|joint| joint.angle_rad.unwrap());
@@ -992,7 +1001,7 @@ fn move_tcp_relative_base_down_from_ninety_pose_preserves_tool_pitch() {
             frame: TcpFrame::Base,
             dx_mm: 0.0,
             dy_mm: 0.0,
-            dz_mm: -100.0,
+            dz_mm: -50.0,
         },
         10,
     );
@@ -1011,7 +1020,7 @@ fn move_tcp_relative_base_down_from_ninety_pose_preserves_tool_pitch() {
     let target_angles = target_angles_deg(&arm);
     assert_close_mm(target.0, start.0);
     assert_close_mm(target.1, start.1);
-    assert_close_mm(target.2, start.2 - 100.0);
+    assert_close_mm(target.2, start.2 - 50.0);
     assert_close_f32_eps(target_angles[0], current_angles[0].to_degrees() as f32, 1.0);
     assert_close_f32_eps(
         tool_phi_deg(target_angles),

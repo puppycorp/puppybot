@@ -5163,8 +5163,8 @@ mod tests {
     }
 
     #[test]
-    fn configured_reference_ticks_report_ninety_and_model_mapping_matches_wrap_edges() {
-        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.json");
+    fn configured_simulation_references_and_model_mapping_match_wrap_edges() {
+        let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("puppybot.sim.json");
         let config = crate::config::load_runtime_config(&config_path)
             .expect("load PuppyBot runtime config")
             .expect("PuppyBot runtime config exists");
@@ -5172,8 +5172,8 @@ mod tests {
             config.arm.joints.map(|joint| joint.reference_tick),
             [1583, 2946, 1058, 2685]
         );
-        for joint in config.arm.joints {
-            assert!((joint.reference_angle_rad.to_degrees() - 90.0).abs() < 1.0e-9);
+        for (joint, expected_deg) in config.arm.joints.iter().zip([90.0, 90.0, -90.0, 90.0]) {
+            assert!((joint.reference_angle_rad.to_degrees() - expected_deg).abs() < 1.0e-9);
         }
 
         let project_path = SimulatedRuntimeBackend::default_project_path();
@@ -5248,7 +5248,10 @@ mod tests {
             assert!(telemetry.has_feedback, "live servo feedback is present");
             assert_eq!(telemetry.tick, Some(calibration.reference_tick));
             assert!(
-                (telemetry.angle_deg().expect("configured controller angle") - 90.0).abs() < 1.0e-9
+                (telemetry.angle_rad.expect("configured controller angle")
+                    - calibration.reference_angle_rad)
+                    .abs()
+                    < 1.0e-9
             );
         }
 
@@ -5358,8 +5361,8 @@ mod tests {
         ];
         let wrist_to_tcp_horizontal_m = f32::hypot(wrist_to_tcp[0], wrist_to_tcp[1]);
         assert!(
-            wrist_to_tcp_horizontal_m <= 0.005 && wrist_to_tcp[2] <= -0.035,
-            "the default live feedback pose must put TCP downward beneath the wrist: \
+            wrist_to_tcp_horizontal_m <= 0.005 && wrist_to_tcp[2] >= 0.035,
+            "the default live feedback pose must put TCP upward above the wrist: \
              wrist={:?} tcp={:?} wrist_to_tcp={wrist_to_tcp:?}",
             chain.points_world_m[3],
             chain.points_world_m[4],

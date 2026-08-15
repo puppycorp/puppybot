@@ -107,6 +107,9 @@ the WebSocket endpoint.
 
 The Arm Base robot-relative jog has separate persisted Forward/Back,
 Left/Right, and Up/Down sign calibrations plus its base-yaw rotation.
+Arm joint angles use a straight-elbow convention: elbow `0°` aligns the
+forearm with the upper arm. The `Up` joint target (`0 / 90 / 0 / 0`) therefore
+extends the arm upward, and forward kinematics reports a high positive Z.
 To bind different addresses:
 
 ```sh

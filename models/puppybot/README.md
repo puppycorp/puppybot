@@ -14,3 +14,6 @@ The model profile records the semantic arm joint mapping and the current frame m
 The semantic arm joints follow the full PuppyBot TCP ancestor chain:
 `revolute_2_3` yaw, `revolute_1_1` shoulder, `revolute_1_2` elbow, and
 `revolute_1` wrist. The TCP is attached to `part_1_4`.
+The controller normalizes the CAD elbow coordinate by 180 degrees so semantic
+elbow `0` is straight. The `analyticToUrdf.elbow.offset` includes the inverse
+shift, keeping RobotDreams poses aligned with controller FK/IK.
