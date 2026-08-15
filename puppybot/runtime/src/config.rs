@@ -115,7 +115,11 @@ fn config_json(config: &PuppybotConfigV1) -> Value {
         "coordinate": {
             "forward_sign": config.coordinate.forward_sign,
             "left_sign": config.coordinate.left_sign,
+            "up_sign": config.coordinate.up_sign,
             "base_yaw_offset_deg": config.coordinate.base_yaw_offset_deg,
+            "tcp_forward_sign": config.coordinate.tcp_forward_sign,
+            "tcp_left_sign": config.coordinate.tcp_left_sign,
+            "tcp_up_sign": config.coordinate.tcp_up_sign,
         },
     })
 }
@@ -204,8 +208,12 @@ fn coordinate_field(
     Ok(CoordinateCalibration {
         forward_sign: i8_sign_field(coordinate, "forward_sign")?,
         left_sign: i8_sign_field(coordinate, "left_sign")?,
+        up_sign: optional_i8_sign_field(coordinate, "up_sign")?.unwrap_or(1),
         base_yaw_offset_deg: optional_f64_field(coordinate, "base_yaw_offset_deg")?
             .unwrap_or_default(),
+        tcp_forward_sign: optional_i8_sign_field(coordinate, "tcp_forward_sign")?.unwrap_or(1),
+        tcp_left_sign: optional_i8_sign_field(coordinate, "tcp_left_sign")?.unwrap_or(1),
+        tcp_up_sign: optional_i8_sign_field(coordinate, "tcp_up_sign")?.unwrap_or(1),
     })
 }
 
@@ -299,6 +307,16 @@ fn i8_sign_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<i8
         1 => Ok(1),
         _ => Err(format!("{name} must be -1 or 1")),
     }
+}
+
+fn optional_i8_sign_field(
+    root: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<Option<i8>, String> {
+    if !root.contains_key(name) {
+        return Ok(None);
+    }
+    i8_sign_field(root, name).map(Some)
 }
 
 fn joint(servo_id: u8) -> JointCalibration {
@@ -474,7 +492,11 @@ mod tests {
 
         assert_eq!(config.coordinate.forward_sign, -1);
         assert_eq!(config.coordinate.left_sign, 1);
+        assert_eq!(config.coordinate.up_sign, 1);
         assert_eq!(config.coordinate.base_yaw_offset_deg, 90.0);
+        assert_eq!(config.coordinate.tcp_forward_sign, 1);
+        assert_eq!(config.coordinate.tcp_left_sign, 1);
+        assert_eq!(config.coordinate.tcp_up_sign, 1);
     }
 
     #[test]
@@ -485,6 +507,46 @@ mod tests {
             parse_config_json(&json)
                 .unwrap_err()
                 .contains("forward_sign must be -1 or 1")
+        );
+
+        let json = valid_json_with_coordinate(1, 1, 0.0).replace(
+            "\"base_yaw_offset_deg\": 0",
+            "\"base_yaw_offset_deg\": 0,\n                \"up_sign\": 0",
+        );
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("up_sign must be -1 or 1")
+        );
+
+        let json = valid_json_with_coordinate(1, 1, 0.0).replace(
+            "\"base_yaw_offset_deg\": 0",
+            "\"base_yaw_offset_deg\": 0,\n                \"tcp_forward_sign\": 0",
+        );
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("tcp_forward_sign must be -1 or 1")
+        );
+
+        let json = valid_json_with_coordinate(1, 1, 0.0).replace(
+            "\"base_yaw_offset_deg\": 0",
+            "\"base_yaw_offset_deg\": 0,\n                \"tcp_left_sign\": 0",
+        );
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("tcp_left_sign must be -1 or 1")
+        );
+
+        let json = valid_json_with_coordinate(1, 1, 0.0).replace(
+            "\"base_yaw_offset_deg\": 0",
+            "\"base_yaw_offset_deg\": 0,\n                \"tcp_up_sign\": 0",
+        );
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("tcp_up_sign must be -1 or 1")
         );
     }
 
@@ -658,6 +720,10 @@ mod tests {
         assert_eq!(value["config"]["serial"], "PB-DEV-0001");
         assert_eq!(value["config"]["arm"]["joints"][0]["servo_id"], 11);
         assert_eq!(value["config"]["coordinate"]["forward_sign"], 1);
+        assert_eq!(value["config"]["coordinate"]["up_sign"], 1);
         assert_eq!(value["config"]["coordinate"]["base_yaw_offset_deg"], 0.0);
+        assert_eq!(value["config"]["coordinate"]["tcp_forward_sign"], 1);
+        assert_eq!(value["config"]["coordinate"]["tcp_left_sign"], 1);
+        assert_eq!(value["config"]["coordinate"]["tcp_up_sign"], 1);
     }
 }

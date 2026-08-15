@@ -843,7 +843,11 @@ pub fn runtime_config() -> PuppybotConfigV1 {
         coordinate: CoordinateCalibration {
             forward_sign: i8_value(&root, &["coordinate", "forward_sign"]),
             left_sign: i8_value(&root, &["coordinate", "left_sign"]),
+            up_sign: 1,
             base_yaw_offset_deg: f64_value(&root, &["coordinate", "base_yaw_offset_deg"]),
+            tcp_forward_sign: 1,
+            tcp_left_sign: 1,
+            tcp_up_sign: 1,
         },
     };
     config.validate().expect("valid PuppyBot runtime config");

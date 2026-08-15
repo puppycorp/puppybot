@@ -82,7 +82,9 @@ byte-level servo bus, and exposes the Android-compatible WebSocket endpoint on
 ./scripts/run-runtime.sh
 ```
 
-To use a hardware STServo bus, pass the serial device:
+For hardware, the runtime probes supported USB serial devices, including Linux
+`/dev/ttyUSB*` and `/dev/ttyACM*`, and selects one only after a configured arm
+servo replies. If multiple STServo buses are connected, select one explicitly:
 
 ```sh
 ./scripts/run-runtime.sh --servo-device /dev/ttyUSB0
@@ -95,9 +97,16 @@ unauthenticated and intended for an attached local policy process. It also adver
 `PuppyBot Runtime._ws._tcp.local` with hostname `puppybot-runtime.local` on the
 bound port. The local WGUI dashboard listens at `http://127.0.0.1:8081/`.
 The dashboard includes drive controls, arm jog controls, arm hold/stop, fault
-clearing, and press-and-hold TCP-relative forward/back/left/right jog buttons
-with a base/tool frame toggle; these send commands to the same runtime robot
-instance used by the WebSocket endpoint.
+clearing, and press-and-hold TCP-relative forward/back/left/right/up/down jog
+buttons with a base/tool frame toggle and persisted forward/back sign
+calibration. Forward/back use the calibrated inward/outward TCP axis; up/down
+use the controller axis formerly exposed as forward/back and have their own
+persisted sign calibration. Left/right also have an independent persisted sign
+calibration. These send commands to the same runtime robot instance used by
+the WebSocket endpoint.
+
+The Arm Base robot-relative jog has separate persisted Forward/Back,
+Left/Right, and Up/Down sign calibrations plus its base-yaw rotation.
 To bind different addresses:
 
 ```sh

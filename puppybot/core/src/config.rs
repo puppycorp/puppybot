@@ -31,7 +31,11 @@ pub struct PuppyArmConfig {
 pub struct CoordinateCalibration {
     pub forward_sign: i8,
     pub left_sign: i8,
+    pub up_sign: i8,
     pub base_yaw_offset_deg: f64,
+    pub tcp_forward_sign: i8,
+    pub tcp_left_sign: i8,
+    pub tcp_up_sign: i8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -121,7 +125,11 @@ impl Default for CoordinateCalibration {
         Self {
             forward_sign: 1,
             left_sign: 1,
+            up_sign: 1,
             base_yaw_offset_deg: 0.0,
+            tcp_forward_sign: 1,
+            tcp_left_sign: 1,
+            tcp_up_sign: 1,
         }
     }
 }
@@ -184,6 +192,18 @@ impl CoordinateCalibration {
             return Err(ConfigError::InvalidSign);
         }
         if self.left_sign != -1 && self.left_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if self.up_sign != -1 && self.up_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if self.tcp_forward_sign != -1 && self.tcp_forward_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if self.tcp_left_sign != -1 && self.tcp_left_sign != 1 {
+            return Err(ConfigError::InvalidSign);
+        }
+        if self.tcp_up_sign != -1 && self.tcp_up_sign != 1 {
             return Err(ConfigError::InvalidSign);
         }
         if !self.base_yaw_offset_deg.is_finite() {
@@ -368,6 +388,26 @@ mod tests {
     fn coordinate_signs_are_validated() {
         let mut config = config();
         config.coordinate.forward_sign = 0;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+
+        config.coordinate.forward_sign = 1;
+        config.coordinate.up_sign = 0;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+
+        config.coordinate.up_sign = 1;
+        config.coordinate.tcp_forward_sign = 0;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+
+        config.coordinate.tcp_forward_sign = 1;
+        config.coordinate.tcp_left_sign = 0;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
+
+        config.coordinate.tcp_left_sign = 1;
+        config.coordinate.tcp_up_sign = 0;
 
         assert_eq!(config.validate(), Err(ConfigError::InvalidSign));
     }

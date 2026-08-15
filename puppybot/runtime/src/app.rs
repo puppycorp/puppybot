@@ -46,6 +46,7 @@ const UI_DRIVE_SPEED: i8 = 35;
 const UI_STEER_SPEED: i8 = 55;
 const UI_LIMIT_STEP_TICKS: i32 = 10;
 const DEFAULT_GOTO_ANGLE_DEG: f64 = 90.0;
+const UP_ANGLES_DEG: [f64; JOINT_COUNT] = [0.0, 90.0, 0.0, 0.0];
 /// Calibrated arm posture for rover driving and TCP-camera search.
 ///
 /// The UI reference image suggested shoulder 4.9° / elbow 43.2°, but those
@@ -82,6 +83,7 @@ const SET_GOTO_ANGLES_CURRENT_ID: u32 = 304;
 const GOTO_DEFAULT_ANGLES_ID: u32 = 305;
 const GOTO_ANGLES_ID: u32 = 306;
 const GOTO_DRIVE_SCAN_ANGLES_ID: u32 = 307;
+const GOTO_UP_ANGLES_ID: u32 = 308;
 
 const SET_TCP_FRAME_BASE_ID: u32 = 400;
 const SET_TCP_FRAME_TOOL_ID: u32 = 401;
@@ -98,12 +100,18 @@ const MOVE_TCP_CAMERA_LEFT_ID: u32 = 411;
 const MOVE_TCP_CAMERA_RIGHT_ID: u32 = 412;
 const MOVE_TCP_CAMERA_UP_ID: u32 = 413;
 const MOVE_TCP_CAMERA_DOWN_ID: u32 = 414;
+const FLIP_TCP_FORWARD_AXIS_ID: u32 = 415;
+const MOVE_TCP_UP_ID: u32 = 416;
+const MOVE_TCP_DOWN_ID: u32 = 417;
+const FLIP_TCP_UP_AXIS_ID: u32 = 418;
+const FLIP_TCP_LEFT_AXIS_ID: u32 = 419;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
 const EDIT_COORDINATE_Z_ID: u32 = 502;
 const SET_COORDINATES_CURRENT_ID: u32 = 503;
 const MOVE_TO_COORDINATES_ID: u32 = 504;
+const FLIP_COORDINATE_UP_AXIS_ID: u32 = 506;
 const FLIP_COORDINATE_FORWARD_AXIS_ID: u32 = 507;
 const FLIP_COORDINATE_LEFT_AXIS_ID: u32 = 508;
 const ROTATE_COORDINATE_BASE_FRAME_ID: u32 = 509;
@@ -464,10 +472,14 @@ fn preview_modal(body: Vec<Item>) -> Option<Item> {
     )
 }
 
+fn limit_editor_values(joint: &Joint) -> (String, String) {
+    (joint.tick_min.to_string(), joint.tick_max.to_string())
+}
+
 fn limit_detail(joint: &Joint) -> String {
     match joint.tick {
-        Some(tick) => format!("tick {tick} / {}..{}", joint.limit_min, joint.limit_max),
-        None => format!("limits {}..{}", joint.limit_min, joint.limit_max),
+        Some(tick) => format!("tick {tick} / {}..{}", joint.tick_min, joint.tick_max),
+        None => format!("limits {}..{}", joint.tick_min, joint.tick_max),
     }
 }
 
@@ -831,10 +843,11 @@ impl App {
         let backend = if let Some(project_path) = simulation_project_path {
             RuntimeBackend::Simulated(SimulatedRuntimeBackend::new(project_path, &active_config)?)
         } else {
-            let servo = stservo::open_serial(options.servo_device.as_deref()).ok_or_else(|| {
-                "STServo bus is required; pass --servo-device or set PUPPYBOT_STSERVO_PORT"
-                    .to_string()
-            })?;
+            let servo_ids = active_config.arm.servo_ids();
+            let servo = stservo::open_serial(options.servo_device.as_deref(), &servo_ids)
+                .ok_or_else(|| {
+                    "STServo bus is required; automatic detection found no unambiguous supported device; pass --servo-device or set PUPPYBOT_STSERVO_PORT".to_string()
+                })?;
             RuntimeBackend::Hardware {
                 servo,
                 dc_motor_driver: DCMotorDriver::discover(),
@@ -1975,6 +1988,10 @@ impl App {
                 self.flip_coordinate_left_axis();
                 Ok(())
             }
+            ["api", "arm", "coordinate-calibration", "flip-up"] => {
+                self.flip_coordinate_up_axis();
+                Ok(())
+            }
             ["api", "arm", "coordinate-calibration", "rotate-base"] => {
                 self.rotate_coordinate_base_frame();
                 Ok(())
@@ -2091,12 +2108,8 @@ impl App {
         if !matches!(frame, TcpFrame::Base | TcpFrame::Tool) {
             return Err(ApiError::bad_request("tcp jog frame must be base or tool"));
         }
-        let direction = Self::api_direction(Self::json_str(json, "direction")?)?;
-        if direction[2] != 0.0 {
-            return Err(ApiError::bad_request(
-                "TCP Jog has no vertical control; use Coordinate Move for robot Z or TCP Camera POV in simulation",
-            ));
-        }
+        let direction =
+            self.tcp_jog_direction(Self::api_direction(Self::json_str(json, "direction")?)?);
         self.start_tcp_jog("http tcp jog", frame, direction)
             .map_err(|err| ApiError::bad_request(format!("tcp jog rejected: {err:?}")))
     }
@@ -2133,8 +2146,8 @@ impl App {
             }
             "left" => self.coordinate_jog_direction(0.0, self.coordinate_left_sign(), 0.0),
             "right" => self.coordinate_jog_direction(0.0, -self.coordinate_left_sign(), 0.0),
-            "up" => [0.0, 0.0, 1.0],
-            "down" => [0.0, 0.0, -1.0],
+            "up" => [0.0, 0.0, self.coordinate_up_sign()],
+            "down" => [0.0, 0.0, -self.coordinate_up_sign()],
             _ => {
                 return Err(ApiError::bad_request(
                     "direction must be forward, back, left, right, up, or down",
@@ -2467,6 +2480,11 @@ impl App {
                     .width(88)
                     .on_press(GOTO_DEFAULT_ANGLES_ID)
                     .on_release(GOTO_ANGLES_ID),
+                secondary_button("Up")
+                    .height(34)
+                    .width(88)
+                    .on_press(GOTO_UP_ANGLES_ID)
+                    .on_release(GOTO_ANGLES_ID),
                 secondary_button("Drive Mode")
                     .height(34)
                     .width(180)
@@ -2502,29 +2520,63 @@ impl App {
         subpanel(vec![
             title_text("TCP Jog"),
             hstack(vec![
-                label_text("Frame").min_width(56),
-                frame_button(
-                    "Base",
-                    self.tcp_frame == TcpFrame::Base,
-                    SET_TCP_FRAME_BASE_ID,
-                    74,
-                ),
-                frame_button(
-                    "Tool",
-                    self.tcp_frame == TcpFrame::Tool,
-                    SET_TCP_FRAME_TOOL_ID,
-                    74,
-                ),
-                title_text(frame_label(self.tcp_frame)).min_width(48),
-                label_text(frame_detail(self.tcp_frame))
-                    .grow(1)
-                    .break_words(true),
+                hstack(vec![
+                    label_text("Frame").min_width(56),
+                    frame_button(
+                        "Base",
+                        self.tcp_frame == TcpFrame::Base,
+                        SET_TCP_FRAME_BASE_ID,
+                        74,
+                    ),
+                    frame_button(
+                        "Tool",
+                        self.tcp_frame == TcpFrame::Tool,
+                        SET_TCP_FRAME_TOOL_ID,
+                        74,
+                    ),
+                    title_text(frame_label(self.tcp_frame)).min_width(48),
+                    label_text(frame_detail(self.tcp_frame)).break_words(true),
+                ])
+                .spacing(8)
+                .grow(1),
+                hstack(vec![
+                    label_text(&format!(
+                        "F/B {}",
+                        self.coordinate_calibration().tcp_forward_sign
+                    )),
+                    secondary_button("Flip F/B")
+                        .height(30)
+                        .width(88)
+                        .on_click(FLIP_TCP_FORWARD_AXIS_ID),
+                    label_text(&format!(
+                        "L/R {}",
+                        self.coordinate_calibration().tcp_left_sign
+                    )),
+                    secondary_button("Flip L/R")
+                        .height(30)
+                        .width(88)
+                        .on_click(FLIP_TCP_LEFT_AXIS_ID),
+                    label_text(&format!(
+                        "U/D {}",
+                        self.coordinate_calibration().tcp_up_sign
+                    )),
+                    secondary_button("Flip U/D")
+                        .height(30)
+                        .width(88)
+                        .on_click(FLIP_TCP_UP_AXIS_ID),
+                ])
+                .spacing(8),
             ])
-            .spacing(8),
+            .spacing(16)
+            .wrap(true),
             hstack(vec![
                 primary_button("Forward")
                     .height(32)
                     .on_press(MOVE_TCP_FORWARD_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Up")
+                    .height(32)
+                    .on_press(MOVE_TCP_UP_ID)
                     .on_release(MOVE_TCP_STOP_ID),
             ])
             .spacing(8),
@@ -2536,6 +2588,10 @@ impl App {
                 dark_button("Back")
                     .height(32)
                     .on_press(MOVE_TCP_BACK_ID)
+                    .on_release(MOVE_TCP_STOP_ID),
+                dark_button("Down")
+                    .height(32)
+                    .on_press(MOVE_TCP_DOWN_ID)
                     .on_release(MOVE_TCP_STOP_ID),
                 dark_button("Right")
                     .height(32)
@@ -2618,9 +2674,10 @@ impl App {
             .wrap(true),
             hstack(vec![
                 label_text(&format!(
-                    "robot to arm-base calibration: forward sign {}, left sign {}, yaw {:.1} deg",
+                    "robot to arm-base calibration: forward sign {}, left sign {}, up sign {}, yaw {:.1} deg",
                     coordinate_calibration.forward_sign,
                     coordinate_calibration.left_sign,
+                    coordinate_calibration.up_sign,
                     coordinate_calibration.base_yaw_offset_deg
                 ))
                 .grow(1)
@@ -2633,6 +2690,10 @@ impl App {
                     .height(30)
                     .width(88)
                     .on_click(FLIP_COORDINATE_LEFT_AXIS_ID),
+                secondary_button("Flip U/D")
+                    .height(30)
+                    .width(88)
+                    .on_click(FLIP_COORDINATE_UP_AXIS_ID),
                 secondary_button("Rotate 90")
                     .height(30)
                     .width(104)
@@ -3395,8 +3456,24 @@ impl App {
         f64::from(self.coordinate_calibration().forward_sign)
     }
 
+    fn tcp_forward_sign(&self) -> f64 {
+        f64::from(self.coordinate_calibration().tcp_forward_sign)
+    }
+
+    fn tcp_left_sign(&self) -> f64 {
+        f64::from(self.coordinate_calibration().tcp_left_sign)
+    }
+
+    fn tcp_up_sign(&self) -> f64 {
+        f64::from(self.coordinate_calibration().tcp_up_sign)
+    }
+
     fn coordinate_left_sign(&self) -> f64 {
         f64::from(self.coordinate_calibration().left_sign)
+    }
+
+    fn coordinate_up_sign(&self) -> f64 {
+        f64::from(self.coordinate_calibration().up_sign)
     }
 
     fn coordinate_base_yaw_offset_deg(&self) -> f64 {
@@ -3409,6 +3486,17 @@ impl App {
         // mount transform is applied exactly once before issuing an immutable Base jog.
         let (dx, dy) = rotate_xy_deg(dx, dy, self.coordinate_base_yaw_offset_deg());
         [dx, dy, dz_table]
+    }
+
+    fn tcp_jog_direction(&self, direction: [f64; 3]) -> [f64; 3] {
+        // TCP controls use semantic [forward, left, up] input. The controller's
+        // former forward axis is exposed as up/down; its third axis becomes
+        // inward/outward and has a dedicated persisted sign calibration.
+        [
+            direction[2] * self.tcp_up_sign(),
+            direction[1] * self.tcp_left_sign(),
+            direction[0] * self.tcp_forward_sign(),
+        ]
     }
 
     fn start_tcp_jog(
@@ -3506,6 +3594,15 @@ impl App {
         self.goto_angle_wrist = format!("{DEFAULT_GOTO_ANGLE_DEG:.1}");
         self.goto_angle_error.clear();
         self.move_to_goto_angles("move to default target angles");
+    }
+
+    fn move_to_up_goto_angles(&mut self) {
+        self.goto_angle_yaw = format!("{:.1}", UP_ANGLES_DEG[0]);
+        self.goto_angle_shoulder = format!("{:.1}", UP_ANGLES_DEG[1]);
+        self.goto_angle_elbow = format!("{:.1}", UP_ANGLES_DEG[2]);
+        self.goto_angle_wrist = format!("{:.1}", UP_ANGLES_DEG[3]);
+        self.goto_angle_error.clear();
+        self.move_to_goto_angles("move to up target angles");
     }
 
     /// UI peer to Default: it fills the normal joint-target inputs and uses
@@ -3785,12 +3882,57 @@ impl App {
         self.mark_ui_dirty();
     }
 
+    fn flip_tcp_forward_axis(&mut self) {
+        self.active_config.coordinate.tcp_forward_sign =
+            -self.active_config.coordinate.tcp_forward_sign;
+        self.calibration_dirty = true;
+        self.last_command = format!(
+            "flipped TCP forward sign to {}",
+            self.active_config.coordinate.tcp_forward_sign
+        );
+        log::info!("runtime App command: {}", self.last_command);
+        self.mark_ui_dirty();
+    }
+
+    fn flip_tcp_left_axis(&mut self) {
+        self.active_config.coordinate.tcp_left_sign = -self.active_config.coordinate.tcp_left_sign;
+        self.calibration_dirty = true;
+        self.last_command = format!(
+            "flipped TCP left sign to {}",
+            self.active_config.coordinate.tcp_left_sign
+        );
+        log::info!("runtime App command: {}", self.last_command);
+        self.mark_ui_dirty();
+    }
+
+    fn flip_tcp_up_axis(&mut self) {
+        self.active_config.coordinate.tcp_up_sign = -self.active_config.coordinate.tcp_up_sign;
+        self.calibration_dirty = true;
+        self.last_command = format!(
+            "flipped TCP up sign to {}",
+            self.active_config.coordinate.tcp_up_sign
+        );
+        log::info!("runtime App command: {}", self.last_command);
+        self.mark_ui_dirty();
+    }
+
     fn flip_coordinate_left_axis(&mut self) {
         self.active_config.coordinate.left_sign = -self.active_config.coordinate.left_sign;
         self.calibration_dirty = true;
         self.last_command = format!(
             "flipped coordinate left sign to {}",
             self.active_config.coordinate.left_sign
+        );
+        log::info!("runtime App command: {}", self.last_command);
+        self.mark_ui_dirty();
+    }
+
+    fn flip_coordinate_up_axis(&mut self) {
+        self.active_config.coordinate.up_sign = -self.active_config.coordinate.up_sign;
+        self.calibration_dirty = true;
+        self.last_command = format!(
+            "flipped coordinate up sign to {}",
+            self.active_config.coordinate.up_sign
         );
         log::info!("runtime App command: {}", self.last_command);
         self.mark_ui_dirty();
@@ -3814,9 +3956,10 @@ impl App {
             return;
         };
         let joint = &self.robot.arm.joints[joint_index];
+        let (min, max) = limit_editor_values(joint);
         self.limit_editor_joint = Some(joint_index);
-        self.limit_editor_min = joint.limit_min.to_string();
-        self.limit_editor_max = joint.limit_max.to_string();
+        self.limit_editor_min = min;
+        self.limit_editor_max = max;
         self.limit_editor_error.clear();
         self.mark_ui_dirty();
     }
@@ -3906,7 +4049,11 @@ impl App {
                 self.coordinate_preview_open = false;
             }
             FLIP_COORDINATE_FORWARD_AXIS_ID => self.flip_coordinate_forward_axis(),
+            FLIP_TCP_FORWARD_AXIS_ID => self.flip_tcp_forward_axis(),
+            FLIP_TCP_LEFT_AXIS_ID => self.flip_tcp_left_axis(),
+            FLIP_TCP_UP_AXIS_ID => self.flip_tcp_up_axis(),
             FLIP_COORDINATE_LEFT_AXIS_ID => self.flip_coordinate_left_axis(),
+            FLIP_COORDINATE_UP_AXIS_ID => self.flip_coordinate_up_axis(),
             ROTATE_COORDINATE_BASE_FRAME_ID => self.rotate_coordinate_base_frame(),
             ARM_HOLD_ID => {
                 let _ = self.arm("arm hold", ArmCommand::Hold);
@@ -3943,18 +4090,31 @@ impl App {
             JOG_POSITIVE_ID => self.spin_joint(event_arg(inx), 1),
             GOTO_DEFAULT_ANGLES_ID => self.move_to_default_goto_angles(),
             GOTO_DRIVE_SCAN_ANGLES_ID => self.move_to_drive_scan_goto_angles(),
+            GOTO_UP_ANGLES_ID => self.move_to_up_goto_angles(),
             GOTO_ANGLES_ID => self.move_to_goto_angles("move to target angles"),
             MOVE_TCP_FORWARD_ID => {
-                let _ = self.start_tcp_jog("move tcp forward", self.tcp_frame, [1.0, 0.0, 0.0]);
+                let direction = self.tcp_jog_direction([1.0, 0.0, 0.0]);
+                let _ = self.start_tcp_jog("move tcp forward", self.tcp_frame, direction);
             }
             MOVE_TCP_BACK_ID => {
-                let _ = self.start_tcp_jog("move tcp back", self.tcp_frame, [-1.0, 0.0, 0.0]);
+                let direction = self.tcp_jog_direction([-1.0, 0.0, 0.0]);
+                let _ = self.start_tcp_jog("move tcp back", self.tcp_frame, direction);
+            }
+            MOVE_TCP_UP_ID => {
+                let direction = self.tcp_jog_direction([0.0, 0.0, 1.0]);
+                let _ = self.start_tcp_jog("move tcp up", self.tcp_frame, direction);
+            }
+            MOVE_TCP_DOWN_ID => {
+                let direction = self.tcp_jog_direction([0.0, 0.0, -1.0]);
+                let _ = self.start_tcp_jog("move tcp down", self.tcp_frame, direction);
             }
             MOVE_TCP_LEFT_ID => {
-                let _ = self.start_tcp_jog("move tcp left", self.tcp_frame, [0.0, 1.0, 0.0]);
+                let direction = self.tcp_jog_direction([0.0, 1.0, 0.0]);
+                let _ = self.start_tcp_jog("move tcp left", self.tcp_frame, direction);
             }
             MOVE_TCP_RIGHT_ID => {
-                let _ = self.start_tcp_jog("move tcp right", self.tcp_frame, [0.0, -1.0, 0.0]);
+                let direction = self.tcp_jog_direction([0.0, -1.0, 0.0]);
+                let _ = self.start_tcp_jog("move tcp right", self.tcp_frame, direction);
             }
             MOVE_TCP_CAMERA_FORWARD_ID => {
                 let _ = self.start_tcp_camera_jog(
@@ -4013,10 +4173,12 @@ impl App {
                 let _ = self.start_tcp_jog("coordinate right", TcpFrame::Base, direction);
             }
             COORDINATE_UP_ID => {
-                let _ = self.start_tcp_jog("coordinate up", TcpFrame::Base, [0.0, 0.0, 1.0]);
+                let direction = [0.0, 0.0, self.coordinate_up_sign()];
+                let _ = self.start_tcp_jog("coordinate up", TcpFrame::Base, direction);
             }
             COORDINATE_DOWN_ID => {
-                let _ = self.start_tcp_jog("coordinate down", TcpFrame::Base, [0.0, 0.0, -1.0]);
+                let direction = [0.0, 0.0, -self.coordinate_up_sign()];
+                let _ = self.start_tcp_jog("coordinate down", TcpFrame::Base, direction);
             }
             _ => return false,
         }
@@ -4367,6 +4529,26 @@ mod tests {
     fn runtime_default_bind_preserves_network_ui() {
         assert_eq!(default_ws_bind(true), "0.0.0.0:8080");
         assert_eq!(default_ws_bind(false), "0.0.0.0:8080");
+    }
+
+    #[test]
+    fn limit_editor_reopens_with_updated_controller_limits() {
+        let mut robot = Puppybot::new(0);
+        robot.handle_event(
+            ProtocolEvent::Arm(ArmCommand::SetTickLimits {
+                joint: 0,
+                min: 123,
+                max: 3456,
+            }),
+            0,
+        );
+
+        let joint = &robot.arm.joints[0];
+        assert_eq!(
+            limit_editor_values(joint),
+            ("123".to_string(), "3456".to_string())
+        );
+        assert_eq!(limit_detail(joint), "limits 123..3456");
     }
 
     #[test]
@@ -4764,7 +4946,7 @@ mod tests {
 
         assert_hold_event_contract(&rendered, &mut press_count);
 
-        assert_eq!(press_count, 28, "unexpected PuppyBot hold-control count");
+        assert_eq!(press_count, 38, "unexpected PuppyBot hold-control count");
     }
 
     #[tokio::test]
@@ -4783,6 +4965,7 @@ mod tests {
         for (id, inx) in [
             (GOTO_ANGLES_ID, None),
             (GOTO_DEFAULT_ANGLES_ID, None),
+            (GOTO_UP_ANGLES_ID, None),
             (SET_JOINT_ZERO_ID, Some(1)),
         ] {
             app.handle_wgui_message(ClientMessage {
@@ -4814,7 +4997,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_drive_scan_and_zero_hold_controls_stop_on_release() {
+    async fn default_up_drive_scan_and_joint_zero_hold_controls_stop_on_release() {
         let mut default_app = test_app();
         assert!(default_app.handle_press_id(GOTO_DEFAULT_ANGLES_ID, None));
         assert_eq!(
@@ -4838,6 +5021,36 @@ mod tests {
         assert!(default_app.handle_release_id(GOTO_ANGLES_ID, None));
         assert!(
             default_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+        );
+
+        let mut up_app = test_app();
+        assert!(up_app.handle_press_id(GOTO_UP_ANGLES_ID, None));
+        assert_eq!(
+            [
+                up_app.goto_angle_yaw.as_str(),
+                up_app.goto_angle_shoulder.as_str(),
+                up_app.goto_angle_elbow.as_str(),
+                up_app.goto_angle_wrist.as_str(),
+            ],
+            ["0.0", "90.0", "0.0", "0.0"]
+        );
+        assert_eq!(up_app.last_command, "move to up target angles");
+        assert!(
+            up_app
+                .robot
+                .arm
+                .joints
+                .iter()
+                .all(|joint| joint.target_tick.is_some())
+        );
+        assert!(up_app.handle_release_id(GOTO_ANGLES_ID, None));
+        assert!(
+            up_app
                 .robot
                 .arm
                 .joints
@@ -5256,7 +5469,12 @@ mod tests {
             b"/api/arm/tcp-jog/start",
             br#"{"frame":"base","direction":"up"}"#,
         );
-        assert_eq!(response.status, "400 Bad Request");
+        assert_eq!(response.status, "200 OK");
+        assert!(
+            app.held_tcp_jog.is_some_and(
+                |held| held.frame == TcpFrame::Base && held.direction == [1.0, 0.0, 0.0]
+            )
+        );
     }
 
     #[tokio::test]
@@ -5290,6 +5508,83 @@ mod tests {
                 ..
             } if direction == held.direction
         ));
+    }
+
+    #[tokio::test]
+    async fn arm_base_up_calibration_flips_ui_and_api_jogs() {
+        let mut app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+
+        assert!(app.handle_click_id(FLIP_COORDINATE_UP_AXIS_ID, None));
+        assert_eq!(app.active_config.coordinate.up_sign, -1);
+        assert!(app.calibration_dirty);
+        assert!(app.handle_press_id(COORDINATE_UP_ID, None));
+        assert_eq!(
+            app.held_tcp_jog
+                .expect("calibrated Arm Base up jog held")
+                .direction,
+            [0.0, 0.0, -1.0]
+        );
+        assert!(app.handle_release_id(MOVE_TCP_STOP_ID, None));
+
+        let response = app.handle_api_request(
+            b"POST",
+            b"/api/arm/coordinate-jog/start",
+            br#"{"frame":"base","direction":"down"}"#,
+        );
+        assert_eq!(response.status, "200 OK");
+        assert_eq!(
+            app.held_tcp_jog
+                .expect("calibrated Arm Base down API jog held")
+                .direction,
+            [0.0, 0.0, 1.0]
+        );
+    }
+
+    #[tokio::test]
+    async fn tcp_axis_calibration_flips_jog_directions() {
+        let mut app = test_app();
+        assert_eq!(app.active_config.coordinate.tcp_forward_sign, 1);
+        assert_eq!(app.active_config.coordinate.tcp_left_sign, 1);
+        assert_eq!(app.active_config.coordinate.tcp_up_sign, 1);
+        assert_eq!(app.tcp_jog_direction([1.0, 0.0, 0.0]), [0.0, 0.0, 1.0]);
+        assert_eq!(app.tcp_jog_direction([-1.0, 0.0, 0.0]), [0.0, 0.0, -1.0]);
+        assert_eq!(app.tcp_jog_direction([0.0, 0.0, 1.0]), [1.0, 0.0, 0.0]);
+        assert_eq!(app.tcp_jog_direction([0.0, 0.0, -1.0]), [-1.0, 0.0, 0.0]);
+
+        assert!(app.handle_click_id(FLIP_TCP_FORWARD_AXIS_ID, None));
+        assert_eq!(app.active_config.coordinate.tcp_forward_sign, -1);
+        assert!(app.calibration_dirty);
+        assert_eq!(app.tcp_jog_direction([1.0, 0.0, 0.0]), [0.0, 0.0, -1.0]);
+        assert_eq!(app.tcp_jog_direction([-1.0, 0.0, 0.0]), [0.0, 0.0, 1.0]);
+        assert_eq!(app.tcp_jog_direction([0.0, 1.0, 0.0]), [0.0, 1.0, 0.0]);
+
+        assert!(app.handle_click_id(FLIP_TCP_LEFT_AXIS_ID, None));
+        assert_eq!(app.active_config.coordinate.tcp_left_sign, -1);
+        assert_eq!(app.tcp_jog_direction([0.0, 1.0, 0.0]), [0.0, -1.0, 0.0]);
+        assert_eq!(app.tcp_jog_direction([0.0, -1.0, 0.0]), [0.0, 1.0, 0.0]);
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+        assert!(app.handle_press_id(MOVE_TCP_LEFT_ID, None));
+        assert_eq!(
+            app.held_tcp_jog
+                .expect("calibrated left jog held")
+                .direction,
+            [0.0, -1.0, 0.0]
+        );
+        assert!(app.handle_release_id(MOVE_TCP_STOP_ID, None));
+
+        assert!(app.handle_click_id(FLIP_TCP_UP_AXIS_ID, None));
+        assert_eq!(app.active_config.coordinate.tcp_up_sign, -1);
+        assert_eq!(app.tcp_jog_direction([0.0, 0.0, 1.0]), [-1.0, 0.0, 0.0]);
+        assert_eq!(app.tcp_jog_direction([0.0, 0.0, -1.0]), [1.0, 0.0, 0.0]);
     }
 
     #[tokio::test]

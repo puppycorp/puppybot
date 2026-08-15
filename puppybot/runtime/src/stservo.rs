@@ -2,20 +2,24 @@ use std::{
     fs,
     io::{self, ErrorKind, Read, Write},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use embassy_time::Duration as EmbassyDuration;
-use puppybot_core::stservo::{DEFAULT_BAUD, SerialBus, StServo};
+use puppybot_core::stservo::{DEFAULT_BAUD, SerialBus, StServo, build_packet};
 
 const STSERVO_PORT_ENV: &str = "PUPPYBOT_STSERVO_PORT";
 const STSERVO_BAUD_ENV: &str = "PUPPYBOT_STSERVO_BAUD";
 const STSERVO_PROBE_ENV: &str = "PUPPYBOT_STSERVO_PROBE";
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_millis(1);
+const AUTO_DETECT_PROBE_TIMEOUT: Duration = Duration::from_millis(50);
 const VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS: u64 = 500;
+const STSERVO_PING_INSTRUCTION: u8 = 0x01;
 const SERIAL_CACHE_FILE: &str = "puppybot-runtime-stservo-port";
 const SUPPORTED_PORT_PATTERNS: &[&str] = &[
     "/dev/serial/by-id/",
+    "/dev/ttyACM",
+    "/dev/ttyUSB",
     "/dev/cu.usbmodem",
     "/dev/cu.usbserial",
     "/dev/cu.wchusbserial",
@@ -135,38 +139,20 @@ fn list_supported_ports() -> Vec<String> {
     }
 }
 
-fn auto_detect_port() -> Option<String> {
-    if let Some(port) = read_cached_port() {
-        log::info!("runtime reusing remembered STServo serial port {port}");
-        return Some(port);
-    }
+fn auto_detect_ports() -> Vec<String> {
+    let mut ports = list_supported_ports();
+    ports.sort();
+    ports.dedup();
 
-    let ports = list_supported_ports();
-    match ports.as_slice() {
-        [port] => {
-            log::info!("runtime auto-detected STServo serial port {port}");
-            Some(port.clone())
-        }
-        [] => None,
-        _ => {
-            log::warn!(
-                "multiple supported STServo serial ports found; set {STSERVO_PORT_ENV}: {}",
-                ports.join(", ")
-            );
-            None
-        }
+    if let Some(port) = read_cached_port() {
+        ports.retain(|candidate| candidate != &port);
+        ports.insert(0, port);
     }
+    ports
 }
 
 impl RuntimeSerialConfig {
-    pub(crate) fn from_port_or_env_or_auto_detect(port: Option<&str>) -> Option<Self> {
-        let port = match port {
-            Some(port) => port.to_string(),
-            None => match std::env::var(STSERVO_PORT_ENV).ok() {
-                Some(port) => port,
-                None => auto_detect_port()?,
-            },
-        };
+    fn from_port(port: &str) -> Option<Self> {
         let port = port.trim();
         if port.is_empty() {
             return None;
@@ -221,14 +207,77 @@ impl SerialBus for RuntimeSerialBus {
     }
 }
 
-pub(crate) fn open_serial(port: Option<&str>) -> Option<RuntimeStServo> {
-    let Some(config) = RuntimeSerialConfig::from_port_or_env_or_auto_detect(port) else {
-        log::info!(
-            "runtime using simulated PuppyArm state; set {STSERVO_PORT_ENV} or pass --servo-device to use hardware"
-        );
-        return None;
-    };
+fn contains_ping_response(bytes: &[u8], servo_id: u8) -> bool {
+    bytes.windows(6).any(|frame| {
+        frame[0] == 0xff
+            && frame[1] == 0xff
+            && frame[2] == servo_id
+            && frame[3] == 2
+            && frame[4] == 0
+            && frame[5]
+                == !frame[2..5]
+                    .iter()
+                    .fold(0u8, |sum, byte| sum.wrapping_add(*byte))
+    })
+}
 
+fn probe_servo_id(bus: &mut RuntimeSerialBus, servo_id: u8) -> bool {
+    let _ = bus.port.clear(serialport::ClearBuffer::Input);
+
+    let mut request = [0u8; 6];
+    let Ok(request_len) = build_packet(&mut request, servo_id, STSERVO_PING_INSTRUCTION, &[])
+    else {
+        return false;
+    };
+    if bus.write_all(&request[..request_len]).is_err() {
+        return false;
+    }
+
+    let deadline = Instant::now() + AUTO_DETECT_PROBE_TIMEOUT;
+    let mut response = [0u8; 64];
+    let mut response_len = 0;
+    while Instant::now() < deadline && response_len < response.len() {
+        match bus.read_buffered(&mut response[response_len..]) {
+            Ok(0) => {}
+            Ok(read) => {
+                response_len += read;
+                if contains_ping_response(&response[..response_len], servo_id) {
+                    return true;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+fn probe_configured_servos(bus: &mut RuntimeSerialBus, servo_ids: &[u8]) -> Option<u8> {
+    servo_ids
+        .iter()
+        .copied()
+        .find(|servo_id| probe_servo_id(bus, *servo_id))
+}
+
+fn runtime_stservo_for_config(
+    bus: RuntimeSerialBus,
+    config: &RuntimeSerialConfig,
+) -> RuntimeStServo {
+    let servo = StServo::new(bus);
+    if is_ephemeral_virtual_port(&config.port) {
+        log::info!(
+            "runtime using {} ms STServo transaction timeout for virtual serial bus {}",
+            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
+            config.port
+        );
+        servo.with_timeout(EmbassyDuration::from_millis(
+            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
+        ))
+    } else {
+        servo
+    }
+}
+
+fn open_config(config: &RuntimeSerialConfig) -> Option<RuntimeStServo> {
     log::info!(
         "runtime STServo serial bus configured on {} at {} baud",
         config.port,
@@ -261,23 +310,66 @@ pub(crate) fn open_serial(port: Option<&str>) -> Option<RuntimeStServo> {
     }
 }
 
-fn runtime_stservo_for_config(
-    bus: RuntimeSerialBus,
-    config: &RuntimeSerialConfig,
-) -> RuntimeStServo {
-    let servo = StServo::new(bus);
-    if is_ephemeral_virtual_port(&config.port) {
-        log::info!(
-            "runtime using {} ms STServo transaction timeout for virtual serial bus {}",
-            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
-            config.port
-        );
-        servo.with_timeout(EmbassyDuration::from_millis(
-            VIRTUAL_BUS_TRANSACTION_TIMEOUT_MS,
-        ))
-    } else {
-        servo
+fn auto_detect_serial(servo_ids: &[u8]) -> Option<RuntimeStServo> {
+    let ports = auto_detect_ports();
+    if ports.is_empty() {
+        log::info!("runtime found no supported USB serial devices to probe for STServo");
+        return None;
     }
+
+    let mut matches = Vec::new();
+    for port in ports {
+        let Some(config) = RuntimeSerialConfig::from_port(&port) else {
+            continue;
+        };
+        let Ok(mut bus) = RuntimeSerialBus::open(&config) else {
+            log::info!("runtime could not open STServo candidate {port}");
+            continue;
+        };
+        match probe_configured_servos(&mut bus, servo_ids) {
+            Some(servo_id) => {
+                log::info!("runtime detected STServo {servo_id} on serial port {port}");
+                matches.push((config, bus));
+            }
+            None => log::info!("runtime found no configured STServo replies on {port}"),
+        }
+    }
+
+    match matches.as_mut_slice() {
+        [(config, _)] => {
+            remember_port(&config.port);
+        }
+        [] => return None,
+        _ => {
+            log::warn!(
+                "multiple STServo buses detected; set {STSERVO_PORT_ENV}: {}",
+                matches
+                    .iter()
+                    .map(|(config, _)| config.port.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return None;
+        }
+    }
+
+    let (config, bus) = matches.pop().expect("one detected STServo bus");
+    Some(runtime_stservo_for_config(bus, &config))
+}
+
+pub(crate) fn open_serial(port: Option<&str>, servo_ids: &[u8]) -> Option<RuntimeStServo> {
+    let explicit_port = port
+        .map(str::to_string)
+        .or_else(|| std::env::var(STSERVO_PORT_ENV).ok());
+    if let Some(port) = explicit_port {
+        let Some(config) = RuntimeSerialConfig::from_port(&port) else {
+            log::warn!("configured STServo serial port is empty");
+            return None;
+        };
+        return open_config(&config);
+    }
+
+    auto_detect_serial(servo_ids)
 }
 
 #[cfg(test)]
@@ -300,18 +392,14 @@ mod tests {
     #[test]
     fn serial_config_accepts_explicit_port() {
         assert_eq!(
-            RuntimeSerialConfig::from_port_or_env_or_auto_detect(Some(" /dev/ttyUSB0 "))
-                .map(|config| config.port),
+            RuntimeSerialConfig::from_port(" /dev/ttyUSB0 ").map(|config| config.port),
             Some("/dev/ttyUSB0".to_string())
         );
     }
 
     #[test]
     fn serial_config_rejects_empty_explicit_port() {
-        assert_eq!(
-            RuntimeSerialConfig::from_port_or_env_or_auto_detect(Some("  ")),
-            None
-        );
+        assert_eq!(RuntimeSerialConfig::from_port("  "), None);
     }
 
     #[test]
@@ -319,6 +407,8 @@ mod tests {
         assert!(is_supported_port_name(
             "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0"
         ));
+        assert!(is_supported_port_name("/dev/ttyACM0"));
+        assert!(is_supported_port_name("/dev/ttyUSB0"));
         assert!(is_supported_port_name("/dev/cu.usbmodem5A7C1186261"));
         assert!(is_supported_port_name("/dev/cu.wchusbserial1420"));
     }
@@ -327,6 +417,14 @@ mod tests {
     fn supported_port_name_rejects_unrelated_ports() {
         assert!(!is_supported_port_name("/dev/cu.Bluetooth-Incoming-Port"));
         assert!(!is_supported_port_name("COM1"));
+    }
+
+    #[test]
+    fn ping_response_requires_valid_stservo_status_packet() {
+        assert!(contains_ping_response(&[0xff, 0xff, 1, 2, 0, 0xfc], 1));
+        assert!(!contains_ping_response(&[0xff, 0xff, 1, 2, 0, 0], 1));
+        assert!(!contains_ping_response(&[0xff, 0xff, 2, 2, 0, 0xfb], 1));
+        assert!(!contains_ping_response(&[0xff, 0xff, 1, 2, 1, 0xfb], 1));
     }
 
     #[test]
