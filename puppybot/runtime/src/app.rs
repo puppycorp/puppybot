@@ -12,7 +12,7 @@ use puppybot_core::{
     protocol::{self, ProtocolEvent, ProtocolOutput},
     puppyarm::{
         kinematics::{self, IkError},
-        servo_safety::TICK_WRAP,
+        servo_safety::{TICK_WRAP, canonical_servo_tick, tick_within_joint_limits},
         types::{
             ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint,
             TcpFrame,
@@ -105,6 +105,9 @@ const MOVE_TCP_UP_ID: u32 = 416;
 const MOVE_TCP_DOWN_ID: u32 = 417;
 const FLIP_TCP_UP_AXIS_ID: u32 = 418;
 const FLIP_TCP_LEFT_AXIS_ID: u32 = 419;
+const MOVE_TOOL_TIP_UP_ID: u32 = 420;
+const MOVE_TOOL_TIP_DOWN_ID: u32 = 421;
+const MOVE_TOOL_TIP_STOP_ID: u32 = 422;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
@@ -599,6 +602,14 @@ fn angle_sign_label(sign: Option<i8>) -> String {
     }
 }
 
+fn feedback_tool_pitch_rad(joints: &[Joint; JOINT_COUNT]) -> Option<f64> {
+    Some(kinematics::tool_pitch(
+        joints[1].angle_rad?,
+        joints[2].angle_rad?,
+        joints[3].angle_rad?,
+    ))
+}
+
 fn target_angle_inputs(joints: &[Joint; JOINT_COUNT]) -> Option<[String; JOINT_COUNT]> {
     let mut angles = [0.0; JOINT_COUNT];
     for (index, joint) in joints.iter().enumerate() {
@@ -720,6 +731,7 @@ pub struct App {
     capture_manager: CaptureManager,
     held_drive: Option<HeldDrive>,
     held_joint_jog: Option<HeldJointJog>,
+    held_joint_target: Option<usize>,
     held_tcp_jog: Option<HeldTcpJog>,
     config_path: PathBuf,
     active_config: PuppybotConfigV1,
@@ -877,6 +889,7 @@ impl App {
             capture_manager: CaptureManager::new(),
             held_drive: None,
             held_joint_jog: None,
+            held_joint_target: None,
             held_tcp_jog: None,
             config_path,
             active_config,
@@ -2440,7 +2453,7 @@ impl App {
         subpanel(vec![
             title_text("Joint Target (deg)"),
             label_text(
-                "Default (90 / 90 / 90 / 90) is the upright-shoulder, horizontal-reach, tool-up reference pose",
+                "Default (90 / 90 / 90 / 90) is the upright-shoulder, horizontal-reach, tool-down reference pose",
             ),
             hstack(vec![
                 field(
@@ -2599,6 +2612,19 @@ impl App {
                     .on_release(MOVE_TCP_STOP_ID),
             ])
             .spacing(8),
+            hstack(vec![
+                label_text("Tool pitch").min_width(72),
+                dark_button("Tip Up")
+                    .height(32)
+                    .on_press(MOVE_TOOL_TIP_UP_ID)
+                    .on_release(MOVE_TOOL_TIP_STOP_ID),
+                dark_button("Tip Down")
+                    .height(32)
+                    .on_press(MOVE_TOOL_TIP_DOWN_ID)
+                    .on_release(MOVE_TOOL_TIP_STOP_ID),
+                label_text("wrist only; stops at vertical").break_words(true),
+            ])
+            .spacing(8),
         ])
     }
 
@@ -2662,6 +2688,7 @@ impl App {
         subpanel(vec![
             title_text("Arm Base (mm)"),
             label_text(&coordinate_detail).break_words(true),
+            label_text("Coordinate Move preserves the current tool pitch.").break_words(true),
             hstack(vec![
                 title_text("Robot-relative jog").min_width(128),
                 label_text(
@@ -2931,8 +2958,16 @@ impl App {
             return preview_modal(body);
         };
 
+        let Some(tool_phi_rad) = feedback_tool_pitch_rad(&self.robot.arm.joints) else {
+            body.push(
+                label_text("current tool pitch unavailable")
+                    .text_align("center")
+                    .break_words(true),
+            );
+            body.push(close_preview_button());
+            return preview_modal(body);
+        };
         let z = kinematics::table_to_shoulder_z(z_table);
-        let tool_phi_rad = kinematics::ARM_TOOL_PHI_RAD;
         let target_result = self
             .robot
             .arm
@@ -2941,7 +2976,8 @@ impl App {
 
         body.push(
             label_text(&format!(
-                "target TCP (from coordinates) {x:.1}, {y:.1}, {z_table:.1} mm"
+                "target TCP (from coordinates) {x:.1}, {y:.1}, {z_table:.1} mm; preserving current tool pitch {:.1} deg",
+                tool_phi_rad.to_degrees()
             ))
             .text_align("center")
             .break_words(true),
@@ -3031,6 +3067,7 @@ impl App {
     fn stop_robot(&mut self) {
         self.held_drive = None;
         self.held_joint_jog = None;
+        self.held_joint_target = None;
         self.held_tcp_jog = None;
         self.robot
             .handle_event(ProtocolEvent::Drive(DriveCommand::Stop), self.now_ms());
@@ -3049,6 +3086,9 @@ impl App {
                 if self.held_joint_jog.is_some_and(|held| held.joint == joint) {
                     self.held_joint_jog = None;
                 }
+                if self.held_joint_target == Some(joint) {
+                    self.held_joint_target = None;
+                }
             }
             ProtocolEvent::Arm(
                 ArmCommand::StopAll
@@ -3062,7 +3102,16 @@ impl App {
                 | ArmCommand::StartTcpJogAtSpeed { .. },
             ) => {
                 self.held_joint_jog = None;
+                self.held_joint_target = None;
                 self.held_tcp_jog = None;
+            }
+            ProtocolEvent::Arm(
+                ArmCommand::Spin { .. }
+                | ArmCommand::SetJointTick { .. }
+                | ArmCommand::SetJointAngle { .. }
+                | ArmCommand::SetServoAngle { .. },
+            ) => {
+                self.held_joint_target = None;
             }
             _ => {}
         }
@@ -3531,6 +3580,49 @@ impl App {
         Ok(())
     }
 
+    fn move_tool_tip_to_vertical(
+        &mut self,
+        label: &str,
+        direction: i8,
+    ) -> Result<(), ControllerError> {
+        const WRIST_JOINT: usize = 3;
+
+        let Some(shoulder_rad) = self.robot.arm.joints[1].angle_rad else {
+            self.last_command = format!("{label} rejected: shoulder feedback unavailable");
+            self.mark_ui_dirty();
+            return Err(ControllerError::MissingFeedback);
+        };
+        let Some(elbow_rad) = self.robot.arm.joints[2].angle_rad else {
+            self.last_command = format!("{label} rejected: elbow feedback unavailable");
+            self.mark_ui_dirty();
+            return Err(ControllerError::MissingFeedback);
+        };
+        let tool_pitch_rad = f64::from(direction.signum()) * std::f64::consts::FRAC_PI_2;
+        let wrist_angle_rad =
+            kinematics::solve_tip_angle_down(shoulder_rad, elbow_rad, tool_pitch_rad);
+        let wrist = &self.robot.arm.joints[WRIST_JOINT];
+        let target_tick = canonical_servo_tick(wrist.angle_to_tick(wrist_angle_rad));
+        if !tick_within_joint_limits(wrist, target_tick) {
+            self.last_command = format!(
+                "{label} blocked by wrist limits (target tick {target_tick} outside {}..{})",
+                wrist.tick_min, wrist.tick_max
+            );
+            self.mark_ui_dirty();
+            return Err(ControllerError::InvalidLimit);
+        }
+
+        self.arm("stop arm before tool tip pose", ArmCommand::StopAll)?;
+        self.arm(
+            label,
+            ArmCommand::SetJointTick {
+                joint: WRIST_JOINT,
+                tick: target_tick,
+            },
+        )?;
+        self.held_joint_target = Some(WRIST_JOINT);
+        Ok(())
+    }
+
     fn start_tcp_camera_jog(
         &mut self,
         label: &str,
@@ -3562,6 +3654,11 @@ impl App {
     ) -> Result<(), ControllerError> {
         let direction = direction.signum();
         let now_ms = self.now_ms();
+        // A joint-only jog must not leave targets or free-spin commands active
+        // on any other joint from the previous arm mode.
+        self.held_tcp_jog = None;
+        self.robot
+            .try_handle_event(ProtocolEvent::Arm(ArmCommand::StopAll), now_ms)?;
         self.robot.try_handle_event(
             ProtocolEvent::Arm(ArmCommand::Spin { joint, direction }),
             now_ms,
@@ -3863,13 +3960,12 @@ impl App {
             self.mark_ui_dirty();
             return;
         };
-        self.move_to_coordinate_target(
-            "move to coordinates",
-            x,
-            y,
-            z_table,
-            kinematics::ARM_TOOL_PHI_RAD,
-        );
+        let Some(tool_phi_rad) = feedback_tool_pitch_rad(&self.robot.arm.joints) else {
+            self.coordinate_error = "current tool pitch unavailable".to_string();
+            self.mark_ui_dirty();
+            return;
+        };
+        self.move_to_coordinate_target("move to coordinates", x, y, z_table, tool_phi_rad);
     }
 
     fn flip_coordinate_forward_axis(&mut self) {
@@ -4117,6 +4213,12 @@ impl App {
                 let direction = self.tcp_jog_direction([0.0, -1.0, 0.0]);
                 let _ = self.start_tcp_jog("move tcp right", self.tcp_frame, direction);
             }
+            MOVE_TOOL_TIP_UP_ID => {
+                let _ = self.move_tool_tip_to_vertical("move tool tip up", 1);
+            }
+            MOVE_TOOL_TIP_DOWN_ID => {
+                let _ = self.move_tool_tip_to_vertical("move tool tip down", -1);
+            }
             MOVE_TCP_CAMERA_FORWARD_ID => {
                 let _ = self.start_tcp_camera_jog(
                     "move TCP camera POV forward (into view)",
@@ -4195,6 +4297,9 @@ impl App {
             }
             MOVE_TO_COORDINATES_ID => {
                 let _ = self.arm("stop coordinate target", ArmCommand::StopAll);
+            }
+            MOVE_TOOL_TIP_STOP_ID => {
+                let _ = self.arm("stop tool tip pose", ArmCommand::StopAll);
             }
             MOVE_TCP_STOP_ID => {
                 self.held_tcp_jog = None;
@@ -4321,6 +4426,9 @@ impl App {
                         "stop joint jog on ui disconnect",
                         ArmCommand::Stop { joint: held.joint },
                     );
+                }
+                if self.held_joint_target.is_some() {
+                    let _ = self.arm("stop joint target on ui disconnect", ArmCommand::StopAll);
                 }
                 if self.held_tcp_jog.is_some() {
                     let _ = self.arm("stop TCP jog on ui disconnect", ArmCommand::StopTcpJog);
@@ -4950,7 +5058,7 @@ mod tests {
 
         assert_hold_event_contract(&rendered, &mut press_count);
 
-        assert_eq!(press_count, 39, "unexpected PuppyBot hold-control count");
+        assert_eq!(press_count, 41, "unexpected PuppyBot hold-control count");
     }
 
     #[tokio::test]
@@ -5003,8 +5111,18 @@ mod tests {
     #[tokio::test]
     async fn coordinate_move_press_starts_target_and_release_stops() {
         let mut app = test_app();
+        for joint in 0..JOINT_COUNT {
+            let tick = u16::try_from(app.robot.arm.joints[joint].reference_tick)
+                .expect("reference tick is valid");
+            app.robot.arm.record_feedback(joint, tick, 0);
+        }
+        let tool_pitch_before =
+            feedback_tool_pitch_rad(&app.robot.arm.joints).expect("current tool pitch");
+        app.set_coordinates_current();
+        let sequence_before = app.telemetry_seq();
 
         assert!(app.handle_press_id(MOVE_TO_COORDINATES_ID, None));
+        assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(1));
         assert_eq!(app.last_command, "move to coordinates");
         assert!(
             app.robot
@@ -5012,6 +5130,24 @@ mod tests {
                 .joints
                 .iter()
                 .all(|joint| joint.target_tick.is_some())
+        );
+        let target_tool_pitch = kinematics::tool_pitch(
+            app.robot.arm.joints[1]
+                .target_angle_rad
+                .expect("shoulder target angle"),
+            app.robot.arm.joints[2]
+                .target_angle_rad
+                .expect("elbow target angle"),
+            app.robot.arm.joints[3]
+                .target_angle_rad
+                .expect("wrist target angle"),
+        );
+        assert!(
+            kinematics::wrap_pi(target_tool_pitch - tool_pitch_before).abs()
+                <= std::f64::consts::TAU / f64::from(TICK_WRAP),
+            "Coordinate Move must preserve tool pitch: before={} target={}",
+            tool_pitch_before.to_degrees(),
+            target_tool_pitch.to_degrees(),
         );
 
         assert!(app.handle_release_id(MOVE_TO_COORDINATES_ID, None));
@@ -5082,7 +5218,7 @@ mod tests {
                 .robot
                 .arm
                 .target_coords_mm()
-                .is_some_and(|(_, _, z)| z > 350.0),
+                .is_some_and(|(_, _, z)| z > 280.0),
             "Up must target a high positive base-frame Z"
         );
         assert!(up_app.handle_release_id(GOTO_ANGLES_ID, None));
@@ -5443,6 +5579,92 @@ mod tests {
                 .iter()
                 .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
         );
+    }
+
+    #[tokio::test]
+    async fn tool_tip_buttons_target_vertical_with_wrist_only_and_stop_on_release() {
+        for (button, expected_pitch_deg) in
+            [(MOVE_TOOL_TIP_DOWN_ID, -90.0), (MOVE_TOOL_TIP_UP_ID, 90.0)]
+        {
+            let mut app = test_app();
+            let now_ms = app.now_ms();
+            for joint in 0..JOINT_COUNT {
+                let tick = u16::try_from(app.robot.arm.joints[joint].reference_tick)
+                    .expect("reference tick");
+                app.robot.arm.record_feedback(joint, tick, now_ms);
+            }
+            let previous_target = app.robot.arm.joints.map(|joint| joint.reference_angle_rad);
+            app.robot
+                .try_handle_event(
+                    ProtocolEvent::Arm(ArmCommand::GotoAngles(previous_target)),
+                    now_ms,
+                )
+                .expect("seed previous all-joint target");
+            assert!(
+                app.robot
+                    .arm
+                    .joints
+                    .iter()
+                    .all(|joint| joint.target_tick.is_some())
+            );
+
+            assert!(app.handle_press_id(button, None));
+            assert_eq!(app.held_joint_target, Some(3));
+            assert!(app.held_joint_jog.is_none());
+            let shoulder_rad = app.robot.arm.joints[1].angle_rad.unwrap();
+            let elbow_rad = app.robot.arm.joints[2].angle_rad.unwrap();
+            let wrist_target_rad = app.robot.arm.joints[3].target_angle_rad.unwrap();
+            let target_pitch_deg =
+                kinematics::tool_pitch(shoulder_rad, elbow_rad, wrist_target_rad).to_degrees();
+            assert!(
+                (target_pitch_deg - expected_pitch_deg).abs() <= 0.2,
+                "expected {expected_pitch_deg} deg tool pitch, got {target_pitch_deg} deg"
+            );
+            let commands = app.robot.arm.update(now_ms + ROBOT_TICK_MS);
+            assert!(commands[..3].iter().all(|command| command.speed == 0));
+            assert_ne!(commands[3].speed, 0);
+
+            assert!(app.handle_release_id(MOVE_TOOL_TIP_STOP_ID, None));
+            assert!(app.held_joint_target.is_none());
+            assert_eq!(app.robot.arm.mode(), ArmMode::Idle);
+            assert!(
+                app.robot
+                    .arm
+                    .joints
+                    .iter()
+                    .all(|joint| joint.target_tick.is_none() && joint.speed == 0)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_tip_button_accepts_equivalent_tick_after_servo_wrap() {
+        let mut app = test_app();
+        let now_ms = app.now_ms();
+        for joint in 0..JOINT_COUNT {
+            let tick =
+                u16::try_from(app.robot.arm.joints[joint].reference_tick).expect("reference tick");
+            app.robot.arm.record_feedback(joint, tick, now_ms);
+        }
+
+        let shoulder_rad = app.robot.arm.joints[1].angle_rad.unwrap();
+        let elbow_rad = app.robot.arm.joints[2].angle_rad.unwrap();
+        let wrist_angle_rad =
+            kinematics::solve_tip_angle_down(shoulder_rad, elbow_rad, std::f64::consts::FRAC_PI_2);
+        let wrist = &mut app.robot.arm.joints[3];
+        wrist.tick_min = 600;
+        wrist.tick_max = 3000;
+        wrist.raw_tick_min = 0;
+        wrist.raw_tick_max = TICK_WRAP - 1;
+        wrist.sign = -1.0;
+        wrist.zero_offset_rad = (4790.0 - 2047.5) * std::f64::consts::TAU / f64::from(TICK_WRAP)
+            - wrist.sign * wrist_angle_rad;
+        assert_eq!(wrist.angle_to_tick(wrist_angle_rad), 4790);
+
+        assert!(app.handle_press_id(MOVE_TOOL_TIP_UP_ID, None));
+        assert_eq!(app.robot.arm.joints[3].target_tick, Some(694));
+        assert_eq!(app.held_joint_target, Some(3));
+        assert!(!app.last_command.contains("blocked by wrist limits"));
     }
 
     #[tokio::test]

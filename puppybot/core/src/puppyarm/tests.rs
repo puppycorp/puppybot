@@ -168,29 +168,29 @@ fn tool_phi_deg(angles_deg: [f32; JOINT_COUNT]) -> f32 {
 #[test]
 fn fk_zero_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, 0.0);
-    assert_close(x, 63.44578937934318);
-    assert_close(y, 336.54391218549074);
-    assert_close(z, 19.815466954639493);
+    assert_close(x, 53.56857113728445);
+    assert_close(y, 261.22139443443115);
+    assert_close(z, 22.04854867308457);
 }
 
 #[test]
 fn fk_wrist_ninety_pose_matches_calibrated_cad_model() {
     let (x, y, z) = fk(0.0, 0.0, 0.0, PI / 2.0);
-    assert_close(x, 58.65235203296755);
-    assert_close(y, 299.98971638230927);
-    assert_close(z, 58.91569220782238);
+    assert_close(x, 58.36200848366009);
+    assert_close(y, 297.7755902376126);
+    assert_close(z, -17.05167658009831);
 }
 
 #[test]
 fn fk_up_pose_reports_high_positive_z() {
     let (_, _, z) = fk(0.0, PI / 2.0, 0.0, 0.0);
     let (_, _, tilted_z) = fk(0.0, 70.0_f64.to_radians(), 0.0, 0.0);
-    assert_close(z, 361.9356202974086);
+    assert_close(z, 285.9682515094879);
     assert!(z > tilted_z, "raising the straight arm must increase Z");
 }
 
 #[test]
-fn runtime_reference_pose_places_tcp_above_wrist() {
+fn runtime_reference_pose_places_tcp_beneath_wrist() {
     let chain = arm_chain_points(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, FRAC_PI_2);
     let wrist_to_tcp = [
         chain.tcp[0] - chain.wrist[0],
@@ -199,12 +199,12 @@ fn runtime_reference_pose_places_tcp_above_wrist() {
     ];
 
     assert!(
-        (wrist_to_tcp[0] + 1.107).abs() < 0.1 && (wrist_to_tcp[1] - 0.145).abs() < 0.1,
+        (wrist_to_tcp[0] - 1.107).abs() < 0.1 && (wrist_to_tcp[1] + 0.145).abs() < 0.1,
         "reference-pose TCP horizontal offset must match calibrated CAD: {wrist_to_tcp:?}"
     );
     assert!(
-        wrist_to_tcp[2] > 37.0,
-        "reference-pose TCP must point upward above the wrist: {wrist_to_tcp:?}"
+        wrist_to_tcp[2] < -37.0,
+        "reference-pose TCP must point downward beneath the wrist: {wrist_to_tcp:?}"
     );
     assert_close(point_distance(chain.wrist, chain.tcp), ARM_L3_MM);
 }
@@ -772,19 +772,19 @@ fn try_goto_coords_reports_unreachable_target() {
 fn cartesian_target_reports_wrist_limit_separately_from_raw_ik_failure() {
     let mut arm = arm_with_calibrated_simulation_limits();
     let current = arm.coords_mm().expect("current TCP from feedback");
-    assert_close_f32_eps(current.0, 160.45659, 0.001);
-    assert_close_f32_eps(current.1, -1.7270516, 0.001);
-    assert_close_f32_eps(current.2, 73.647224, 0.001);
+    assert_close_f32_eps(current.0, 160.43842, 0.001);
+    assert_close_f32_eps(current.1, -1.7246684, 0.001);
+    assert_close_f32_eps(current.2, 149.6474, 0.001);
 
     let expected = CartesianJointLimitError {
-        candidate_ticks: [1583, 2869, 823, 2391],
+        candidate_ticks: [1583, 2869, 823, 343],
         violations: [
             None,
             None,
             None,
             Some(JointLimitViolation {
                 joint: 3,
-                requested_tick: 2391,
+                requested_tick: 343,
                 tick_min: 2400,
                 tick_max: 3006,
             }),
@@ -812,7 +812,7 @@ fn cartesian_target_reports_wrist_limit_separately_from_raw_ik_failure() {
             Err(ControllerError::CartesianJointLimits(error)) => error,
             other => panic!("expected canonical joint-limit diagnostic, got {other:?}"),
         };
-    assert_eq!(deep_target_error.candidate_ticks, [1583, 2528, 737, 1965]);
+    assert_eq!(deep_target_error.candidate_ticks, [1583, 2528, 737, 4013]);
     assert!(
         deep_target_error
             .candidate_ticks
@@ -828,7 +828,7 @@ fn cartesian_target_reports_wrist_limit_separately_from_raw_ik_failure() {
             None,
             Some(JointLimitViolation {
                 joint: 3,
-                requested_tick: 1965,
+                requested_tick: 4013,
                 tick_min: 2400,
                 tick_max: 3006,
             }),

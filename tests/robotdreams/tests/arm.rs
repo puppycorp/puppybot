@@ -354,16 +354,16 @@ fn assert_vertical_workspace_endpoint_matches_robotdreams(
 #[test]
 fn vertical_workspace_endpoint_analytic_poses_match_robotdreams_world_tcp() {
     // The controller boundary/outward-probe/release behavior is covered in
-    // puppybot-core. Down lies below the collision floor, so this verifies the
-    // exact RobotDreams FK/render transform without stepping collision physics.
+    // puppybot-core. This verifies the exact RobotDreams FK/render transform
+    // without mixing collision response into the endpoint comparison.
     assert_vertical_workspace_endpoint_matches_robotdreams(
         "down",
-        [160.390, -1.718, -17.983],
+        [158.174, -1.428, 58.140],
         [90.0, 118.21289, -119.35547, 32.34375],
     );
     assert_vertical_workspace_endpoint_matches_robotdreams(
         "up",
-        [160.390, -1.718, 178.094],
+        [158.318, -1.447, 253.941],
         [90.0, 92.90039, -70.13672, 106.96289],
     );
 }

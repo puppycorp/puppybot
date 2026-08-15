@@ -12,10 +12,11 @@ pub(crate) const ARM_YAW_TO_SHOULDER_Z_MM: f64 = 20.00000056097148;
 const ARM_YAW_PHASE_RAD: f64 = 1.4404079598246167;
 const ARM_L1_PHASE_RAD: f64 = 0.021156497956719415;
 // Normalize the relative elbow angle so zero means a straight arm. The CAD
-// joint coordinate is offset by PI; keeping that offset in these phases made
-// the physical upright pose report as negative Z.
+// forearm joint coordinate is offset by PI; keeping that offset in the L2
+// phase made the physical upright pose report as negative Z. The wrist/tool
+// phase retains its calibrated mounting offset so tool-down does not reverse.
 const ARM_L2_PHASE_RAD: f64 = -0.0143236565989388;
-const ARM_L3_PHASE_RAD: f64 = -0.0293868130302664;
+const ARM_L3_PHASE_RAD: f64 = -3.1709794666200595;
 
 const NEAR_ZERO_XY: f64 = 1.0e-12;
 

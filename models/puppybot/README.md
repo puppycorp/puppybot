@@ -16,4 +16,5 @@ The semantic arm joints follow the full PuppyBot TCP ancestor chain:
 `revolute_1` wrist. The TCP is attached to `part_1_4`.
 The controller normalizes the CAD elbow coordinate by 180 degrees so semantic
 elbow `0` is straight. The `analyticToUrdf.elbow.offset` includes the inverse
-shift, keeping RobotDreams poses aligned with controller FK/IK.
+shift. The wrist offset preserves the calibrated tool mounting phase, keeping
+RobotDreams poses aligned with controller FK/IK without reversing tool-down.

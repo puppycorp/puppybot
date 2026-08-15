@@ -1,4 +1,9 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    env as process_env,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::Command as ProcessCommand,
+};
 
 use app::{App, AppOptions};
 use clap::Parser;
@@ -16,6 +21,9 @@ mod stservo;
 
 use args::{Cli, Command, DatasetCaptureArgs, RecordArgs};
 
+const NVIDIA_DRIVER_VERSION_PATH: &str = "/proc/driver/nvidia/version";
+const X11_RESTART_MARKER: &str = "PUPPYBOT_SIM_X11_RESTARTED";
+
 fn parse_ui_bind(value: Option<&str>) -> Result<Option<SocketAddr>, String> {
     value
         .map(|bind| {
@@ -29,6 +37,39 @@ fn init_logger() {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .try_init();
+}
+
+fn should_restart_simulation_on_x11(cli: &Cli) -> bool {
+    cfg!(target_os = "linux")
+        && cli.command.is_none()
+        && cli.run.simulated
+        && !cli.run.headless
+        && cli.run.screenshot.is_none()
+        && process_env::var_os(X11_RESTART_MARKER).is_none()
+        && process_env::var_os("WAYLAND_DISPLAY").is_some()
+        && process_env::var_os("DISPLAY").is_some()
+        && Path::new(NVIDIA_DRIVER_VERSION_PATH).is_file()
+}
+
+fn restart_simulation_on_x11(cli: &Cli) -> Result<(), String> {
+    if !should_restart_simulation_on_x11(cli) {
+        return Ok(());
+    }
+
+    log::warn!(
+        "NVIDIA Wayland EGL detected; restarting simulation windows through X11 to avoid a native driver crash"
+    );
+    let status = ProcessCommand::new(
+        process_env::current_exe()
+            .map_err(|err| format!("resolve PuppyBot runtime executable: {err}"))?,
+    )
+    .args(process_env::args_os().skip(1))
+    .env_remove("WAYLAND_DISPLAY")
+    .env_remove("XDG_SESSION_TYPE")
+    .env(X11_RESTART_MARKER, "1")
+    .status()
+    .map_err(|err| format!("restart PuppyBot simulation through X11: {err}"))?;
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 async fn run_record_command(args: RecordArgs) -> Result<(), String> {
@@ -87,10 +128,7 @@ async fn run_dataset_capture_command(args: DatasetCaptureArgs) -> Result<(), Str
     .await
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() {
-    init_logger();
-    let cli = Cli::parse();
+async fn run(cli: Cli) {
     let args = match cli.command {
         Some(Command::Record(args)) => {
             if let Err(err) = run_record_command(args).await {
@@ -232,4 +270,24 @@ async fn main() {
         eprintln!("{err}");
         std::process::exit(1);
     }
+}
+
+fn main() {
+    init_logger();
+    let cli = Cli::parse();
+    if let Err(err) = restart_simulation_on_x11(&cli) {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("failed to start PuppyBot runtime: {err}");
+            std::process::exit(1);
+        }
+    };
+    runtime.block_on(run(cli));
 }

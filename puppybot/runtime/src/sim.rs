@@ -5361,8 +5361,8 @@ mod tests {
         ];
         let wrist_to_tcp_horizontal_m = f32::hypot(wrist_to_tcp[0], wrist_to_tcp[1]);
         assert!(
-            wrist_to_tcp_horizontal_m <= 0.005 && wrist_to_tcp[2] >= 0.035,
-            "the default live feedback pose must put TCP upward above the wrist: \
+            wrist_to_tcp_horizontal_m <= 0.005 && wrist_to_tcp[2] <= -0.035,
+            "the default live feedback pose must put TCP downward beneath the wrist: \
              wrist={:?} tcp={:?} wrist_to_tcp={wrist_to_tcp:?}",
             chain.points_world_m[3],
             chain.points_world_m[4],

@@ -102,11 +102,15 @@ buttons with a base/tool frame toggle and persisted forward/back sign
 calibration. Forward/back use the calibrated inward/outward TCP axis; up/down
 use the controller axis formerly exposed as forward/back and have their own
 persisted sign calibration. Left/right also have an independent persisted sign
-calibration. These send commands to the same runtime robot instance used by
-the WebSocket endpoint.
+calibration. Press-and-hold `Tip Up` and `Tip Down` drive only the wrist joint
+until the tool axis is vertically up or down; releasing early stops the move.
+The other three arm joints remain stopped. These send commands to the same
+runtime robot instance used by the WebSocket endpoint.
 
 The Arm Base robot-relative jog has separate persisted Forward/Back,
 Left/Right, and Up/Down sign calibrations plus its base-yaw rotation.
+Absolute Arm Base Coordinate Move targets preserve the current tool pitch while
+solving the entered X/Y/Z position.
 Arm joint angles use a straight-elbow convention: elbow `0°` aligns the
 forearm with the upper arm. The `Up` joint target (`0 / 90 / 0 / 0`) therefore
 extends the arm upward, and forward kinematics reports a high positive Z.
@@ -149,7 +153,8 @@ default; non-simulation launches continue to default to `./puppybot.json`.
 
 Plain `--sim` also opens the checked-in interactive bottle-to-bin RobotDreams
 scene at `scenarios/bottle_to_bin.robotdreams.template.json`: it contains the
-same water-bottle asset, physics, wrist camera, trash bin, and bin trigger as
+same water-bottle asset, physics, wrist camera, self-contained primitive trash
+bin, and bin trigger as
 the episode runner. Its fixed bottle placement is the runner's seed-42
 placement, so a separately attached detector has a visible target immediately.
 The dynamic bottle uses a five-part authored compound collider (base, body,
@@ -197,6 +202,11 @@ configured independently at backend startup. It also applies to `--screenshot`
 and the TCP camera when the debug flag is present.
 `PUPPYBOT_DEBUG_COLLIDER_OVERLAY=1` remains an equivalent legacy opt-in for
 existing headless capture workflows.
+
+On Linux systems with both NVIDIA and Wayland active, interactive simulation
+windows automatically restart through the available X11 display. This avoids a
+native `libnvidia-egl-wayland` crash in the currently pinned WGPU renderer;
+headless simulation, screenshots, and non-NVIDIA systems are unchanged.
 
 The runtime WebSocket listener also exposes a read-only JSON view for agents and
 scripts:
