@@ -16,6 +16,8 @@ RobotDreams simulation.
 - `android/` contains the direct robot controller app.
 - `robotdreams/`, `models/`, and `tests/robotdreams/` contain the simulation
   project, owned model assets, and integration tests.
+- `experiments/mujoco/` contains an isolated MuJoCo room, TCP-camera API, and
+  firmware-core/Tinygrad visual pickup experiment.
 - `python/` contains STServo discovery, configuration, and service utilities.
 - `design/` contains the editable electronics sources.
 
@@ -88,6 +90,15 @@ ticks, renders exactly the requested number of frames at 50 fps with one PGE
 WGPU renderer, encodes an H.264 MP4 through `gst-launch-1.0`/OpenH264, removes
 its temporary raw frames, prints the final controller/model TCP delta, and
 exits without starting the runtime UI, HTTP, or WebSocket servers.
+
+## Experimental MuJoCo backend
+
+`experiments/mujoco/` provides a second, isolated physics experiment with a
+TCP-mounted camera, browser keyboard controls, and floor bottle. It feeds
+MuJoCo joint feedback through `puppybot-core`, so camera-relative TCP
+corrections use the same Rust arm controller as the ESP32 firmware. See
+[`experiments/mujoco/README.md`](experiments/mujoco/README.md) for build, API,
+Tinygrad controller, and verification commands.
 
 ## ESP32 Rust firmware
 

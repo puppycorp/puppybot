@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PuppyBot MuJoCo Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: #0b1118;
+      color: #edf5ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 24px; }
+    main { width: min(1180px, 100%); margin: 0 auto; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 18px; }
+    h1 { font-size: clamp(24px, 4vw, 42px); margin: 0; letter-spacing: -0.04em; }
+    header p { color: #91a6ba; margin: 6px 0 0; }
+    .status { border: 1px solid #26384a; border-radius: 999px; padding: 8px 13px; color: #91a6ba; white-space: nowrap; }
+    .status.online { color: #68e3ad; border-color: #276348; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+    .views { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; min-width: 0; }
+    .panel { background: #111b26; border: 1px solid #26384a; border-radius: 18px; overflow: hidden; box-shadow: 0 20px 60px #0006; }
+    .camera { position: relative; aspect-ratio: 4 / 3; background: #020507; }
+    .camera img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .camera img.orbit { cursor: grab; touch-action: none; user-select: none; }
+    .camera img.orbit.dragging { cursor: grabbing; }
+    .reticle { position: absolute; inset: 50% auto auto 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); border: 1px solid #ffcb69aa; border-radius: 50%; pointer-events: none; }
+    .reticle::before, .reticle::after { content: ""; position: absolute; background: #ffcb69aa; }
+    .reticle::before { width: 38px; height: 1px; left: -7px; top: 12px; }
+    .reticle::after { width: 1px; height: 38px; left: 12px; top: -7px; }
+    .camera-label { position: absolute; left: 12px; bottom: 10px; padding: 5px 8px; background: #071019cc; border-radius: 6px; color: #a9bdd0; font-size: 12px; }
+    .sidebar { padding: 18px; }
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .12em; color: #91a6ba; margin: 0 0 12px; }
+    .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+    kbd, button { border: 1px solid #354b61; border-radius: 9px; background: #182738; color: #edf5ff; min-height: 44px; }
+    kbd { display: grid; place-items: center; box-shadow: inset 0 -3px #0a1119; font: 600 14px ui-monospace, monospace; }
+    kbd.active { background: #2f855f; border-color: #68e3ad; transform: translateY(1px); box-shadow: none; }
+    .empty { visibility: hidden; }
+    .legend { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; margin: 0 0 18px; font-size: 13px; }
+    .legend dt { color: #ffcb69; font-family: ui-monospace, monospace; }
+    .legend dd { margin: 0; color: #a9bdd0; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    button { cursor: pointer; font-weight: 650; padding: 0 12px; }
+    button:hover { border-color: #68e3ad; }
+    button.danger:hover { border-color: #ff7b72; }
+    pre { margin: 18px 0 0; padding: 12px; min-height: 92px; overflow: auto; background: #09111a; border-radius: 10px; color: #91a6ba; font-size: 12px; }
+    .notice { margin-top: 14px; color: #71869a; font-size: 12px; line-height: 1.5; }
+    @media (max-width: 800px) {
+      body { padding: 12px; }
+      header { align-items: start; flex-direction: column; }
+      .layout, .views { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>PuppyBot MuJoCo</h1>
+        <p>TCP-camera arm control through puppybot-core</p>
+      </div>
+      <div id="connection" class="status">Connecting…</div>
+    </header>
+    <section class="layout">
+      <div class="views">
+        <div class="panel camera">
+          <img id="camera" src="/api/camera/tcp" alt="Live TCP camera">
+          <div class="reticle"></div>
+          <div class="camera-label">TCP CAMERA · 640 × 480</div>
+        </div>
+        <div class="panel camera">
+          <img id="orbit" class="orbit" src="/api/camera/orbit" alt="Movable scene camera" draggable="false">
+          <div class="camera-label">ORBIT · DRAG TO ROTATE · WHEEL TO ZOOM</div>
+        </div>
+      </div>
+      <aside class="panel sidebar">
+        <h2>Hold arrows to drive</h2>
+        <div class="keys" aria-label="Keyboard layout">
+          <kbd class="empty">·</kbd><kbd data-code="ArrowUp">↑</kbd><kbd class="empty">·</kbd>
+          <kbd data-code="ArrowLeft">←</kbd><kbd data-code="ArrowDown">↓</kbd><kbd data-code="ArrowRight">→</kbd>
+        </div>
+        <h2>Hold keys to jog arm</h2>
+        <div class="keys" aria-label="Arm keyboard layout">
+          <kbd data-code="KeyQ">Q</kbd><kbd data-code="KeyW">W</kbd><kbd data-code="KeyE">E</kbd>
+          <kbd data-code="KeyA">A</kbd><kbd data-code="KeyS">S</kbd><kbd data-code="KeyD">D</kbd>
+        </div>
+        <dl class="legend">
+          <dt>↑ / ↓</dt><dd>Drive rover forward / reverse</dd>
+          <dt>← / →</dt><dd>Turn rover left / right</dd>
+          <dt>W / S</dt><dd>Arm camera image up / down</dd>
+          <dt>A / D</dt><dd>Arm camera image left / right</dd>
+          <dt>Q / E</dt><dd>Arm optical forward / backward</dd>
+          <dt>Space</dt><dd>Stop rover and arm immediately</dd>
+          <dt>G / O</dt><dd>Close / open gripper</dd>
+        </dl>
+        <div class="actions">
+          <button id="grasp">Close gripper (G)</button>
+          <button id="release">Open gripper (O)</button>
+          <button id="stop" class="danger">Stop (Space)</button>
+          <button id="reset" class="danger">Reset scene</button>
+        </div>
+        <pre id="telemetry">Waiting for state…</pre>
+        <div class="notice">The rover uses a planar differential-drive approximation. The arm still routes through puppybot-core. The page is available only through the loopback server.</div>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const JOG_MM = 6;
+    const BASE_LINEAR_MPS = 0.22;
+    const BASE_ANGULAR_RADPS = 1.2;
+    const heldBase = new Set();
+    const heldArm = new Set();
+    const baseCodes = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+    const armCodes = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"]);
+    const camera = document.querySelector("#camera");
+    const orbit = document.querySelector("#orbit");
+    const connection = document.querySelector("#connection");
+    const telemetry = document.querySelector("#telemetry");
+    let armJogInFlight = false;
+    let baseDriveInFlight = false;
+    let orbitAzimuth = 135;
+    let orbitElevation = -25;
+    let orbitDistance = 0.8;
+    let orbitPointer = null;
+    let orbitX = 0;
+    let orbitY = 0;
+
+    async function post(path, body = {}) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `${response.status}`);
+      return payload;
+    }
+
+    function setKeyState(code, active) {
+      document.querySelectorAll(`[data-code="${code}"]`).forEach(key => key.classList.toggle("active", active));
+    }
+
+    async function stopArm() {
+      heldArm.clear();
+      armCodes.forEach(code => setKeyState(code, false));
+      try { await post("/api/arm/stop"); } catch (error) { connection.textContent = error.message; }
+    }
+
+    async function stopBase() {
+      heldBase.clear();
+      baseCodes.forEach(code => setKeyState(code, false));
+      try { await post("/api/base/stop"); } catch (error) { connection.textContent = error.message; }
+    }
+
+    async function stopMotion() {
+      setKeyState("Space", true);
+      await Promise.all([stopArm(), stopBase()]);
+      setTimeout(() => setKeyState("Space", false), 120);
+    }
+
+    function jogVector() {
+      const axis = (positive, negative) => Number(held.has(positive)) - Number(held.has(negative));
+      return [
+        JOG_MM * axis("KeyD", "KeyA"),
+        JOG_MM * axis("KeyW", "KeyS"),
+        JOG_MM * axis("KeyQ", "KeyE"),
+      ];
+    }
+
+    async function sendJog() {
+      if (armJogInFlight || heldArm.size === 0) return;
+      const vector = jogVector();
+      if (vector.every(value => value === 0)) return;
+      armJogInFlight = true;
+      try {
+        await post("/api/arm/tcp-jog", {cameraDeltaMm: vector});
+      } catch (error) {
+        connection.textContent = `Jog rejected: ${error.message}`;
+        await stopArm();
+      } finally {
+        armJogInFlight = false;
+      }
+    }
+
+    async function sendDrive() {
+      if (baseDriveInFlight || heldBase.size === 0) return;
+      const axis = (positive, negative) => Number(heldBase.has(positive)) - Number(heldBase.has(negative));
+      const command = {
+        linearMps: BASE_LINEAR_MPS * axis("ArrowUp", "ArrowDown"),
+        angularRadps: BASE_ANGULAR_RADPS * axis("ArrowLeft", "ArrowRight"),
+      };
+      if (command.linearMps === 0 && command.angularRadps === 0) return;
+      baseDriveInFlight = true;
+      try {
+        await post("/api/base/drive", command);
+      } catch (error) {
+        connection.textContent = `Drive rejected: ${error.message}`;
+        await stopBase();
+      } finally {
+        baseDriveInFlight = false;
+      }
+    }
+
+    async function updateState() {
+      try {
+        const response = await fetch("/api/state", {cache: "no-store"});
+        const state = await response.json();
+        connection.textContent = state.arm.settled ? "Online · settled" : "Online · moving";
+        connection.classList.add("online");
+        telemetry.textContent = [
+          `TCP world: ${state.arm.tcpWorldM.map(value => value.toFixed(3)).join(", ")} m`,
+          `Base: ${state.base.pose.xM.toFixed(3)}, ${state.base.pose.yM.toFixed(3)} m · ${(state.base.pose.yawRad * 180 / Math.PI).toFixed(1)}°`,
+          `Joints: ${state.arm.actualJointDeg.map(value => value.toFixed(1)).join("°, ")}°`,
+          `Bottle: ${state.gripper.bottleAttached ? "attached" : "released"}`,
+          `Controller: ${state.controller}`,
+        ].join("\n");
+      } catch (error) {
+        connection.textContent = "Disconnected";
+        connection.classList.remove("online");
+      }
+    }
+
+    document.addEventListener("keydown", async event => {
+      if (baseCodes.has(event.code)) {
+        event.preventDefault();
+        heldBase.add(event.code);
+        setKeyState(event.code, true);
+      } else if (armCodes.has(event.code)) {
+        event.preventDefault();
+        heldArm.add(event.code);
+        setKeyState(event.code, true);
+      } else if (event.code === "Space") {
+        event.preventDefault();
+        await stopMotion();
+      } else if (event.code === "KeyG" && !event.repeat) {
+        await post("/api/gripper/close");
+      } else if (event.code === "KeyO" && !event.repeat) {
+        await post("/api/gripper/open");
+      }
+    });
+
+    document.addEventListener("keyup", event => {
+      if (baseCodes.has(event.code)) {
+        heldBase.delete(event.code);
+        setKeyState(event.code, false);
+        if (heldBase.size === 0) stopBase();
+      } else if (armCodes.has(event.code)) {
+        heldArm.delete(event.code);
+        setKeyState(event.code, false);
+        if (heldArm.size === 0) stopArm();
+      }
+    });
+    window.addEventListener("blur", stopMotion);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) stopMotion(); });
+    document.querySelector("#grasp").addEventListener("click", () => post("/api/gripper/close"));
+    document.querySelector("#release").addEventListener("click", () => post("/api/gripper/open"));
+    document.querySelector("#stop").addEventListener("click", stopMotion);
+    document.querySelector("#reset").addEventListener("click", async () => { await stopMotion(); await post("/api/reset"); });
+
+    orbit.addEventListener("pointerdown", event => {
+      orbitPointer = event.pointerId;
+      orbitX = event.clientX;
+      orbitY = event.clientY;
+      orbit.setPointerCapture(event.pointerId);
+      orbit.classList.add("dragging");
+    });
+    orbit.addEventListener("pointermove", event => {
+      if (event.pointerId !== orbitPointer) return;
+      orbitAzimuth = Math.max(-360, Math.min(360, orbitAzimuth - (event.clientX - orbitX) * 0.5));
+      orbitElevation = Math.max(-85, Math.min(10, orbitElevation - (event.clientY - orbitY) * 0.35));
+      orbitX = event.clientX;
+      orbitY = event.clientY;
+    });
+    orbit.addEventListener("pointerup", event => {
+      if (event.pointerId !== orbitPointer) return;
+      orbitPointer = null;
+      orbit.classList.remove("dragging");
+    });
+    orbit.addEventListener("wheel", event => {
+      event.preventDefault();
+      orbitDistance = Math.max(0.3, Math.min(2.5, orbitDistance * Math.exp(event.deltaY * 0.001)));
+    }, {passive: false});
+
+    setInterval(sendJog, 140);
+    setInterval(sendDrive, 140);
+    setInterval(updateState, 250);
+    setInterval(() => { camera.src = `/api/camera/tcp?t=${Date.now()}`; }, 160);
+    setInterval(() => {
+      const query = new URLSearchParams({
+        azimuth: orbitAzimuth.toFixed(2),
+        elevation: orbitElevation.toFixed(2),
+        distance: orbitDistance.toFixed(3),
+        t: Date.now(),
+      });
+      orbit.src = `/api/camera/orbit?${query}`;
+    }, 160);
+    updateState();
+  </script>
+</body>
+</html>

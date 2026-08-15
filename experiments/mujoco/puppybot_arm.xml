@@ -1,0 +1,89 @@
+<mujoco model="PuppyBot arm experiment">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+
+  <default>
+    <joint damping="0.08" armature="0.01"/>
+    <geom friction="0.8 0.02 0.002" solref="0.01 1"/>
+    <default class="arm">
+      <geom type="capsule" size="0.014" density="780" contype="2" conaffinity="1" rgba="0.87 0.48 0.16 1"/>
+    </default>
+  </default>
+
+  <visual>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.75 0.75 0.75" specular="0.2 0.2 0.2"/>
+    <rgba haze="0.15 0.22 0.29 1"/>
+    <global azimuth="135" elevation="-25"/>
+    <map znear="0.005"/>
+  </visual>
+
+  <worldbody>
+    <light pos="0 -1 2" dir="0 0 -1" directional="true"/>
+    <geom name="floor" type="plane" size="1 1 0.02" contype="1" conaffinity="2" rgba="0.34 0.31 0.27 1"/>
+    <geom name="wall_north" type="box" pos="0 1 1.25" size="1 0.025 1.25" contype="1" conaffinity="2" rgba="0.72 0.69 0.62 1"/>
+    <geom name="wall_south" type="box" pos="0 -1 1.25" size="1 0.025 1.25" contype="1" conaffinity="2" rgba="0.72 0.69 0.62 1"/>
+    <geom name="wall_east" type="box" pos="1 0 1.25" size="0.025 1 1.25" contype="1" conaffinity="2" rgba="0.66 0.64 0.58 1"/>
+    <geom name="wall_west" type="box" pos="-1 0 1.25" size="0.025 1 1.25" contype="1" conaffinity="2" rgba="0.66 0.64 0.58 1"/>
+
+    <!-- The lower body uses the prototype dimensions already reviewed for RobotDreams. -->
+    <body name="base" pos="0 0 0.065">
+      <joint name="base_x" type="slide" axis="1 0 0" damping="0" armature="0" frictionloss="1000"/>
+      <joint name="base_y" type="slide" axis="0 1 0" damping="0" armature="0" frictionloss="1000"/>
+      <joint name="base_yaw" type="hinge" axis="0 0 1" damping="0" armature="0" frictionloss="1000"/>
+      <geom type="box" size="0.14 0.1076 0.027" contype="0" conaffinity="0" mass="2.4" rgba="0.13 0.19 0.25 1"/>
+      <geom type="cylinder" pos="0.085 -0.125 -0.027" euler="1.5707963 0 0" size="0.0325 0.015" contype="0" conaffinity="0" rgba="0.08 0.08 0.08 1"/>
+      <geom type="cylinder" pos="0.085 0.125 -0.027" euler="1.5707963 0 0" size="0.0325 0.015" contype="0" conaffinity="0" rgba="0.08 0.08 0.08 1"/>
+      <geom type="cylinder" pos="-0.135 -0.125 -0.027" euler="1.5707963 0 0" size="0.0325 0.015" contype="0" conaffinity="0" rgba="0.08 0.08 0.08 1"/>
+      <geom type="cylinder" pos="-0.135 0.125 -0.027" euler="1.5707963 0 0" size="0.0325 0.015" contype="0" conaffinity="0" rgba="0.08 0.08 0.08 1"/>
+
+      <!--
+        This frame and the phase rotations come from models/puppybot/robotdreams.json
+        and puppybot/core/src/puppyarm/kinematics.rs. Joint coordinates therefore use
+        Puppybot's public yaw/shoulder/elbow/wrist convention directly.
+      -->
+      <body name="arm_base" pos="0.0369572 -0.00974321 0.0589591" euler="0 0 0.1248338">
+        <body name="yaw_link" euler="0 0 1.4404079598246167">
+          <joint name="yaw" type="hinge" axis="0 0 1" range="-0.7516505860639642 3.74444710322885"/>
+          <geom type="cylinder" size="0.025 0.018" density="780" contype="2" conaffinity="1" rgba="0.3 0.35 0.4 1"/>
+
+          <body name="shoulder_link" pos="0.0000007026911535 -0.0191500502291261 0.0200000005609715" euler="0 -0.0211564979567194 0">
+            <joint name="shoulder" type="hinge" axis="0 -1 0" range="0.0766990393942821 3.021942152134713"/>
+            <geom class="arm" fromto="0 0 0 0.149000901358234 0 0"/>
+
+            <body name="elbow_link" pos="0.149000901358234 0 0" euler="0 -3.106112499034135 0">
+              <joint name="elbow" type="hinge" axis="0 1 0" range="0.8068738944278473 5.459437624084996"/>
+              <geom class="arm" fromto="0 0 0 0.155000279158917 0 0" rgba="0.94 0.59 0.2 1"/>
+
+              <body name="wrist_link" pos="0.155000279158917 0 0" euler="0 6.298248463610914 0">
+                <joint name="wrist" type="hinge" axis="0 -1 0" range="-2.087747852312358 2.063204159706187"/>
+                <geom class="arm" fromto="0 0 0 0.0380000913634468 0 0" rgba="0.95 0.72 0.25 1"/>
+                <site name="tcp" pos="0.0380000913634468 0 0" size="0.00001" rgba="0.1 0.9 0.9 0"/>
+                <!-- Camera -Z looks along tool +X; image right is +Y and image up is -Z. -->
+                <camera name="tcp_camera" pos="0.0380000913634468 0 0" xyaxes="0 1 0 0 0 -1" fovy="70"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <body name="bottle" pos="0.34 0.025 0.061">
+      <freejoint name="bottle_free"/>
+      <geom name="bottle_body" type="cylinder" size="0.025 0.055" mass="0.045" contype="2" conaffinity="1" rgba="0.12 0.56 0.82 1"/>
+      <geom name="bottle_neck" type="cylinder" pos="0 0 0.064" size="0.012 0.014" mass="0.004" contype="2" conaffinity="1" rgba="0.73 0.86 0.94 1"/>
+      <geom name="bottle_cap" type="cylinder" pos="0 0 0.082" size="0.014 0.005" mass="0.001" contype="2" conaffinity="1" rgba="0.08 0.24 0.42 1"/>
+      <site name="bottle_grasp" pos="0 0 0" size="0.00001" rgba="0 0 0 0"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="yaw_servo" joint="yaw" kp="24" kv="2.0" ctrlrange="-0.7516505860639642 3.74444710322885" forcerange="-4 4"/>
+    <position name="shoulder_servo" joint="shoulder" kp="32" kv="2.5" ctrlrange="0.0766990393942821 3.021942152134713" forcerange="-5 5"/>
+    <position name="elbow_servo" joint="elbow" kp="24" kv="2.0" ctrlrange="0.8068738944278473 5.459437624084996" forcerange="-4 4"/>
+    <position name="wrist_servo" joint="wrist" kp="12" kv="1.0" ctrlrange="-2.087747852312358 2.063204159706187" forcerange="-2 2"/>
+  </actuator>
+
+  <keyframe>
+    <key name="ready" qpos="0 0 0 1.5707963267948966 0.6981317007977318 1.5707963267948966 1.6231562043547265 0.34 0.025 0.061 1 0 0 0" ctrl="1.5707963267948966 0.6981317007977318 1.5707963267948966 1.6231562043547265"/>
+  </keyframe>
+</mujoco>
