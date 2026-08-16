@@ -5937,13 +5937,6 @@ mod tests {
             .clone()
             .expect("gripper-base location");
 
-        for (gripper_component, tcp_component) in gripper.position.into_iter().zip(tcp.position) {
-            assert!(
-                (gripper_component - tcp_component).abs() < 1.0e-6,
-                "gripper origin {gripper:?} must match TCP {tcp:?}"
-            );
-        }
-
         let tcp_rotation = RigidTransform::from_translation_rpy(
             [0.0, 0.0, 0.0],
             tcp.rotation.expect("TCP rotation"),
@@ -5954,8 +5947,22 @@ mod tests {
             gripper.rotation.expect("gripper rotation"),
         )
         .rotation;
+        let flange_offset = matrix_vector(gripper_rotation, [0.0, -0.034, 0.0]);
+        let gripper_flange = [
+            gripper.position[0] + flange_offset[0],
+            gripper.position[1] + flange_offset[1],
+            gripper.position[2] + flange_offset[2],
+        ];
+
+        for (gripper_component, tcp_component) in gripper_flange.into_iter().zip(tcp.position) {
+            assert!(
+                (gripper_component - tcp_component).abs() < 1.0e-6,
+                "gripper rear flange must match TCP {tcp:?}; gripper pose is {gripper:?}"
+            );
+        }
+
         let tcp_forward = matrix_vector(tcp_rotation, [1.0, 0.0, 0.0]);
-        let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, -1.0, 0.0]);
+        let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, 1.0, 0.0]);
         for (gripper_component, tcp_component) in
             gripper_finger_direction.into_iter().zip(tcp_forward)
         {
