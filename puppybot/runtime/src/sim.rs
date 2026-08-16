@@ -5919,7 +5919,7 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_gripper_mount_matches_tcp_and_points_up() {
+    fn adaptive_gripper_mount_is_centered_on_wrist_and_points_up() {
         let backend = SimulatedRuntimeBackend::new(
             SimulatedRuntimeBackend::default_project_path(),
             &PuppybotConfigV1::default(),
@@ -5927,19 +5927,18 @@ mod tests {
         .expect("open PuppyBot fixture with adaptive gripper");
         let state = backend.state.lock().expect("simulation state");
         let robot = state.dreams.robot_state(ROBOT_ID).expect("robot state");
-        let tcp = robot
-            .tcp
-            .expect("PuppyBot TCP")
+        let wrist = robot.links["part_1_4"]
             .location
-            .expect("TCP location");
+            .clone()
+            .expect("wrist location");
         let gripper = robot.links["gripper_base"]
             .location
             .clone()
             .expect("gripper-base location");
 
-        let tcp_rotation = RigidTransform::from_translation_rpy(
+        let wrist_rotation = RigidTransform::from_translation_rpy(
             [0.0, 0.0, 0.0],
-            tcp.rotation.expect("TCP rotation"),
+            wrist.rotation.expect("wrist rotation"),
         )
         .rotation;
         let gripper_rotation = RigidTransform::from_translation_rpy(
@@ -5947,24 +5946,33 @@ mod tests {
             gripper.rotation.expect("gripper rotation"),
         )
         .rotation;
-        let flange_offset = matrix_vector(gripper_rotation, [0.0, -0.034, 0.0]);
+        let flange_offset = matrix_vector(gripper_rotation, [0.0, -0.03232, 0.00185]);
         let gripper_flange = [
             gripper.position[0] + flange_offset[0],
             gripper.position[1] + flange_offset[1],
             gripper.position[2] + flange_offset[2],
         ];
+        let wrist_mount_offset = matrix_vector(wrist_rotation, [0.038, 0.0, -0.007]);
+        let wrist_mount = [
+            wrist.position[0] + wrist_mount_offset[0],
+            wrist.position[1] + wrist_mount_offset[1],
+            wrist.position[2] + wrist_mount_offset[2],
+        ];
 
-        for (gripper_component, tcp_component) in gripper_flange.into_iter().zip(tcp.position) {
+        for (gripper_component, wrist_component) in gripper_flange.into_iter().zip(wrist_mount) {
             assert!(
-                (gripper_component - tcp_component).abs() < 1.0e-6,
-                "gripper rear flange must match TCP {tcp:?}; gripper pose is {gripper:?}"
+                (gripper_component - wrist_component).abs() < 1.0e-6,
+                "gripper rear face must be centered on wrist mount {wrist_mount:?}; \
+                 gripper pose is {gripper:?}"
             );
         }
 
-        let tcp_up = matrix_vector(tcp_rotation, [0.0, 0.0, -1.0]);
+        let wrist_up = matrix_vector(wrist_rotation, [0.0, 0.0, -1.0]);
         let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, 1.0, 0.0]);
-        for (gripper_component, tcp_component) in gripper_finger_direction.into_iter().zip(tcp_up) {
-            assert!((gripper_component - tcp_component).abs() < 1.0e-5);
+        for (gripper_component, wrist_component) in
+            gripper_finger_direction.into_iter().zip(wrist_up)
+        {
+            assert!((gripper_component - wrist_component).abs() < 1.0e-5);
         }
     }
 

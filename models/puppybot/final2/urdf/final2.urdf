@@ -4916,12 +4916,12 @@
     </link>
     <joint name="part_1_4_to_gripper_base" type="fixed">
         <!--
-            Elephant Robotics mounts the gripper-base origin 34 mm ahead of
-            the flange. Put that rear flange at the configured TCP and map
-            vendor +Y (the finger direction) to TCP -Z (world-up in the
-            nominal wrist pose).
+            Center the gripper mesh's actual rear face on the part_1_4 wrist
+            flange. Vendor +Y (the finger direction) maps to wrist -Z, which
+            is world-up in the nominal pose. The configured TCP is a tool-tip
+            target, not the wrist's mechanical mounting surface.
         -->
-        <origin xyz="0.0383 0 -0.079" rpy="-1.5708 0 0" />
+        <origin xyz="0.038 -0.00185 -0.03932" rpy="-1.5708 0 0" />
         <parent link="part_1_4" />
         <child link="gripper_base" />
     </joint>
