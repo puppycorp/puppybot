@@ -4915,7 +4915,8 @@
         </visual>
     </link>
     <joint name="part_1_4_to_gripper_base" type="fixed">
-        <origin xyz="0.0383 0 -0.045" rpy="0.866 0 1.5708" />
+        <!-- Mount at the configured TCP; vendor -Y (finger direction) maps to TCP +X. -->
+        <origin xyz="0.0383 0 -0.045" rpy="0 0 1.5708" />
         <parent link="part_1_4" />
         <child link="gripper_base" />
     </joint>

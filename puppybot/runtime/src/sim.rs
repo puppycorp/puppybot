@@ -5919,6 +5919,51 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_gripper_mount_matches_tcp_and_points_forward() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open PuppyBot fixture with adaptive gripper");
+        let state = backend.state.lock().expect("simulation state");
+        let robot = state.dreams.robot_state(ROBOT_ID).expect("robot state");
+        let tcp = robot
+            .tcp
+            .expect("PuppyBot TCP")
+            .location
+            .expect("TCP location");
+        let gripper = robot.links["gripper_base"]
+            .location
+            .clone()
+            .expect("gripper-base location");
+
+        for (gripper_component, tcp_component) in gripper.position.into_iter().zip(tcp.position) {
+            assert!(
+                (gripper_component - tcp_component).abs() < 1.0e-6,
+                "gripper origin {gripper:?} must match TCP {tcp:?}"
+            );
+        }
+
+        let tcp_rotation = RigidTransform::from_translation_rpy(
+            [0.0, 0.0, 0.0],
+            tcp.rotation.expect("TCP rotation"),
+        )
+        .rotation;
+        let gripper_rotation = RigidTransform::from_translation_rpy(
+            [0.0, 0.0, 0.0],
+            gripper.rotation.expect("gripper rotation"),
+        )
+        .rotation;
+        let tcp_forward = matrix_vector(tcp_rotation, [1.0, 0.0, 0.0]);
+        let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, -1.0, 0.0]);
+        for (gripper_component, tcp_component) in
+            gripper_finger_direction.into_iter().zip(tcp_forward)
+        {
+            assert!((gripper_component - tcp_component).abs() < 1.0e-5);
+        }
+    }
+
+    #[test]
     fn dynamic_bottle_pickup_release_reaches_bin_through_runtime_interfaces() {
         const ARM_SETTLE_STEPS: usize = 250;
         const DRIVE_STEPS: usize = 100;
