@@ -984,7 +984,7 @@ impl SimulatedRuntimeBackend {
                         format!("CTRL TGT TCP ARM MM X {x:.1} Y {y:.1} Z {z:.1}"),
                     );
                 }
-                for (index, joint) in arm.joints.iter().enumerate() {
+                for (index, joint) in arm.joints.iter().take(JOINT_COUNT).enumerate() {
                     push_overlay_label(
                         &mut labels,
                         format!("joint_{index}"),
@@ -2710,7 +2710,7 @@ fn controller_arm_chain_world_m(
     frames: SimulationFrameTransforms,
 ) -> Option<ControllerArmChain> {
     let mut angles = [0.0; JOINT_COUNT];
-    for (index, joint) in telemetry.joints.iter().enumerate() {
+    for (index, joint) in telemetry.joints.iter().take(JOINT_COUNT).enumerate() {
         if !joint.has_feedback {
             return None;
         }

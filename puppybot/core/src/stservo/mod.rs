@@ -6,6 +6,11 @@ pub const DEFAULT_BAUD: u32 = 1_000_000;
 pub const MIN_SERVO_ID: u8 = 1;
 pub const MAX_SERVO_ID: u8 = 253;
 pub const MAX_POSITION: u16 = 4095;
+pub const STATUS_INPUT_VOLTAGE: u8 = 1 << 0;
+pub const STATUS_ANGLE_SENSOR: u8 = 1 << 1;
+pub const STATUS_OVERHEAT: u8 = 1 << 2;
+pub const STATUS_OVERCURRENT: u8 = 1 << 3;
+pub const STATUS_OVERLOAD: u8 = 1 << 5;
 
 const HEADER: [u8; 2] = [0xff, 0xff];
 const BROADCAST_ID: u8 = 0xfe;
@@ -37,6 +42,13 @@ pub enum Error<E> {
 }
 
 impl<E> Error<E> {
+    pub const fn status(&self) -> Option<u8> {
+        match self {
+            Self::Status(status) => Some(*status),
+            _ => None,
+        }
+    }
+
     fn with_error<T>(self) -> Error<T> {
         match self {
             Self::InvalidId => Error::InvalidId,

@@ -839,6 +839,7 @@ pub fn runtime_config() -> PuppybotConfigV1 {
         },
         arm: PuppyArmConfig {
             joints: core::array::from_fn(|index| joint_value(&root, index)),
+            gripper: None,
         },
         coordinate: CoordinateCalibration {
             forward_sign: i8_value(&root, &["coordinate", "forward_sign"]),

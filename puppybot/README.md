@@ -133,7 +133,12 @@ another file in either mode, pass `--config` or set `PUPPYBOT_RUNTIME_CONFIG`:
 The runtime UI can adjust arm joint soft tick limits live. Click
 `Save Calibration` after testing the new limits to write them to the configured
 JSON file. The runtime writes a normalized `puppybot.json` atomically via a temp
-file and rename.
+file and rename. A configured `arm.gripper` appears as a fifth Arm Jog row with
+the same press-and-hold `-`/`+`, `Stop`, `Zero`, calibration, soft-limit, and
+servo-status controls as the four pose joints. The physical profile uses
+STServo ID 7 and wheel mode. Set `"gripper": null` to disable it, as the
+checked-in simulation profile does; older physical configs without the field
+default to servo 7.
 
 Cartesian Preview, Move, and API errors distinguish a geometrically unreachable
 target from a raw-reachable target blocked by enabled joint soft limits. Limit
@@ -271,7 +276,17 @@ The response includes the active config path, dirty flag, and normalized config.
         "drive_sign": 1,
         "limit_enabled": true
       }
-    ]
+    ],
+    "gripper": {
+      "servo_id": 7,
+      "tick_min": 0,
+      "tick_max": 4095,
+      "reference_tick": 2048,
+      "reference_angle_deg": 0.0,
+      "angle_sign": 1,
+      "drive_sign": 1,
+      "limit_enabled": true
+    }
   }
 }
 ```
@@ -487,6 +502,7 @@ cargo run -p puppybot -- ping
 cargo run -p puppybot -- config get
 cargo run -p puppybot -- arm state
 cargo run -p puppybot -- arm jog --joint 0 --direction 1 --speed 300 --duration-ms 500
+cargo run -p puppybot -- arm jog --joint 4 --direction 1 --speed 100 --duration-ms 500
 cargo run -p puppybot -- arm stop --joint 0
 cargo run -p puppybot -- arm goto-ticks --speed 300 2048 2048 2048 2048
 cargo run -p puppybot -- arm move-tcp --up 20
@@ -500,6 +516,9 @@ default frame is `base`, where `up/down` use table Z, `forward/back` use the
 robot base X axis, and `left/right` use the robot base Y axis. With
 `--frame tool`, `forward/back` follows the gripper approach axis and the current
 tool pitch is preserved.
+
+Arm CLI indices remain zero-based: joints `0..3` are yaw through wrist and
+joint `4` is the optional gripper.
 
 `arm tcp-jog start` starts continuous TCP motion in the given direction at
 `--speed-mm-s` until `arm tcp-jog stop` is sent. Passing `--duration-ms` makes

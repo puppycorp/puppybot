@@ -25,6 +25,7 @@ pub struct PuppybotConfigV1 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PuppyArmConfig {
     pub joints: [JointCalibration; JOINT_COUNT],
+    pub gripper: Option<JointCalibration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +92,10 @@ fn default_joint(
     }
 }
 
+pub fn default_gripper_calibration() -> JointCalibration {
+    default_joint(7, 0, TICK_WRAP - 1, 2048, 0.0, 1, 1)
+}
+
 impl core::fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -151,6 +156,7 @@ impl Default for PuppyArmConfig {
                 default_joint(3, ELBOW_TICK_MIN, ELBOW_TICK_MAX, 3565, 0.0, -1, 1),
                 default_joint(4, TIP_TICK_MIN, TIP_TICK_MAX, 1783, 0.0, 1, 1),
             ],
+            gripper: Some(default_gripper_calibration()),
         }
     }
 }
@@ -177,6 +183,13 @@ impl PuppyArmConfig {
                 return Err(ConfigError::DuplicateServoId);
             }
             seen[servo_index] = true;
+        }
+        if let Some(gripper) = self.gripper {
+            gripper.validate()?;
+            let servo_index = gripper.servo_id as usize;
+            if seen[servo_index] {
+                return Err(ConfigError::DuplicateServoId);
+            }
         }
         Ok(())
     }
@@ -303,6 +316,7 @@ mod tests {
             drive: DriveConfig::default(),
             arm: PuppyArmConfig {
                 joints: [joint(1), joint(2), joint(3), joint(4)],
+                gripper: None,
             },
             coordinate: CoordinateCalibration::default(),
         }

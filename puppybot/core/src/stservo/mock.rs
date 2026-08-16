@@ -24,6 +24,7 @@ pub struct FakeServo {
     pub wheel_speed: i16,
     pub voltage_raw: u8,
     pub temperature_c: u8,
+    pub status_error: u8,
     pub online: bool,
 }
 
@@ -36,6 +37,7 @@ impl FakeServo {
             wheel_speed: 0,
             voltage_raw: 74,
             temperature_c: 25,
+            status_error: 0,
             online: true,
         }
     }
@@ -138,6 +140,12 @@ impl FakeSerialBus {
         }
     }
 
+    pub fn set_status_error(&mut self, servo_id: u8, status_error: u8) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.status_error = status_error;
+        }
+    }
+
     fn servo_mut(&mut self, id: u8) -> Option<&mut FakeServo> {
         self.servos
             .iter_mut()
@@ -178,9 +186,10 @@ impl FakeSerialBus {
         if !servo.online {
             return Ok(());
         }
+        let status_error = servo.status_error;
 
         match instruction {
-            INST_PING => self.queue_status(id, 0, &[])?,
+            INST_PING => self.queue_status(id, status_error, &[])?,
             INST_READ => {
                 if params.len() < 2 {
                     return Err(FakeBusError::BadPacket);
@@ -210,7 +219,7 @@ impl FakeSerialBus {
                     }
                     _ => return Err(FakeBusError::BadPacket),
                 };
-                self.queue_status(id, 0, response)?;
+                self.queue_status(id, status_error, response)?;
             }
             INST_WRITE => {
                 if params.is_empty() {
@@ -237,7 +246,7 @@ impl FakeSerialBus {
                     }
                     _ => {}
                 }
-                self.queue_status(id, 0, &[])?;
+                self.queue_status(id, status_error, &[])?;
             }
             _ => return Err(FakeBusError::BadPacket),
         }

@@ -10,6 +10,7 @@ use puppybot_core::config::PUPPYBOT_CONFIG_VERSION;
 use puppybot_core::{
     config::{
         CoordinateCalibration, JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
+        default_gripper_calibration,
     },
     drive::DriveConfig,
     puppyarm::types::JOINT_COUNT,
@@ -111,6 +112,7 @@ fn config_json(config: &PuppybotConfigV1) -> Value {
         },
         "arm": {
             "joints": config.arm.joints.iter().map(joint_json).collect::<Vec<_>>(),
+            "gripper": config.arm.gripper.as_ref().map(joint_json),
         },
         "coordinate": {
             "forward_sign": config.coordinate.forward_sign,
@@ -179,7 +181,15 @@ fn arm_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<PuppyA
     for (index, value) in joints.iter().enumerate() {
         parsed[index] = joint_field(value, index)?;
     }
-    Ok(PuppyArmConfig { joints: parsed })
+    let gripper = match arm.get("gripper") {
+        Some(Value::Null) => None,
+        Some(value) => Some(named_joint_field(value, "arm.gripper")?),
+        None => Some(default_gripper_calibration()),
+    };
+    Ok(PuppyArmConfig {
+        joints: parsed,
+        gripper,
+    })
 }
 
 fn array_field<'a>(
@@ -332,9 +342,8 @@ fn joint(servo_id: u8) -> JointCalibration {
     }
 }
 
-fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> {
-    let name = format!("arm.joints[{index}]");
-    let joint = object(value, &name)?;
+fn named_joint_field(value: &Value, name: &str) -> Result<JointCalibration, String> {
+    let joint = object(value, name)?;
     let tick_min = compatible_i32_field(joint, "tick_min", "soft_tick_min")?;
     let tick_max = compatible_i32_field(joint, "tick_max", "soft_tick_max")?;
     Ok(JointCalibration {
@@ -347,6 +356,11 @@ fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> 
         drive_sign: i8_sign_field(joint, "drive_sign")?,
         limit_enabled: bool_field(joint, "limit_enabled")?,
     })
+}
+
+fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> {
+    let name = format!("arm.joints[{index}]");
+    named_joint_field(value, &name)
 }
 
 fn object<'a>(value: &'a Value, name: &str) -> Result<&'a serde_json::Map<String, Value>, String> {
@@ -481,7 +495,61 @@ mod tests {
         assert_eq!(config.arm.servo_ids(), [11, 12, 13, 14]);
         assert_eq!(config.arm.joints[1].tick_min, 100);
         assert_eq!(config.arm.joints[1].tick_max, 1000);
+        assert_eq!(config.arm.gripper, Some(default_gripper_calibration()));
         assert_eq!(config.coordinate, CoordinateCalibration::default());
+    }
+
+    #[test]
+    fn explicit_null_gripper_disables_it() {
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            "\n                ],\n                \"gripper\": null\n            }",
+        );
+
+        let config = parse_config_json(&json).unwrap();
+
+        assert_eq!(config.arm.gripper, None);
+        let saved = runtime_config_json(&config).unwrap();
+        assert!(saved.contains("\"gripper\": null"));
+    }
+
+    #[test]
+    fn configured_gripper_round_trips_and_must_have_a_unique_servo_id() {
+        let gripper = r#"{
+                    "servo_id": 7,
+                    "tick_min": 1200,
+                    "tick_max": 2800,
+                    "reference_tick": 2100,
+                    "reference_angle_deg": 0.0,
+                    "angle_sign": -1,
+                    "drive_sign": 1,
+                    "limit_enabled": true
+                }"#;
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            &format!(
+                "\n                ],\n                \"gripper\": {gripper}\n            }}"
+            ),
+        );
+
+        let config = parse_config_json(&json).unwrap();
+        let parsed_gripper = config.arm.gripper.expect("configured gripper");
+        assert_eq!(parsed_gripper.servo_id, 7);
+        assert_eq!(parsed_gripper.tick_min, 1200);
+        assert_eq!(parsed_gripper.tick_max, 2800);
+        assert_eq!(parsed_gripper.reference_tick, 2100);
+        assert_eq!(parsed_gripper.angle_sign, -1);
+        assert_eq!(
+            parse_config_json(&runtime_config_json(&config).unwrap()).unwrap(),
+            config
+        );
+
+        let duplicate = json.replace("\"servo_id\": 7", "\"servo_id\": 11");
+        assert!(
+            parse_config_json(&duplicate)
+                .unwrap_err()
+                .contains("duplicate")
+        );
     }
 
     #[test]

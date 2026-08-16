@@ -422,9 +422,11 @@ fn analytic_tcp_matches_urdf_tcp_through_arm_base_at_multiple_rover_poses() {
         assert!(base_yaw.abs() > 0.001, "rover yaw must be nonzero");
 
         let telemetry = harness.arm_telemetry();
-        let analytic_angles = telemetry
-            .joints
-            .map(|joint| joint.angle_rad.expect("analytic joint feedback"));
+        let analytic_angles = core::array::from_fn(|index| {
+            telemetry.joints[index]
+                .angle_rad
+                .expect("analytic joint feedback")
+        });
         harness.set_urdf_from_analytic_pose(analytic_angles);
         let (x, y, z) = telemetry.coords_mm.expect("analytic TCP");
         let analytic_m = [
