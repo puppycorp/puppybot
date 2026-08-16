@@ -5919,7 +5919,7 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_gripper_mount_matches_tcp_and_points_forward() {
+    fn adaptive_gripper_mount_matches_tcp_and_points_up() {
         let backend = SimulatedRuntimeBackend::new(
             SimulatedRuntimeBackend::default_project_path(),
             &PuppybotConfigV1::default(),
@@ -5961,11 +5961,9 @@ mod tests {
             );
         }
 
-        let tcp_forward = matrix_vector(tcp_rotation, [1.0, 0.0, 0.0]);
+        let tcp_up = matrix_vector(tcp_rotation, [0.0, 0.0, -1.0]);
         let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, 1.0, 0.0]);
-        for (gripper_component, tcp_component) in
-            gripper_finger_direction.into_iter().zip(tcp_forward)
-        {
+        for (gripper_component, tcp_component) in gripper_finger_direction.into_iter().zip(tcp_up) {
             assert!((gripper_component - tcp_component).abs() < 1.0e-5);
         }
     }
