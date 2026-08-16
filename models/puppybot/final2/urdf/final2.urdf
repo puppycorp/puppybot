@@ -4852,4 +4852,113 @@
         <parent link="wheel_base" />
         <child link="turning_rod" />
     </joint>
+    <!--
+        Elephant Robotics adaptive gripper. The original COLLADA assets are
+        converted to self-contained glTF because RobotDreams renders glTF.
+        The six driven joints retain the upstream linkage and are synchronized
+        by the PuppyBot simulation backend.
+    -->
+    <link name="gripper_base">
+        <visual>
+            <origin xyz="0 0 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_base.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_left1">
+        <visual>
+            <origin xyz="0.039 -0.0133 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_left1.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_left2">
+        <visual>
+            <origin xyz="0.005 -0.0195 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_left2.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_left3">
+        <visual>
+            <origin xyz="0.012 0.0025 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_left3.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_right1">
+        <visual>
+            <origin xyz="-0.039 -0.0133 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_right1.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_right2">
+        <visual>
+            <origin xyz="-0.005 -0.0195 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_right2.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <link name="gripper_right3">
+        <visual>
+            <origin xyz="-0.012 0.0025 -0.012" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://final2/meshes/adaptive_gripper/gripper_right3.gltf" scale="1 1 1" />
+            </geometry>
+        </visual>
+    </link>
+    <joint name="part_1_4_to_gripper_base" type="fixed">
+        <origin xyz="0.0383 0 -0.045" rpy="0.866 0 1.5708" />
+        <parent link="part_1_4" />
+        <child link="gripper_base" />
+    </joint>
+    <joint name="gripper_controller" type="revolute">
+        <origin xyz="-0.012 0.005 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.7" upper="0.15" velocity="2" />
+        <parent link="gripper_base" />
+        <child link="gripper_left3" />
+    </joint>
+    <joint name="gripper_base_to_gripper_left2" type="revolute">
+        <origin xyz="-0.005 0.027 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.8" upper="0.5" velocity="2" />
+        <parent link="gripper_base" />
+        <child link="gripper_left2" />
+    </joint>
+    <joint name="gripper_left3_to_gripper_left1" type="revolute">
+        <origin xyz="-0.027 0.016 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.5" upper="0.5" velocity="2" />
+        <parent link="gripper_left3" />
+        <child link="gripper_left1" />
+    </joint>
+    <joint name="gripper_base_to_gripper_right3" type="revolute">
+        <origin xyz="0.012 0.005 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.15" upper="0.7" velocity="2" />
+        <parent link="gripper_base" />
+        <child link="gripper_right3" />
+    </joint>
+    <joint name="gripper_base_to_gripper_right2" type="revolute">
+        <origin xyz="0.005 0.027 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.5" upper="0.8" velocity="2" />
+        <parent link="gripper_base" />
+        <child link="gripper_right2" />
+    </joint>
+    <joint name="gripper_right3_to_gripper_right1" type="revolute">
+        <origin xyz="0.027 0.016 0" rpy="0 0 0" />
+        <axis xyz="0 0 1" />
+        <limit effort="1000" lower="-0.5" upper="0.5" velocity="2" />
+        <parent link="gripper_right3" />
+        <child link="gripper_right1" />
+    </joint>
 </robot>

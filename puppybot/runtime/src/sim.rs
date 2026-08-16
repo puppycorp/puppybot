@@ -61,6 +61,16 @@ const SCREENSHOT_ARM_SPEED: i16 = 220;
 pub(crate) const RECORDING_FPS: u32 = 50;
 const RECORDING_SETTLE_FRAMES: u32 = 120;
 const MODEL_JOINT_NAMES: [&str; 4] = ["yaw", "shoulder", "elbow", "wrist"];
+const ADAPTIVE_GRIPPER_OPEN_RAD: f64 = 0.15;
+const ADAPTIVE_GRIPPER_CLOSED_RAD: f64 = -0.45;
+const ADAPTIVE_GRIPPER_JOINTS: [(&str, f64); 6] = [
+    ("gripper_controller", 1.0),
+    ("gripper_base_to_gripper_left2", 1.0),
+    ("gripper_left3_to_gripper_left1", -1.0),
+    ("gripper_base_to_gripper_right3", -1.0),
+    ("gripper_base_to_gripper_right2", -1.0),
+    ("gripper_right3_to_gripper_right1", 1.0),
+];
 const CONTROLLER_ARM_POINT_NAMES: [&str; 5] = ["yaw", "shoulder", "elbow", "wrist", "tcp"];
 const CONTROLLER_ARM_SEGMENT_NAMES: [&str; 4] =
     ["yaw_shoulder", "shoulder_elbow", "elbow_wrist", "wrist_tcp"];
@@ -642,6 +652,18 @@ impl SimulationUpsCounter {
     }
 }
 
+fn set_adaptive_gripper_position(
+    dreams: &mut RobotDreams,
+    controller_angle_rad: f64,
+) -> Result<(), String> {
+    for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+        dreams
+            .set_joint_angle(joint_name, controller_angle_rad * multiplier)
+            .map_err(|err| format!("set adaptive gripper joint {joint_name}: {err}"))?;
+    }
+    Ok(())
+}
+
 impl SimulatedRuntimeBackend {
     pub(crate) fn new(
         project_path: impl AsRef<Path>,
@@ -689,6 +711,7 @@ impl SimulatedRuntimeBackend {
                 );
             }
         }
+        set_adaptive_gripper_position(&mut dreams, ADAPTIVE_GRIPPER_OPEN_RAD)?;
         // The controller uses wheel mode for arm holding, so settle the
         // session-mapped reference targets before its first zero-speed hold.
         dreams.advance_seconds(4.0);
@@ -862,6 +885,7 @@ impl SimulatedRuntimeBackend {
                 .dreams
                 .detach_scene_object(target_object_id)
                 .map_err(|err| format!("release {target_name}: {err}"))?;
+            set_adaptive_gripper_position(&mut state.dreams, ADAPTIVE_GRIPPER_OPEN_RAD)?;
             "released"
         } else {
             let attached = state
@@ -878,6 +902,7 @@ impl SimulatedRuntimeBackend {
                     "Interact rejected: observed TCP is {distance:.4} m from {target_name}; pickup tolerance is {BALL_PICKUP_TOLERANCE_M:.4} m"
                 ));
             }
+            set_adaptive_gripper_position(&mut state.dreams, ADAPTIVE_GRIPPER_CLOSED_RAD)?;
             "attached"
         };
         state.tool_action_sequence = state.tool_action_sequence.wrapping_add(1);
@@ -5859,6 +5884,38 @@ mod tests {
             "released bottle must resume RobotDreams physics, including valid contact response: \
              release={released_position:?}, after={released_velocity:?}"
         );
+    }
+
+    #[test]
+    fn adaptive_gripper_linkage_opens_and_closes_as_one_tool() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open PuppyBot fixture with adaptive gripper");
+        let mut state = backend.state.lock().expect("simulation state");
+
+        for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+            let position = state
+                .dreams
+                .robot_state(ROBOT_ID)
+                .expect("robot state")
+                .joints[joint_name]
+                .position_rad;
+            assert!((position - ADAPTIVE_GRIPPER_OPEN_RAD * multiplier).abs() < 1.0e-9);
+        }
+
+        set_adaptive_gripper_position(&mut state.dreams, ADAPTIVE_GRIPPER_CLOSED_RAD)
+            .expect("close adaptive gripper");
+        for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+            let position = state
+                .dreams
+                .robot_state(ROBOT_ID)
+                .expect("robot state")
+                .joints[joint_name]
+                .position_rad;
+            assert!((position - ADAPTIVE_GRIPPER_CLOSED_RAD * multiplier).abs() < 1.0e-9);
+        }
     }
 
     #[test]
