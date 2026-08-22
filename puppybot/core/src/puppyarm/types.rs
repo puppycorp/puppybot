@@ -5,6 +5,8 @@ use super::{
 use core::f64::consts::PI;
 
 pub const JOINT_COUNT: usize = 4;
+pub const GRIPPER_INDEX: usize = JOINT_COUNT;
+pub const ACTUATOR_COUNT: usize = JOINT_COUNT + 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TcpFrame {
@@ -16,6 +18,7 @@ pub enum TcpFrame {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArmCommand {
     SetSpeed(i16),
+    SetGripperSpeed(i16),
     Spin {
         joint: usize,
         direction: i8,
@@ -140,7 +143,8 @@ impl From<IkError> for ControllerError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PuppyarmTelemetry {
     pub seq: u32,
-    pub joints: [Joint; JOINT_COUNT],
+    pub joints: [Joint; ACTUATOR_COUNT],
+    pub has_gripper: bool,
     pub coords_mm: Option<(f32, f32, f32)>,
     pub target_coords_mm: Option<(f32, f32, f32)>,
     pub effective_target_coords_mm: Option<(f32, f32, f32)>,
@@ -160,6 +164,7 @@ pub struct Joint {
     pub zero_offset_rad: f64,
     pub online: bool,
     pub has_feedback: bool,
+    pub servo_status: u8,
     pub limit_reached: bool,
     pub tick: Option<i32>,
     pub angle_rad: Option<f64>,
@@ -193,6 +198,7 @@ impl Joint {
             zero_offset_rad: 0.0,
             online: true,
             has_feedback: false,
+            servo_status: 0,
             limit_reached: false,
             tick: None,
             angle_rad: None,
@@ -223,6 +229,7 @@ impl Joint {
         self.tick_delta = previous.map(|value| tick - value).unwrap_or(0);
         self.has_feedback = true;
         self.online = true;
+        self.servo_status = 0;
         self.last_feedback_ms = now_ms;
     }
 
@@ -253,7 +260,9 @@ impl Joint {
     }
 
     pub fn spin(&mut self, direction: i8, default_speed: i16) {
-        self.clear_fault();
+        if self.fault != Some(SafetyFault::ServoStatus) {
+            self.clear_fault();
+        }
         self.clear_target();
         self.speed = direction.signum() as i16 * default_speed.abs();
     }

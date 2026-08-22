@@ -5,7 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration as StdDuration, Instant},
+    time::{Duration as StdDuration, Instant, SystemTime},
 };
 
 use embassy_time::Duration;
@@ -35,6 +35,7 @@ use puppybot_core::{
     robot::Puppybot,
     stservo::{SerialBus, StServo},
 };
+use robotdreams_core::project::project_config_for_input_path;
 use robotdreams_core::{
     CoordinateDebugMarkerPositions, KinematicColliderMotionConfig, RigidTransform, RobotDreams,
     RobotDreamsPgeFrameOptions, RobotDreamsPgeTextLabel, RobotState, VirtualServoJointMapping,
@@ -45,6 +46,7 @@ use sha1::{Digest, Sha1};
 
 const SERVO_FULL_ROTATION_TICKS: f64 = TICK_WRAP as f64;
 const SIMULATION_STEP_SECONDS: f32 = 0.02;
+const SIMULATION_HOT_RELOAD_INTERVAL: StdDuration = StdDuration::from_millis(250);
 const SERVO_MAIN_BUS_ID: &str = "main_bus";
 const DRIVE_BUS_ID: &str = "drive_bus";
 const ROBOT_ID: &str = "puppybot";
@@ -61,6 +63,16 @@ const SCREENSHOT_ARM_SPEED: i16 = 220;
 pub(crate) const RECORDING_FPS: u32 = 50;
 const RECORDING_SETTLE_FRAMES: u32 = 120;
 const MODEL_JOINT_NAMES: [&str; 4] = ["yaw", "shoulder", "elbow", "wrist"];
+const ADAPTIVE_GRIPPER_OPEN_RAD: f64 = 0.15;
+const ADAPTIVE_GRIPPER_CLOSED_RAD: f64 = -0.8;
+const ADAPTIVE_GRIPPER_JOINTS: [(&str, f64); 6] = [
+    ("gripper_controller", 1.0),
+    ("gripper_base_to_gripper_left2", 1.0),
+    ("gripper_left3_to_gripper_left1", -1.0),
+    ("gripper_base_to_gripper_right3", -1.0),
+    ("gripper_base_to_gripper_right2", -1.0),
+    ("gripper_right3_to_gripper_right1", 1.0),
+];
 const CONTROLLER_ARM_POINT_NAMES: [&str; 5] = ["yaw", "shoulder", "elbow", "wrist", "tcp"];
 const CONTROLLER_ARM_SEGMENT_NAMES: [&str; 4] =
     ["yaw_shoulder", "shoulder_elbow", "elbow_wrist", "wrist_tcp"];
@@ -194,7 +206,19 @@ pub(crate) struct SimManipulationState {
     pub(crate) pickup_tolerance_m: f32,
     pub(crate) ball: SimBallState,
     pub(crate) bin_trigger: SimBinTriggerState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) gripper: Option<SimGripperState>,
     pub(crate) last_action: Option<SimToolActionResult>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimGripperState {
+    pub(crate) servo_id: u8,
+    pub(crate) tick: Option<i32>,
+    pub(crate) open_tick: i32,
+    pub(crate) close_tick: i32,
+    pub(crate) grasp: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -404,6 +428,30 @@ pub(crate) enum RobotDreamsSerialBusError {
     Poisoned,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SimGripperGrasp {
+    Open,
+    Closed,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RobotDreamsGripperRuntime {
+    mapping: puppybot_runtime::sim_calibration::SimulationGripperMapping,
+    grasp: SimGripperGrasp,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SimulationFileStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+struct SimulationHotReload {
+    urdf_path: PathBuf,
+    loaded_stamp: SimulationFileStamp,
+    next_check_at: Instant,
+}
+
 struct RobotDreamsRuntimeState {
     dreams: RobotDreams,
     sequence: u64,
@@ -414,6 +462,7 @@ struct RobotDreamsRuntimeState {
     labels: Vec<RobotDreamsPgeTextLabel>,
     puppybot_target_tcp_mm: Option<(f32, f32, f32)>,
     controller_arm_chain_world_m: Option<ControllerArmChain>,
+    gripper: Option<RobotDreamsGripperRuntime>,
     tool_action_sequence: u64,
     last_tool_action: Option<SimToolActionResult>,
 }
@@ -440,6 +489,8 @@ pub(crate) struct SimulatedRuntimeBackend {
     tcp_observation_renderer: Arc<Mutex<Option<PreparedCaptureRenderer>>>,
     project: CaptureProject,
     project_path: PathBuf,
+    config: PuppybotConfigV1,
+    hot_reload: SimulationHotReload,
     window_active: Arc<AtomicBool>,
     /// Controls whether each immutable renderer snapshot carries RobotDreams'
     /// compact live-collider pose frame. It is render-only; it is never read
@@ -642,6 +693,140 @@ impl SimulationUpsCounter {
     }
 }
 
+fn simulation_file_stamp(path: &Path) -> Result<SimulationFileStamp, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|err| format!("read simulation asset metadata {}: {err}", path.display()))?;
+    let modified = metadata
+        .modified()
+        .map_err(|err| format!("read simulation asset timestamp {}: {err}", path.display()))?;
+    Ok(SimulationFileStamp {
+        modified,
+        len: metadata.len(),
+    })
+}
+
+fn simulation_urdf_path(project_path: &Path) -> Result<PathBuf, String> {
+    let project = project_config_for_input_path(Some(project_path)).ok_or_else(|| {
+        format!(
+            "{} is not a RobotDreams project with a readable project manifest",
+            project_path.display()
+        )
+    })?;
+    let robot = project
+        .robots
+        .iter()
+        .find(|robot| robot.id == ROBOT_ID)
+        .ok_or_else(|| format!("RobotDreams project has no '{ROBOT_ID}' robot"))?;
+    if !robot.model.type_name.eq_ignore_ascii_case("urdf") {
+        return Err(format!(
+            "RobotDreams robot '{ROBOT_ID}' model type '{}' does not support URDF hot reload",
+            robot.model.type_name
+        ));
+    }
+    Ok(project.base_dir.join(&robot.model.path))
+}
+
+impl SimulationHotReload {
+    fn new(project_path: &Path) -> Result<Self, String> {
+        let urdf_path = simulation_urdf_path(project_path)?;
+        let loaded_stamp = simulation_file_stamp(&urdf_path)?;
+        Ok(Self {
+            urdf_path,
+            loaded_stamp,
+            next_check_at: Instant::now() + SIMULATION_HOT_RELOAD_INTERVAL,
+        })
+    }
+
+    fn changed_stamp(&mut self, now: Instant) -> Result<Option<SimulationFileStamp>, String> {
+        if now < self.next_check_at {
+            return Ok(None);
+        }
+        self.next_check_at = now + SIMULATION_HOT_RELOAD_INTERVAL;
+        let stamp = simulation_file_stamp(&self.urdf_path)?;
+        Ok((stamp != self.loaded_stamp).then_some(stamp))
+    }
+
+    fn mark_loaded(&mut self, stamp: SimulationFileStamp) {
+        self.loaded_stamp = stamp;
+    }
+}
+
+fn set_adaptive_gripper_position(
+    dreams: &mut RobotDreams,
+    controller_angle_rad: f64,
+) -> Result<(), String> {
+    for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+        dreams
+            .set_joint_angle(joint_name, controller_angle_rad * multiplier)
+            .map_err(|err| format!("set adaptive gripper joint {joint_name}: {err}"))?;
+    }
+    Ok(())
+}
+
+fn open_simulation_session(
+    project_path: &Path,
+    config: &PuppybotConfigV1,
+) -> Result<(RobotDreams, Option<RobotDreamsGripperRuntime>), String> {
+    let mut dreams = RobotDreams::open(project_path)
+        .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
+    let mappings =
+        puppybot_runtime::sim_calibration::derive_simulation_joint_mappings(project_path, config)
+            .map_err(|err| format!("derive RobotDreams session servo mapping: {err}"))?;
+    dreams
+        .install_virtual_servo_joint_mappings(mappings.into_iter().map(|mapping| {
+            VirtualServoJointMapping {
+                bus_id: mapping.bus_id,
+                servo_id: mapping.servo_id,
+                reference_tick: mapping.reference_tick,
+                alignment_reference_tick: mapping.alignment_reference_tick,
+                joint_position_at_reference_rad: mapping.joint_position_at_reference_rad,
+                radians_per_tick: mapping.radians_per_tick,
+                ticks_per_turn: mapping.ticks_per_turn,
+                wrapped: mapping.wrapped,
+            }
+        }))
+        .map_err(|err| format!("install RobotDreams session servo mapping: {err}"))?;
+    for joint in config.arm.joints {
+        let tick = tick_for_joint_angle(joint, joint.reference_angle_rad);
+        if !dreams.set_virtual_servo_target(SERVO_MAIN_BUS_ID, joint.servo_id, tick as i16) {
+            log::warn!(
+                "RobotDreams virtual servo {} was not initialized from PuppyBot config",
+                joint.servo_id
+            );
+        }
+    }
+    set_adaptive_gripper_position(&mut dreams, ADAPTIVE_GRIPPER_OPEN_RAD)?;
+    let gripper =
+        puppybot_runtime::sim_calibration::derive_simulation_gripper(project_path, config)
+            .map_err(|err| format!("derive RobotDreams session gripper mapping: {err}"))?;
+    if let Some(gripper) = &gripper
+        && !dreams.set_virtual_servo_target(
+            SERVO_MAIN_BUS_ID,
+            gripper.servo_id,
+            gripper.reference_tick as i16,
+        )
+    {
+        log::warn!(
+            "RobotDreams virtual gripper servo {} was not initialized from PuppyBot config",
+            gripper.servo_id
+        );
+    }
+    // The controller uses wheel mode for arm holding, so settle the
+    // session-mapped reference targets before its first zero-speed hold.
+    dreams.advance_seconds(4.0);
+    let live_arm_shapes = enable_clear_startup_arm_contact_shapes(&mut dreams)?;
+    if live_arm_shapes == 0 {
+        return Err("PuppyBot moving-arm collision profile resolved no shapes".to_string());
+    }
+    Ok((
+        dreams,
+        gripper.map(|mapping| RobotDreamsGripperRuntime {
+            mapping,
+            grasp: SimGripperGrasp::Open,
+        }),
+    ))
+}
+
 impl SimulatedRuntimeBackend {
     pub(crate) fn new(
         project_path: impl AsRef<Path>,
@@ -659,43 +844,7 @@ impl SimulatedRuntimeBackend {
             content_sha1: sha1_hex(&project_bytes),
             hash_scope: "projectJsonPoseEquivalent".to_string(),
         };
-        let mut dreams = RobotDreams::open(project_path)
-            .map_err(|err| format!("open RobotDreams project {}: {err}", project_path.display()))?;
-        let mappings = puppybot_runtime::sim_calibration::derive_simulation_joint_mappings(
-            project_path,
-            config,
-        )
-        .map_err(|err| format!("derive RobotDreams session servo mapping: {err}"))?;
-        dreams
-            .install_virtual_servo_joint_mappings(mappings.into_iter().map(|mapping| {
-                VirtualServoJointMapping {
-                    bus_id: mapping.bus_id,
-                    servo_id: mapping.servo_id,
-                    reference_tick: mapping.reference_tick,
-                    alignment_reference_tick: mapping.alignment_reference_tick,
-                    joint_position_at_reference_rad: mapping.joint_position_at_reference_rad,
-                    radians_per_tick: mapping.radians_per_tick,
-                    ticks_per_turn: mapping.ticks_per_turn,
-                    wrapped: mapping.wrapped,
-                }
-            }))
-            .map_err(|err| format!("install RobotDreams session servo mapping: {err}"))?;
-        for joint in config.arm.joints {
-            let tick = tick_for_joint_angle(joint, joint.reference_angle_rad);
-            if !dreams.set_virtual_servo_target(SERVO_MAIN_BUS_ID, joint.servo_id, tick as i16) {
-                log::warn!(
-                    "RobotDreams virtual servo {} was not initialized from PuppyBot config",
-                    joint.servo_id
-                );
-            }
-        }
-        // The controller uses wheel mode for arm holding, so settle the
-        // session-mapped reference targets before its first zero-speed hold.
-        dreams.advance_seconds(4.0);
-        let live_arm_shapes = enable_clear_startup_arm_contact_shapes(&mut dreams)?;
-        if live_arm_shapes == 0 {
-            return Err("PuppyBot moving-arm collision profile resolved no shapes".to_string());
-        }
+        let (dreams, gripper) = open_simulation_session(project_path, config)?;
 
         let visual_bindings = dreams
             .model()
@@ -712,6 +861,7 @@ impl SimulatedRuntimeBackend {
             labels: Vec::new(),
             puppybot_target_tcp_mm: None,
             controller_arm_chain_world_m: None,
+            gripper,
             tool_action_sequence: 0,
             last_tool_action: None,
         }));
@@ -741,6 +891,8 @@ impl SimulatedRuntimeBackend {
             tcp_observation_renderer: Arc::new(Mutex::new(None)),
             project,
             project_path: project_path.to_path_buf(),
+            config: *config,
+            hot_reload: SimulationHotReload::new(project_path)?,
             window_active: Arc::new(AtomicBool::new(false)),
             debug_collision_overlay_active,
             servo: StServo::new(bus).with_timeout(Duration::from_millis(200)),
@@ -756,13 +908,72 @@ impl SimulatedRuntimeBackend {
             .join("../../puppybot/scenarios/bottle_to_bin.robotdreams.template.json")
     }
 
+    fn reload_urdf_if_changed(&mut self, robot: &mut Puppybot) {
+        let changed_stamp = match self.hot_reload.changed_stamp(Instant::now()) {
+            Ok(changed_stamp) => changed_stamp,
+            Err(err) => {
+                log::warn!("simulation URDF hot-reload check failed: {err}");
+                return;
+            }
+        };
+        let Some(changed_stamp) = changed_stamp else {
+            return;
+        };
+
+        let (dreams, gripper) = match open_simulation_session(&self.project_path, &self.config) {
+            Ok(session) => session,
+            Err(err) => {
+                log::warn!(
+                    "simulation URDF hot reload rejected {}; keeping the last good session: {err}",
+                    self.hot_reload.urdf_path.display()
+                );
+                return;
+            }
+        };
+        let visual_bindings = dreams
+            .model()
+            .map(|model| preview_visual_bindings(&model.robot_visual_meshes()))
+            .unwrap_or_default();
+        match self.state.lock() {
+            Ok(mut state) => {
+                state.dreams = dreams;
+                state.visual_bindings = visual_bindings;
+                state.read_buf.clear();
+                state.labels.clear();
+                state.puppybot_target_tcp_mm = None;
+                state.controller_arm_chain_world_m = None;
+                state.gripper = gripper;
+                state.tool_action_sequence = 0;
+                state.last_tool_action = None;
+                state.sequence = state.sequence.wrapping_add(1);
+            }
+            Err(_) => {
+                log::warn!("simulation state lock poisoned during URDF hot reload");
+                return;
+            }
+        }
+        for joint in 0..robot.arm.actuator_count() {
+            robot.arm.record_feedback_error(joint);
+        }
+        if let Ok(mut renderer) = self.tcp_observation_renderer.lock() {
+            *renderer = None;
+        }
+        self.hot_reload.mark_loaded(changed_stamp);
+        log::info!(
+            "hot reloaded simulation URDF {}; simulation scene reset",
+            self.hot_reload.urdf_path.display()
+        );
+    }
+
     pub(crate) async fn run_once(&mut self, robot: &mut Puppybot, now_ms: u64) {
+        self.reload_urdf_if_changed(robot);
         robot
             .run_once_with_drive(&mut self.servo, &mut self.drive_actuator, now_ms, || None)
             .await;
         match self.state.lock() {
             Ok(mut state) => {
                 state.dreams.advance_seconds(SIMULATION_STEP_SECONDS);
+                update_gripper_grasp(&mut state);
                 state.sequence = state.sequence.wrapping_add(1);
             }
             Err(_) => log::warn!("RobotDreams simulation state lock poisoned while advancing"),
@@ -839,7 +1050,12 @@ impl SimulatedRuntimeBackend {
             .state
             .lock()
             .map_err(|_| "RobotDreams simulation state lock poisoned")?;
-        manipulation_state_from_dreams(&state.dreams, state.last_tool_action.clone())
+        manipulation_state_from_dreams(
+            &state.dreams,
+            &state.bus_id,
+            state.gripper.as_ref(),
+            state.last_tool_action.clone(),
+        )
     }
 
     pub(crate) fn tool_action(&mut self) -> Result<SimToolActionResult, String> {
@@ -862,6 +1078,7 @@ impl SimulatedRuntimeBackend {
                 .dreams
                 .detach_scene_object(target_object_id)
                 .map_err(|err| format!("release {target_name}: {err}"))?;
+            set_adaptive_gripper_position(&mut state.dreams, ADAPTIVE_GRIPPER_OPEN_RAD)?;
             "released"
         } else {
             let attached = state
@@ -878,6 +1095,7 @@ impl SimulatedRuntimeBackend {
                     "Interact rejected: observed TCP is {distance:.4} m from {target_name}; pickup tolerance is {BALL_PICKUP_TOLERANCE_M:.4} m"
                 ));
             }
+            set_adaptive_gripper_position(&mut state.dreams, ADAPTIVE_GRIPPER_CLOSED_RAD)?;
             "attached"
         };
         state.tool_action_sequence = state.tool_action_sequence.wrapping_add(1);
@@ -959,7 +1177,7 @@ impl SimulatedRuntimeBackend {
                         format!("CTRL TGT TCP ARM MM X {x:.1} Y {y:.1} Z {z:.1}"),
                     );
                 }
-                for (index, joint) in arm.joints.iter().enumerate() {
+                for (index, joint) in arm.joints.iter().take(JOINT_COUNT).enumerate() {
                     push_overlay_label(
                         &mut labels,
                         format!("joint_{index}"),
@@ -1012,8 +1230,110 @@ impl SimulatedRuntimeBackend {
     }
 }
 
+fn gripper_present_tick(dreams: &RobotDreams, bus_id: &str, servo_id: u8) -> Option<i32> {
+    dreams
+        .servo_snapshots(bus_id)?
+        .into_iter()
+        .find(|snapshot| snapshot.id == servo_id)
+        .map(|snapshot| i32::from(snapshot.present_position))
+}
+
+fn adaptive_gripper_angle_for_tick(
+    mapping: &puppybot_runtime::sim_calibration::SimulationGripperMapping,
+    tick: i32,
+) -> f64 {
+    let travel = f64::from(mapping.close_tick - mapping.open_tick);
+    let closed_fraction = (f64::from(tick - mapping.open_tick) / travel).clamp(0.0, 1.0);
+    ADAPTIVE_GRIPPER_OPEN_RAD
+        + (ADAPTIVE_GRIPPER_CLOSED_RAD - ADAPTIVE_GRIPPER_OPEN_RAD) * closed_fraction
+}
+
+fn sim_gripper_state(
+    dreams: &RobotDreams,
+    bus_id: &str,
+    gripper: &RobotDreamsGripperRuntime,
+) -> SimGripperState {
+    SimGripperState {
+        servo_id: gripper.mapping.servo_id,
+        tick: gripper_present_tick(dreams, bus_id, gripper.mapping.servo_id),
+        open_tick: gripper.mapping.open_tick,
+        close_tick: gripper.mapping.close_tick,
+        grasp: match gripper.grasp {
+            SimGripperGrasp::Open => "open",
+            SimGripperGrasp::Closed => "closed",
+        }
+        .to_string(),
+    }
+}
+
+/// The simulation grasp follows the physical gripper contract: closing the
+/// gripper picks up the manipulation target when it sits within the model
+/// profile tolerance of the observed TCP, and opening the gripper releases it.
+/// The latched band between openTick and closeTick keeps a hovering tick from
+/// toggling the attachment.
+fn update_gripper_grasp(state: &mut RobotDreamsRuntimeState) {
+    let Some(gripper) = &state.gripper else {
+        return;
+    };
+    let mapping = gripper.mapping.clone();
+    let grasp = gripper.grasp;
+    let Some(tick) = gripper_present_tick(&state.dreams, &state.bus_id, mapping.servo_id) else {
+        return;
+    };
+    if let Err(err) = set_adaptive_gripper_position(
+        &mut state.dreams,
+        adaptive_gripper_angle_for_tick(&mapping, tick),
+    ) {
+        log::warn!("failed to animate adaptive gripper from servo feedback: {err}");
+    }
+    let next = match grasp {
+        SimGripperGrasp::Open if tick >= mapping.close_tick => SimGripperGrasp::Closed,
+        SimGripperGrasp::Closed if tick <= mapping.open_tick => SimGripperGrasp::Open,
+        _ => grasp,
+    };
+    if next == grasp {
+        return;
+    }
+    let target = manipulation_target_object_id(&state.dreams).ok();
+    let attached = target.and_then(|target| {
+        state
+            .dreams
+            .scene_object_state(target)
+            .map(|object| object.attachment.is_some())
+    });
+    match (next, target, attached) {
+        (SimGripperGrasp::Closed, Some(target), Some(false)) => {
+            match state.dreams.try_attach_scene_object_to_tcp(
+                target,
+                ROBOT_ID,
+                mapping.pickup_tolerance_m,
+                [0.0, 0.0, 0.0],
+            ) {
+                Ok(true) => log::info!("gripper closed on {target}; attached it to the TCP"),
+                Ok(false) => log::info!(
+                    "gripper closed with {target} outside the {:.4} m pickup tolerance",
+                    mapping.pickup_tolerance_m
+                ),
+                Err(err) => log::warn!("gripper grasp of {target} failed: {err}"),
+            }
+        }
+        (SimGripperGrasp::Open, Some(target), Some(true)) => {
+            match state.dreams.detach_scene_object(target) {
+                Ok(()) => log::info!("gripper opened; released {target}"),
+                Err(err) => log::warn!("gripper release of {target} failed: {err}"),
+            }
+        }
+        _ => {}
+    }
+    if let Some(gripper) = &mut state.gripper {
+        gripper.grasp = next;
+    }
+}
+
 fn manipulation_state_from_dreams(
     dreams: &RobotDreams,
+    bus_id: &str,
+    gripper: Option<&RobotDreamsGripperRuntime>,
     last_action: Option<SimToolActionResult>,
 ) -> Result<SimManipulationState, String> {
     let tcp = observed_tcp_world_m(dreams).ok();
@@ -1039,6 +1359,7 @@ fn manipulation_state_from_dreams(
         simulation_only: true,
         action: "Interact".to_string(),
         pickup_tolerance_m: BALL_PICKUP_TOLERANCE_M,
+        gripper: gripper.map(|gripper| sim_gripper_state(dreams, bus_id, gripper)),
         ball: SimBallState {
             object_id: ball.id.clone(),
             center_world_m: ball.position,
@@ -2556,8 +2877,13 @@ fn preview_snapshot_from_state(
         robots,
         servos,
         visual_transforms: visual_transforms.clone(),
-        manipulation: manipulation_state_from_dreams(&state.dreams, state.last_tool_action.clone())
-            .ok(),
+        manipulation: manipulation_state_from_dreams(
+            &state.dreams,
+            &state.bus_id,
+            state.gripper.as_ref(),
+            state.last_tool_action.clone(),
+        )
+        .ok(),
         detection_boxes: Vec::new(),
         overlays: CaptureOverlays {
             labels: labels
@@ -2685,7 +3011,7 @@ fn controller_arm_chain_world_m(
     frames: SimulationFrameTransforms,
 ) -> Option<ControllerArmChain> {
     let mut angles = [0.0; JOINT_COUNT];
-    for (index, joint) in telemetry.joints.iter().enumerate() {
+    for (index, joint) in telemetry.joints.iter().take(JOINT_COUNT).enumerate() {
         if !joint.has_feedback {
             return None;
         }
@@ -3972,6 +4298,52 @@ fn option_i32(value: Option<i32>) -> String {
 mod tests {
     use super::*;
     use puppybot_core::stservo::mock::block_on_ready;
+
+    #[test]
+    fn simulation_hot_reload_tracks_the_project_urdf() {
+        let project_path = SimulatedRuntimeBackend::default_project_path();
+        let actual = simulation_urdf_path(&project_path)
+            .expect("resolve simulation URDF")
+            .canonicalize()
+            .expect("canonical simulation URDF");
+        let expected = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../models/puppybot/final2/urdf/final2.urdf")
+            .canonicalize()
+            .expect("canonical expected URDF");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn simulation_hot_reload_detects_a_new_file_stamp_once() {
+        let path = std::env::temp_dir().join(format!(
+            "puppybot-hot-reload-{}-{}.urdf",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        fs::write(&path, "<robot/>").expect("write initial hot-reload fixture");
+        let mut hot_reload = SimulationHotReload {
+            urdf_path: path.clone(),
+            loaded_stamp: simulation_file_stamp(&path).expect("initial file stamp"),
+            next_check_at: Instant::now(),
+        };
+        fs::write(&path, "<robot name=\"changed\"/>").expect("change hot-reload fixture");
+
+        let changed_stamp = hot_reload
+            .changed_stamp(Instant::now())
+            .expect("check changed file stamp")
+            .expect("changed file stamp");
+        hot_reload.mark_loaded(changed_stamp);
+        hot_reload.next_check_at = Instant::now();
+        assert!(
+            hot_reload
+                .changed_stamp(Instant::now())
+                .expect("check unchanged file stamp")
+                .is_none()
+        );
+
+        let _ = fs::remove_file(path);
+    }
 
     fn dynamic_pickup_regression_fixture(
         bottle_position: [f32; 3],
@@ -5780,6 +6152,71 @@ mod tests {
     }
 
     #[test]
+    fn gripper_close_attaches_a_nearby_target_and_open_releases_it() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open dynamic PuppyBot bottle fixture");
+        let mut state = backend.state.lock().expect("simulation state");
+        assert!(
+            state
+                .dreams
+                .try_attach_scene_object_to_tcp(BOTTLE_OBJECT_ID, ROBOT_ID, 10.0, [0.0, 0.0, 0.0])
+                .expect("place bottle at the observed TCP"),
+            "the setup must attach the bottle"
+        );
+        state
+            .dreams
+            .detach_scene_object(BOTTLE_OBJECT_ID)
+            .expect("leave the bottle at the observed TCP");
+        let gripper = state
+            .gripper
+            .as_mut()
+            .expect("configured simulation gripper");
+        gripper.mapping.open_tick = 0;
+        gripper.mapping.close_tick = 2048;
+
+        update_gripper_grasp(&mut state);
+
+        assert!(
+            state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("bottle state")
+                .attachment
+                .is_some(),
+            "closing at the TCP must attach the bottle"
+        );
+        let manipulation = manipulation_state_from_dreams(
+            &state.dreams,
+            &state.bus_id,
+            state.gripper.as_ref(),
+            None,
+        )
+        .expect("manipulation state");
+        assert_eq!(manipulation.gripper.expect("gripper state").grasp, "closed");
+
+        let gripper = state
+            .gripper
+            .as_mut()
+            .expect("configured simulation gripper");
+        gripper.mapping.open_tick = 2048;
+        gripper.mapping.close_tick = 4095;
+        update_gripper_grasp(&mut state);
+
+        assert!(
+            state
+                .dreams
+                .scene_object_state(BOTTLE_OBJECT_ID)
+                .expect("bottle state")
+                .attachment
+                .is_none(),
+            "opening must release the bottle"
+        );
+    }
+
+    #[test]
     fn dynamic_bottle_fixture_keeps_pickup_release_on_robotdreams_physics() {
         let backend = SimulatedRuntimeBackend::new(
             SimulatedRuntimeBackend::default_project_path(),
@@ -5859,6 +6296,111 @@ mod tests {
             "released bottle must resume RobotDreams physics, including valid contact response: \
              release={released_position:?}, after={released_velocity:?}"
         );
+    }
+
+    #[test]
+    fn adaptive_gripper_linkage_follows_virtual_servo_feedback() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open PuppyBot fixture with adaptive gripper");
+        let mut state = backend.state.lock().expect("simulation state");
+
+        for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+            let position = state
+                .dreams
+                .robot_state(ROBOT_ID)
+                .expect("robot state")
+                .joints[joint_name]
+                .position_rad;
+            assert!((position - ADAPTIVE_GRIPPER_OPEN_RAD * multiplier).abs() < 1.0e-9);
+        }
+
+        let mapping = state
+            .gripper
+            .as_ref()
+            .expect("configured simulation gripper")
+            .mapping
+            .clone();
+        assert!(state.dreams.set_virtual_servo_target(
+            SERVO_MAIN_BUS_ID,
+            mapping.servo_id,
+            mapping.close_tick as i16,
+        ));
+        state.dreams.advance_seconds(4.0);
+        update_gripper_grasp(&mut state);
+        let tick = gripper_present_tick(&state.dreams, SERVO_MAIN_BUS_ID, mapping.servo_id)
+            .expect("gripper servo feedback");
+        assert!(tick >= mapping.close_tick);
+        let expected_angle = adaptive_gripper_angle_for_tick(&mapping, tick);
+        for (joint_name, multiplier) in ADAPTIVE_GRIPPER_JOINTS {
+            let position = state
+                .dreams
+                .robot_state(ROBOT_ID)
+                .expect("robot state")
+                .joints[joint_name]
+                .position_rad;
+            assert!((position - expected_angle * multiplier).abs() < 1.0e-9);
+        }
+    }
+
+    #[test]
+    fn adaptive_gripper_mount_is_centered_on_wrist_and_points_up() {
+        let backend = SimulatedRuntimeBackend::new(
+            SimulatedRuntimeBackend::default_project_path(),
+            &PuppybotConfigV1::default(),
+        )
+        .expect("open PuppyBot fixture with adaptive gripper");
+        let state = backend.state.lock().expect("simulation state");
+        let robot = state.dreams.robot_state(ROBOT_ID).expect("robot state");
+        let wrist = robot.links["part_1_4"]
+            .location
+            .clone()
+            .expect("wrist location");
+        let gripper = robot.links["gripper_base"]
+            .location
+            .clone()
+            .expect("gripper-base location");
+
+        let wrist_rotation = RigidTransform::from_translation_rpy(
+            [0.0, 0.0, 0.0],
+            wrist.rotation.expect("wrist rotation"),
+        )
+        .rotation;
+        let gripper_rotation = RigidTransform::from_translation_rpy(
+            [0.0, 0.0, 0.0],
+            gripper.rotation.expect("gripper rotation"),
+        )
+        .rotation;
+        let flange_offset = matrix_vector(gripper_rotation, [0.0, -0.03232, 0.00185]);
+        let gripper_flange = [
+            gripper.position[0] + flange_offset[0],
+            gripper.position[1] + flange_offset[1],
+            gripper.position[2] + flange_offset[2],
+        ];
+        let wrist_mount_offset = matrix_vector(wrist_rotation, [0.038, 0.0, -0.007]);
+        let wrist_mount = [
+            wrist.position[0] + wrist_mount_offset[0],
+            wrist.position[1] + wrist_mount_offset[1],
+            wrist.position[2] + wrist_mount_offset[2],
+        ];
+
+        for (gripper_component, wrist_component) in gripper_flange.into_iter().zip(wrist_mount) {
+            assert!(
+                (gripper_component - wrist_component).abs() < 1.0e-6,
+                "gripper rear face must be centered on wrist mount {wrist_mount:?}; \
+                 gripper pose is {gripper:?}"
+            );
+        }
+
+        let wrist_up = matrix_vector(wrist_rotation, [0.0, 0.0, -1.0]);
+        let gripper_finger_direction = matrix_vector(gripper_rotation, [0.0, 1.0, 0.0]);
+        for (gripper_component, wrist_component) in
+            gripper_finger_direction.into_iter().zip(wrist_up)
+        {
+            assert!((gripper_component - wrist_component).abs() < 1.0e-5);
+        }
     }
 
     #[test]

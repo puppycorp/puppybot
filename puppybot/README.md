@@ -82,6 +82,24 @@ byte-level servo bus, and exposes the Android-compatible WebSocket endpoint on
 ./scripts/run-runtime.sh
 ```
 
+The runtime writes timestamped logs to `logs.txt` in its working directory
+while retaining terminal output. The file is cleared whenever the runtime
+starts. Pass `--log-file` or set `PUPPYBOT_RUNTIME_LOG` to use another path.
+Missing parent directories are created automatically:
+
+```sh
+./scripts/run-runtime.sh --log-file workdir/logs/puppybot-runtime.log
+```
+
+Set `LOG=1` to include every gripper feedback sample with present speed, load,
+voltage, temperature, moving state, and current. Without it, the runtime still
+logs gripper commands, results, and warnings without the high-frequency
+telemetry. An explicit `RUST_LOG` filter takes precedence over this shortcut:
+
+```sh
+LOG=1 ./scripts/run-runtime.sh
+```
+
 For hardware, the runtime probes supported USB serial devices, including Linux
 `/dev/ttyUSB*` and `/dev/ttyACM*`, and selects one only after a configured arm
 servo replies. If multiple STServo buses are connected, select one explicitly:
@@ -133,7 +151,20 @@ another file in either mode, pass `--config` or set `PUPPYBOT_RUNTIME_CONFIG`:
 The runtime UI can adjust arm joint soft tick limits live. Click
 `Save Calibration` after testing the new limits to write them to the configured
 JSON file. The runtime writes a normalized `puppybot.json` atomically via a temp
-file and rename.
+file and rename. A configured `arm.gripper` appears as a fifth Arm Jog row with
+the same press-and-hold `-`/`+`, `Stop`, `Zero`, calibration, soft-limit, and
+servo-status controls as the four pose joints. The physical and checked-in
+simulation profiles use STServo ID 7 and wheel mode. The simulation profile
+limits the gripper to the model's `2048..2900` open/closed range, so normal
+wheel-mode safety stops a held jog at either endpoint. RobotDreams animates the
+adaptive linkage from servo feedback. The separate Gripper Speed setting uses
+`arm.gripper_speed` and defaults to `50`; changing Arm Speed does not affect it.
+Click `Save Calibration` to persist a changed hardware gripper speed. Closing
+past the model-profile threshold attaches a nearby bottle or ball to the TCP,
+and opening past its release threshold detaches it. These threshold ticks are
+simulation prototype values, not hardware measurements. Set `"gripper": null`
+to disable it; older configs without `gripper_speed` retain the default of `50`,
+and older physical configs without `gripper` default to servo 7.
 
 Cartesian Preview, Move, and API errors distinguish a geometrically unreachable
 target from a raw-reachable target blocked by enabled joint soft limits. Limit
@@ -162,6 +193,13 @@ shoulder, neck, and cap) and a lower centre of mass, so yaw-only arm contact
 can push it from the pedestal rather than treating the visible bottle as one
 featureless cylinder. The 80 g mass and damping values are repeatable scene
 prototype tuning, not measured properties of a particular physical bottle.
+While the simulator is running, it checks the URDF referenced by the active
+RobotDreams project four times per second. Saving a valid URDF reloads the
+RobotDreams session and resets the scene; an invalid or partially written save
+keeps the last good session and is retried after the next check. Joint origins
+and other pose changes with the existing visual topology update in the live
+preview. Adding or removing links, visuals, or mesh assets still requires a
+simulator restart so the preview renderer can rebuild its world.
 The episode runner still creates a private randomized copy of this scene and
 never gives that sampled position to the policy. To use the earlier general
 ball-and-bin scene, select it explicitly:
@@ -230,6 +268,7 @@ The response includes the active config path, dirty flag, and normalized config.
     "command_timeout_ms": 500
   },
   "arm": {
+    "gripper_speed": 50,
     "joints": [
       {
         "servo_id": 1,
@@ -271,7 +310,17 @@ The response includes the active config path, dirty flag, and normalized config.
         "drive_sign": 1,
         "limit_enabled": true
       }
-    ]
+    ],
+    "gripper": {
+      "servo_id": 7,
+      "tick_min": 0,
+      "tick_max": 4095,
+      "reference_tick": 2048,
+      "reference_angle_deg": 0.0,
+      "angle_sign": 1,
+      "drive_sign": 1,
+      "limit_enabled": true
+    }
   }
 }
 ```
@@ -487,6 +536,7 @@ cargo run -p puppybot -- ping
 cargo run -p puppybot -- config get
 cargo run -p puppybot -- arm state
 cargo run -p puppybot -- arm jog --joint 0 --direction 1 --speed 300 --duration-ms 500
+cargo run -p puppybot -- arm jog --joint 4 --direction 1 --speed 100 --duration-ms 500
 cargo run -p puppybot -- arm stop --joint 0
 cargo run -p puppybot -- arm goto-ticks --speed 300 2048 2048 2048 2048
 cargo run -p puppybot -- arm move-tcp --up 20
@@ -500,6 +550,9 @@ default frame is `base`, where `up/down` use table Z, `forward/back` use the
 robot base X axis, and `left/right` use the robot base Y axis. With
 `--frame tool`, `forward/back` follows the gripper approach axis and the current
 tool pitch is preserved.
+
+Arm CLI indices remain zero-based: joints `0..3` are yaw through wrist and
+joint `4` is the optional gripper.
 
 `arm tcp-jog start` starts continuous TCP motion in the given direction at
 `--speed-mm-s` until `arm tcp-jog stop` is sent. Passing `--duration-ms` makes

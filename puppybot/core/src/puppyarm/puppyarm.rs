@@ -8,13 +8,13 @@ use super::{
     },
 };
 use crate::{
-    config::{ConfigError, JointCalibration, PuppyArmConfig},
+    config::{ConfigError, DEFAULT_GRIPPER_SPEED, JointCalibration, PuppyArmConfig},
     stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode},
 };
 
 pub use super::types::{
-    ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint,
-    JointLimitViolation, PuppyarmTelemetry, TcpFrame,
+    ACTUATOR_COUNT, ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, GRIPPER_INDEX,
+    JOINT_COUNT, Joint, JointLimitViolation, PuppyarmTelemetry, TcpFrame,
 };
 
 const YAW_SIGN: f64 = 1.0;
@@ -28,6 +28,7 @@ const YAW_ZERO_TICK: i32 = 2048;
 const SHOULDER_ZERO_TICK: i32 = 530;
 const ELBOW_ZERO_TICK: i32 = 3565;
 const TIP_ZERO_TICK: i32 = 1783;
+const GRIPPER_ZERO_TICK: i32 = 2048;
 
 const WHEEL_MODE_RECOVERY_RETRY_MS: u64 = 1000;
 const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
@@ -37,17 +38,17 @@ const WHEEL_MODE_NEVER_ATTEMPTED: u64 = u64::MAX;
 /// never reseeded from quantized feedback; only its forward lead is limited.
 pub const MAX_TCP_JOG_TARGET_LEAD_MM: f64 = 8.0;
 
-fn current_targets(joints: &[Joint; JOINT_COUNT]) -> Option<[i32; JOINT_COUNT]> {
+fn current_targets(joints: &[Joint; ACTUATOR_COUNT]) -> Option<[i32; JOINT_COUNT]> {
     let mut targets = [0; JOINT_COUNT];
-    for (index, joint) in joints.iter().enumerate() {
+    for (index, joint) in joints.iter().take(JOINT_COUNT).enumerate() {
         targets[index] = joint.target_tick?;
     }
     Some(targets)
 }
 
-fn target_angles(joints: &[Joint; JOINT_COUNT]) -> Option<[f64; JOINT_COUNT]> {
+fn target_angles(joints: &[Joint; ACTUATOR_COUNT]) -> Option<[f64; JOINT_COUNT]> {
     let mut angles = [0.0; JOINT_COUNT];
-    for (index, joint) in joints.iter().enumerate() {
+    for (index, joint) in joints.iter().take(JOINT_COUNT).enumerate() {
         let angle = joint.target_angle_rad?;
         if !angle.is_finite() {
             return None;
@@ -65,7 +66,7 @@ fn table_coords(coords: (f64, f64, f64)) -> (f32, f32, f32) {
     )
 }
 
-fn active_jog(joints: &[Joint; JOINT_COUNT]) -> Option<(usize, i8)> {
+fn active_jog(joints: &[Joint; ACTUATOR_COUNT]) -> Option<(usize, i8)> {
     for (index, joint) in joints.iter().enumerate() {
         if joint.target_tick.is_none() && joint.speed != 0 {
             return Some((index, joint.speed.signum() as i8));
@@ -132,7 +133,7 @@ fn branch_continuity_score(
     yaw_d + shoulder_d + 2.0 * elbow_d + 2.0 * wrist_d
 }
 
-fn default_joints() -> [Joint; JOINT_COUNT] {
+fn default_joints() -> [Joint; ACTUATOR_COUNT] {
     [
         Joint {
             servo_id: 1,
@@ -153,6 +154,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             ),
             online: false,
             has_feedback: false,
+            servo_status: 0,
             limit_reached: false,
             tick: None,
             angle_rad: None,
@@ -189,6 +191,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             ),
             online: false,
             has_feedback: false,
+            servo_status: 0,
             limit_reached: false,
             tick: None,
             angle_rad: None,
@@ -225,6 +228,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             ),
             online: false,
             has_feedback: false,
+            servo_status: 0,
             limit_reached: false,
             tick: None,
             angle_rad: None,
@@ -261,6 +265,7 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             ),
             online: false,
             has_feedback: false,
+            servo_status: 0,
             limit_reached: false,
             tick: None,
             angle_rad: None,
@@ -271,6 +276,43 @@ fn default_joints() -> [Joint; JOINT_COUNT] {
             speed: 0,
             limit_min: TIP_TICK_MIN,
             limit_max: TIP_TICK_MAX,
+            last_feedback_ms: 0,
+            temp_c: None,
+            last_sent_speed: None,
+            last_speed_cmd_ms: 0,
+            stall_since_ms: None,
+            fault: None,
+        },
+        Joint {
+            servo_id: 7,
+            tick_min: 0,
+            tick_max: TICK_WRAP - 1,
+            raw_tick_min: 0,
+            raw_tick_max: TICK_WRAP - 1,
+            sign: 1.0,
+            drive_sign: 1,
+            reference_tick: GRIPPER_ZERO_TICK,
+            reference_angle_rad: 0.0,
+            zero_offset_rad: zero_offset_from_reference(
+                GRIPPER_ZERO_TICK,
+                0,
+                TICK_WRAP - 1,
+                1.0,
+                0.0,
+            ),
+            online: false,
+            has_feedback: false,
+            servo_status: 0,
+            limit_reached: false,
+            tick: None,
+            angle_rad: None,
+            target_tick: None,
+            target_angle_rad: None,
+            tick_delta: 0,
+            limit_enabled: true,
+            speed: 0,
+            limit_min: 0,
+            limit_max: TICK_WRAP - 1,
             last_feedback_ms: 0,
             temp_c: None,
             last_sent_speed: None,
@@ -307,12 +349,22 @@ fn joint_from_calibration(calibration: JointCalibration) -> Joint {
     joint
 }
 
-fn configured_joints(config: &PuppyArmConfig) -> [Joint; JOINT_COUNT] {
-    core::array::from_fn(|index| joint_from_calibration(config.joints[index]))
+fn configured_joints(config: &PuppyArmConfig) -> [Joint; ACTUATOR_COUNT] {
+    let mut joints = default_joints();
+    for (index, calibration) in config.joints.iter().copied().enumerate() {
+        joints[index] = joint_from_calibration(calibration);
+    }
+    if let Some(gripper) = config.gripper {
+        joints[GRIPPER_INDEX] = joint_from_calibration(gripper);
+    } else {
+        joints[GRIPPER_INDEX].servo_id = 0;
+        joints[GRIPPER_INDEX].limit_enabled = false;
+    }
+    joints
 }
 
 fn validate_joint(joint: usize) -> Result<usize, ControllerError> {
-    if joint < JOINT_COUNT {
+    if joint < ACTUATOR_COUNT {
         Ok(joint)
     } else {
         Err(ControllerError::InvalidJoint)
@@ -333,7 +385,7 @@ fn zero_offset_from_reference(
     physical_angle - sign * target_angle_rad
 }
 
-fn default_arm_state(now_ms: u64) -> ([Joint; JOINT_COUNT], ArmMode) {
+fn default_arm_state(now_ms: u64) -> ([Joint; ACTUATOR_COUNT], ArmMode) {
     let mut joints = default_joints();
     servo_safety::init_joints(&mut joints, now_ms);
 
@@ -343,7 +395,7 @@ fn default_arm_state(now_ms: u64) -> ([Joint; JOINT_COUNT], ArmMode) {
 fn configured_arm_state(
     config: &PuppyArmConfig,
     now_ms: u64,
-) -> Result<([Joint; JOINT_COUNT], ArmMode), ConfigError> {
+) -> Result<([Joint; ACTUATOR_COUNT], ArmMode), ConfigError> {
     config.validate()?;
     let mut joints = configured_joints(config);
     servo_safety::init_joints(&mut joints, now_ms);
@@ -352,15 +404,17 @@ fn configured_arm_state(
 }
 
 pub struct PuppyArm {
-    pub joints: [Joint; JOINT_COUNT],
+    pub joints: [Joint; ACTUATOR_COUNT],
+    has_gripper: bool,
     default_speed: i16,
+    gripper_speed: i16,
     last_cmd_ms: u64,
     last_ok_feedback_ms: u64,
     last_error: Option<SafetyFault>,
     mode: ArmMode,
-    wheel_servo_ids: [u8; JOINT_COUNT],
-    wheel_mode_ready: [bool; JOINT_COUNT],
-    wheel_mode_last_attempt_ms: [u64; JOINT_COUNT],
+    wheel_servo_ids: [u8; ACTUATOR_COUNT],
+    wheel_mode_ready: [bool; ACTUATOR_COUNT],
+    wheel_mode_last_attempt_ms: [u64; ACTUATOR_COUNT],
     queued_initial_wheel_mode: bool,
 }
 
@@ -375,14 +429,16 @@ impl PuppyArm {
         let (joints, mode) = default_arm_state(now);
         Self {
             joints,
+            has_gripper: true,
             default_speed: 200,
+            gripper_speed: DEFAULT_GRIPPER_SPEED,
             last_cmd_ms: now,
             last_ok_feedback_ms: now,
             last_error: None,
             mode,
             wheel_servo_ids: core::array::from_fn(|index| joints[index].servo_id),
-            wheel_mode_ready: [false; JOINT_COUNT],
-            wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; JOINT_COUNT],
+            wheel_mode_ready: [false; ACTUATOR_COUNT],
+            wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; ACTUATOR_COUNT],
             queued_initial_wheel_mode: false,
         }
     }
@@ -391,20 +447,22 @@ impl PuppyArm {
         let (joints, mode) = configured_arm_state(config, now)?;
         Ok(Self {
             joints,
+            has_gripper: config.gripper.is_some(),
             default_speed: 200,
+            gripper_speed: config.gripper_speed,
             last_cmd_ms: now,
             last_ok_feedback_ms: now,
             last_error: None,
             mode,
             wheel_servo_ids: core::array::from_fn(|index| joints[index].servo_id),
-            wheel_mode_ready: [false; JOINT_COUNT],
-            wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; JOINT_COUNT],
+            wheel_mode_ready: [false; ACTUATOR_COUNT],
+            wheel_mode_last_attempt_ms: [WHEEL_MODE_NEVER_ATTEMPTED; ACTUATOR_COUNT],
             queued_initial_wheel_mode: false,
         })
     }
 
     fn sync_wheel_servo_ids(&mut self) {
-        for index in 0..JOINT_COUNT {
+        for index in 0..ACTUATOR_COUNT {
             let servo_id = self.joints[index].servo_id;
             if self.wheel_servo_ids[index] != servo_id {
                 self.wheel_servo_ids[index] = servo_id;
@@ -415,43 +473,43 @@ impl PuppyArm {
     }
 
     fn mark_wheel_mode_ready(&mut self, index: usize) {
-        if index < JOINT_COUNT {
+        if index < ACTUATOR_COUNT {
             self.wheel_mode_ready[index] = true;
         }
     }
 
     fn mark_wheel_mode_not_ready(&mut self, index: usize) {
-        if index < JOINT_COUNT {
+        if index < ACTUATOR_COUNT {
             self.wheel_mode_ready[index] = false;
         }
     }
 
     fn mark_all_wheel_modes_not_ready(&mut self) {
-        self.wheel_mode_ready = [false; JOINT_COUNT];
-        self.wheel_mode_last_attempt_ms = [WHEEL_MODE_NEVER_ATTEMPTED; JOINT_COUNT];
+        self.wheel_mode_ready = [false; ACTUATOR_COUNT];
+        self.wheel_mode_last_attempt_ms = [WHEEL_MODE_NEVER_ATTEMPTED; ACTUATOR_COUNT];
     }
 
     fn wheel_mode_is_ready(&self, index: usize, servo_id: u8) -> bool {
-        index < JOINT_COUNT
+        index < ACTUATOR_COUNT
             && self.wheel_servo_ids[index] == servo_id
             && self.wheel_mode_ready[index]
     }
 
     fn can_retry_wheel_mode(&self, index: usize, now: u64) -> bool {
-        index < JOINT_COUNT
+        index < ACTUATOR_COUNT
             && (self.wheel_mode_last_attempt_ms[index] == WHEEL_MODE_NEVER_ATTEMPTED
                 || now.saturating_sub(self.wheel_mode_last_attempt_ms[index])
                     >= WHEEL_MODE_RECOVERY_RETRY_MS)
     }
 
     fn mark_wheel_mode_attempt(&mut self, index: usize, now: u64) {
-        if index < JOINT_COUNT {
+        if index < ACTUATOR_COUNT {
             self.wheel_mode_last_attempt_ms[index] = now;
         }
     }
 
     pub fn record_feedback(&mut self, joint: usize, tick: u16, now: u64) {
-        if joint >= JOINT_COUNT {
+        if joint >= ACTUATOR_COUNT {
             return;
         }
 
@@ -459,15 +517,31 @@ impl PuppyArm {
         let _ = self.record_feedback_tick(joint, tick as i32, now);
         if !was_online {
             self.mark_wheel_mode_not_ready(joint);
+            self.wheel_mode_last_attempt_ms[joint] = WHEEL_MODE_NEVER_ATTEMPTED;
         }
     }
 
     pub fn joint_servo_id(&self, joint: usize) -> Option<u8> {
-        self.joints.get(joint).map(|joint| joint.servo_id)
+        self.joints
+            .get(joint)
+            .map(|joint| joint.servo_id)
+            .filter(|servo_id| *servo_id != 0)
+    }
+
+    pub const fn actuator_count(&self) -> usize {
+        if self.has_gripper {
+            ACTUATOR_COUNT
+        } else {
+            JOINT_COUNT
+        }
+    }
+
+    pub const fn has_gripper(&self) -> bool {
+        self.has_gripper
     }
 
     pub fn record_feedback_error(&mut self, joint: usize) {
-        if joint >= JOINT_COUNT {
+        if joint >= ACTUATOR_COUNT {
             return;
         }
 
@@ -475,8 +549,22 @@ impl PuppyArm {
         self.mark_wheel_mode_not_ready(joint);
     }
 
+    pub fn record_servo_status(&mut self, joint: usize, status: u8) {
+        if joint >= ACTUATOR_COUNT {
+            return;
+        }
+
+        self.joints[joint].servo_status = status;
+    }
+
+    pub fn servo_status_blocks_motion(&self, joint: usize) -> bool {
+        self.joints
+            .get(joint)
+            .is_some_and(|joint| joint.servo_status & servo_safety::BLOCKING_SERVO_STATUS != 0)
+    }
+
     pub fn record_temperature(&mut self, joint: usize, temp_c: Option<u8>) {
-        if joint >= JOINT_COUNT {
+        if joint >= ACTUATOR_COUNT {
             return;
         }
 
@@ -492,7 +580,7 @@ impl PuppyArm {
         true
     }
 
-    pub fn update(&mut self, now: u64) -> [SpeedCommand; JOINT_COUNT] {
+    pub fn update(&mut self, now: u64) -> [SpeedCommand; ACTUATOR_COUNT] {
         self.advance_tcp_jog(now);
         let tcp_jog_targets = if matches!(self.mode, ArmMode::TcpJogging { .. }) {
             current_targets(&self.joints)
@@ -594,6 +682,7 @@ impl PuppyArm {
                 joint.limit_max = joint.tick_max;
                 joint
             }),
+            has_gripper: self.has_gripper,
             coords_mm: self.coords_mm(),
             target_coords_mm: self.target_coords_mm(),
             effective_target_coords_mm: self.effective_target_coords_mm(),
@@ -615,7 +704,9 @@ impl PuppyArm {
             let ArmCommand::SetServoIds(servo_ids) = command else {
                 unreachable!();
             };
-            if !valid_servo_ids(&servo_ids) {
+            if !valid_servo_ids(&servo_ids)
+                || (self.has_gripper && servo_ids.contains(&self.joints[GRIPPER_INDEX].servo_id))
+            {
                 return Err(ControllerError::InvalidServoIds);
             }
             if self
@@ -638,6 +729,10 @@ impl PuppyArm {
         match command {
             ArmCommand::SetSpeed(speed) => {
                 self.set_default_speed(speed, now);
+                Ok(())
+            }
+            ArmCommand::SetGripperSpeed(speed) => {
+                self.set_gripper_speed(speed, now);
                 Ok(())
             }
             ArmCommand::Spin { joint, direction } => {
@@ -734,6 +829,11 @@ impl PuppyArm {
         self.last_cmd_ms = now;
     }
 
+    fn set_gripper_speed(&mut self, speed: i16, now: u64) {
+        self.gripper_speed = speed.saturating_abs();
+        self.last_cmd_ms = now;
+    }
+
     fn start_tcp_jog(
         &mut self,
         frame: TcpFrame,
@@ -809,7 +909,12 @@ impl PuppyArm {
 
     fn spin(&mut self, joint: usize, direction: i8, now: u64) -> Result<(), ControllerError> {
         let joint = validate_joint(joint)?;
-        self.joints[joint].spin(direction, self.default_speed);
+        let speed = if joint == GRIPPER_INDEX {
+            self.gripper_speed
+        } else {
+            self.default_speed
+        };
+        self.joints[joint].spin(direction, speed);
         self.last_cmd_ms = now;
         Ok(())
     }
@@ -859,7 +964,7 @@ impl PuppyArm {
     }
 
     fn refresh_joint_angle_cache(&mut self, joint: usize) {
-        if joint >= JOINT_COUNT {
+        if joint >= ACTUATOR_COUNT {
             return;
         }
 
@@ -875,7 +980,7 @@ impl PuppyArm {
     }
 
     fn set_joint_target_tick(&mut self, joint: usize, tick: i32) {
-        if joint >= JOINT_COUNT {
+        if joint >= ACTUATOR_COUNT {
             return;
         }
 
@@ -896,7 +1001,7 @@ impl PuppyArm {
         Ok(())
     }
 
-    fn speed_commands(&mut self, now: u64) -> [SpeedCommand; JOINT_COUNT] {
+    fn speed_commands(&mut self, now: u64) -> [SpeedCommand; ACTUATOR_COUNT] {
         if let Some(reason) = servo_safety::deadman_reason(
             &self.joints,
             self.last_cmd_ms,
@@ -907,9 +1012,14 @@ impl PuppyArm {
         }
 
         core::array::from_fn(|index| {
-            let desired =
-                servo_safety::compute_safe_speed(&mut self.joints[index], self.default_speed, now);
-            let should_send = self.joints[index].last_sent_speed != Some(desired);
+            let max_speed = if index == GRIPPER_INDEX {
+                self.gripper_speed
+            } else {
+                self.default_speed
+            };
+            let desired = servo_safety::compute_safe_speed(&mut self.joints[index], max_speed, now);
+            let should_send = self.joints[index].servo_id != 0
+                && self.joints[index].last_sent_speed != Some(desired);
             SpeedCommand {
                 servo_id: self.joints[index].servo_id,
                 speed: desired,
@@ -935,12 +1045,17 @@ impl PuppyArm {
             return Some(angles);
         }
 
-        if !self.joints.iter().any(|joint| joint.target_tick.is_some()) {
+        if !self
+            .joints
+            .iter()
+            .take(JOINT_COUNT)
+            .any(|joint| joint.target_tick.is_some())
+        {
             return None;
         }
 
         let mut angles = self.current_angles().ok()?;
-        for (index, joint) in self.joints.iter().enumerate() {
+        for (index, joint) in self.joints.iter().take(JOINT_COUNT).enumerate() {
             if joint.target_tick.is_some() {
                 angles[index] = joint.target_angle_rad?;
             }
@@ -1442,6 +1557,12 @@ impl PuppyArm {
 
     fn set_joint_tick(&mut self, joint: usize, tick: i32, now: u64) -> Result<(), ControllerError> {
         let joint = validate_joint(joint)?;
+        if joint == GRIPPER_INDEX {
+            self.joints[joint].clear_fault();
+            self.set_joint_target_tick(joint, tick);
+            self.last_cmd_ms = now;
+            return Ok(());
+        }
         let mut ticks = [0; JOINT_COUNT];
         for (index, target_tick) in ticks.iter_mut().enumerate() {
             *target_tick = self.joints[index]
@@ -1459,6 +1580,13 @@ impl PuppyArm {
         now: u64,
     ) -> Result<(), ControllerError> {
         let joint = validate_joint(joint)?;
+        if joint == GRIPPER_INDEX {
+            self.joints[joint].clear_fault();
+            let tick = self.joints[joint].angle_to_tick(angle_rad);
+            self.set_joint_target_tick(joint, tick);
+            self.last_cmd_ms = now;
+            return Ok(());
+        }
         let mut ticks = [0; JOINT_COUNT];
         for (index, target_tick) in ticks.iter_mut().enumerate() {
             *target_tick = self.joints[index]

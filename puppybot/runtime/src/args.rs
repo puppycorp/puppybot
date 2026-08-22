@@ -86,6 +86,10 @@ fn parse_config(value: &str) -> Result<String, String> {
     non_empty_path(value, "--config requires a non-empty path")
 }
 
+fn parse_log_file(value: &str) -> Result<String, String> {
+    non_empty_path(value, "--log-file requires a non-empty path")
+}
+
 fn parse_servo_device(value: &str) -> Result<String, String> {
     non_empty_path(value, "--servo-device requires a non-empty path")
 }
@@ -201,6 +205,8 @@ pub enum Command {
 #[derive(Debug, Parser)]
 #[command(name = "puppybot-runtime")]
 pub struct Cli {
+    #[arg(long = "log-file", global = true, value_parser = parse_log_file)]
+    pub log_file: Option<String>,
     #[command(flatten)]
     pub run: RuntimeArgs,
     #[command(subcommand)]
@@ -220,11 +226,61 @@ mod tests {
 
     #[test]
     fn run_args_reject_invalid_screenshot_camera() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--camera-target", "1,2"]).is_err());
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--camera-target", "1,NaN,3"]).is_err());
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--camera-radius", "0"]).is_err());
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--camera-azimuth", "inf"]).is_err());
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--camera-elevation", "90"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--camera-target",
+                "1,2"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--camera-target",
+                "1,NaN,3"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--camera-radius",
+                "0"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--camera-azimuth",
+                "inf"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--camera-elevation",
+                "90"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -253,8 +309,43 @@ mod tests {
     }
 
     #[test]
+    fn log_file_is_available_to_runtime_and_subcommands() {
+        let runtime =
+            Cli::try_parse_from(["puppybot-runtime", "--log-file", "workdir/logs/runtime.log"])
+                .expect("parse runtime log file");
+        assert_eq!(
+            runtime.log_file.as_deref(),
+            Some("workdir/logs/runtime.log")
+        );
+
+        let record = Cli::try_parse_from([
+            "puppybot-runtime",
+            "record",
+            "--sim",
+            "--out",
+            "capture.mp4",
+            "--frames",
+            "1",
+            "--log-file",
+            "record.log",
+        ])
+        .expect("parse subcommand log file");
+        assert_eq!(record.log_file.as_deref(), Some("record.log"));
+    }
+
+    #[test]
     fn run_args_reject_zero_frame_count() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "frame.png", "--frames", "0"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "frame.png",
+                "--frames",
+                "0"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -295,38 +386,106 @@ mod tests {
 
     #[test]
     fn run_args_reject_frames_with_state() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--state", "state.json", "--frames", "10"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--state",
+                "state.json",
+                "--frames",
+                "10"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn run_args_reject_camera_overrides_with_state() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "--sim", "--screenshot", "x.png", "--state", "state.json", "--camera-radius", "1.0"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "--sim",
+                "--screenshot",
+                "x.png",
+                "--state",
+                "state.json",
+                "--camera-radius",
+                "1.0"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn record_requires_out() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "record", "--sim", "--frames", "10"]).is_err());
+        assert!(
+            Cli::try_parse_from(["puppybot-runtime", "record", "--sim", "--frames", "10"]).is_err()
+        );
     }
 
     #[test]
     fn record_requires_sim() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "record", "--out", "x.mp4", "--frames", "10"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "record",
+                "--out",
+                "x.mp4",
+                "--frames",
+                "10"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn record_rejects_frames_with_state() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "record", "--sim", "--out", "x.mp4", "--state", "trace.json", "--frames", "10"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "record",
+                "--sim",
+                "--out",
+                "x.mp4",
+                "--state",
+                "trace.json",
+                "--frames",
+                "10"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn record_rejects_quick_grid() {
-        assert!(Cli::try_parse_from(["puppybot-runtime", "record", "--sim", "--out", "x.mp4", "--frames", "10", "--quick-grid"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "puppybot-runtime",
+                "record",
+                "--sim",
+                "--out",
+                "x.mp4",
+                "--frames",
+                "10",
+                "--quick-grid"
+            ])
+            .is_err()
+        );
     }
 
     #[test]
     fn dataset_capture_parses_quick_grid() {
-        let cli = Cli::try_parse_from(["puppybot-runtime", "dataset-capture", "--sim", "--out", "dataset/", "--quick-grid"])
-            .expect("parse dataset capture");
+        let cli = Cli::try_parse_from([
+            "puppybot-runtime",
+            "dataset-capture",
+            "--sim",
+            "--out",
+            "dataset/",
+            "--quick-grid",
+        ])
+        .expect("parse dataset capture");
         let Command::DatasetCapture(args) = cli.command.expect("dataset-capture command") else {
             panic!("expected dataset-capture");
         };
@@ -352,7 +511,10 @@ mod tests {
         assert!(args.simulated);
         assert_eq!(args.out.as_deref(), Some("workdir/recordings/aligned.mp4"));
         assert_eq!(args.frames, Some(150));
-        assert_eq!(args.robotdreams_project.as_deref(), Some("robotdreams/project.json"));
+        assert_eq!(
+            args.robotdreams_project.as_deref(),
+            Some("robotdreams/project.json")
+        );
         assert_eq!(args.state, None);
     }
 }

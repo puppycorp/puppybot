@@ -9,7 +9,8 @@ use std::{
 use puppybot_core::config::PUPPYBOT_CONFIG_VERSION;
 use puppybot_core::{
     config::{
-        CoordinateCalibration, JointCalibration, PuppyArmConfig, PuppybotConfigV1, SERIAL_LEN,
+        CoordinateCalibration, DEFAULT_GRIPPER_SPEED, JointCalibration, PuppyArmConfig,
+        PuppybotConfigV1, SERIAL_LEN, default_gripper_calibration,
     },
     drive::DriveConfig,
     puppyarm::types::JOINT_COUNT,
@@ -111,6 +112,8 @@ fn config_json(config: &PuppybotConfigV1) -> Value {
         },
         "arm": {
             "joints": config.arm.joints.iter().map(joint_json).collect::<Vec<_>>(),
+            "gripper": config.arm.gripper.as_ref().map(joint_json),
+            "gripper_speed": config.arm.gripper_speed,
         },
         "coordinate": {
             "forward_sign": config.coordinate.forward_sign,
@@ -179,7 +182,21 @@ fn arm_field(root: &serde_json::Map<String, Value>, name: &str) -> Result<PuppyA
     for (index, value) in joints.iter().enumerate() {
         parsed[index] = joint_field(value, index)?;
     }
-    Ok(PuppyArmConfig { joints: parsed })
+    let gripper = match arm.get("gripper") {
+        Some(Value::Null) => None,
+        Some(value) => Some(named_joint_field(value, "arm.gripper")?),
+        None => Some(default_gripper_calibration()),
+    };
+    let gripper_speed = optional_i32_field(arm, "gripper_speed")?
+        .map(i16::try_from)
+        .transpose()
+        .map_err(|_| "gripper_speed is outside i16 range".to_string())?
+        .unwrap_or(DEFAULT_GRIPPER_SPEED);
+    Ok(PuppyArmConfig {
+        joints: parsed,
+        gripper,
+        gripper_speed,
+    })
 }
 
 fn array_field<'a>(
@@ -332,9 +349,8 @@ fn joint(servo_id: u8) -> JointCalibration {
     }
 }
 
-fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> {
-    let name = format!("arm.joints[{index}]");
-    let joint = object(value, &name)?;
+fn named_joint_field(value: &Value, name: &str) -> Result<JointCalibration, String> {
+    let joint = object(value, name)?;
     let tick_min = compatible_i32_field(joint, "tick_min", "soft_tick_min")?;
     let tick_max = compatible_i32_field(joint, "tick_max", "soft_tick_max")?;
     Ok(JointCalibration {
@@ -347,6 +363,11 @@ fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> 
         drive_sign: i8_sign_field(joint, "drive_sign")?,
         limit_enabled: bool_field(joint, "limit_enabled")?,
     })
+}
+
+fn joint_field(value: &Value, index: usize) -> Result<JointCalibration, String> {
+    let name = format!("arm.joints[{index}]");
+    named_joint_field(value, &name)
 }
 
 fn object<'a>(value: &'a Value, name: &str) -> Result<&'a serde_json::Map<String, Value>, String> {
@@ -481,7 +502,92 @@ mod tests {
         assert_eq!(config.arm.servo_ids(), [11, 12, 13, 14]);
         assert_eq!(config.arm.joints[1].tick_min, 100);
         assert_eq!(config.arm.joints[1].tick_max, 1000);
+        assert_eq!(config.arm.gripper, Some(default_gripper_calibration()));
+        assert_eq!(config.arm.gripper_speed, DEFAULT_GRIPPER_SPEED);
         assert_eq!(config.coordinate, CoordinateCalibration::default());
+    }
+
+    #[test]
+    fn configured_gripper_speed_round_trips() {
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            "\n                ],\n                \"gripper_speed\": 37\n            }",
+        );
+
+        let config = parse_config_json(&json).unwrap();
+
+        assert_eq!(config.arm.gripper_speed, 37);
+        assert_eq!(
+            parse_config_json(&runtime_config_json(&config).unwrap()).unwrap(),
+            config
+        );
+    }
+
+    #[test]
+    fn negative_gripper_speed_is_rejected() {
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            "\n                ],\n                \"gripper_speed\": -1\n            }",
+        );
+
+        assert!(
+            parse_config_json(&json)
+                .unwrap_err()
+                .contains("gripper speed must be non-negative")
+        );
+    }
+
+    #[test]
+    fn explicit_null_gripper_disables_it() {
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            "\n                ],\n                \"gripper\": null\n            }",
+        );
+
+        let config = parse_config_json(&json).unwrap();
+
+        assert_eq!(config.arm.gripper, None);
+        let saved = runtime_config_json(&config).unwrap();
+        assert!(saved.contains("\"gripper\": null"));
+    }
+
+    #[test]
+    fn configured_gripper_round_trips_and_must_have_a_unique_servo_id() {
+        let gripper = r#"{
+                    "servo_id": 7,
+                    "tick_min": 1200,
+                    "tick_max": 2800,
+                    "reference_tick": 2100,
+                    "reference_angle_deg": 0.0,
+                    "angle_sign": -1,
+                    "drive_sign": 1,
+                    "limit_enabled": true
+                }"#;
+        let json = valid_json().replace(
+            "\n                ]\n            }",
+            &format!(
+                "\n                ],\n                \"gripper\": {gripper}\n            }}"
+            ),
+        );
+
+        let config = parse_config_json(&json).unwrap();
+        let parsed_gripper = config.arm.gripper.expect("configured gripper");
+        assert_eq!(parsed_gripper.servo_id, 7);
+        assert_eq!(parsed_gripper.tick_min, 1200);
+        assert_eq!(parsed_gripper.tick_max, 2800);
+        assert_eq!(parsed_gripper.reference_tick, 2100);
+        assert_eq!(parsed_gripper.angle_sign, -1);
+        assert_eq!(
+            parse_config_json(&runtime_config_json(&config).unwrap()).unwrap(),
+            config
+        );
+
+        let duplicate = json.replace("\"servo_id\": 7", "\"servo_id\": 11");
+        assert!(
+            parse_config_json(&duplicate)
+                .unwrap_err()
+                .contains("duplicate")
+        );
     }
 
     #[test]
@@ -648,6 +754,18 @@ mod tests {
     }
 
     #[test]
+    fn simulation_gripper_limits_match_model_endpoints() {
+        let path = resolve_runtime_config_path(None, None, true);
+        let config = load_runtime_config(&path)
+            .expect("load simulation runtime config")
+            .expect("simulation runtime config exists");
+        let gripper = config.arm.gripper.expect("simulation gripper calibration");
+
+        assert_eq!((gripper.tick_min, gripper.tick_max), (2048, 2900));
+        assert!(gripper.limit_enabled);
+    }
+
+    #[test]
     fn save_runtime_config_writes_round_trippable_json() {
         let path =
             std::env::temp_dir().join(format!("saved-puppybot-config-{}.json", std::process::id()));
@@ -686,6 +804,9 @@ mod tests {
             SIMULATION_LIMITS
         );
         assert!(source.arm.joints.iter().all(|joint| joint.limit_enabled));
+        let gripper = source.arm.gripper.expect("simulation gripper calibration");
+        assert_eq!((gripper.tick_min, gripper.tick_max), (2048, 2900));
+        assert!(gripper.limit_enabled);
 
         let restart_path = std::env::temp_dir().join(format!(
             "saved-puppybot-sim-config-{}.json",

@@ -328,6 +328,16 @@
               "zeroOffset": 1535,
               "direction": 1
             }
+          },
+          {
+            "type": "servo",
+            "id": 7,
+            "name": "Gripper Servo",
+            "profile": "ST3215",
+            "calibration": {
+              "zeroOffset": 2048,
+              "direction": 1
+            }
           }
         ]
       },

@@ -105,6 +105,13 @@
       }
     ]
   },
+  "gripper": {
+    "servo": 7,
+    "openTick": 2048,
+    "closeTick": 2900,
+    "pickupToleranceM": 0.035,
+    "notes": "The gripper is a bare virtual actuator: the URDF has no finger joints, so grasping stays the RobotDreams TCP-centre attachment. Open at or below openTick, closed at or above closeTick, with the between band holding the previous grasp state. Threshold ticks are simulation prototype values, not measured hardware authority."
+  },
   "calibration": {
     "source": "placeholder",
     "notes": "Arm servo mappings follow the full PuppyBot URDF TCP ancestor chain: yaw, shoulder, elbow, wrist."

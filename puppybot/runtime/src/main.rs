@@ -1,5 +1,8 @@
 use std::{
     env as process_env,
+    ffi::OsStr,
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
@@ -22,7 +25,27 @@ mod stservo;
 use args::{Cli, Command, DatasetCaptureArgs, RecordArgs};
 
 const NVIDIA_DRIVER_VERSION_PATH: &str = "/proc/driver/nvidia/version";
+const DEFAULT_RUNTIME_LOG_PATH: &str = "logs.txt";
+const RUNTIME_LOG_ENV: &str = "PUPPYBOT_RUNTIME_LOG";
+const VERBOSE_LOG_ENV: &str = "LOG";
 const X11_RESTART_MARKER: &str = "PUPPYBOT_SIM_X11_RESTARTED";
+
+struct TerminalAndFileWriter {
+    file: File,
+}
+
+impl Write for TerminalAndFileWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        io::stderr().write_all(buffer)?;
+        self.file.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        io::stderr().flush()?;
+        self.file.flush()
+    }
+}
 
 fn parse_ui_bind(value: Option<&str>) -> Result<Option<SocketAddr>, String> {
     value
@@ -33,10 +56,55 @@ fn parse_ui_bind(value: Option<&str>) -> Result<Option<SocketAddr>, String> {
         .transpose()
 }
 
-fn init_logger() {
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .try_init();
+fn runtime_log_path(cli_path: Option<&str>, env_path: Option<&OsStr>) -> PathBuf {
+    cli_path
+        .map(PathBuf::from)
+        .or_else(|| env_path.filter(|path| !path.is_empty()).map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_RUNTIME_LOG_PATH))
+}
+
+fn verbose_logging_enabled(value: Option<&OsStr>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    if value.is_empty() {
+        return false;
+    }
+    !value.to_str().is_some_and(|value| {
+        value == "0"
+            || value.eq_ignore_ascii_case("false")
+            || value.eq_ignore_ascii_case("no")
+            || value.eq_ignore_ascii_case("off")
+    })
+}
+
+fn init_logger(log_file: Option<&Path>, verbose: bool) -> Result<(), String> {
+    let default_filter = if verbose {
+        "info,puppybot_core::robot=debug"
+    } else {
+        "info"
+    };
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter));
+    builder.format_timestamp_millis();
+    if let Some(path) = log_file {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("create log directory {}: {err}", parent.display()))?;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|err| format!("open runtime log {}: {err}", path.display()))?;
+        builder.target(env_logger::Target::Pipe(Box::new(TerminalAndFileWriter {
+            file,
+        })));
+    }
+    builder.try_init().map_err(|err| err.to_string())
 }
 
 fn should_restart_simulation_on_x11(cli: &Cli) -> bool {
@@ -273,8 +341,19 @@ async fn run(cli: Cli) {
 }
 
 fn main() {
-    init_logger();
     let cli = Cli::parse();
+    let env_log_file = process_env::var_os(RUNTIME_LOG_ENV);
+    let log_file = runtime_log_path(cli.log_file.as_deref(), env_log_file.as_deref());
+    let verbose_log_value = process_env::var_os(VERBOSE_LOG_ENV);
+    let verbose_logging = verbose_logging_enabled(verbose_log_value.as_deref());
+    if let Err(err) = init_logger(Some(&log_file), verbose_logging) {
+        eprintln!("failed to initialize runtime logging: {err}");
+        std::process::exit(2);
+    }
+    log::info!("writing runtime logs to {}", log_file.display());
+    if verbose_logging {
+        log::info!("verbose gripper feedback logging enabled by {VERBOSE_LOG_ENV}");
+    }
     if let Err(err) = restart_simulation_on_x11(&cli) {
         eprintln!("{err}");
         std::process::exit(1);
@@ -290,4 +369,44 @@ fn main() {
         }
     };
     runtime.block_on(run(cli));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_log_path_defaults_to_logs_txt() {
+        assert_eq!(runtime_log_path(None, None), PathBuf::from("logs.txt"));
+        assert_eq!(
+            runtime_log_path(None, Some(OsStr::new(""))),
+            PathBuf::from("logs.txt")
+        );
+    }
+
+    #[test]
+    fn runtime_log_path_prefers_cli_then_environment() {
+        assert_eq!(
+            runtime_log_path(None, Some(OsStr::new("environment.log"))),
+            PathBuf::from("environment.log")
+        );
+        assert_eq!(
+            runtime_log_path(
+                Some("command-line.log"),
+                Some(OsStr::new("environment.log"))
+            ),
+            PathBuf::from("command-line.log")
+        );
+    }
+
+    #[test]
+    fn verbose_logging_requires_a_truthy_log_value() {
+        assert!(!verbose_logging_enabled(None));
+        for value in ["", "0", "false", "FALSE", "no", "off"] {
+            assert!(!verbose_logging_enabled(Some(OsStr::new(value))), "{value}");
+        }
+        for value in ["1", "true", "yes", "on", "debug"] {
+            assert!(verbose_logging_enabled(Some(OsStr::new(value))), "{value}");
+        }
+    }
 }
