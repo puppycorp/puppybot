@@ -596,6 +596,7 @@ pub fn arm_state_frame(
 #[allow(dead_code)]
 pub fn fault_name(fault: SafetyFault) -> &'static [u8] {
     match fault {
+        SafetyFault::ServoStatus => b"servo_status",
         SafetyFault::OverTemperature => b"over_temp",
         SafetyFault::FeedbackUnavailable => b"no_feedback",
         SafetyFault::FeedbackStale => b"stale_feedback",
@@ -647,6 +648,7 @@ pub fn command_name(command: u8) -> &'static str {
 #[allow(dead_code)]
 pub fn fault_name_str(fault: SafetyFault) -> &'static str {
     match fault {
+        SafetyFault::ServoStatus => "servo_status",
         SafetyFault::OverTemperature => "over_temp",
         SafetyFault::FeedbackUnavailable => "no_feedback",
         SafetyFault::FeedbackStale => "stale_feedback",

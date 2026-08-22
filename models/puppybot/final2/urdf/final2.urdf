@@ -4921,7 +4921,7 @@
             is world-up in the nominal pose. The configured TCP is a tool-tip
             target, not the wrist's mechanical mounting surface.
         -->
-        <origin xyz="0.038 -0.00185 -0.03932" rpy="-1.5708 0 0" />
+        <origin xyz="0.018 -0.0022 -0.06932" rpy="-1.5708 0 0" />
         <parent link="part_1_4" />
         <child link="gripper_base" />
     </joint>

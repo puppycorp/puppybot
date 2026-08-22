@@ -12,7 +12,7 @@ use puppybot_core::config::{
 };
 use puppybot_core::drive::{DriveActuator, DriveCommand, DriveConfig, DriveOutput};
 use puppybot_core::protocol::ProtocolEvent;
-use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, PuppyarmTelemetry, JOINT_COUNT};
+use puppybot_core::puppyarm::types::{ArmCommand, ControllerError, JOINT_COUNT, PuppyarmTelemetry};
 use puppybot_core::robot::{PuppyBotSystem, Puppybot};
 use puppybot_core::stservo::mock::block_on_ready;
 use puppybot_core::stservo::{SerialBus, StServo};
@@ -170,6 +170,23 @@ pub struct RuntimeLikePuppybotRobotDreamsHarness {
 impl PuppybotRobotDreamsHarness {
     pub fn with_arm_pose(angles_rad: [f64; JOINT_COUNT]) -> Self {
         Self::with_arm_pose_for_project(angles_rad, SimulationProject::Canonical)
+    }
+
+    pub fn with_arm_pose_and_gripper(angles_rad: [f64; JOINT_COUNT]) -> Self {
+        let config = runtime_config_with_gripper();
+        let state = initialized_state(&config, angles_rad, SimulationProject::Canonical);
+        let bus = RobotDreamsSerialBus::new(Rc::clone(&state));
+        let drive_actuator = RobotDreamsDriveActuator::new(Rc::clone(&state));
+        let system = PuppyBotSystem::with_servo_and_drive(
+            Puppybot::new_with_config(&config, 0).expect("simulation PuppyBot config"),
+            StServo::new(bus),
+            drive_actuator,
+        );
+        Self {
+            state,
+            system,
+            cycle: 0,
+        }
     }
 
     pub fn with_arm_pose_on_unobstructed_drive_lane(angles_rad: [f64; JOINT_COUNT]) -> Self {
@@ -840,6 +857,8 @@ pub fn runtime_config() -> PuppybotConfigV1 {
         arm: PuppyArmConfig {
             joints: core::array::from_fn(|index| joint_value(&root, index)),
             gripper: None,
+            gripper_speed: i16::try_from(i32_value(&root, &["arm", "gripper_speed"]))
+                .expect("gripper speed fits i16"),
         },
         coordinate: CoordinateCalibration {
             forward_sign: i8_value(&root, &["coordinate", "forward_sign"]),
@@ -851,6 +870,18 @@ pub fn runtime_config() -> PuppybotConfigV1 {
             tcp_up_sign: 1,
         },
     };
+    config.validate().expect("valid PuppyBot runtime config");
+    config
+}
+
+pub fn runtime_config_with_gripper() -> PuppybotConfigV1 {
+    let mut config = runtime_config();
+    let contents = fs::read_to_string(runtime_config_path()).expect("read PuppyBot runtime config");
+    let root: Value = serde_json::from_str(&contents).expect("parse PuppyBot runtime config JSON");
+    config.arm.gripper = Some(joint_calibration_value(path_value(
+        &root,
+        &["arm", "gripper"],
+    )));
     config.validate().expect("valid PuppyBot runtime config");
     config
 }
@@ -880,15 +911,19 @@ fn joint_value(root: &Value, index: usize) -> JointCalibration {
         .as_array()
         .and_then(|joints| joints.get(index))
         .unwrap_or_else(|| panic!("arm joint {index}"));
+    joint_calibration_value(joint)
+}
+
+fn joint_calibration_value(value: &Value) -> JointCalibration {
     JointCalibration {
-        servo_id: u8_value(joint, &["servo_id"]),
-        tick_min: i32_value(joint, &["tick_min"]),
-        tick_max: i32_value(joint, &["tick_max"]),
-        reference_tick: i32_value(joint, &["reference_tick"]),
-        reference_angle_rad: f64_value(joint, &["reference_angle_deg"]).to_radians(),
-        angle_sign: i8_value(joint, &["angle_sign"]),
-        drive_sign: i8_value(joint, &["drive_sign"]),
-        limit_enabled: bool_value(joint, &["limit_enabled"]),
+        servo_id: u8_value(value, &["servo_id"]),
+        tick_min: i32_value(value, &["tick_min"]),
+        tick_max: i32_value(value, &["tick_max"]),
+        reference_tick: i32_value(value, &["reference_tick"]),
+        reference_angle_rad: f64_value(value, &["reference_angle_deg"]).to_radians(),
+        angle_sign: i8_value(value, &["angle_sign"]),
+        drive_sign: i8_value(value, &["drive_sign"]),
+        limit_enabled: bool_value(value, &["limit_enabled"]),
     }
 }
 

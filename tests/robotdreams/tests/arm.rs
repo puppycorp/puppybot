@@ -1,6 +1,6 @@
 use puppybot_core::drive::DriveCommand;
 use puppybot_core::puppyarm::kinematics::{solve_tip_angle_down, tool_pitch};
-use puppybot_core::puppyarm::types::{ArmCommand, TcpFrame};
+use puppybot_core::puppyarm::types::{ArmCommand, GRIPPER_INDEX, TcpFrame};
 use robotdreams_core::RobotDreams;
 
 use harness::{
@@ -240,6 +240,34 @@ fn test_harness_for_coordinate_move(case: CoordinateButtonCase) -> PuppybotRobot
 
 fn test_harness() -> PuppybotRobotDreamsHarness {
     test_harness_with_yaw(0.0)
+}
+
+#[test]
+fn gripper_target_moves_the_virtual_servo_and_reports_feedback() {
+    let mut harness = PuppybotRobotDreamsHarness::with_arm_pose_and_gripper([0.0; 4]);
+    let initial_tick = harness
+        .servo_present_position(7)
+        .expect("gripper servo must exist on the virtual bus");
+
+    harness.run_arm_command(
+        ArmCommand::SetJointTick {
+            joint: GRIPPER_INDEX,
+            tick: 2600,
+        },
+        400,
+    );
+
+    let present_tick = harness
+        .servo_present_position(7)
+        .expect("gripper servo feedback");
+    let telemetry = harness.arm_telemetry();
+    assert!(present_tick > initial_tick, "gripper tick must increase");
+    assert_eq!(telemetry.joints[GRIPPER_INDEX].servo_id, 7);
+    assert_eq!(
+        telemetry.joints[GRIPPER_INDEX].tick,
+        Some(i32::from(present_tick))
+    );
+    harness.assert_no_bus_errors();
 }
 
 fn reference_default_pose() -> ([f64; 4], [f64; 3], [f64; 3]) {

@@ -13,7 +13,7 @@ use super::{
         JointLimitViolation,
     },
 };
-use crate::config::{JointCalibration, PuppyArmConfig};
+use crate::config::{DEFAULT_GRIPPER_SPEED, JointCalibration, PuppyArmConfig};
 
 const EPS: f64 = 1.0e-6;
 const COORD_EPS_MM: f32 = 1.0;
@@ -110,6 +110,7 @@ fn arm_with_calibrated_simulation_limits() -> PuppyArm {
             joint(4, 2400, 3006, 2685, FRAC_PI_2, 1),
         ],
         gripper: None,
+        gripper_speed: DEFAULT_GRIPPER_SPEED,
     };
     let mut arm = PuppyArm::new_with_config(&config, 0).expect("calibrated simulation arm");
     for (joint, tick) in [1583, 2894, 857, 2451].into_iter().enumerate() {
@@ -1906,6 +1907,30 @@ fn set_speed_updates_active_spin_on_next_step() {
 }
 
 #[test]
+fn gripper_speed_is_independent_from_arm_speed() {
+    let mut config = PuppyArmConfig::default();
+    config.gripper_speed = 37;
+    let mut arm = PuppyArm::new_with_config(&config, 0).unwrap();
+    arm.record_feedback(GRIPPER_INDEX, 2300, 0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(220), 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: GRIPPER_INDEX,
+            direction: 1,
+        },
+        0,
+    );
+
+    assert_eq!(arm.update(10)[GRIPPER_INDEX].speed, 37);
+
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(10), 20);
+    assert_eq!(arm.update(20)[GRIPPER_INDEX].speed, 37);
+
+    arm.handle_arm_cmd(ArmCommand::SetGripperSpeed(25), 30);
+    assert_eq!(arm.update(30)[GRIPPER_INDEX].speed, 25);
+}
+
+#[test]
 fn target_error_prefers_small_wrap_near_deadband() {
     assert_eq!(target_tick_error(2, 4094), 4);
 }
@@ -2379,6 +2404,81 @@ fn slew_limit_bounds_deceleration() {
 }
 
 #[test]
+fn input_voltage_status_allows_jogging_and_preserves_feedback() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
+    arm.record_feedback(0, 100, 0);
+    arm.record_servo_status(0, crate::stservo::STATUS_INPUT_VOLTAGE);
+    arm.handle_arm_cmd(
+        ArmCommand::SetTickLimitsEnabled {
+            joint: 0,
+            enabled: false,
+        },
+        0,
+    );
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(10);
+
+    assert!(commands[0].speed > 0);
+    assert_eq!(telemetry.joints[0].tick, Some(100));
+    assert!(telemetry.joints[0].online);
+    assert_eq!(
+        telemetry.joints[0].servo_status,
+        crate::stservo::STATUS_INPUT_VOLTAGE
+    );
+    assert_eq!(telemetry.joints[0].fault, None);
+}
+
+#[test]
+fn overload_status_still_stops_jogging() {
+    let mut arm = PuppyArm::new(0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
+    arm.record_feedback(0, 100, 0);
+    arm.record_servo_status(0, crate::stservo::STATUS_OVERLOAD);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        0,
+    );
+
+    let commands = arm.update(10);
+    let telemetry = arm.telemetry_snapshot(10);
+
+    assert_eq!(commands[0].speed, 0);
+    assert_eq!(telemetry.joints[0].fault, Some(SafetyFault::ServoStatus));
+
+    arm.record_servo_status(0, 0);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        20,
+    );
+    assert_eq!(arm.update(30)[0].speed, 0);
+
+    arm.handle_arm_cmd(ArmCommand::ClearFaults { joint: Some(0) }, 40);
+    arm.handle_arm_cmd(
+        ArmCommand::Spin {
+            joint: 0,
+            direction: 1,
+        },
+        40,
+    );
+    assert!(arm.update(50)[0].speed > 0);
+}
+
+#[test]
 fn overtemperature_fault_stops_motion() {
     let mut arm = PuppyArm::new(0);
     arm.handle_arm_cmd(ArmCommand::SetSpeed(120), 0);
@@ -2561,7 +2661,7 @@ fn target_approach_slows_down_near_limit() {
 #[test]
 fn gripper_uses_joint_jog_and_tick_limit_safety() {
     let mut arm = PuppyArm::new(0);
-    arm.handle_arm_cmd(ArmCommand::SetSpeed(100), 0);
+    arm.handle_arm_cmd(ArmCommand::SetSpeed(220), 0);
     arm.handle_arm_cmd(
         ArmCommand::SetTickLimits {
             joint: GRIPPER_INDEX,
@@ -2594,5 +2694,5 @@ fn gripper_uses_joint_jog_and_tick_limit_safety() {
 
     let recovering = arm.update(40);
 
-    assert_eq!(recovering[GRIPPER_INDEX].speed, -100);
+    assert_eq!(recovering[GRIPPER_INDEX].speed, -50);
 }

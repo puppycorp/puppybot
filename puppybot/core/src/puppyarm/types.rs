@@ -18,6 +18,7 @@ pub enum TcpFrame {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArmCommand {
     SetSpeed(i16),
+    SetGripperSpeed(i16),
     Spin {
         joint: usize,
         direction: i8,
@@ -259,7 +260,9 @@ impl Joint {
     }
 
     pub fn spin(&mut self, direction: i8, default_speed: i16) {
-        self.clear_fault();
+        if self.fault != Some(SafetyFault::ServoStatus) {
+            self.clear_fault();
+        }
         self.clear_target();
         self.speed = direction.signum() as i16 * default_speed.abs();
     }

@@ -113,6 +113,8 @@ const FLIP_TCP_LEFT_AXIS_ID: u32 = 419;
 const MOVE_TOOL_TIP_UP_ID: u32 = 420;
 const MOVE_TOOL_TIP_DOWN_ID: u32 = 421;
 const MOVE_TOOL_TIP_STOP_ID: u32 = 422;
+const EDIT_GRIPPER_SPEED_ID: u32 = 423;
+const SET_GRIPPER_SPEED_ID: u32 = 424;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
@@ -822,6 +824,8 @@ pub struct App {
     goto_angle_error: String,
     arm_speed: String,
     arm_speed_error: String,
+    gripper_speed: String,
+    gripper_speed_error: String,
     coordinate_x: String,
     coordinate_y: String,
     coordinate_z: String,
@@ -911,10 +915,7 @@ impl App {
             }
             None
         };
-        let mut controller_config = active_config;
-        if simulation_project_path.is_some() {
-            controller_config.arm.gripper = None;
-        }
+        let controller_config = active_config;
         let mut robot = Puppybot::new_with_config(&controller_config, 0)
             .map_err(|err| format!("invalid runtime config: {err}"))?;
         robot.handle_event(
@@ -987,6 +988,8 @@ impl App {
             goto_angle_error: String::new(),
             arm_speed: DEFAULT_ARM_SPEED.to_string(),
             arm_speed_error: String::new(),
+            gripper_speed: active_config.arm.gripper_speed.to_string(),
+            gripper_speed_error: String::new(),
             coordinate_x,
             coordinate_y,
             coordinate_z,
@@ -1307,6 +1310,7 @@ impl App {
                 "absoluteCoordinateFrame": "Arm Base",
                 "tcpFrame": frame_label(self.tcp_frame),
                 "armSpeed": self.arm_speed.parse::<i16>().ok(),
+                "gripperSpeed": self.gripper_speed.parse::<i16>().ok(),
                 "lastCommand": self.last_command.as_str(),
             },
         });
@@ -1962,6 +1966,7 @@ impl App {
                 Ok(())
             }
             ["api", "arm", "speed"] => self.api_arm_speed(&json),
+            ["api", "arm", "gripper-speed"] => self.api_gripper_speed(&json),
             ["api", "arm", "hold"] => self
                 .arm("arm hold", ArmCommand::Hold)
                 .map_err(|err| ApiError::bad_request(format!("arm hold rejected: {err:?}"))),
@@ -2152,6 +2157,18 @@ impl App {
         }
         self.arm_speed = speed.to_string();
         self.apply_arm_speed();
+        Ok(())
+    }
+
+    fn api_gripper_speed(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let speed = Self::json_i64(json, "speed")?;
+        if speed < 0 || speed > i64::from(i16::MAX) {
+            return Err(ApiError::bad_request(
+                "speed must be a non-negative i16 integer",
+            ));
+        }
+        self.gripper_speed = speed.to_string();
+        self.apply_gripper_speed();
         Ok(())
     }
 
@@ -2657,6 +2674,27 @@ impl App {
             ])
             .spacing(8),
             error_text(&self.arm_speed_error),
+        ])
+    }
+
+    fn render_gripper_speed(&self) -> Item {
+        subpanel(vec![
+            title_text("Gripper Speed"),
+            hstack(vec![
+                field(
+                    "Speed",
+                    EDIT_GRIPPER_SPEED_ID,
+                    &self.gripper_speed,
+                    "speed",
+                    112,
+                ),
+                primary_button("Set Speed")
+                    .height(34)
+                    .width(104)
+                    .on_click(SET_GRIPPER_SPEED_ID),
+            ])
+            .spacing(8),
+            error_text(&self.gripper_speed_error),
         ])
     }
 
@@ -3171,6 +3209,9 @@ impl App {
         let arm = self.robot.arm_telemetry();
         let mut children = vec![title_text("Arm Jog")];
         children.push(self.render_arm_speed());
+        if self.robot.arm.has_gripper() {
+            children.push(self.render_gripper_speed());
+        }
         children.extend(
             arm.joints
                 .iter()
@@ -3266,7 +3307,7 @@ impl App {
                     self.sync_joint_reference_calibration(joint, tick, angle_rad)?;
                 }
                 self.last_command = label.to_string();
-                log::info!("runtime App command: {label}");
+                log::info!("runtime App command: {label}: {event:?}");
                 self.mark_ui_dirty();
                 self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
                 Ok(())
@@ -3628,6 +3669,34 @@ impl App {
         let _ = self.arm("set arm speed", ArmCommand::SetSpeed(speed));
     }
 
+    fn parse_gripper_speed(&mut self) -> Option<i16> {
+        let trimmed = self.gripper_speed.trim();
+        let speed = match trimmed.parse::<i16>() {
+            Ok(value) if value >= 0 => value,
+            _ => {
+                self.gripper_speed_error = "speed must be a non-negative whole number".to_string();
+                return None;
+            }
+        };
+        self.gripper_speed_error.clear();
+        Some(speed)
+    }
+
+    fn apply_gripper_speed(&mut self) {
+        let Some(speed) = self.parse_gripper_speed() else {
+            self.mark_ui_dirty();
+            return;
+        };
+        if self
+            .arm("set gripper speed", ArmCommand::SetGripperSpeed(speed))
+            .is_ok()
+            && self.active_config.arm.gripper_speed != speed
+        {
+            self.active_config.arm.gripper_speed = speed;
+            self.calibration_dirty = true;
+        }
+    }
+
     fn nudge_limit_editor(&mut self, min_delta: i32, max_delta: i32) {
         let Some((_, min, max)) = self.parse_limit_editor() else {
             return;
@@ -3804,7 +3873,15 @@ impl App {
             last_refresh_ms: now_ms,
         });
         self.last_command = label.to_string();
-        log::info!("runtime App command: {label}");
+        let actuator = self.robot.arm.joints[joint];
+        log::info!(
+            "runtime App command: {label}: joint {joint} servo {} direction {direction} tick {:?} status 0x{:02x} limits {}..{}",
+            actuator.servo_id,
+            actuator.tick,
+            actuator.servo_status,
+            actuator.tick_min,
+            actuator.tick_max
+        );
         self.mark_ui_dirty();
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
         Ok(())
@@ -4271,6 +4348,7 @@ impl App {
             STOP_JOINT_ID => self.stop_joint(event_arg(inx)),
             SET_GOTO_ANGLES_CURRENT_ID => self.set_goto_angles_current(),
             SET_ARM_SPEED_ID => self.apply_arm_speed(),
+            SET_GRIPPER_SPEED_ID => self.apply_gripper_speed(),
             SET_TCP_FRAME_BASE_ID => self.set_tcp_frame(TcpFrame::Base),
             SET_TCP_FRAME_TOOL_ID => self.set_tcp_frame(TcpFrame::Tool),
             SET_COORDINATES_CURRENT_ID => self.set_coordinates_current(),
@@ -4476,6 +4554,11 @@ impl App {
             EDIT_ARM_SPEED_ID => {
                 self.arm_speed = value;
                 self.arm_speed_error.clear();
+                self.mark_ui_dirty();
+            }
+            EDIT_GRIPPER_SPEED_ID => {
+                self.gripper_speed = value;
+                self.gripper_speed_error.clear();
                 self.mark_ui_dirty();
             }
             EDIT_COORDINATE_X_ID => {
@@ -4965,7 +5048,8 @@ mod tests {
 
         assert_eq!(state["schema"], "puppybot.runtime.autonomy-observation.v1");
         let joints = state["arm"]["joints"].as_array().expect("arm joints");
-        assert_eq!(joints.len(), JOINT_COUNT);
+        assert_eq!(joints.len(), ACTUATOR_COUNT);
+        assert_eq!(joints[GRIPPER_INDEX]["name"], "gripper");
         assert!(joints.iter().all(|joint| {
             joint["angleDeg"].is_number()
                 && (joint["targetAngleDeg"].is_number() || joint["targetAngleDeg"].is_null())
@@ -5001,12 +5085,13 @@ mod tests {
         assert!(state["timeMs"].is_number());
         assert_eq!(
             state["arm"]["joints"].as_array().expect("joints").len(),
-            JOINT_COUNT
+            ACTUATOR_COUNT
         );
         for (index, joint) in state["arm"]["joints"]
             .as_array()
             .expect("joints")
             .iter()
+            .take(JOINT_COUNT)
             .enumerate()
         {
             assert_eq!(joint["name"], ARM_JOINT_LABELS[index].to_ascii_lowercase());
@@ -5018,6 +5103,11 @@ mod tests {
             assert!(joint.get("referenceTick").is_none());
             assert!(joint.get("urdfAngleDeg").is_none());
         }
+        let gripper = &state["arm"]["joints"][GRIPPER_INDEX];
+        assert_eq!(gripper["name"], "gripper");
+        assert_eq!(gripper["servoId"], 7);
+        assert_eq!(gripper["tick"], 2048);
+        assert!((gripper["angleDeg"].as_f64().expect("gripper angle")).abs() < 1.0e-9);
         assert!(state["arm"].get("currentTcpMm").is_some());
         assert!(state["arm"].get("targetTcpMm").is_some());
         assert_eq!(state["arm"]["frame"], "armBase");
@@ -5031,7 +5121,9 @@ mod tests {
         assert_eq!(state["sim"]["enabled"], true);
         assert_eq!(state["sim"]["manipulation"]["simulationOnly"], true);
         assert_eq!(state["sim"]["manipulation"]["action"], "Interact");
-        assert_eq!(state["sim"]["manipulation"]["ball"]["objectId"], "ball");
+        assert_eq!(state["sim"]["manipulation"]["gripper"]["servoId"], 7);
+        assert_eq!(state["sim"]["manipulation"]["gripper"]["grasp"], "open");
+        assert_eq!(state["sim"]["manipulation"]["ball"]["objectId"], "bottle");
         assert_eq!(
             state["sim"]["manipulation"]["binTrigger"]["source"],
             "RobotDreams physics trigger"
@@ -5218,7 +5310,7 @@ mod tests {
 
         assert_hold_event_contract(&rendered, &mut press_count);
 
-        assert_eq!(press_count, 41, "unexpected PuppyBot hold-control count");
+        assert_eq!(press_count, 44, "unexpected PuppyBot hold-control count");
     }
 
     #[tokio::test]
@@ -5229,7 +5321,12 @@ mod tests {
         assert!(app.handle_press_id(GOTO_ANGLES_ID, None));
         assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(1));
         let targets_after_press = app.robot.arm.joints.map(|joint| joint.target_tick);
-        assert!(targets_after_press.iter().all(Option::is_some));
+        assert!(
+            targets_after_press[..JOINT_COUNT]
+                .iter()
+                .all(Option::is_some)
+        );
+        assert_eq!(targets_after_press[GRIPPER_INDEX], None);
 
         app.robot.arm.joints[0].fault =
             Some(puppybot_core::puppyarm::servo_safety::SafetyFault::Stall);
@@ -5289,6 +5386,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         let target_tool_pitch = kinematics::tool_pitch(
@@ -5341,6 +5439,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         assert!(default_app.handle_release_id(GOTO_ANGLES_ID, None));
@@ -5371,6 +5470,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         assert!(
@@ -5409,6 +5509,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         // DRIVE_SCAN deliberately shares Default's release ID, so it has the
@@ -5629,6 +5730,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn api_command_gripper_speed_updates_state_and_config() {
+        let mut app = test_app();
+
+        let response =
+            app.handle_api_request(b"POST", b"/api/arm/gripper-speed", br#"{"speed":37}"#);
+
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["ui"]["gripperSpeed"], 37);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "set gripper speed");
+        assert_eq!(app.active_config.arm.gripper_speed, 37);
+        assert!(app.calibration_dirty);
+    }
+
+    #[tokio::test]
     async fn api_command_coordinate_jog_start_and_stop_updates_arm_state() {
         let mut app = test_app();
         for _ in 0..8 {
@@ -5809,6 +5926,7 @@ mod tests {
                     .arm
                     .joints
                     .iter()
+                    .take(JOINT_COUNT)
                     .all(|joint| joint.target_tick.is_some())
             );
 

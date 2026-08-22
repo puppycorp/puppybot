@@ -8,7 +8,7 @@ use super::{
     },
 };
 use crate::{
-    config::{ConfigError, JointCalibration, PuppyArmConfig},
+    config::{ConfigError, DEFAULT_GRIPPER_SPEED, JointCalibration, PuppyArmConfig},
     stservo::{MAX_SERVO_ID, MIN_SERVO_ID, Mode},
 };
 
@@ -407,6 +407,7 @@ pub struct PuppyArm {
     pub joints: [Joint; ACTUATOR_COUNT],
     has_gripper: bool,
     default_speed: i16,
+    gripper_speed: i16,
     last_cmd_ms: u64,
     last_ok_feedback_ms: u64,
     last_error: Option<SafetyFault>,
@@ -430,6 +431,7 @@ impl PuppyArm {
             joints,
             has_gripper: true,
             default_speed: 200,
+            gripper_speed: DEFAULT_GRIPPER_SPEED,
             last_cmd_ms: now,
             last_ok_feedback_ms: now,
             last_error: None,
@@ -447,6 +449,7 @@ impl PuppyArm {
             joints,
             has_gripper: config.gripper.is_some(),
             default_speed: 200,
+            gripper_speed: config.gripper_speed,
             last_cmd_ms: now,
             last_ok_feedback_ms: now,
             last_error: None,
@@ -552,6 +555,12 @@ impl PuppyArm {
         }
 
         self.joints[joint].servo_status = status;
+    }
+
+    pub fn servo_status_blocks_motion(&self, joint: usize) -> bool {
+        self.joints
+            .get(joint)
+            .is_some_and(|joint| joint.servo_status & servo_safety::BLOCKING_SERVO_STATUS != 0)
     }
 
     pub fn record_temperature(&mut self, joint: usize, temp_c: Option<u8>) {
@@ -722,6 +731,10 @@ impl PuppyArm {
                 self.set_default_speed(speed, now);
                 Ok(())
             }
+            ArmCommand::SetGripperSpeed(speed) => {
+                self.set_gripper_speed(speed, now);
+                Ok(())
+            }
             ArmCommand::Spin { joint, direction } => {
                 self.spin(joint, direction, now)?;
                 self.mode = if direction == 0 {
@@ -816,6 +829,11 @@ impl PuppyArm {
         self.last_cmd_ms = now;
     }
 
+    fn set_gripper_speed(&mut self, speed: i16, now: u64) {
+        self.gripper_speed = speed.saturating_abs();
+        self.last_cmd_ms = now;
+    }
+
     fn start_tcp_jog(
         &mut self,
         frame: TcpFrame,
@@ -891,7 +909,12 @@ impl PuppyArm {
 
     fn spin(&mut self, joint: usize, direction: i8, now: u64) -> Result<(), ControllerError> {
         let joint = validate_joint(joint)?;
-        self.joints[joint].spin(direction, self.default_speed);
+        let speed = if joint == GRIPPER_INDEX {
+            self.gripper_speed
+        } else {
+            self.default_speed
+        };
+        self.joints[joint].spin(direction, speed);
         self.last_cmd_ms = now;
         Ok(())
     }
@@ -989,8 +1012,12 @@ impl PuppyArm {
         }
 
         core::array::from_fn(|index| {
-            let desired =
-                servo_safety::compute_safe_speed(&mut self.joints[index], self.default_speed, now);
+            let max_speed = if index == GRIPPER_INDEX {
+                self.gripper_speed
+            } else {
+                self.default_speed
+            };
+            let desired = servo_safety::compute_safe_speed(&mut self.joints[index], max_speed, now);
             let should_send = self.joints[index].servo_id != 0
                 && self.joints[index].last_sent_speed != Some(desired);
             SpeedCommand {

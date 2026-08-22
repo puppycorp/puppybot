@@ -12,6 +12,7 @@ use crate::{
 
 pub const PUPPYBOT_CONFIG_VERSION: u16 = 1;
 pub const SERIAL_LEN: usize = 32;
+pub const DEFAULT_GRIPPER_SPEED: i16 = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PuppybotConfigV1 {
@@ -26,6 +27,7 @@ pub struct PuppybotConfigV1 {
 pub struct PuppyArmConfig {
     pub joints: [JointCalibration; JOINT_COUNT],
     pub gripper: Option<JointCalibration>,
+    pub gripper_speed: i16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,6 +65,7 @@ pub enum ConfigError {
     InvalidSign,
     InvalidReferenceAngle,
     InvalidCoordinateRotation,
+    InvalidGripperSpeed,
 }
 
 fn default_serial() -> [u8; SERIAL_LEN] {
@@ -93,7 +96,7 @@ fn default_joint(
 }
 
 pub fn default_gripper_calibration() -> JointCalibration {
-    default_joint(7, 0, TICK_WRAP - 1, 2048, 0.0, 1, 1)
+    default_joint(7, 2048, 2900, 2048, 0.0, 1, 1)
 }
 
 impl core::fmt::Display for ConfigError {
@@ -109,6 +112,7 @@ impl core::fmt::Display for ConfigError {
             Self::InvalidSign => formatter.write_str("invalid joint sign"),
             Self::InvalidReferenceAngle => formatter.write_str("invalid reference angle"),
             Self::InvalidCoordinateRotation => formatter.write_str("invalid coordinate rotation"),
+            Self::InvalidGripperSpeed => formatter.write_str("gripper speed must be non-negative"),
         }
     }
 }
@@ -157,6 +161,7 @@ impl Default for PuppyArmConfig {
                 default_joint(4, TIP_TICK_MIN, TIP_TICK_MAX, 1783, 0.0, 1, 1),
             ],
             gripper: Some(default_gripper_calibration()),
+            gripper_speed: DEFAULT_GRIPPER_SPEED,
         }
     }
 }
@@ -190,6 +195,9 @@ impl PuppyArmConfig {
             if seen[servo_index] {
                 return Err(ConfigError::DuplicateServoId);
             }
+        }
+        if self.gripper_speed < 0 {
+            return Err(ConfigError::InvalidGripperSpeed);
         }
         Ok(())
     }
@@ -317,6 +325,7 @@ mod tests {
             arm: PuppyArmConfig {
                 joints: [joint(1), joint(2), joint(3), joint(4)],
                 gripper: None,
+                gripper_speed: DEFAULT_GRIPPER_SPEED,
             },
             coordinate: CoordinateCalibration::default(),
         }
@@ -325,6 +334,22 @@ mod tests {
     #[test]
     fn valid_config_passes_validation() {
         assert_eq!(config().validate(), Ok(()));
+    }
+
+    #[test]
+    fn default_gripper_uses_mechanical_endpoints() {
+        let gripper = default_gripper_calibration();
+
+        assert_eq!((gripper.tick_min, gripper.tick_max), (2048, 2900));
+        assert!(gripper.limit_enabled);
+    }
+
+    #[test]
+    fn negative_gripper_speed_is_rejected() {
+        let mut config = config();
+        config.arm.gripper_speed = -1;
+
+        assert_eq!(config.validate(), Err(ConfigError::InvalidGripperSpeed));
     }
 
     #[test]

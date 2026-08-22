@@ -28,6 +28,10 @@ const SMS_STS_LOCK: u8 = 55;
 const SMS_STS_PRESENT_POSITION_L: u8 = 56;
 const SMS_STS_PRESENT_VOLTAGE: u8 = 62;
 const SMS_STS_PRESENT_TEMPERATURE: u8 = 63;
+const SMS_STS_MOVING: u8 = 66;
+const SMS_STS_PRESENT_CURRENT_L: u8 = 69;
+const SMS_STS_PRESENT_CURRENT_H: u8 = 70;
+const SMS_STS_FEEDBACK_LEN: u8 = SMS_STS_PRESENT_CURRENT_H - SMS_STS_PRESENT_POSITION_L + 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error<E> {
@@ -92,6 +96,23 @@ pub enum Mode {
 pub struct Status {
     pub voltage_raw: u8,
     pub temperature_c: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Feedback {
+    pub position: u16,
+    pub speed: i16,
+    pub load: i16,
+    pub voltage_raw: u8,
+    pub temperature_c: u8,
+    pub moving: bool,
+    pub current: i16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusValue<T> {
+    pub value: T,
+    pub status: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -160,6 +181,38 @@ fn to_servo_signed(value: i16) -> u16 {
     } else {
         cmp::min(value as u16, 0x7fff)
     }
+}
+
+fn from_servo_signed(value: u16) -> i16 {
+    let magnitude = (value & 0x7fff) as i16;
+    if value & 0x8000 != 0 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+fn from_servo_load(value: u16) -> i16 {
+    let magnitude = (value & 0x03ff) as i16;
+    if value & 0x0400 != 0 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+pub(crate) fn wheel_speed_params(speed: i16, acc: u8) -> [u8; 8] {
+    let speed = to_servo_signed(speed);
+    [
+        SMS_STS_ACC,
+        acc,
+        0,
+        0,
+        0,
+        0,
+        low_byte(speed),
+        high_byte(speed),
+    ]
 }
 
 pub fn angle_to_position(angle_deg: u16) -> u16 {
@@ -362,17 +415,7 @@ where
         acc: u8,
     ) -> Result<(), Error<B::Error>> {
         require_id(servo_id)?;
-        let speed = to_servo_signed(speed);
-        let params = [
-            SMS_STS_ACC,
-            acc,
-            0,
-            0,
-            0,
-            0,
-            low_byte(speed),
-            high_byte(speed),
-        ];
+        let params = wheel_speed_params(speed, acc);
         self.write_checked(servo_id, &params).await
     }
 
@@ -390,11 +433,55 @@ where
         self.write_u8(servo_id, SMS_STS_LOCK, 0).await
     }
 
-    pub async fn read_position(&mut self, servo_id: u8) -> Result<u16, Error<B::Error>> {
-        let data = self
-            .read::<2>(servo_id, SMS_STS_PRESENT_POSITION_L, 2)
+    pub async fn read_position_with_status(
+        &mut self,
+        servo_id: u8,
+    ) -> Result<StatusValue<u16>, Error<B::Error>> {
+        let response = self
+            .read_with_status::<2>(servo_id, SMS_STS_PRESENT_POSITION_L, 2)
             .await?;
-        Ok(u16::from_le_bytes([data[0], data[1]]))
+        Ok(StatusValue {
+            value: u16::from_le_bytes([response.value[0], response.value[1]]),
+            status: response.status,
+        })
+    }
+
+    pub async fn read_feedback_with_status(
+        &mut self,
+        servo_id: u8,
+    ) -> Result<StatusValue<Feedback>, Error<B::Error>> {
+        let response = self
+            .read_with_status::<{ SMS_STS_FEEDBACK_LEN as usize }>(
+                servo_id,
+                SMS_STS_PRESENT_POSITION_L,
+                SMS_STS_FEEDBACK_LEN,
+            )
+            .await?;
+        let value = response.value;
+        Ok(StatusValue {
+            value: Feedback {
+                position: u16::from_le_bytes([value[0], value[1]]),
+                speed: from_servo_signed(u16::from_le_bytes([value[2], value[3]])),
+                load: from_servo_load(u16::from_le_bytes([value[4], value[5]])),
+                voltage_raw: value[(SMS_STS_PRESENT_VOLTAGE - SMS_STS_PRESENT_POSITION_L) as usize],
+                temperature_c: value
+                    [(SMS_STS_PRESENT_TEMPERATURE - SMS_STS_PRESENT_POSITION_L) as usize],
+                moving: value[(SMS_STS_MOVING - SMS_STS_PRESENT_POSITION_L) as usize] != 0,
+                current: from_servo_signed(u16::from_le_bytes([
+                    value[(SMS_STS_PRESENT_CURRENT_L - SMS_STS_PRESENT_POSITION_L) as usize],
+                    value[(SMS_STS_PRESENT_CURRENT_H - SMS_STS_PRESENT_POSITION_L) as usize],
+                ])),
+            },
+            status: response.status,
+        })
+    }
+
+    pub async fn read_position(&mut self, servo_id: u8) -> Result<u16, Error<B::Error>> {
+        let response = self.read_position_with_status(servo_id).await?;
+        if response.status != 0 {
+            return Err(Error::Status(response.status));
+        }
+        Ok(response.value)
     }
 
     pub async fn read_status(&mut self, servo_id: u8) -> Result<Status, Error<B::Error>> {
@@ -444,6 +531,19 @@ where
         address: u8,
         len: u8,
     ) -> Result<[u8; N], Error<B::Error>> {
+        let response = self.read_with_status(servo_id, address, len).await?;
+        if response.status != 0 {
+            return Err(Error::Status(response.status));
+        }
+        Ok(response.value)
+    }
+
+    async fn read_with_status<const N: usize>(
+        &mut self,
+        servo_id: u8,
+        address: u8,
+        len: u8,
+    ) -> Result<StatusValue<[u8; N]>, Error<B::Error>> {
         require_id(servo_id)?;
         if len as usize != N || N > MAX_PARAMS {
             return Err(Error::InvalidPacket);
@@ -452,16 +552,16 @@ where
         let frame = self
             .tx_rx_expected(servo_id, INST_READ, &[address, len], self.timeout)
             .await?;
-        if frame.error != 0 {
-            return Err(Error::Status(frame.error));
-        }
         if frame.params_len < N {
             return Err(Error::InvalidPacket);
         }
 
         let mut out = [0u8; N];
         out.copy_from_slice(&frame.params[..N]);
-        Ok(out)
+        Ok(StatusValue {
+            value: out,
+            status: frame.error,
+        })
     }
 
     async fn write_checked(&mut self, servo_id: u8, params: &[u8]) -> Result<(), Error<B::Error>> {

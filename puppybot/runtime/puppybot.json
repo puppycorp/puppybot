@@ -1,5 +1,6 @@
 {
   "arm": {
+    "gripper_speed": 50,
     "joints": [
       {
         "angle_sign": 1,
@@ -49,8 +50,8 @@
       "reference_angle_deg": 0.0,
       "reference_tick": 2048,
       "servo_id": 7,
-      "tick_max": 4095,
-      "tick_min": 0
+      "tick_max": 2900,
+      "tick_min": 2048
     }
   },
   "coordinate": {
