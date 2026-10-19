@@ -94,7 +94,7 @@ fn pr_state(app, builder, now, autonomy) {
     let robot = load64(app); let drive = pb_robot_drive(robot);
     pl_text(builder, "{\"schema\":");
     if autonomy { pj_text(builder, "puppybot.runtime.autonomy-observation.v1"); }
-    else { pj_text(builder, "puppybot.runtime.state.v1"); pl_text(builder, ",\"mode\":"); if pb_vget(app, 8) { pj_text(builder, "fake"); } else { pj_text(builder, "hardware"); } }
+    else { pj_text(builder, "puppybot.runtime.state.v1"); pl_text(builder, ",\"mode\":"); if pb_vget(app, 36) { pj_text(builder, "simulated"); } else if pb_vget(app, 8) { pj_text(builder, "fake"); } else { pj_text(builder, "hardware"); } }
     pl_text(builder, ",\"timeMs\":"); pl_uint(builder, now); pl_text(builder, ",\"arm\":{");
     if !autonomy { pl_text(builder, "\"mode\":"); pj_text(builder, pr_mode_name(pb_a(robot, PB_A_MODE))); pl_char(builder, 44); }
     pl_text(builder, "\"frame\":\"armBase\",\"unit\":\"mm\",\"currentTcpMm\":"); pr_coords(builder, robot, 0);
@@ -297,6 +297,7 @@ fn pr_request(app, method, path, body, size, builder, now) {
         return pr_problem(app, builder, 404, "unknown api endpoint", 0);
     }
     if !pl_equal(method, "POST") { return pr_problem(app, builder, 405, "api commands require POST", 0); }
+    if pb_vget(app, 36) && pl_equal(path, "/api/calibration/save") { return pr_problem(app, builder, 409, "Gym retains the initial calibration with the run", 0); }
     let root = 0; if !size { root = pj_parse("{}", 2); } else { root = pj_parse(body, size); }
     if !root || pj_kind(root) != 4 { return pr_problem(app, builder, 400, "request body must be a JSON object", 0); }
     let command_path = path;

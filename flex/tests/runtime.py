@@ -385,8 +385,14 @@ def serial_reconnect(directory, config):
         check(all(speed == 0 for speed in emulator.speeds.values()), 'reconnect never resumes held or offline motion')
         check(state['arm']['mode'] == 'Idle', 'reconnect clears arm target mode')
         request(runtime.port, '/api/arm/clear-faults', {})
-        ws.send(wire(13, struct.pack('<BbH', 0, 1, 300))); ws.barrier()
-        time.sleep(.05)
+        # Feedback and wheel-mode recovery have separate readiness windows.
+        # Keep sending live jog intents while awaiting the bounded mode retry.
+        for attempt in range(100):
+            if attempt % 5 == 0:
+                ws.send(wire(13, struct.pack('<BbH', 0, 1, 300))); ws.barrier()
+            if emulator.modes[1] == 1 and emulator.speeds[1] > 0:
+                break
+            time.sleep(.02)
         check(emulator.modes[1] == 1 and emulator.speeds[1] > 0, 'new command works after reconnect and mode acknowledgement')
     finally:
         if ws:

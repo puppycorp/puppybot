@@ -5,6 +5,12 @@ serial runtime, and a protocol v1 command-line client in Flexscript. The Rust
 stack remains the reference for the migration. The dashboard, ESP32 firmware,
 Android app, and RobotDreams integration have not been replaced.
 
+[PuppyBotGym](gym/README.md) now provides a separate Monolith experiment interface and
+headless rollout runner. It launches the native firmware target in its own
+process, supplies virtual STServo hardware, and records seeded arm/fault cases.
+Its initial servo plant has no articulated/contact physics. Gym manages runs;
+robot controls connect independently to each bot's endpoint.
+
 ## Build and run
 
 From the repository root:
@@ -15,8 +21,9 @@ From the repository root:
 ./build/flex/controller-demo 1000
 ```
 
-The script also builds `build/flex/puppybot-runtime` and `build/flex/puppybot`
-for Linux x86-64. To try the runtime with a fake bus, start it in one terminal:
+The script also builds `build/flex/puppybot-runtime`, `build/flex/puppybot`,
+`build/flex/puppybot-firmware-sim`, and `build/flex/puppybotgym` for Linux x86-64.
+To try the runtime with a fake bus, start it in one terminal:
 
 ```sh
 ./build/flex/puppybot-runtime --fake --config build/flex/fake.json
@@ -122,7 +129,7 @@ Controller commands are dispatched between complete serial cycles.
 `--fake` advances illustrative servo feedback through the real packet codec;
 it has no articulated physics, scene oracle, cameras, or captures. Simulation
 operations return an explicit error. The root endpoint reports runtime metadata;
-the Monolith dashboard and full simulation/autonomy workflows remain future work.
+the separate robot-control dashboard and full simulation/autonomy workflows remain future work.
 These services retain the existing unauthenticated local-network control model;
 choose the bind address accordingly. Hardware mode defaults to `0.0.0.0:8080`.
 
@@ -237,8 +244,9 @@ No physical device has been opened or flashed. Linux serial timing and behavior
 have been checked with PTYs; physical-bus waveforms and robot motion remain
 unverified.
 
-Next milestones are discovery and the Monolith control dashboard, integrated
-classic ESP32 firmware, then native simulation and autonomy workflows.
+Next milestones are articulated Gym simulation, datasets and training workers,
+the separate robot-control interface and discovery, and integrated classic
+ESP32 firmware.
 RobotDreams/PGE remain the simulation reference;
 Flexscript physics currently lacks articulated joints. Existing model assets
 and Android protocol v1 are retained.

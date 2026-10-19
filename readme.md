@@ -12,6 +12,10 @@ HTTP/WebSocket and serial runtime, CLI, and independently verified fake-servo
 executable under [`flex/`](flex/README.md). The dashboard, firmware, and simulation
 migration remains in progress; the Rust stack below is the reference implementation.
 
+[`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
+the robot-control UI. Its first backend runs the native firmware in an isolated
+process against a deterministic servo plant, with seeded cases and recorded results.
+
 ## Repository layout
 
 - `puppybot/core/` contains the reusable robot controller, v1 wire protocol,

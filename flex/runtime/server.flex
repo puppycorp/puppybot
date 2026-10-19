@@ -182,20 +182,21 @@ fn pnet_io(now) {
     }
     return 0;
 }
-fn pnet_dispatch(app, now) {
+fn pnet_dispatch_at(app, now, controller_now) {
     let i = 0;
     while i < 32 {
         let c = pn_clients + i * 65536;
         if load64(c) >= 0 {
             if pb_vget(c, 1) == 1 {
                 let builder = pn_builder + 32; pl_builder(builder, pn_body, 65536);
-                let status = pr_request(app, c + 128, c + 160, c + 512 + pb_vget(c, 10), pb_vget(c, 9), builder, now);
+                let status = pr_request(app, c + 128, c + 160, c + 512 + pb_vget(c, 10), pb_vget(c, 9), builder, controller_now);
                 if load64(builder + 24) { pnet_error(c, 500, "response exceeds buffer", now); }
                 else { pnet_reply(c, status, "application/json; charset=utf-8", pn_body, load64(builder + 8), now); }
             }
             else if pb_vget(c, 1) == 2 && pb_vget(c, 13) == 2 {
                 let robot = load64(app); store64(robot + 4240, pb_vget(c, 7));
-                let n = pr_wire(app, c + 13000, pb_vget(c, 14), pn_body, now);
+                let n = pr_wire(app, c + 13000, pb_vget(c, 14), pn_body, controller_now);
+                if !pb_vget(c, 7) && load64(robot + 4240) { pb_vset(c, 8, (load64(robot + 4248) - 1) & 0xffffffff); }
                 pb_vset(c, 7, load64(robot + 4240)); if n > 0 { pnet_ws_send(c, 2, pn_body, n, now); } pb_vset(c, 13, 0);
                 pnet_websocket(c, now);
             }
@@ -204,6 +205,7 @@ fn pnet_dispatch(app, now) {
     }
     return 0;
 }
+fn pnet_dispatch(app, now) { return pnet_dispatch_at(app, now, now); }
 fn pnet_telemetry(app, now) {
     let robot = load64(app); let seq = load64(robot + 4248); let n = 0; let i = 0;
     while i < 32 {

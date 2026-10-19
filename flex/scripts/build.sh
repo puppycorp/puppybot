@@ -15,12 +15,19 @@ if [[ ! -x "$compiler" ]]; then
 fi
 
 mkdir -p "$project_dir/build/flex"
-for entry in examples/controller runtime/main cli/main; do
+python3 "$project_dir/flex/scripts/prepare-gym.py"
+export FLEXSCRIPT_LIB="${FLEXSCRIPT_LIB:-$project_dir/../flexscript/libs}"
+for entry in examples/controller runtime/main cli/main firmware/sim gym/main; do
     case "$entry" in
         examples/controller) output=controller-demo ;;
         runtime/main) output=puppybot-runtime ;;
         cli/main) output=puppybot ;;
+        firmware/sim) output=puppybot-firmware-sim ;;
+        gym/main) output=puppybotgym ;;
     esac
-    "$compiler" "$project_dir/flex/$entry.flex" -o "$project_dir/build/flex/$output"
+    temporary="$project_dir/build/flex/$output.tmp.$$"
+    trap 'rm -f "$temporary"' EXIT
+    "$compiler" "$project_dir/flex/$entry.flex" -o "$temporary"
+    mv -f "$temporary" "$project_dir/build/flex/$output"
     echo "Built $project_dir/build/flex/$output"
 done
