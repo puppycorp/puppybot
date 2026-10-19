@@ -20,6 +20,7 @@ fn pb_min(a, b) { if a < b { return a; } return b; }
 fn pb_max(a, b) { if a > b { return a; } return b; }
 fn pb_clamp(n, lo, hi) { return pb_min(pb_max(n, lo), hi); }
 fn pb_elapsed(now, before) { return pb_max(now - before, 0); }
+fn pb_unsigned_ge(a, b) { return (a ^ 0x8000000000000000) >= (b ^ 0x8000000000000000); }
 fn pb_i8(n) { return (n & 255) - ((n & 128) << 1); }
 fn pb_i16(n) { return (n & 65535) - ((n & 32768) << 1); }
 fn pb_i32(n) { return (n & 0xffffffff) - ((n & 0x80000000) << 1); }

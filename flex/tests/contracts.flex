@@ -88,8 +88,19 @@ fn contracts_scheduler() {
     if pb_system_queue(system, 1, values) != -11 { return 40; }
     return 0;
 }
+fn contracts_drive_timeout() {
+    let drive = alloc(88); pb_drive_init(drive, 0);
+    pb_vset(drive, 5, 0xffffffffffffffff); pb_drive_steer(drive, 50, 0, 0); pb_drive_tick(drive, 1000);
+    if !pb_vget(drive, 9) { return 41; }
+    pb_vset(drive, 5, 0x8000000000000000); pb_drive_tick(drive, 2000);
+    if !pb_vget(drive, 9) { return 42; }
+    pb_vset(drive, 5, 500); pb_drive_tick(drive, 499); if !pb_vget(drive, 9) { return 43; }
+    pb_drive_tick(drive, 500); if pb_vget(drive, 9) { return 44; }
+    return 0;
+}
 fn main() {
     let result = contracts_parser(); if result { return result; }
     result = contracts_commands(); if result { return result; }
-    return contracts_scheduler();
+    result = contracts_scheduler(); if result { return result; }
+    return contracts_drive_timeout();
 }

@@ -15,5 +15,12 @@ if [[ ! -x "$compiler" ]]; then
 fi
 
 mkdir -p "$project_dir/build/flex"
-"$compiler" "$project_dir/flex/examples/controller.flex" -o "$project_dir/build/flex/controller-demo"
-echo "Built $project_dir/build/flex/controller-demo"
+for entry in examples/controller runtime/main cli/main; do
+    case "$entry" in
+        examples/controller) output=controller-demo ;;
+        runtime/main) output=puppybot-runtime ;;
+        cli/main) output=puppybot ;;
+    esac
+    "$compiler" "$project_dir/flex/$entry.flex" -o "$project_dir/build/flex/$output"
+    echo "Built $project_dir/build/flex/$output"
+done

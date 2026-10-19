@@ -7,10 +7,10 @@ RobotDreams simulation.
 
 ## Flexscript port
 
-The `flexscript` branch adds a shared Flexscript controller and an independently
-verified fake-servo executable under [`flex/`](flex/README.md). The Linux runtime,
-firmware, CLI, and simulation migration is in progress; the Rust stack below
-remains the reference implementation.
+The `flexscript` branch adds a shared Flexscript controller, native Linux
+HTTP/WebSocket and serial runtime, CLI, and independently verified fake-servo
+executable under [`flex/`](flex/README.md). The dashboard, firmware, and simulation
+migration remains in progress; the Rust stack below is the reference implementation.
 
 ## Repository layout
 

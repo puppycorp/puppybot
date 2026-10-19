@@ -27,6 +27,6 @@ fn pb_drive_motor(drive, id, speed, now) {
     pb_vset(drive, 10, now); return 0;
 }
 fn pb_drive_tick(drive, now) {
-    if pb_vget(drive, 5) && pb_vget(drive, 9) && pb_elapsed(now, pb_vget(drive, 10)) >= pb_vget(drive, 5) { pb_drive_stop(drive, now); }
+    if pb_vget(drive, 5) && pb_vget(drive, 9) && pb_unsigned_ge(pb_elapsed(now, pb_vget(drive, 10)), pb_vget(drive, 5)) { pb_drive_stop(drive, now); }
     return 0;
 }

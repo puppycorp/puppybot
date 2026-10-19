@@ -28,4 +28,10 @@ done
     -o "$project_dir/build/flex/esp32-smoke.elf"
 FLEXSCRIPT_COMPILER="$compiler" "$project_dir/flex/scripts/build.sh"
 "$project_dir/build/flex/controller-demo"
-echo 'Controller contracts and ESP32 flash-code cross-compilation passed.'
+for probe in numbers json; do
+    "$compiler" "$project_dir/flex/tests/$probe-probe.flex" -o "$project_dir/build/flex/$probe-probe"
+done
+for suite in numbers host_json runtime cli; do
+    python3 "$project_dir/flex/tests/$suite.py"
+done
+echo 'Controller, host runtime, CLI, and ESP32 flash-code cross-compilation passed.'
