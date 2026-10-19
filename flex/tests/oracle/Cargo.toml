@@ -1,0 +1,13 @@
+[package]
+name = "puppybot-flex-oracle"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+puppybot-core = { path = "../../../puppybot/core", default-features = false, features = ["runtime"] }
+
+[profile.dev]
+debug = 0

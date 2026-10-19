@@ -5,6 +5,13 @@ The active control stack is Rust and shares protocol, arm control, safety, and
 STServo behavior between the bare-metal ESP32 firmware, the OS runtime, and
 RobotDreams simulation.
 
+## Flexscript port
+
+The `flexscript` branch adds a shared Flexscript controller and an independently
+verified fake-servo executable under [`flex/`](flex/README.md). The Linux runtime,
+firmware, CLI, and simulation migration is in progress; the Rust stack below
+remains the reference implementation.
+
 ## Repository layout
 
 - `puppybot/core/` contains the reusable robot controller, v1 wire protocol,
