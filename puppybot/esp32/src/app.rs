@@ -5,7 +5,8 @@ extern crate alloc;
 use embassy_time::Instant;
 
 use crate::{
-    protocol::{self, ProtocolEvent, ProtocolOutput, ProtocolState},
+    config::runtime_config,
+    protocol::{self, ProtocolEvent, ProtocolOutput, ProtocolState, RobotConfig},
     puppyarm::task::{IntentChannel, PuppyarmTelemetry},
 };
 use puppybot_core::robot;
@@ -17,8 +18,15 @@ pub struct PuppybotApp {
 impl PuppybotApp {
     pub fn new(now_ms: u64) -> Self {
         let _ = now_ms;
+        let config = runtime_config();
         Self {
-            protocol: ProtocolState::default(),
+            protocol: ProtocolState {
+                config: RobotConfig {
+                    steering_servo_id: config.drive.steering_servo_id,
+                    arm_servo_ids: config.arm.servo_ids(),
+                },
+                telemetry_enabled: false,
+            },
         }
     }
 

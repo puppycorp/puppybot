@@ -449,10 +449,14 @@ class PuppybotBleController(context: Context) : PuppybotCommandSender {
         }
 
         writeMutex.withLock {
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             val success = try {
                 if (Build.VERSION.SDK_INT >= 33) {
-                    gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
+                    gatt.writeCharacteristic(
+                        characteristic,
+                        frame,
+                        BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    ) == BluetoothStatusCodes.SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     characteristic.value = frame

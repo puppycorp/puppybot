@@ -7,6 +7,8 @@ use esp_hal::Blocking;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
 #[cfg(feature = "esp32")]
+use crate::config::runtime_config;
+#[cfg(feature = "esp32")]
 use crate::stservo::EspUartBus;
 use crate::stservo::StServo;
 use puppybot_core::{protocol::ProtocolEvent, robot::Puppybot};
@@ -40,7 +42,9 @@ pub async fn robot_task(
     intents: &'static IntentChannel,
     telemetry: &'static TelemetryChannel,
 ) {
-    let mut robot = Puppybot::new(Instant::now().as_millis());
+    let config = runtime_config();
+    let mut robot = Puppybot::new_with_config(&config, Instant::now().as_millis())
+        .expect("embedded runtime configuration must be valid");
     let mut last_telemetry_ms = 0;
 
     loop {

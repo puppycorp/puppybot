@@ -19,19 +19,21 @@ embassy-net = { version = "0.9.0", optional = true, features = [
     "tcp",
     "udp",
 ] }
-embassy-sync = { version = "0.8.0", optional = true }
+embassy-sync = { version = "0.7.2", optional = true }
 embassy-time = "0.5.0"
 esp-alloc = { version = "0.10.0", optional = true }
 esp-backtrace = { version = "0.19.0", optional = true, features = ["panic-handler", "println"] }
 esp-bootloader-esp-idf = { version = "0.5.0", optional = true }
 esp-hal = { version = "1.1.1", optional = true, features = ["log-04", "unstable"] }
 esp-println = { version = "0.17.0", optional = true, features = ["log-04"] }
-esp-radio = { version = "0.18.0", optional = true, features = ["log-04", "wifi"] }
+esp-radio = { version = "0.18.0", optional = true, features = ["ble", "coex", "log-04", "unstable", "wifi"] }
 esp-rtos = { version = "0.3.0", optional = true, features = ["embassy", "esp-radio", "log-04"] }
+heapless = { version = "0.9.0", optional = true }
 log = "0.4"
 puppybot-core = { path = "../core", default-features = false }
 sha1 = { version = "0.11.0", default-features = false }
 static_cell = { version = "2.1.1", optional = true }
+trouble-host = { version = "0.6.0", optional = true, features = ["gatt"] }
 
 [features]
 default = ["esp32"]
@@ -47,7 +49,9 @@ esp32 = [
     "dep:esp-println",
     "dep:esp-radio",
     "dep:esp-rtos",
+    "dep:heapless",
     "dep:static_cell",
+    "dep:trouble-host",
     "esp-alloc/esp32",
     "esp-backtrace/esp32",
     "esp-bootloader-esp-idf/esp32",

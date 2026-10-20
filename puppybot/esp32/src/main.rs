@@ -32,6 +32,10 @@ use esp_radio::wifi::{
 #[cfg(feature = "esp32")]
 mod app;
 #[cfg(feature = "esp32")]
+mod ble;
+#[cfg(feature = "esp32")]
+mod config;
+#[cfg(feature = "esp32")]
 mod mdns;
 pub use puppybot_core::{drive, protocol, utility};
 pub mod puppyarm;
@@ -130,6 +134,13 @@ async fn main(spawner: Spawner) -> ! {
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
     spawner.spawn(puppyarm::task::robot_task(servo_bus, robot_intents, robot_telemetry).unwrap());
+
+    let ble_connector = esp_radio::ble::controller::BleConnector::new(
+        peripherals.BT,
+        esp_radio::ble::Config::default(),
+    )
+    .unwrap();
+    spawner.spawn(ble::ble_task(ble_connector, robot_intents).unwrap());
 
     log::info!("puppybot bare-metal firmware starting");
 
