@@ -1,0 +1,6 @@
+# Preparation and independent numerical validation only. Native execution uses
+# the compiled Pup graph, packed weights, HIP and the system image codecs.
+onnx==1.20.1
+numpy==2.5.4
+Pillow==12.1.1
+tinygrad==0.12.0

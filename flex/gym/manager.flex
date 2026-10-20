@@ -4,6 +4,7 @@ import "cases.flex";
 import "../runtime/server.flex";
 import "../../build/flex/gym-flexdb.flex";
 import "monolith.flex";
+import "vision.flex";
 
 global gm_db = 0;
 global gm_runs = 0;
@@ -152,21 +153,25 @@ fn gm_database(root) {
 }
 fn gm_serve(argc, argv) {
     let root = "build/flex/gym-runs"; let bind = "127.0.0.1:8090"; gm_firmware = "build/flex/puppybot-firmware-sim"; gm_binary = "/proc/self/exe";
+    gv_manifest = "build/flex/vision/yolo26n/model.json"; gv_binary = "build/flex/puppybot-vision"; gv_kernel = "build/flex/vision-kernel.hip";
     let i = 2;
     while i < argc {
         if i + 1 >= argc { return 2; } let arg = pb_vget(argv, i); let value = pb_vget(argv, i + 1);
         if pl_equal(arg, "--data") { root = value; } else if pl_equal(arg, "--bind") { bind = value; }
-        else if pl_equal(arg, "--firmware") { gm_firmware = value; } else { return 2; } i = i + 2;
+        else if pl_equal(arg, "--firmware") { gm_firmware = value; }
+        else if pl_equal(arg, "--model") { gv_manifest = value; }
+        else if pl_equal(arg, "--vision") { gv_binary = value; }
+        else if pl_equal(arg, "--vision-kernel") { gv_kernel = value; } else { return 2; } i = i + 2;
     }
     if pl_size(root) > 3000 || app_init(root) { pl_print(2, "Cannot open Gym data directory/database, or another manager holds its lock.\n"); return 1; }
     let address = alloc(16); let colon = ph_find(bind, pl_size(bind), ":", 1); if colon < 1 { return 2; }
     let port = pl_integer(bind + colon + 1, pl_size(bind + colon + 1)); if pl_bad_number || port < 0 || port > 65535 || !pl_sockaddr(address, bind, colon, port) { return 2; }
     if pb_u32(address + 4) != 0x0100007f { pl_print(2, "Monolith Gym binds only to 127.0.0.1.\n"); return 2; }
-    if pnet_init(address) < 0 || !gm_monolith_init(pn_port) { return 1; } let signal = pl_signals(); let data = alloc(128); let b = pn_builder + 32;
+    if pnet_init(address) < 0 { return 1; } gv_init(); if !gm_monolith_init(pn_port) { return 1; } let signal = pl_signals(); let data = alloc(128); let b = pn_builder + 32;
     pl_builder(b, pn_body, 65536); pl_text(b, "PuppyBotGym listening on port "); pl_uint(b, pn_port); pl_char(b, 10); pl_print(1, pn_body);
     let alive = 1; let mark = m_mark(); let last_check = pl_now(); let heartbeat = last_check;
     while alive {
-        let now = pl_now(); pnet_io(now); if !gm_poll_jobs() { alive = 0; }
+        let now = pl_now(); pnet_io(now); gv_poll(now); if !gm_poll_jobs() { alive = 0; }
         gm_monolith_poll();
         if syscall(0, signal, data, 128, 0, 0, 0) > 0 { alive = 0; }
         i = 0;
@@ -174,7 +179,8 @@ fn gm_serve(argc, argv) {
             let c = pn_clients + i * 65536;
             if load64(c) >= 0 && pb_vget(c, 1) == 2 { pnet_ws_close(c, 1008, now); }
             if load64(c) >= 0 && pb_vget(c, 1) == 1 {
-                if gm_monolith_route(c + 160) { if !gm_monolith_request(c) { pnet_error(c, 503, "Monolith is busy", now); } }
+                if gv_request(c, now) {}
+                else if gm_monolith_route(c + 160) { if !gm_monolith_request(c) { pnet_error(c, 503, "Monolith is busy", now); } }
                 else {
                     pl_builder(b, pn_body, 65536); let status = gm_request(c + 128, c + 160, c + 512 + pb_vget(c, 10), pb_vget(c, 9), b);
                     if status != 200 { pnet_error(c, status, "Gym request rejected", now); }
@@ -194,5 +200,5 @@ fn gm_serve(argc, argv) {
     let deadline = pl_now() + 3000; let remaining = 1;
     while remaining && pl_now() < deadline { gm_poll_jobs(); remaining = 0; i = 0; while i < 8 { if load64(gm_jobs + i * 32) { remaining = 1; } i = i + 1; } if remaining { syscall(7, 0, 0, 5, 0, 0, 0); } }
     i = 0; while i < 8 { let job = gm_jobs + i * 32; if load64(job) > 0 { syscall(62, load64(job), 9, 0, 0, 0, 0); gx_reap(load64(job), 1000); gm_state(flexdb_get(gm_runs, load64(job + 8)), "interrupted"); } i = i + 1; }
-    gm_monolith_close(); close_flexdb(gm_db); return 0;
+    gv_close(); gm_monolith_close(); close_flexdb(gm_db); return 0;
 }

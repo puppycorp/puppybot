@@ -15,6 +15,8 @@ migration remains in progress; the Rust stack below is the reference implementat
 [`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
 the robot-control UI. Its first backend runs the native firmware in an isolated
 process against a deterministic servo plant, with seeded cases and recorded results.
+Its Live camera view tests [native Pup YOLO detection](flex/vision/README.md) with
+camera frames, labels and boxes, separately from firmware rollouts and robot controls.
 
 ## Repository layout
 

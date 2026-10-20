@@ -10,6 +10,8 @@ global pn_head = 0;
 global pn_body = 0;
 global pn_builder = 0;
 global pn_wire_scratch = 0;
+// Optional large binary route; ordinary robot API limits stay at 8 KiB.
+global pn_binary_path = 0;
 
 fn pnet_close(c) { let fd = load64(c); if fd >= 0 { syscall(3, fd, 0, 0, 0, 0, 0); } store64(c, -1); return 0; }
 fn pnet_queue(c, data, size, now) {
@@ -83,7 +85,9 @@ fn pnet_http(c, now) {
         if ph_header(data, end, "transfer-encoding") { return pnet_error(c, 501, "HTTP transfer encoding is unsupported", now); }
         let content = ph_header(data, end, "content-length"); let length = 0;
         if content { length = pl_unsigned_parse(content, ph_value_size); if ph_duplicates || pl_bad_number || length < 0 { return pnet_error(c, 400, "invalid Content-Length", now); } }
-        if length > 8192 || length + end > 12288 { return pnet_error(c, 413, "HTTP body exceeds request limit", now); }
+        let capacity = 12288; let body_limit = 8192;
+        if pn_binary_path && pl_equal(c + 160, pn_binary_path) && pl_equal(c + 128, "POST") { capacity = 49152; body_limit = 48000; store64(c + 432, capacity); }
+        if length > body_limit || length + end > capacity { return pnet_error(c, 413, "HTTP body exceeds request limit", now); }
         let upgrade = ph_header(data, end, "upgrade"); let wants_ws = upgrade != 0;
         if wants_ws {
             if ph_duplicates || !pl_case_equal(upgrade, ph_value_size, "websocket") || !pl_equal(c + 128, "GET") || !pl_equal(c + 160, "/ws") || length || load8(version + 7) != 49 { return pnet_error(c, 400, "invalid WebSocket upgrade", now); }
@@ -146,7 +150,7 @@ fn pnet_io(now) {
             let mode = pb_vget(c, 1);
             if mode == 0 && now >= pb_vget(c, 5) { pnet_error(c, 408, "HTTP request timed out", now); mode = pb_vget(c, 1); }
             if (mode == 0 || mode == 2) && !pb_vget(c, 13) && !pb_vget(c, 15) {
-                let size = pb_vget(c, 2); let room = 12288 - size;
+                let size = pb_vget(c, 2); let room = pb_max(12288, load64(c + 432)) - size;
                 if room <= 0 { if mode == 0 { pnet_error(c, 431, "HTTP request buffer is full", now); } else { pnet_ws_close(c, 1009, now); } }
                 else {
                     let n = syscall(0, fd, c + 512 + size, pb_min(room, 4096), 0, 0, 0);

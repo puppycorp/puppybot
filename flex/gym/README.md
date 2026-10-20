@@ -8,7 +8,8 @@ recording, inspection, and a persistent run catalog.
 The management UI is a **Monolith app**: declarative Flexscript `view` definitions
 render the page and compile its keyed DOM patches. Monolith handles form actions,
 action tokens, and SSE updates through its bundled browser adapter. The Gym has
-no handwritten browser JavaScript or JSON polling loop. FlexDB remains the run
+no handwritten browser rollout logic or JSON polling loop. The Live view has a
+small media bridge for browser camera capture and native detection. FlexDB remains the run
 catalog; the firmware process and robot-control endpoint stay separate.
 
 ## Build and start
@@ -21,6 +22,11 @@ From the repository root:
 ```
 
 Open **http://127.0.0.1:8090**. Choose a case and seed, then launch a rollout.
+The top-centre Workspace menu switches between simulation rollouts and
+[Live camera testing](../vision/README.md). Live uses a resident native Pup
+YOLO26 detector and draws labels/boxes over matching camera frames. Prepare the
+checkpoint with `./flex/scripts/prepare-yolo.sh`; camera access starts only when
+you press **Start camera**. No live frames are recorded or sent to robot controls.
 The interface shows its outcome, encoder trace, actuator commands, firmware
 fault, and separate robot endpoint. Pause freezes simulation time; resume
 continues the same processes. Stop finalizes a cancelled rollout after the
@@ -155,7 +161,9 @@ Set `PLAYWRIGHT_MODULE`, `CHROMIUM`, or `GYM_URL` if needed. It launches a real
 rollout through Monolith actions, pauses/resumes it, reopens results, and saves
 desktop/mobile screenshots under `build/flex/`. It checks SSE updates between
 two tabs, preserved input drafts/focus across reconnects, and absence of JSON
-polling or application browser scripts.
+polling for rollout state.
+The camera bridge is bundled separately from Monolith's rollout behavior and
+requires its own real-media/browser checks, documented in `../vision/README.md`.
 
 Next stages are articulated simulation and camera observations, dataset export,
 then real training/evaluation workers with checkpoint lineage. Training jobs,

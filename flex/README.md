@@ -11,6 +11,11 @@ process, supplies virtual STServo hardware, and records seeded arm/fault cases.
 Its initial servo plant has no articulated/contact physics. Gym manages runs;
 robot controls connect independently to each bot's endpoint.
 
+[Native Pup vision](vision/README.md) adds YOLO26n inference and Gym's Live camera
+test view. Models and checkpoints are separate from the observation/detection
+contract; Python/ONNX are preparation tools, tinygrad is a validation reference,
+and inference uses native Flexscript CPU/HIP kernels without Torch.
+
 ## Build and run
 
 From the repository root:

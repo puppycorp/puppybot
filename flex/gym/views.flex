@@ -1,6 +1,7 @@
 // Monolith owns server rendering, form actions, keyed updates and browser SSE.
 import "monolith";
 import "../../build/flex/gym-style.flex";
+import "../../build/flex/gym-camera.flex";
 
 global gu_selected = 0;
 global gu_last_hash = -1;
@@ -120,8 +121,42 @@ view gu_joint(j) {
 view app_view() {
     let rows = gu_rows(); let detail = gu_detail(); let samples = gu_samples(); let indices = gu_indices(); let id = load64(detail); let state = load64(detail + 64);
     div("gym-app") {
-        header("header") { b("brand", text: "● PuppyBotGym"); span("connection", class: "connection", text: "Connecting…", data-mono-status: ""); }
-        main("workspace") {
+        header("header") {
+            b("brand", text: "● PuppyBotGym");
+            button("navigation-toggle", id: "navigation-toggle", class: "navigation-toggle", type: "button", popovertarget: "site-navigation", aria-label: "Open navigation", aria-controls: "site-navigation", aria-expanded: "false", text: "Workspace ⌄");
+            span("connection", class: "connection", text: "Connecting…", data-mono-status: "");
+        }
+        nav("navigation", id: "site-navigation", class: "navigation-panel", popover: "auto", aria-label: "Primary") {
+            div("navigation-experiments", class: "navigation-group") { h2("navigation-experiments-label", text: "Experiments"); a("navigation-rollouts", id: "nav-rollouts", href: "/", text: "Simulation rollouts"); }
+            div("navigation-tools", class: "navigation-group") { h2("navigation-tools-label", text: "Tools"); a("navigation-live", id: "nav-live", href: "/live", text: "Live camera test"); }
+        }
+        main("live-workspace", id: "live-workspace") {
+            div("live-eyebrow", class: "eyebrow", text: "Vision workspace"); h1("live-title", text: "See what the model sees.");
+            p("live-intro", class: "muted", text: "Test the detector with this computer’s camera. Frames stay on this machine and do not control the robot.");
+            div("live-layout", class: "live-layout") {
+                section("live-camera-panel", class: "panel") {
+                    div("live-toolbar", class: "toolbar") { h2("live-camera-title", text: "Camera"); span("live-status", id: "live-status", class: "badge", role: "status", text: "Camera off"); }
+                    div("live-stage", class: "live-stage") {
+                        video("live-video", id: "live-video", autoplay: "", muted: "", playsinline: "", aria-label: "Live camera preview");
+                        canvas("live-canvas", id: "live-canvas", width: "640", height: "480", aria-label: "Latest analyzed camera frame with object boxes");
+                        p("live-empty", id: "live-empty", class: "muted", text: "Start the camera to try object detection.");
+                    }
+                    p("live-metrics", id: "live-metrics", class: "muted", text: "Each set of boxes belongs to the frame shown above.");
+                }
+                aside("live-settings", class: "panel") {
+                    h2("live-settings-title", text: "Live test"); label("live-model-label", for: "live-model", text: "Detector");
+                    select("live-model", id: "live-model", disabled: "") { option("live-model-current", value: gv_name, text: gv_name); }
+                    p("live-model-help", class: "muted", text: "Boxes show the model’s object labels and confidence.");
+                    label("live-device-label", for: "live-device", text: "Camera"); select("live-device", id: "live-device") { option("live-default-device", value: "", text: "Default camera"); }
+                    button("live-start", id: "live-start", class: "primary", type: "button", text: "Start camera");
+                    button("live-stop", id: "live-stop", class: "live-stop", type: "button", disabled: "", text: "Stop camera");
+                    p("live-error", id: "live-error", class: "error", role: "alert", text: "");
+                    div("live-detections-title", class: "eyebrow", text: "Detected objects"); ul("live-detections", id: "live-detections");
+                    p("live-note", class: "muted", text: "Camera access requires localhost or HTTPS. No frames are saved by Live.");
+                }
+            }
+        }
+        main("workspace", id: "workspace") {
             div("eyebrow", class: "eyebrow", text: "Experiment workspace"); h1("heading", text: "Run a case. Inspect the outcome.");
             p("intro", class: "muted", text: "Each rollout runs the bot firmware in its own process with virtual hardware and a recorded seed.");
             div("layout", class: "layout") {

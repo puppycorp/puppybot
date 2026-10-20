@@ -12,7 +12,7 @@ fn gm_monolith_init(port) {
     sv_refresh(); return 1;
 }
 fn gm_monolith_route(path) {
-    return pl_equal(path, "/") || pl_equal(path, "/client.js") || pl_equal(path, "/style.css") || pl_equal(path, "/events") || pl_equal(path, "/action");
+    return pl_equal(path, "/") || pl_equal(path, "/live") || pl_equal(path, "/client.js") || pl_equal(path, "/style.css") || pl_equal(path, "/events") || pl_equal(path, "/action");
 }
 fn gm_monolith_request(c) {
     let slot = 0; let i = 0;
@@ -22,7 +22,11 @@ fn gm_monolith_request(c) {
     let size = pb_vget(c, 2); pb_copy(bytes, c + 512, size); pb_zero(slot, 64);
     store64(slot, load64(c)); store64(c, -1); store64(slot + 8, bytes); store64(slot + 16, size); store64(slot + 32, pb_vget(c, 10));
     let code = sv_parse(slot);
-    if code == 200 { sv_dispatch(slot); }
+    if code == 200 {
+        if m_eq(sv_method, "GET") && m_eq(sv_path, "/live") { sv_reply(load64(slot), 200, "text/html; charset=utf-8", sv_html(), ""); sv_close(slot); }
+        else if m_eq(sv_method, "GET") && m_eq(sv_path, "/client.js") { sv_reply(load64(slot), 200, "text/javascript; charset=utf-8", m_cat(mono_client_js(), gm_camera_js()), ""); sv_close(slot); }
+        else { sv_dispatch(slot); }
+    }
     else { if !code { code = 400; } sv_reply(load64(slot), code, "text/plain; charset=utf-8", "Invalid Monolith request\n", ""); sv_close(slot); }
     return 1;
 }

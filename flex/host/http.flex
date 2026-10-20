@@ -58,6 +58,7 @@ fn ph_utf8(data, size) {
 }
 fn ph_status(status) {
     if status == 200 { return "200 OK"; } if status == 400 { return "400 Bad Request"; }
+    if status == 403 { return "403 Forbidden"; } if status == 415 { return "415 Unsupported Media Type"; }
     if status == 404 { return "404 Not Found"; } if status == 405 { return "405 Method Not Allowed"; }
     if status == 408 { return "408 Request Timeout"; } if status == 409 { return "409 Conflict"; }
     if status == 413 { return "413 Content Too Large"; } if status == 426 { return "426 Upgrade Required"; }

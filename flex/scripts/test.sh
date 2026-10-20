@@ -31,7 +31,7 @@ FLEXSCRIPT_COMPILER="$compiler" "$project_dir/flex/scripts/build.sh"
 for probe in numbers json; do
     "$compiler" "$project_dir/flex/tests/$probe-probe.flex" -o "$project_dir/build/flex/$probe-probe"
 done
-for suite in numbers host_json runtime cli gym; do
+for suite in numbers host_json runtime cli gym vision; do
     python3 "$project_dir/flex/tests/$suite.py"
 done
 echo 'Controller, host runtime, CLI, Gym, and ESP32 flash-code cross-compilation passed.'
