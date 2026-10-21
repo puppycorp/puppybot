@@ -55,3 +55,5 @@ __pycache__/
 python/STServo_Python/.DS_Store
 python/STServo_Python/stservo.xml
 python/STServo_Python/stservo-env/
+
+logs.txt

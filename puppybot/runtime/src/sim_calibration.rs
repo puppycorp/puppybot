@@ -5,8 +5,8 @@ use puppybot_core::{
     puppyarm::{servo_safety::TICK_WRAP, types::JOINT_COUNT},
 };
 use robotdreams_core::project::{
-    load_model_profile, project_config_for_input_path, DeviceConfig, ModelProfile, ProjectConfig,
-    ProjectRobotConfig,
+    DeviceConfig, ModelProfile, ProjectConfig, ProjectRobotConfig, load_model_profile,
+    project_config_for_input_path,
 };
 use serde_json::Value;
 
@@ -39,6 +39,12 @@ fn json_f64(value: &Value, path: &str) -> Result<f64, String> {
     Ok(value)
 }
 
+fn json_i64(value: Option<&Value>, path: &str) -> Result<i64, String> {
+    value
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("RobotDreams model profile {path} must be an integer"))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SimulationJointMapping {
     pub bus_id: String,
@@ -49,6 +55,19 @@ pub struct SimulationJointMapping {
     pub radians_per_tick: f64,
     pub ticks_per_turn: u16,
     pub wrapped: bool,
+}
+
+/// Session gripper wiring. The gripper drives no URDF joint; it is a bare
+/// virtual actuator whose tick thresholds gate the RobotDreams TCP-centre
+/// attachment used as the simulation grasp.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimulationGripperMapping {
+    pub bus_id: String,
+    pub servo_id: u8,
+    pub reference_tick: i32,
+    pub open_tick: i32,
+    pub close_tick: i32,
+    pub pickup_tolerance_m: f32,
 }
 
 fn profile_json(profile: &ModelProfile) -> Result<Value, String> {
@@ -232,6 +251,29 @@ fn servo_for_joint<'a>(
     }
 }
 
+fn servo_on_bus(
+    bus: &robotdreams_core::project::BusConfig,
+    servo_id: u8,
+) -> Result<&robotdreams_core::project::ServoDeviceConfig, String> {
+    let matches = bus
+        .devices
+        .iter()
+        .filter_map(|device| match device {
+            DeviceConfig::Servo(servo) if servo.id == u32::from(servo_id) => Some(servo),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [servo] => Ok(servo),
+        [] => Err(format!(
+            "RobotDreams bus '{SERVO_MAIN_BUS_ID}' has no servo with id {servo_id}"
+        )),
+        _ => Err(format!(
+            "RobotDreams bus '{SERVO_MAIN_BUS_ID}' has multiple servos with id {servo_id}"
+        )),
+    }
+}
+
 fn simulation_joint_mapping(
     physical: JointCalibration,
     servo: &robotdreams_core::project::ServoDeviceConfig,
@@ -342,6 +384,76 @@ pub fn derive_simulation_joint_mappings(
     Ok(mappings)
 }
 
+/// Derives the session gripper wiring for a gripper-enabled PuppyBot config.
+///
+/// Returns `None` when the physical config disables the gripper. Otherwise the
+/// model profile must carry a `gripper` section whose thresholds sit inside the
+/// calibrated tick limits, and the project main bus must expose the gripper
+/// servo as a bare actuator that drives no URDF joint.
+pub fn derive_simulation_gripper(
+    project_path: impl AsRef<Path>,
+    physical_config: &PuppybotConfigV1,
+) -> Result<Option<SimulationGripperMapping>, String> {
+    let Some(gripper) = physical_config.arm.gripper else {
+        return Ok(None);
+    };
+    let (project, _profile, profile_json) = load_project_and_profile(project_path.as_ref())?;
+    let section = profile_json.get("gripper").ok_or_else(|| {
+        "PuppyBot config enables a gripper, but the RobotDreams model profile has no gripper section"
+            .to_string()
+    })?;
+    let section = json_object(section, "gripper")?;
+    let profile_servo_id = json_i64(section.get("servo"), "gripper.servo")?;
+    if profile_servo_id != i64::from(gripper.servo_id) {
+        return Err(format!(
+            "RobotDreams gripper servo {profile_servo_id} does not match the PuppyBot gripper servo {}",
+            gripper.servo_id
+        ));
+    }
+    let open_tick = json_i64(section.get("openTick"), "gripper.openTick")?;
+    let close_tick = json_i64(section.get("closeTick"), "gripper.closeTick")?;
+    if open_tick < i64::from(gripper.tick_min)
+        || close_tick > i64::from(gripper.tick_max)
+        || open_tick >= close_tick
+    {
+        return Err(format!(
+            "RobotDreams gripper openTick {open_tick} and closeTick {close_tick} must satisfy tick_min <= openTick < closeTick <= tick_max ({}..{})",
+            gripper.tick_min, gripper.tick_max
+        ));
+    }
+    let pickup_tolerance_m = json_f64(
+        section.get("pickupToleranceM").ok_or_else(|| {
+            "RobotDreams model profile is missing gripper.pickupToleranceM".to_string()
+        })?,
+        "gripper.pickupToleranceM",
+    )?;
+    if pickup_tolerance_m <= 0.0 {
+        return Err(format!(
+            "RobotDreams gripper pickupToleranceM must be positive, got {pickup_tolerance_m}"
+        ));
+    }
+    let pickup_tolerance_m = pickup_tolerance_m as f32;
+    if !pickup_tolerance_m.is_finite() {
+        return Err("RobotDreams gripper pickupToleranceM is outside f32 range".to_string());
+    }
+    let bus = main_bus(&project)?;
+    let servo = servo_on_bus(bus, gripper.servo_id)?;
+    if servo.drives.is_some() || servo.steers.is_some() {
+        return Err(format!(
+            "RobotDreams bus '{SERVO_MAIN_BUS_ID}' servo {} must be a bare virtual actuator; the PuppyBot gripper drives no URDF joint",
+            gripper.servo_id
+        ));
+    }
+    Ok(Some(SimulationGripperMapping {
+        bus_id: SERVO_MAIN_BUS_ID.to_string(),
+        servo_id: gripper.servo_id,
+        reference_tick: gripper.reference_tick,
+        open_tick: open_tick as i32,
+        close_tick: close_tick as i32,
+        pickup_tolerance_m,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,6 +495,42 @@ mod tests {
         assert!(ambiguous.contains("multiple 'yaw' joints"), "{ambiguous}");
         assert!(ambiguous.contains("joint_a"), "{ambiguous}");
         assert!(ambiguous.contains("joint_b"), "{ambiguous}");
+    }
+
+    #[test]
+    fn gripper_mapping_comes_from_the_model_profile_and_project_bus() {
+        let physical = PuppybotConfigV1::default();
+        let mapping = derive_simulation_gripper(default_project_path(), &physical)
+            .expect("derive simulation gripper")
+            .expect("default config has a gripper");
+        let gripper = physical.arm.gripper.expect("default gripper");
+        assert_eq!(mapping.bus_id, "main_bus");
+        assert_eq!(mapping.servo_id, gripper.servo_id);
+        assert_eq!(mapping.reference_tick, gripper.reference_tick);
+        assert!(mapping.open_tick < mapping.close_tick);
+        assert!(mapping.open_tick >= gripper.tick_min);
+        assert!(mapping.close_tick <= gripper.tick_max);
+        assert!(mapping.pickup_tolerance_m > 0.0);
+    }
+
+    #[test]
+    fn gripper_mapping_is_none_without_a_configured_gripper() {
+        let mut physical = PuppybotConfigV1::default();
+        physical.arm.gripper = None;
+        let mapping = derive_simulation_gripper(default_project_path(), &physical)
+            .expect("gripper-less config must not error");
+        assert_eq!(mapping, None);
+    }
+
+    #[test]
+    fn gripper_mapping_rejects_a_servo_id_mismatch() {
+        let mut physical = PuppybotConfigV1::default();
+        let gripper = physical.arm.gripper.as_mut().expect("default gripper");
+        gripper.servo_id = 6;
+        physical.arm.joints[3].servo_id = 8;
+        let err = derive_simulation_gripper(default_project_path(), &physical)
+            .expect_err("mismatched gripper servo must fail");
+        assert!(err.contains("gripper servo 6"), "{err}");
     }
 
     #[test]

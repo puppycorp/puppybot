@@ -1,5 +1,6 @@
 {
   "arm": {
+    "gripper_speed": 50,
     "joints": [
       {
         "angle_sign": 1,
@@ -41,7 +42,17 @@
         "tick_max": 3000,
         "tick_min": 600
       }
-    ]
+    ],
+    "gripper": {
+      "angle_sign": 1,
+      "drive_sign": 1,
+      "limit_enabled": true,
+      "reference_angle_deg": 0.0,
+      "reference_tick": 2048,
+      "servo_id": 7,
+      "tick_max": 2900,
+      "tick_min": 2048
+    }
   },
   "coordinate": {
     "base_yaw_offset_deg": -7.15244988058,

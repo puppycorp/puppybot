@@ -10,10 +10,14 @@ use crate::{
     },
     puppyarm::{
         puppyarm::{PuppyArm, PuppyarmTelemetry},
-        types::{ControllerError, JOINT_COUNT},
+        servo_safety::{BLOCKING_SERVO_STATUS, is_outside_limits},
+        types::{ACTUATOR_COUNT, ControllerError, GRIPPER_INDEX, JOINT_COUNT},
     },
-    stservo::{Mode, SerialBus, StServo},
+    stservo::{Error as StServoError, Mode, SerialBus, StServo, wheel_speed_params},
 };
+
+#[cfg(test)]
+use crate::config::DEFAULT_GRIPPER_SPEED;
 
 pub use crate::system::PuppyBotSystem;
 
@@ -31,8 +35,14 @@ pub struct Puppybot {
 }
 
 pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
-    let joints: [ProtocolJointTelemetry<'_>; JOINT_COUNT] =
-        telemetry.joints.map(|joint| ProtocolJointTelemetry {
+    let actuator_count = if telemetry.has_gripper {
+        ACTUATOR_COUNT
+    } else {
+        JOINT_COUNT
+    };
+    let joints = telemetry.joints[..actuator_count]
+        .iter()
+        .map(|joint| ProtocolJointTelemetry {
             servo_id: joint.servo_id,
             online: joint.online,
             has_feedback: joint.has_feedback,
@@ -45,8 +55,17 @@ pub fn arm_state_frame(telemetry: &PuppyarmTelemetry) -> Vec<u8> {
             angle_deg: joint.angle_deg(),
             target_angle_deg: joint.target_angle_deg(),
             fault: joint.fault.map(protocol::fault_name),
-        });
+        })
+        .collect::<Vec<_>>();
     protocol::arm_state_frame(&joints, telemetry.coords_mm, telemetry.target_coords_mm)
+}
+
+fn arm_servo_write_applied<E>(result: &Result<(), StServoError<E>>) -> bool {
+    match result {
+        Ok(()) => true,
+        Err(StServoError::Status(status)) => status & BLOCKING_SERVO_STATUS == 0,
+        Err(_) => false,
+    }
 }
 
 impl Puppybot {
@@ -138,27 +157,107 @@ impl Puppybot {
         arm_state_frame(&self.arm_telemetry())
     }
 
+    fn record_servo_feedback_error<E>(
+        &mut self,
+        joint: usize,
+        servo_id: u8,
+        now_ms: u64,
+        err: &StServoError<E>,
+    ) where
+        E: core::fmt::Debug,
+    {
+        let status = err.status();
+        if joint == GRIPPER_INDEX {
+            let gripper = self.arm.joints[GRIPPER_INDEX];
+            log::warn!(
+                "gripper feedback failed servo {} sample_ms {} error {:?} previous_tick {:?} commanded_speed {} last_sent {:?} status 0x{:02x} fault {:?}",
+                servo_id,
+                now_ms,
+                err,
+                gripper.tick,
+                gripper.speed,
+                gripper.last_sent_speed,
+                gripper.servo_status,
+                gripper.fault
+            );
+        } else {
+            log::warn!("read position failed for servo {}: {:?}", servo_id, err);
+        }
+        self.arm.record_feedback_error(joint);
+        if let Some(status) = status {
+            self.arm.record_servo_status(joint, status);
+        }
+    }
+
     async fn read_servo_feedback<B>(&mut self, servo: &mut StServo<B>, now_ms: u64)
     where
         B: SerialBus,
         B::Error: core::fmt::Debug,
     {
-        for offset in 0..JOINT_COUNT {
-            let joint = (self.next_feedback_joint + offset) % JOINT_COUNT;
+        let actuator_count = self.arm.actuator_count();
+        for offset in 0..actuator_count {
+            let joint = (self.next_feedback_joint + offset) % actuator_count;
             let Some(servo_id) = self.arm.joint_servo_id(joint) else {
                 continue;
             };
-            self.next_feedback_joint = (joint + 1) % JOINT_COUNT;
-            match servo.read_position(servo_id).await {
-                Ok(tick) => {
-                    self.arm.record_feedback(joint, tick, now_ms);
+            self.next_feedback_joint = (joint + 1) % actuator_count;
+            if joint == GRIPPER_INDEX {
+                match servo.read_feedback_with_status(servo_id).await {
+                    Ok(response) => {
+                        let feedback = response.value;
+                        self.arm.record_feedback(joint, feedback.position, now_ms);
+                        self.arm.record_servo_status(joint, response.status);
+                        self.arm
+                            .record_temperature(joint, Some(feedback.temperature_c));
+                        let gripper = self.arm.joints[GRIPPER_INDEX];
+                        log::debug!(
+                            "gripper feedback servo {} sample_ms {} tick {} delta {:+} present_speed {:+} load_raw {:+} voltage {:.1}V voltage_raw {} temperature {}C moving {} current_raw {:+} status 0x{:02x} commanded_speed {} last_sent {:?} limits {}..{} outside {} fault {:?}",
+                            servo_id,
+                            now_ms,
+                            feedback.position,
+                            gripper.tick_delta,
+                            feedback.speed,
+                            feedback.load,
+                            f32::from(feedback.voltage_raw) * 0.1,
+                            feedback.voltage_raw,
+                            feedback.temperature_c,
+                            feedback.moving,
+                            feedback.current,
+                            response.status,
+                            gripper.speed,
+                            gripper.last_sent_speed,
+                            gripper.tick_min,
+                            gripper.tick_max,
+                            is_outside_limits(&gripper),
+                            gripper.fault
+                        );
+                    }
+                    Err(err) => {
+                        self.record_servo_feedback_error(joint, servo_id, now_ms, &err);
+                    }
                 }
-                Err(err) => {
-                    log::warn!("read position failed for servo {}: {:?}", servo_id, err);
-                    self.arm.record_feedback_error(joint);
+            } else {
+                match servo.read_position_with_status(servo_id).await {
+                    Ok(response) => {
+                        self.arm.record_feedback(joint, response.value, now_ms);
+                        self.arm.record_servo_status(joint, response.status);
+                    }
+                    Err(err) => {
+                        self.record_servo_feedback_error(joint, servo_id, now_ms, &err);
+                    }
                 }
             }
             break;
+        }
+    }
+
+    fn record_arm_servo_result<E>(&mut self, joint: usize, result: &Result<(), StServoError<E>>) {
+        let status = match result {
+            Ok(()) => Some(0),
+            Err(err) => err.status(),
+        };
+        if let Some(status) = status {
+            self.arm.record_servo_status(joint, status);
         }
     }
 
@@ -215,27 +314,40 @@ impl Puppybot {
         let outputs = self.arm.update(now_ms);
         for joint in 0..outputs.len() {
             let output = outputs[joint];
+            if output.servo_id == 0 {
+                continue;
+            }
             if !initialize_wheel_mode && !output.should_send {
                 continue;
             }
-
             let mut wheel_mode_ready = self.arm.wheel_mode_ready(joint, output.servo_id);
             if !wheel_mode_ready {
-                let force_wheel_mode = initialize_wheel_mode || output.speed == 0;
+                if self.arm.servo_status_blocks_motion(joint) {
+                    continue;
+                }
                 if !self.arm.begin_wheel_mode_attempt(
                     joint,
                     output.servo_id,
                     now_ms,
-                    force_wheel_mode,
+                    initialize_wheel_mode,
                 ) {
                     continue;
                 }
 
                 let result = servo.set_mode(output.servo_id, Mode::Wheel).await;
-                wheel_mode_ready = result.is_ok();
+                wheel_mode_ready = arm_servo_write_applied(&result);
                 if wheel_mode_ready {
-                    log::info!("mode {:?} ready for servo {}", Mode::Wheel, output.servo_id);
-                } else if let Err(err) = result {
+                    if let Err(err) = &result {
+                        log::warn!(
+                            "mode {:?} ready for servo {} with warning: {:?}",
+                            Mode::Wheel,
+                            output.servo_id,
+                            err
+                        );
+                    } else {
+                        log::info!("mode {:?} ready for servo {}", Mode::Wheel, output.servo_id);
+                    }
+                } else if let Err(err) = &result {
                     log::warn!(
                         "set mode {:?} failed for servo {}: {:?}",
                         Mode::Wheel,
@@ -243,6 +355,7 @@ impl Puppybot {
                         err
                     );
                 }
+                self.record_arm_servo_result(joint, &result);
                 self.arm.record_set_mode_result(
                     joint,
                     output.servo_id,
@@ -255,16 +368,44 @@ impl Puppybot {
                 continue;
             }
 
+            if joint == GRIPPER_INDEX {
+                let gripper = self.arm.joints[GRIPPER_INDEX];
+                let params = wheel_speed_params(output.speed, ARM_WHEEL_ACC);
+                log::info!(
+                    "gripper wheel write servo {} sample_ms {} speed {} params {:02x?} tick {:?} delta {:+} status 0x{:02x} limits {}..{} fault {:?}",
+                    output.servo_id,
+                    now_ms,
+                    output.speed,
+                    params,
+                    gripper.tick,
+                    gripper.tick_delta,
+                    gripper.servo_status,
+                    gripper.tick_min,
+                    gripper.tick_max,
+                    gripper.fault
+                );
+            }
             let result = servo
                 .write_wheel_speed(output.servo_id, output.speed, ARM_WHEEL_ACC)
                 .await;
-            let success = result.is_ok();
-            if let Err(err) = result {
+            let success = arm_servo_write_applied(&result);
+            if !success && let Err(err) = &result {
                 log::warn!(
                     "set wheel speed failed for servo {} speed {}: {:?}",
                     output.servo_id,
                     output.speed,
                     err
+                );
+            }
+            self.record_arm_servo_result(joint, &result);
+            if joint == GRIPPER_INDEX {
+                log::info!(
+                    "gripper wheel result servo {} sample_ms {} speed {} applied {} response_status {:?}",
+                    output.servo_id,
+                    now_ms,
+                    output.speed,
+                    success,
+                    result.as_ref().err().and_then(StServoError::status)
                 );
             }
             self.arm.record_wheel_speed_result(
@@ -366,9 +507,9 @@ mod tests {
         },
         drive::DriveCommand,
         protocol::{CMD_CONFIG_GET, CMD_DRIVE_STEER, CMD_STOP_DRIVE, ProtocolEvent, command_frame},
-        puppyarm::types::ArmCommand,
+        puppyarm::types::{ACTUATOR_COUNT, ArmCommand, GRIPPER_INDEX},
         stservo::{
-            StServo,
+            STATUS_INPUT_VOLTAGE, STATUS_OVERLOAD, StServo,
             mock::{FakeSerialBus, FakeServo, block_on_ready},
         },
     };
@@ -399,6 +540,8 @@ mod tests {
             drive: Default::default(),
             arm: PuppyArmConfig {
                 joints: [joint(ids[0]), joint(ids[1]), joint(ids[2]), joint(ids[3])],
+                gripper: None,
+                gripper_speed: DEFAULT_GRIPPER_SPEED,
             },
             coordinate: Default::default(),
         }
@@ -524,6 +667,7 @@ mod tests {
         for servo_id in 1..=4 {
             bus.set_servo(FakeServo::new(servo_id, 0));
         }
+        bus.set_servo(FakeServo::new(7, 0));
         let mut system = PuppyBotSystem::new(Puppybot::new(0), bus);
 
         assert_eq!(system.now_ms(), 0);
@@ -540,6 +684,7 @@ mod tests {
         for servo_id in 1..=4 {
             bus.set_servo(FakeServo::new(servo_id, 0));
         }
+        bus.set_servo(FakeServo::new(7, 0));
         let mut servo = StServo::new(bus);
         let mut events = [
             ProtocolEvent::Arm(ArmCommand::SetSpeed(300)),
@@ -639,5 +784,114 @@ mod tests {
         assert_eq!(telemetry.joints[1].tick, Some(202));
         assert_eq!(telemetry.joints[2].tick, Some(303));
         assert_eq!(telemetry.joints[3].tick, Some(404));
+    }
+
+    #[test]
+    fn run_once_preserves_feedback_while_exposing_servo_status_errors() {
+        let config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        bus.set_status_error(11, STATUS_INPUT_VOLTAGE | STATUS_OVERLOAD);
+        let mut servo = StServo::new(bus);
+
+        block_on_ready(robot.run_once(&mut servo, 20, || None));
+
+        let joint = robot.arm_telemetry().joints[0];
+        assert_eq!(joint.servo_status, STATUS_INPUT_VOLTAGE | STATUS_OVERLOAD);
+        assert_eq!(joint.tick, Some(101));
+        assert!(joint.online);
+
+        servo.bus_mut().set_status_error(11, 0);
+        run_feedback_cycle(&mut robot, &mut servo);
+
+        let joint = robot.arm_telemetry().joints[0];
+        assert_eq!(joint.servo_status, 0);
+        assert_eq!(joint.tick, Some(101));
+        assert!(joint.online);
+    }
+
+    #[test]
+    fn input_voltage_warning_allows_gripper_wheel_mode_and_jog() {
+        let mut config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        config.arm.gripper = Some(joint(7));
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404), (7, 2100)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        bus.set_status_error(7, STATUS_INPUT_VOLTAGE);
+        let mut servo = StServo::new(bus);
+
+        for now_ms in (20..1100).step_by(20) {
+            block_on_ready(robot.run_once(&mut servo, now_ms, || None));
+        }
+
+        let mode_attempts = servo
+            .bus()
+            .writes
+            .iter()
+            .filter(|packet| {
+                packet.get(2) == Some(&7)
+                    && packet.get(4) == Some(&0x03)
+                    && packet.get(5) == Some(&33)
+            })
+            .count();
+        assert_eq!(mode_attempts, 1);
+
+        let mut event = Some(ProtocolEvent::Arm(ArmCommand::Spin {
+            joint: GRIPPER_INDEX,
+            direction: 1,
+        }));
+        block_on_ready(robot.run_once(&mut servo, 1100, || event.take()));
+
+        let telemetry = robot.arm_telemetry().joints[GRIPPER_INDEX];
+        assert_eq!(telemetry.servo_status, STATUS_INPUT_VOLTAGE);
+        assert_eq!(telemetry.speed, 50);
+        assert_eq!(telemetry.fault, None);
+        assert!(robot.arm.wheel_mode_ready(GRIPPER_INDEX, 7));
+        assert_eq!(
+            servo
+                .bus()
+                .servo(7)
+                .expect("configured gripper servo")
+                .wheel_speed,
+            50
+        );
+    }
+
+    #[test]
+    fn run_once_drives_configured_gripper_servo_in_wheel_mode() {
+        let mut config = config_with_arm_servo_ids([11, 12, 13, 14]);
+        config.arm.gripper = Some(joint(7));
+        let mut robot = Puppybot::new_with_config(&config, 0).unwrap();
+        let mut bus = FakeSerialBus::new();
+        for (servo_id, position) in [(11, 101), (12, 202), (13, 303), (14, 404), (7, 2100)] {
+            bus.set_servo(FakeServo::new(servo_id, position));
+        }
+        let mut servo = StServo::new(bus);
+        for tick in 0..ACTUATOR_COUNT {
+            block_on_ready(robot.run_once(&mut servo, (tick as u64 + 1) * 20, || None));
+        }
+        let mut event = Some(ProtocolEvent::Arm(ArmCommand::Spin {
+            joint: GRIPPER_INDEX,
+            direction: 1,
+        }));
+
+        block_on_ready(robot.run_once(&mut servo, 140, || event.take()));
+
+        assert_eq!(robot.arm_telemetry().joints[GRIPPER_INDEX].speed, 50);
+        assert!(robot.arm.wheel_mode_ready(GRIPPER_INDEX, 7));
+        let gripper = servo.bus().servo(7).expect("configured gripper servo");
+        assert_eq!(gripper.mode, Mode::Wheel);
+        assert_eq!(gripper.wheel_speed, 50);
+        assert_eq!(robot.arm_telemetry().joints[GRIPPER_INDEX].tick, Some(2100));
+        assert!(servo.bus().writes.iter().any(|packet| {
+            packet.get(2) == Some(&7)
+                && packet.get(4) == Some(&0x03)
+                && packet.get(5..13) == Some(&[41, 0, 0, 0, 0, 0, 50, 0])
+        }));
     }
 }

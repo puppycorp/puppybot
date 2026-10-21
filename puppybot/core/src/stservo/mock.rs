@@ -22,8 +22,13 @@ pub struct FakeServo {
     pub mode: Mode,
     pub position: u16,
     pub wheel_speed: i16,
+    pub present_speed: i16,
+    pub load: i16,
     pub voltage_raw: u8,
     pub temperature_c: u8,
+    pub moving: bool,
+    pub current: i16,
+    pub status_error: u8,
     pub online: bool,
 }
 
@@ -34,8 +39,13 @@ impl FakeServo {
             mode: Mode::Position,
             position,
             wheel_speed: 0,
+            present_speed: 0,
+            load: 0,
             voltage_raw: 74,
             temperature_c: 25,
+            moving: false,
+            current: 0,
+            status_error: 0,
             online: true,
         }
     }
@@ -138,6 +148,28 @@ impl FakeSerialBus {
         }
     }
 
+    pub fn set_feedback_dynamics(
+        &mut self,
+        servo_id: u8,
+        speed: i16,
+        load: i16,
+        moving: bool,
+        current: i16,
+    ) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.present_speed = speed;
+            servo.load = load;
+            servo.moving = moving;
+            servo.current = current;
+        }
+    }
+
+    pub fn set_status_error(&mut self, servo_id: u8, status_error: u8) {
+        if let Some(servo) = self.servo_mut(servo_id) {
+            servo.status_error = status_error;
+        }
+    }
+
     fn servo_mut(&mut self, id: u8) -> Option<&mut FakeServo> {
         self.servos
             .iter_mut()
@@ -178,16 +210,17 @@ impl FakeSerialBus {
         if !servo.online {
             return Ok(());
         }
+        let status_error = servo.status_error;
 
         match instruction {
-            INST_PING => self.queue_status(id, 0, &[])?,
+            INST_PING => self.queue_status(id, status_error, &[])?,
             INST_READ => {
                 if params.len() < 2 {
                     return Err(FakeBusError::BadPacket);
                 }
                 let address = params[0];
                 let read_len = params[1];
-                let mut response = [0u8; 4];
+                let mut response = [0u8; SMS_STS_FEEDBACK_LEN as usize];
                 let response = match (address, read_len) {
                     (SMS_STS_PRESENT_POSITION_L, 2) => {
                         response[0..2].copy_from_slice(&servo.position.to_le_bytes());
@@ -208,9 +241,26 @@ impl FakeSerialBus {
                         response[0] = servo.temperature_c;
                         &response[..1]
                     }
+                    (SMS_STS_PRESENT_POSITION_L, SMS_STS_FEEDBACK_LEN) => {
+                        response[0..2].copy_from_slice(&servo.position.to_le_bytes());
+                        response[2..4]
+                            .copy_from_slice(&to_servo_signed(servo.present_speed).to_le_bytes());
+                        response[4..6].copy_from_slice(&to_servo_load(servo.load).to_le_bytes());
+                        response[(SMS_STS_PRESENT_VOLTAGE - SMS_STS_PRESENT_POSITION_L) as usize] =
+                            servo.voltage_raw;
+                        response
+                            [(SMS_STS_PRESENT_TEMPERATURE - SMS_STS_PRESENT_POSITION_L) as usize] =
+                            servo.temperature_c;
+                        response[(SMS_STS_MOVING - SMS_STS_PRESENT_POSITION_L) as usize] =
+                            u8::from(servo.moving);
+                        response[(SMS_STS_PRESENT_CURRENT_L - SMS_STS_PRESENT_POSITION_L) as usize
+                            ..=(SMS_STS_PRESENT_CURRENT_H - SMS_STS_PRESENT_POSITION_L) as usize]
+                            .copy_from_slice(&to_servo_signed(servo.current).to_le_bytes());
+                        &response
+                    }
                     _ => return Err(FakeBusError::BadPacket),
                 };
-                self.queue_status(id, 0, response)?;
+                self.queue_status(id, status_error, response)?;
             }
             INST_WRITE => {
                 if params.is_empty() {
@@ -237,7 +287,7 @@ impl FakeSerialBus {
                     }
                     _ => {}
                 }
-                self.queue_status(id, 0, &[])?;
+                self.queue_status(id, status_error, &[])?;
             }
             _ => return Err(FakeBusError::BadPacket),
         }
@@ -327,6 +377,14 @@ fn from_servo_signed(value: u16) -> i16 {
         -magnitude
     } else {
         magnitude
+    }
+}
+
+fn to_servo_load(value: i16) -> u16 {
+    if value < 0 {
+        ((-value) as u16).min(0x03ff) | 0x0400
+    } else {
+        (value as u16).min(0x03ff)
     }
 }
 
@@ -448,6 +506,52 @@ fn read_position_uses_fake_serial_bus_end_to_end() {
     assert_eq!(
         servo.bus_mut().writes[0],
         packet(4, INST_READ, &[SMS_STS_PRESENT_POSITION_L, 2])
+    );
+}
+
+#[test]
+fn read_position_with_status_preserves_feedback_from_an_error_response() {
+    let mut bus = FakeSerialBus::new().with_servo(4, 0x0abc);
+    bus.set_status_error(4, STATUS_INPUT_VOLTAGE);
+    let mut servo = StServo::new(bus);
+
+    let response = block_on_ready(servo.read_position_with_status(4)).unwrap();
+
+    assert_eq!(response.value, 0x0abc);
+    assert_eq!(response.status, STATUS_INPUT_VOLTAGE);
+}
+
+#[test]
+fn read_feedback_with_status_returns_all_gripper_diagnostics() {
+    let mut bus = FakeSerialBus::new().with_servo(7, 1900);
+    bus.set_feedback_dynamics(7, -123, -456, true, -78);
+    bus.set_temperature(7, 43);
+    bus.servo_mut(7).expect("fake servo").voltage_raw = 71;
+    bus.set_status_error(7, STATUS_INPUT_VOLTAGE);
+    let mut servo = StServo::new(bus);
+
+    let response = block_on_ready(servo.read_feedback_with_status(7)).unwrap();
+
+    assert_eq!(
+        response.value,
+        Feedback {
+            position: 1900,
+            speed: -123,
+            load: -456,
+            voltage_raw: 71,
+            temperature_c: 43,
+            moving: true,
+            current: -78,
+        }
+    );
+    assert_eq!(response.status, STATUS_INPUT_VOLTAGE);
+    assert_eq!(
+        servo.bus().writes[0],
+        packet(
+            7,
+            INST_READ,
+            &[SMS_STS_PRESENT_POSITION_L, SMS_STS_FEEDBACK_LEN]
+        )
     );
 }
 
