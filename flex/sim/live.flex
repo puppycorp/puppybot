@@ -87,7 +87,7 @@ fn ps_live_sample() {
     if !load64(ps_live_targets + ps_live_back * 8) { store64(ps_live_targets + ps_live_back * 8, ps_vision_target_create()); }
     let target = load64(ps_live_targets + ps_live_back * 8); if !target { return ps_live_error(); }
     let previous_target = ps_render_target; let previous_mode = ps_camera_mode;
-    ps_live_mode = 2; if ps_camera_mode == 1 || ps_stock_enabled { ps_live_mode = 1; }
+    ps_live_mode = 2;
     ps_render_target = target; ps_camera_mode = ps_live_mode; ps_scene(640, 480, 0, 0);
     pb_copy(ps_live_pose, ps_eye, 24); pb_copy(ps_live_pose + 24, ps_target, 24); pb_copy(ps_live_pose + 48, ps_up, 24); ps_live_step = ps_total;
     let ok = ps_live_encode(); ps_render_target = previous_target; ps_camera_mode = previous_mode;
@@ -168,7 +168,7 @@ fn ps_live_poll() {
 }
 fn ps_live_present(width, height, x, y, mode) {
     if !ps_live_enabled || !ps_live_job { return 0; }
-    let key = mode; let text = "YOLO TCP"; if mode == 1 { text = "YOLO ROVER"; }
+    let key = mode; let text = "YOLO TCP";
     if pl_equal(ps_live_state, "error") { key = 10; text = "YOLO ERROR"; } else if ps_live_front < 0 { key = 11; text = "YOLO LOADING"; }
     if ps_live_caption_mode != key { ps_live_caption = ps_text_upload(ps_live_caption, text); ps_live_caption_mode = key; }
     if ps_live_front < 0 || ps_live_front_mode != mode || ps_live_front_episode != ps_episode { return 0; }

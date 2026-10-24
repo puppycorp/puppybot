@@ -81,9 +81,9 @@ def main():
         _, _, outlined = capture(directory, 'colliders', '--steps', 120, '--demo', '--tcp-view', '--colliders')
         assert outlined.crop((x, top, x+width, top+height)).tobytes() == inset.crop((x, top, x+width, top+height)).tobytes(), 'collider overlay entered the TCP sensor'
         assert sum(a != b for a, b in zip(outlined.tobytes(), inset.tobytes())) > 1000
-        _, _, rover = capture(directory, 'rover-clean', '--steps', 1, '--camera', 'rover')
-        _, _, rover_debug = capture(directory, 'rover-debug', '--steps', 1, '--camera', 'rover', '--colliders')
-        assert rover.tobytes() == rover_debug.tobytes(), 'collider overlay entered the rover sensor'
+        _, _, tcp = capture(directory, 'tcp-clean', '--steps', 1, '--camera', 'tcp')
+        _, _, tcp_debug = capture(directory, 'tcp-debug', '--steps', 1, '--camera', 'tcp', '--colliders')
+        assert tcp.tobytes() == tcp_debug.tobytes(), 'collider overlay entered the TCP sensor'
 
         held, _, image = capture(directory, 'held', '--steps', 1150, '--pickup', '--tcp-view')
         assert held['pickup']['passed'] and held['gripper']['held']
@@ -95,7 +95,7 @@ def main():
         assert (directory/'panels.jsonl').read_bytes() == (directory/'baseline.jsonl').read_bytes(), 'live panes changed controller observations'
         panels = json.loads((directory/'panels.png.views.json').read_text())
         assert panels['enabled'] and panels['updateIntervalMs'] == 100
-        assert [v['camera'] for v in panels['views']] == ['front', 'tcp']
+        assert [v['camera'] for v in panels['views']] == ['tcp']
         for view in panels['views']:
             assert view['frameId'] == state['totalSteps'] and view['capturedMs'] == state['timeMs']
             name = 'panels.png.'+view['camera']+'.png'
@@ -103,18 +103,15 @@ def main():
             assert metadata['frameId'] == view['frameId'] and metadata['capturedMs'] == view['capturedMs']
             with Image.open(directory/name) as pane:
                 assert pane.size == (640, 480)
-            if view['camera'] == 'tcp':
-                check_mount(state, metadata)
-            else:
-                x, y, heading = state['pose']
-                assert math.dist(metadata['eyeM'], [x+0.09*math.cos(heading), y+0.09*math.sin(heading), 0.24]) < 0.003
+            check_mount(state, metadata)
+        assert not (directory/'panels.png.front.png').exists()
 
         # Dedicated model input must not depend on observer/debug overlays.
-        _, _, front_reference = capture(directory, 'front-reference', '--steps', 120, '--demo', '--camera', 'rover', '--no-tcp-view', '--sensor-capture', directory/'clean')
+        _, _, reference = capture(directory, 'tcp-reference', '--steps', 120, '--demo', '--camera', 'tcp', '--no-tcp-view', '--sensor-capture', directory/'clean')
         exported = simulation.run('--hidden', '--bind', '127.0.0.1:0', '--steps', 120, '--demo',
                                   '--camera-panels', '--colliders', '--sensor-capture', directory/'sensor', '--record', directory/'sensor.jsonl')
         assert (directory/'sensor.jsonl').read_bytes() == (directory/'baseline.jsonl').read_bytes(), 'sensor export changed controller observations'
-        for camera, reference in (('front', front_reference), ('tcp', second)):
+        for camera, reference in (('tcp', reference),):
             with Image.open(directory/f'sensor.{camera}.png') as image:
                 pixels = image.convert('RGB').tobytes()
             with Image.open(directory/f'clean.{camera}.png') as image:
@@ -127,7 +124,7 @@ def main():
             if camera == 'tcp':
                 check_mount(exported, metadata)
     print('View checks passed: URDF-relative TCP mounting, arm and chassis motion, isolated inset color/depth, caption, visible held ball')
-    print('Live pair checks passed: full-resolution front/TCP captures, original mounts, fresh metadata, unchanged controller trace')
+    print('Live TCP checks passed: one sensor, original mount, fresh metadata, unchanged controller trace')
     print('Model input checks passed: clean sensor exports match original RGB with observer/debug overlays enabled')
 
 

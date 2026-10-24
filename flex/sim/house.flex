@@ -11,6 +11,7 @@ global ps_house_previous = 0;
 global ps_house_parking = 0;
 global ps_house_park_angle = 0;
 global ps_house_ready = 0;
+global ps_house_block_replans = 0;
 
 fn ps_house_enabled() { return ps_case_camera == 2; }
 fn ps_house_reset() {
@@ -22,22 +23,33 @@ fn ps_house_reset() {
 }
 fn ps_house_plan_view(target) {
     let x = load64(target); let y = load64(target + 8); let heading = load64(target + 16);
-    if ps_floor_clear(x, y, heading) { return ps_nav_plan(x, y, heading); }
-    // A coverage waypoint can lie on a newly observed loose brick. Stop at
-    // an observing pose behind it instead of asking A* to drive onto it.
+    if ps_nav_clear(x, y, heading) && ps_nav_plan(x, y, heading) { return 1; }
+    // A coverage waypoint can intersect a camera-observed brick or box.
+    // Find a nearby safe viewing pose, retaining the intended camera heading.
     let offset = 220;
     while offset <= 420 {
         let distance = ps_number(offset, 1000); let bx = f64_sub(x, f64_mul(distance, f64_cos(heading))); let by = f64_sub(y, f64_mul(distance, f64_sin(heading)));
-        if ps_floor_clear(bx, by, heading) && ps_nav_plan(bx, by, heading) { return 1; } offset = offset + 20;
+        if ps_nav_clear(bx, by, heading) && ps_nav_plan(bx, by, heading) { return 1; } offset = offset + 20;
+    }
+    let radius = 1;
+    while radius <= 4 {
+        let view = 0;
+        while view < 8 {
+            let angle = f64_add(heading, f64_mul(PB_TAU, ps_number(view, 8))); let distance = ps_number(radius, 10);
+            let bx = f64_add(x, f64_mul(distance, f64_cos(angle))); let by = f64_add(y, f64_mul(distance, f64_sin(angle)));
+            if ps_nav_clear(bx, by, heading) && ps_nav_plan(bx, by, heading) { return 1; } view = view + 1;
+        }
+        radius = radius + 1;
     }
     return 0;
 }
 fn ps_house_begin(returning) {
+    ps_house_block_replans = 0;
     ps_house_returning = returning; let target = ps_case_coverage + ps_house_waypoint * 24; if returning { target = ps_house_home; }
     if ps_stock_pickup && returning == 1 { if !ps_stock_return_begin() { return 0; } ps_case_phase(21); return 1; }
     if ps_stock_pickup && !returning && !ps_stock_phase { ps_stock_teach(); }
-    if ps_crumb_enabled && returning == 1 { return ps_crumb_return_begin(); }
-    if ps_crumb_enabled && !returning && !ps_crumb_depart() { return ps_case_fail("cannot record front-camera route"); }
+    if ps_crumb_enabled && ps_crumb_repeat && returning == 1 { return ps_crumb_return_begin(); }
+    if ps_crumb_enabled && !returning && !ps_crumb_depart() { return ps_case_fail("cannot record TCP-camera route"); }
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
     if !ps_house_plan_view(target) { return ps_case_fail("no car path through mapped furniture to the next room/home"); }
     ps_floor_changed = 0; ps_case_phase(21); return 1;
@@ -147,15 +159,22 @@ fn ps_house_park_to(target) {
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time); return 2;
 }
 fn ps_house_park_update() {
+    if ps_blocked {
+        pb_drive_stop(pb_robot_drive(ps_robot), ps_time); ps_dock_search_blocks = ps_dock_search_blocks + 1; ps_case_survey_index = 0; return ps_case_tcp_survey();
+    }
     let result = ps_house_park_to(ps_house_home); if result == 2 { return ps_case_tcp_survey(); } return result;
+}
+fn ps_house_pick_park_update() {
+    if ps_house_park_to(ps_nav_goal) != 2 { return 1; }
+    if !ps_house_pick_base() { return ps_case_fail("RGB pickup approach remains unreachable after precise parking"); }
+    ps_case_phase(2); return 1;
 }
 fn ps_house_learn_dock() {
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
     if ps_case_steps % 10 == 1 { ps_dock_sample(); }
     if !ps_dock_fresh() || ps_dock_stable < 3 { return 1; }
-    ps_house_ready = 1; let i = 0;
-    while i < 4 { store64(ps_pickup_targets + i * 8, load64(pb_config_joint(ps_config, i) + 24)); i = i + 1; }
-    if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return ps_case_fail("cannot stow after visually learning the box"); }
+    ps_house_ready = 1;
+    if !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera after learning the box"); }
     ps_case_phase(14); return 1;
 }
 fn ps_house_update() {
@@ -168,19 +187,32 @@ fn ps_house_update() {
         if ps_stock_phase == 4 { return ps_case_tcp_survey(); } return 1;
     }
     if !ps_house_returning && ps_case_steps % 10 == 1 {
-        if !ps_brick_sample(1) { return ps_case_fail("cannot read front RGB camera during room search"); }
+        if !ps_brick_sample() { return ps_case_fail("cannot read forward TCP camera during room search"); }
         ps_floor_observe(); let found = ps_case_camera_select(); ps_brick_mark(); if found { return 1; }
         if ps_floor_changed {
             ps_floor_changed = 0;
             if !ps_house_plan_view(ps_nav_goal) { return ps_case_fail("no mapped path around camera-observed floor bricks"); }
         }
     }
-    if ps_blocked { return ps_case_fail("room navigation stopped by the swept robot collision guard"); }
+    if ps_blocked {
+        ps_house_block_replans = ps_house_block_replans + 1;
+        if ps_house_block_replans > 8 { return ps_case_fail("room navigation exhausted its protective-stop replans"); }
+        let dx = f64_sub(ps_pose_x(), load64(ps_dock_frame + 96)); let dy = f64_sub(ps_pose_y(), load64(ps_dock_frame + 104));
+        if ps_house_returning == 1 && ps_gripper_held && f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), PB_ONE) {
+            pb_drive_stop(pb_robot_drive(ps_robot), ps_time); ps_dock_search_blocks = ps_dock_search_blocks + 1; ps_case_survey_index = 0; return ps_case_tcp_survey();
+        }
+        ps_nav_contact_add(); pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
+        if !ps_house_plan_view(ps_nav_goal) { return ps_case_fail("no safe room route after a protective stop"); } return 1;
+    }
+    if ps_crumb_replan && !ps_crumb_repeat {
+        ps_crumb_replan = 0;
+        if !ps_house_plan_view(ps_nav_goal) { return ps_case_fail("no safe route after TCP visual odometry correction"); }
+    }
     if ps_house_returning == 1 && !ps_gripper_held { return ps_case_fail("brick lost during room-to-room carry"); }
-    if ps_crumb_enabled && ps_house_returning == 1 { return ps_crumb_return_tick(); }
+    if ps_crumb_enabled && ps_crumb_repeat && ps_house_returning == 1 { return ps_crumb_return_tick(); }
     if !ps_nav_tick() { return 1; }
     if ps_house_returning == 3 {
-        if !ps_house_pick_base() { return ps_case_fail("refined brick still outside reach after local car repositioning"); } ps_case_phase(2); return 1;
+        if !ps_house_pick_base() { ps_house_parking = 0; ps_case_phase(25); return 1; } ps_case_phase(2); return 1;
     }
     if ps_house_returning { ps_house_parking = 0; ps_case_phase(22); return 1; }
     ps_house_waypoint = ps_house_waypoint + 1;
@@ -191,9 +223,10 @@ fn ps_house_update() {
 fn ps_house_observation(b) {
     if !ps_house_enabled() { return 0; }
     pl_text(b, ",\"navigation\":{\"planner\":\"hybrid-a-star-ackermann-v1\",\"mapSource\":\"known-blender-static-colliders\",\"localization\":");
-    if ps_crumb_enabled { pj_text(b, "wheel-steering-and-front-rgb-features"); } else if ps_local_mode { pj_text(b, "wheel-steering-command-integration"); } else { pj_text(b, "simulator-odometry"); }
+    if ps_crumb_enabled { pj_text(b, "wheel-steering-and-tcp-rgb-features"); } else if ps_local_mode { pj_text(b, "wheel-steering-command-integration"); } else { pj_text(b, "simulator-odometry"); }
     pl_text(b, ",\"objectTargets\":\"camera-rgb-only\",\"returning\":"); pj_bool_text(b, ps_house_returning);
     pl_text(b, ",\"rememberedRgbObstacles\":"); pl_int(b, ps_floor_count);
+    pl_text(b, ",\"failedCommandConstraints\":"); pl_int(b, ps_nav_contact_count);
     pl_text(b, ",\"coverageWaypoint\":"); pl_int(b, ps_house_waypoint); pl_text(b, ",\"coverageCount\":"); pl_int(b, ps_case_coverage_count); pl_text(b, ",\"laps\":"); pl_int(b, ps_house_laps);
     pl_text(b, ",\"plans\":"); pl_int(b, ps_nav_plans); pl_text(b, ",\"expanded\":"); pl_int(b, ps_nav_expanded); pl_text(b, ",\"distanceM\":"); pl_float(b, ps_house_distance);
     pl_text(b, ",\"pathIndex\":"); pl_int(b, ps_nav_path_index); pl_text(b, ",\"pathCount\":"); pl_int(b, ps_nav_path_count);

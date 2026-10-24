@@ -56,10 +56,10 @@ The runtime requires only the packed mesh/colliders, not Blender. `--environment
 FILE` loads another exported binary. `--spawn '[x,y,headingRadians]'` selects a
 starting pose; positions outside the floor or intersecting the robot are
 rejected. WASD drives; drag and scroll change the existing world observer;
-V selects world/front/TCP, and T toggles the TCP inset. The initial world view
+V selects world/TCP, and T toggles the TCP inset. The initial world view
 shows all three rooms. Below a 6 m orbit radius, the observer follows the robot.
 
-The front and TCP sensors keep their original mounts and fields of view. Only
+The single TCP sensor keeps its fixed wrist mount and field of view. Only
 the world observer has cutaway walls; robot RGB sees the full-height geometry.
 Tabletops and legs have separate colliders, so a high table has real clearance
 underneath it. Furniture is fixed; a case's collection box remains movable.
@@ -99,7 +99,7 @@ or explicit oracle localization. `--odometry-drift` remains available.
 
 The original pickup cases keep their short floor search lane. The separate
 `house-blocks-into-box` case spreads six rotated bricks across the apartment,
-two in each room, and searches a coverage itinerary with the front camera:
+two in each room, and searches a coverage itinerary with the TCP camera in its forward driving pose:
 
 ```sh
 ./build/flex/puppybot-sim --case house-blocks-into-box
@@ -114,11 +114,13 @@ Ackermann manoeuvres through the known Blender furniture map. It executes the
 production drive commands, with every move checked by the existing swept
 collision guard. House collection defaults to **wheel-drift** localization:
 the controller integrates wheel-speed/steering commands from a configured
-starting prior, independently of true motion. This is mapped coverage rather
+starting prior, independently of true motion. TCP RGB corrects that estimate
+by default; `--no-visual-odometry` disables camera corrections for comparison.
+This is mapped coverage rather
 than SLAM or unknown-house exploration. The coverage itinerary
 contains search poses, not brick targets. The initial layout is a fixed fixture.
 
-`--localization wheel` uses ideal command integration, `wheel-drift` adds seeded
+`--localization wheel` disables synthetic wheel bias, `wheel-drift` adds seeded
 errors, and `oracle` restores the old true-pose baseline. Other cases retain
 their existing localization. `--odometry-seed N` defaults to 42;
 `--odometry-drift N` accepts 0–100 and defaults to 10. A value of 10 models a
@@ -135,8 +137,9 @@ stop at a collision, like a protective interlock. The overview, actual camera
 rendering and outcome judge retain truth. `localization.evaluation` reports
 position/heading errors for inspection; the controller never consumes them.
 The map and initial pose prior are still supplied, joints and images are ideal,
-and there is no visual relocalization or SLAM correction yet. Finding the box
-can correct a local release target; it does not reset accumulated odometry.
+and the visual corrections depend on visible floor texture. This is not
+unknown-map SLAM. Finding the box corrects a local release target; it does not
+reset the base pose from the box's simulator location.
 
 ```sh
 ./build/flex/puppybot-sim --case house-blocks-into-box --camera-panels \
@@ -149,10 +152,35 @@ python3 flex/tests/sim-odometry.py --trace build/flex/sim/odometry/new-run/trace
 A drift experiment is allowed to fail the mission: `sim-odometry.py` records
 `completed: false` and audits the failure without treating it as an infrastructure
 error. Its audit independently reconstructs every estimated motion increment
-from recorded commands and the seeded error model. The native executable exits
+from recorded commands, the seeded error model and recorded RGB correction deltas. The native executable exits
 1 for an incomplete mission. `--probe` poisons true root, TCP and world matrices
 and checks that camera calibration, IK, planned paths and grasp estimates stay
 unchanged in wheel mode.
+
+### TCP-only validation status
+
+The current simulator has one wrist sensor; the fixed front camera, its separate
+calibration and its exports are removed. Native empty/loaded pose, calibration,
+floor-ray, image registration, controller, apartment and video checks pass.
+The verified TCP-only house run at `--drift 10` and odometry seed 42 placed
+**6/6** in 33,771 steps, driving 71.8 m. Independent audits verified six distinct
+bilateral captures, six same-step RGB-authorized releases, physical containment
+of all six, coverage of all three rooms and every chassis increment. There were
+13 stationary protective stops and no teleports or physics faults. Maximum
+position error was 18.2 cm; final error was 10.5 cm. The original case, apartment,
+grasp/contact physics and servo plant were retained. Targets use TCP RGB,
+estimated wheel/joint feedback, the supplied static map and binary protective
+stops; no live object poses or IDs supply target coordinates.
+
+The initial TCP-only baseline placed **1/6**, then failed with
+`no car path through mapped furniture to the next room/home`. Safe coverage
+goals, visual odometry, consistent box exclusion and bounded recovery address
+that baseline's navigation and reacquisition failures.
+The legacy YOLO ball-pickup positive test currently fails: the gripper occludes
+the nearby ball in the forward driving pose. No fallback camera or oracle pickup
+is supplied. This remains a separate visibility limitation. Stock-model and
+stress measurements below predate this
+conversion unless explicitly identified as TCP-only results.
 
 ### Stock-model perception baseline
 
@@ -162,13 +190,13 @@ scoring and future training labels. The current house collector still has a
 supplied map, spawn prior and task-judge feedback; it does not meet that target.
 
 Before training a custom model, survey the installed, unchanged YOLO26n COCO
-checkpoint on both existing cameras:
+checkpoint on the TCP camera:
 
 ```sh
 python3 flex/scripts/survey-stock-vision.py --output build/flex/sim/stock-vision/new-survey
 ```
 
-This saves clean 640x480 front/TCP RGB at the house coverage poses and several
+This saves clean 640x480 TCP RGB at the house coverage poses and several
 furniture-facing poses, all raw class predictions, annotated review images,
 commands, model/asset hashes and `contact-sheet.png`. A settled-ball positive
 control checks inference. Only RGB reaches the native Pup detector; fixture
@@ -178,7 +206,7 @@ stationary perception survey with the initial arm configuration, not a
 navigation test or a measurement of detection accuracy. Duplicate coverage
 poses are retained as defined by the case. The collector is not modified by it.
 
-The first survey with a settled positive control saw predictions in 10 of 44
+The historical dual-camera survey, before the TCP-only conversion, saw predictions in 10 of 44
 house images: four `chair`, six `airplane` and one `toilet`. Visual inspection
 showed chair detections, robot-arm false positives labelled `airplane`, and a
 plant pot labelled `toilet`. The ball control scored 82%. These observations
@@ -190,7 +218,7 @@ breadcrumbs below remain separate experiments.
 
 For other reproducible camera/model experiments, the native simulator accepts
 `--sensor-capture NEW_PREFIX` with rendering and a finite `--steps` budget.
-It writes `NEW_PREFIX.front.png`, `NEW_PREFIX.tcp.png` and calibration sidecars
+It writes `NEW_PREFIX.tcp.png` and a calibration sidecar
 at the final simulation frame. Dedicated framebuffers keep all UI, detector
 markings and cutaway overview geometry out of the images, even with live
 panels enabled. Existing calibration sidecars include true camera extrinsics
@@ -206,7 +234,7 @@ python3 flex/tests/sim-landmarks.py --probe build/flex/sim/landmarks/new-probe
 ```
 
 This separate controller starts in a prepared clear corridor. It learns a
-static furniture prediction from three consecutive front-camera observations,
+static furniture prediction from three consecutive TCP-camera observations,
 drives 0.8 m using wheel-command integration, then reverses until the saved
 view matches in three fresh observations. The return decision requires the
 same stock class, confidence at least 0.4, bounding-box overlap at least 0.88,
@@ -222,13 +250,12 @@ trace for independent evaluation only. This demonstrates a fixed-heading
 straight teach/return; it does not solve unknown-house exploration, turns,
 obstacle avoidance, drift, or collecting LEGO. Similar chairs can still alias.
 
-The front pane shows the actual stock YOLO boxes/confidences on the exact
-inference frame, including all class predictions. The TCP pane continues its
-existing RGB component stream, labelled `FILL`/`RIM`; these are not model
-confidence. No new cameras are added. `R` or `P` restarts; manual driving
+The single TCP pane shows actual stock YOLO boxes/confidences on the exact
+inference frame, including all class predictions. In ordinary RGB cases it
+shows component fill percentages instead; those are not model confidence. `R` or `P` restarts; manual driving
 cancels the experiment. The window remains open after matching or failing.
 
-The first moving run failed to learn the chair at the old live JPEG quality
+The historical fixed-front-camera moving run failed to learn the chair at the old live JPEG quality
 80. On the same saved view, native stock YOLO scored the chair at 66% for PNG,
 26% at JPEG quality 90, and 54% at quality 95. The experiment defaults to 95;
 `--landmark-jpeg-quality 80` reproduces the lower-quality condition. Detailed
@@ -257,8 +284,9 @@ python3 flex/tests/sim-stock-pickup.py --run build/flex/sim/stock-pickup/new-run
 ```
 
 This one-brick corridor fixture runs the complete handoff: learn the box from
-TCP RGB, fold the arm, learn a stock furniture view, search for the floor brick
-with front RGB, refine/grasp through TCP RGB, lift/stow, retrace the driven
+TCP RGB, move the arm to its forward driving pose, learn a stock furniture
+view, search for the floor brick, inspect/grasp through TCP RGB, return the arm
+to its driving pose, retrace the driven
 route and confirm home with the stock landmark, reacquire the box through TCP RGB, place, release and judge settling.
 The furniture return bypasses A* home planning. Its coarse stopping point can
 hide some rim markers, so the box search reverses slowly through a bounded
@@ -299,7 +327,7 @@ with the brick but timed out without releasing. The default 0.40 variant
 failed to learn its landmark before pickup. All three outcomes are retained
 under `build/flex/sim/stock-pickup/` for comparison.
 
-`--landmark-output NEW_DIRECTORY` also records periodic native world/front/TCP
+`--landmark-output NEW_DIRECTORY` also records periodic native world/TCP
 captures for this sequence, with each pane's own capture metadata. Logging
 continues through release and the physical outcome. `R` or `P` reruns the full
 sequence. The case needs a prepared fresh launch; cycling/API case selection
@@ -322,7 +350,7 @@ area and movable box. Six rotated bricks span 2.08 by 2.15 m of the dining-room
 floor, beside the table, chairs and plant. Their initial cuboids do not overlap
 the exported furniture colliders. This is a fixed comparison fixture rather
 than a randomized layout. Coverage poses describe a scan itinerary; brick
-targets still come from front/TCP RGB observations.
+targets still come from TCP RGB observations.
 
 The return controller now records each executed movement command with its
 estimated pose before and after the step, including turns and reverse pickup
@@ -336,7 +364,7 @@ Docking movements are retained in the route for the next trip. Reset clears
 all route history. Stale model frames stop movement without consuming route
 entries, and excessive tracking error or collision stops the return.
 
-Outbound planning also remembers loose bricks seen through front RGB. Three
+Outbound planning also remembers loose bricks seen through TCP RGB. Three
 separate observations confirm an estimated floor point; the planner then
 keeps the rover footprint clear of it and replans when a new point is
 confirmed. The active grasp target is handled by its approach planner, and
@@ -379,7 +407,7 @@ pickup gate and checks a reachable drive plan without live world geometry.
 colour-compatible wrist association, including a closer wrong-colour distractor.
 `sim-stock-pickup.py --drift 10` also runs the synthetic-drift variant.
 
-The current controller passed both recorded full-room trials at the same
+The previous dual-camera controller passed both recorded full-room trials at the same
 0.25 landmark gate, stock checkpoint and fixed six-block layout:
 
 | Mode | Placed and settled | Steps | Driven | Maximum pose error (judge only) |
@@ -440,15 +468,26 @@ python3 flex/tests/sim-breadcrumbs.py --trace build/flex/sim/breadcrumbs/new-run
 python3 flex/tests/sim-breadcrumbs.py --output build/flex/sim/breadcrumbs/new-pairs
 ```
 
-This opt-in experiment uses **the existing front RGB mount**, with its own
-framebuffer and feature buffers. It does not add cameras or change the brick
-and box detector's observations. Stock native YOLO returned no detections on
-the three retained front-camera samples; this version uses image features,
-not furniture labels or learned place recognition.
+TCP visual odometry runs by default in the **forward driving pose**, with its
+own framebuffer and feature buffers. `--breadcrumbs` also enables the
+experimental checkpoint-by-checkpoint return policy. It does not change the brick and box
+detector's observations. Registration uses image features rather than
+furniture labels or learned place recognition. Historical measurements below
+used the previous fixed front camera and must be rerun for this wrist pose.
+
+The default controller keeps a reference over several frames and gates feature
+associations using wheel-predicted motion. It suspends odometry while moving the
+arm or inspecting the box. A confidence-gated heading cue measures dominant
+perpendicular floor-line directions in RGB and associates them with axes from
+the supplied static wall map. This assumes floorboard/grid axes align with the
+known walls. Weak or ambiguous views are rejected; it does not read the true
+heading or add an IMU. The image cue has a 90-degree ambiguity, resolved by the
+wheel prior, and cannot recover an arbitrary lost global pose.
 
 A Harris-style corner score finds image details. A 64-bit metric patch
 descriptor, bilinear image samples, and rigid RANSAC fit ground-plane matches.
-The fixed calibrated front-camera height and a flat floor provide metric scale.
+Wrist calibration from estimated base pose and joint feedback, together with a
+flat floor, provides metric scale. Projection includes the driving image rotation.
 Known map colliders, body identities, true root pose and true camera extrinsics
 never enter registration. Reference images carry **estimated** poses. Truth
 remains in rendering, collision guards and independent error/outcome scoring.
@@ -490,12 +529,12 @@ policy.
 
 The robot first learns the box rim from its TCP RGB camera and avoids that
 observed footprint during navigation. Every brick target then comes from a
-front RGB observation, refined through the TCP camera before contact. The
+TCP RGB observation in the driving pose, refined in the inspection pose before contact. The
 controller generalizes grasp approaches to the robot's current heading. It
 filters smaller overlapping colour components and can plan a short sideways
 reposition if wrist refinement moves the target off its current driving line.
 After
-lifting, it folds the arm, drives home, parks using real steering manoeuvres,
+lifting, it returns the arm to the forward camera pose, drives home, parks using real steering manoeuvres,
 and reacquires the box through the same wrist camera. Fresh stable rim-marker
 observations authorize release; a remembered home pose alone does not. Physical
 contacts supply object identity only after grasping, for the independent judge.
@@ -506,7 +545,7 @@ controller; the original lane cases retain their existing detector behavior.
 `case.navigation` reports the route, planner, localization source and progress.
 The gray-brick negative control checks that removing the brick colours prevents
 hidden-pose pickup. Furniture remains static and navigation does not infer
-unseen obstacles from a depth camera; there are still only front/TCP RGB sensors.
+unseen obstacles from a depth camera; there is only one TCP RGB sensor.
 
 ```sh
 python3 flex/tests/sim-house.py --trace build/flex/sim/house/new-run/trace.jsonl
@@ -529,8 +568,64 @@ python3 flex/tests/sim-environment.py --render
 This checks both doorways, travel beyond the old arena bounds, wall/sofa/leg
 collisions, under-table clearance, low tabletop and door-frame stops, reverse
 escape, malformed assets and spawn rejection. `--render` also captures the
-native overview/front/TCP and checks the original camera mounts. Logs and
+native overview/TCP and checks the fixed wrist camera mount. Logs and
 captures are retained in `build/flex/sim/environments/checks/`.
+
+When returning, the wrist aims toward the last RGB box estimate and tries a
+bounded camera sweep. It prefers cheap wrist/body viewpoints while travel is
+clear; after a protective stop it allows a longer, physically valid wrist scan.
+Limited yaw can require almost a complete revolution; inspection allows the
+measured encoder travel at the commanded speed plus five
+seconds for acceleration and settling, bounded to 20–30 seconds. The original
+joint limits and 15-frame settling rule still apply. Travel uses the forward
+camera pose; after stopping, the wrist changes to inspection and obtains fresh
+rim observations.
+
+If the box is visible but the drop is unreachable, the controller samples
+body poses against calibrated arm reach and the camera-observed box footprint.
+Steering-based parking refines the coarse A* arrival before inspection. If the
+box remains unseen, recovery visits circular camera viewpoints around the last
+RGB estimate. Search is bounded to 36 attempted viewpoints and 12,000 steps.
+Partial rim patches can steer the wrist and retarget the search once; they
+never establish a box pose or authorize release. The search keeps that reference
+fixed across its angular sweep, including when the cue leaves the camera view.
+Normal navigation also selects nearby safe coverage goals when a nominal goal
+is obstructed. A bounded escape from an initially inflated box footprint permits
+only increasing clearance and outward movement; destinations inside the box
+remain forbidden. The house's physical collision guard respects the movable box
+during every approach, including before recovery begins. A stopped home approach
+switches to wrist inspection instead of pushing the box and then enabling a
+different collision rule for search.
+Away from the remembered box, a protective stop triggers a room-route replan.
+The planner remembers up to 16 failed direction/steering/heading configurations, using
+only the stop bit, wheel commands and estimated pose. It permits escape and
+avoids repeating that approach; obstacle IDs, collision-part IDs and true
+positions do not enter this memory. Each room trip permits at most eight such
+replans. A stop within one metre of the RGB box instead starts wrist inspection.
+
+Every release still requires three consistent RGB observations including a
+same-step box frame. Six-brick completion requires actual bilateral captures,
+released objects and physical containment. No true brick/box pose supplies a
+perception target; object identity becomes available after contact for judging.
+
+```sh
+python3 flex/tests/sim-tcp-camera.py
+python3 flex/tests/sim-ground-heading.py
+python3 flex/tests/sim-house-navigation.py
+python3 flex/tests/sim-dock-frames.py
+python3 flex/tests/sim-dock-search.py
+python3 flex/tests/sim-breadcrumbs.py --output NEW_DIRECTORY
+python3 flex/tests/sim-house.py --trace PATH/trace.jsonl
+python3 flex/tests/sim-odometry.py --trace PATH/trace.jsonl
+```
+
+Camera checks render empty and loaded poses and independently verify calibration
+and floor rays. Heading checks use biased priors, reject ambiguous views and
+blackouts, and corrupt simulator truth. Navigation checks retain box exclusion
+while exercising alternate goals and outward-only start recovery. The gray-brick
+negative control removes visual target colours and requires zero captures.
+The full house audit independently checks all six captures/releases, physical
+containment, all three rooms and every chassis increment against drive commands.
 
 ## Controls
 
@@ -546,9 +641,9 @@ captures are retained in `build/flex/sim/environments/checks/`.
 | P | Reset and run the selected case or ball pickup |
 | G | Generate the next seeded random floor layout and run it |
 | O / C | Open / close the gripper |
-| V | Cycle world / rover / TCP camera |
+| V | Cycle world / TCP camera |
 | T | Show / hide the live TCP inset |
-| L | Show / hide the live front and TCP pair |
+| L | Show / hide the live TCP panel |
 | B | Toggle YOLO boxes and confidence in the camera inset |
 | K | Show / hide robot collision outlines |
 | Tab | Show / hide the case catalog |
@@ -564,24 +659,28 @@ is a destination marker, not a grasp or task acceptance condition.
 
 ## TCP view
 
-The house collection case shows two small live views on the right: **front**
-above **TCP**, refreshed about every 100 ms throughout searching, driving,
-grasping and returning. Press **L** to hide/show the pair. Use
-`--camera-panels` to enable them for any rendered case, including hidden
-captures, or `--no-camera-panels` to disable them.
+The house collection case shows one live **TCP** panel, refreshed about every
+100 ms. The arm physically moves the same wrist camera between a forward
+**DRIVING** pose and an **INSPECTION** pose for grasping and box alignment.
+Driving uses a 180 degree image rotation to keep the picture upright; pixel
+rays, feature registration and exported calibration include that rotation.
+The driving target is 180 mm forward, 40 mm to the robot's right, at 180 mm
+height with a 90 degree tool pitch. Travel waits for the arm to settle.
 
-Green boxes mark RGB colour/shape candidates; yellow boxes mark magenta box-rim
-patches. **FILL** and **RIM** percentages describe component fill, not learned
-detector confidence. These display-only detections have their own images and
-buffers and do not update controller targets or box-observation freshness.
-`GET /api/sim/views` reports each pane's capture step/time and detection count.
-Captures with the pair enabled also save `.front.png`, `.tcp.png`, their
-`.camera.json` sidecars, and `.views.json`. Both views use the existing mounts.
+Press **L** to hide/show the panel. `--camera-panels` enables it for any rendered
+case, including hidden captures; `--no-camera-panels` disables it. Green boxes
+mark RGB colour/shape candidates; yellow boxes mark magenta box-rim patches.
+**FILL** and **RIM** percentages describe component fill, not learned confidence.
+Display-only detections use separate buffers and do not change controller targets
+or box freshness. `GET /api/sim/views` reports one TCP view's capture step/time,
+pose and detection count. Captures add `.tcp.png`, `.tcp.png.camera.json` and
+`.views.json`. Clean `--sensor-capture` exports also contain only the TCP sensor.
 
-Other visible windows show a live **TCP POV** inset at the top right. The main view
-stays available while the inset follows the wrist through approach, grasp and
-lift. Press **T** to hide/show it, or **V** to cycle the main view through world,
-rover and TCP. Both views pause and reset with the same simulation.
+Other visible windows can show a **TCP POV** inset. Press **T** to toggle it,
+or **V** to switch the main view between the world observer and TCP. The world
+observer is for reviewing the simulation and is never a robot sensor input.
+`camera` telemetry identifies the pose, image rotation and whether the arm has
+settled. `--camera` accepts `orbit` or `tcp`.
 
 The virtual camera has a fixed mount relative to the gripper: eye
 `(0, 65, -65)` mm, looking toward `(0, 0, 65)` mm, with local `-Y` as up.
@@ -720,17 +819,17 @@ floor. During the close placement view, at least two currently visible patches
 can update translation and yaw by matching the box previously observed from
 RGB. A remembered pose or a single patch cannot authorize release.
 
-After lifting a brick, the controller keeps the grasp closed and stows the arm
-above the rover, then aims the wrist camera toward the box side. It then searches
+After lifting a brick, the controller keeps the grasp closed and moves the arm
+to its driving pose for return, then aims the wrist camera toward the box side. It searches
 for the box, drives to a standoff relative to the observed placement slot, and
 checks the camera throughout placement. Release requires three consistent pose
 observations and another successful observation on that exact simulation step.
 Lost patches keep the brick held; a moved box or sustained arm occlusion causes
-stowing and visual homing again. Reset clears visual estimates and restores
+returning to the driving pose and visual homing again. Reset clears visual estimates and restores
 the configured patches. Set `container.visionMarkers` to `false` to exercise
 the unrecognizable-box path; the physical box remains in the scene.
 
-The marked inset holds the exact most recent front or TCP RGB observation.
+The marked inset holds the exact most recent TCP RGB observation.
 The score in API observations is component fill ratio, not neural confidence.
 `case.perception` publishes boxes, pixel centroids, calibration and estimated
 targets. Object IDs become known only after bilateral finger contact, for
@@ -746,8 +845,11 @@ the camera case and **P** replays the current seed.
 
 ### Repeatable clutter challenges
 
-The three `stress-*` entries use the existing RGB controller, front camera and
-TCP camera, including their original mounts and fields of view. They add physical
+The recorded sweep measurements and initial front-view projection descriptions
+in this section predate the TCP-only conversion; they are historical baselines.
+
+The three `stress-*` entries use the existing RGB controller and single TCP
+camera, including its fixed wrist mount and field of view. They add physical
 scene clutter without changing the detector thresholds or supplying object poses
 to perception. The return box still has its rim patches. These are experiments
 that can fail; the ordinary catalog regression runner excludes them unless a
@@ -926,16 +1028,16 @@ With the existing native detector and checkpoint prepared:
 ./build/flex/puppybot-sim --vision-pickup
 ```
 
-This mode renders a **640 × 480 RGB camera mounted on the rover**, passes that
+This mode renders the **640 × 480 TCP RGB camera in its forward driving pose**, passes that
 PNG through the existing `puppybot-vision` executable, selects YOLO's `sports ball`
 class, and guides the pickup from its image box. The native Pup model, weights,
-preprocessing and SASS/CUDA/HIP/CPU inference path remain unchanged. The checked
+preprocessing and SASS/CUDA/HIP/CPU inference path remain unchanged. The historical fixed-front-camera
 RTX 2070 run used SASS and recognized the plain orange ball at about 82% confidence.
 The wide spectator image instead missed the ball and mislabeled the robot as
-an airplane; the rover view gives a closer observation.
+an airplane. Those scores predate the TCP-only conversion.
 
-The camera sits 90 mm forward of the chassis origin and 240 mm above the floor,
-looking forward/down. Its offscreen render target is independent of the visible
+The arm settles into the driving pose before sampling the fixed wrist camera.
+Its offscreen render target is independent of the visible
 window size. The camera image contains no object IDs or oracle annotations.
 Native PNG encoding uses libpng; Python is not part of the camera or inference
 path. Each observation pauses simulation stepping briefly while a separate
@@ -943,7 +1045,7 @@ native detector process runs, with a 15-second bound.
 
 **YOLO provides a 2D box, not depth.** The planner intersects the calibrated ray
 through the box centre with the known ball-centre plane, 35 mm above the floor
-for the configured 70 mm ball. Camera extrinsics use chassis pose. It assumes
+for the configured 70 mm ball. Camera extrinsics use base pose and wrist joint feedback. It assumes
 the ball is resting on that floor; it does not estimate arbitrary object depth
 or track the ball after the initial observation. The pickup planner does not
 read the ball's simulator position in this mode. Physics contacts and outcome
@@ -968,7 +1070,7 @@ Each attempt retains a new `build/flex/sim/vision/run-PID-EPISODE/` directory:
 capture frame ID, attempt directory and status/reason. The file detector's own
 frame ID is zero; the attempt directory associates it with the actual camera
 capture. **P** repeats the selected mode; **O** releases. Press **V** to inspect
-the live rover view. `POST /api/sim/vision-pickup` resets and starts this mode;
+the live TCP view. `POST /api/sim/vision-pickup` resets and starts this mode;
 `POST /api/sim/pickup` explicitly selects the original simulator-truth mode.
 
 ```sh
@@ -995,6 +1097,39 @@ when the filename ends in `.png`, otherwise PPM, and never overwrite existing
 files. Each capture also writes a new `.camera.json` sidecar. `--capture` and `--hidden` require a finite
 step count. Normal interactive execution advances at 50 Hz. Hidden/headless
 execution runs as fast as possible unless `--realtime` is specified.
+
+## Video recording
+
+`--video NEW_FILE.mp4` records the rendered simulator view, including enabled
+TCP panel, the TCP inset, labels and overlays. For a house collection run:
+
+```sh
+flexscript run sim.flex --case house-blocks-into-box --drift 10 \
+  --video build/flex/sim/house.mp4 --steps 150000 --until-done
+```
+
+Video encoding uses FFmpeg's `libx264` encoder, found on `PATH`. The output is a
+silent H.264 MP4 with broadly supported YUV420 pixels. Its parent directory must
+exist and the filename must be new. `--video-fps N` accepts 1–50 and defaults to
+25. Playback follows the simulator's 50 Hz time, including in hidden batch runs;
+paused time is omitted and the final partial frame interval is rounded up.
+The initial window resolution is rounded to even dimensions. Window resizes are
+letterboxed into that fixed video size.
+
+Frames stream directly to the encoder without intermediate image files. The
+fragmented MP4 is finalized on normal exit, Escape/window close, SIGINT or
+SIGTERM, including when a case fails. Encoder errors fail the run with diagnostics.
+Video requires rendering; use `--hidden --steps N` for batch capture.
+In hidden mode, the live TCP preview keeps its own update cadence; expensive
+overview frames are drawn only for recording or final capture.
+
+`--record NEW_FILE.jsonl` saves robot/physics observations. It can be combined
+with `--video` and the final `--capture` screenshot. Video captures the observer;
+the policy's clean sensor images and control commands retain their existing path.
+
+`python3 flex/tests/sim-video.py` checks real encoded/decoded frames, timing,
+controller isolation, interrupted-run finalization, and failure handling. It
+requires a display, FFmpeg, ffprobe and Pillow.
 
 ## Robot API and observations
 
@@ -1023,7 +1158,7 @@ adapter. Use `/api/sim/state` for this environment's world observations.
 World/controller fields remain simulator truth. The `vision` target and
 confidence come from rendered-camera inference; its RGB and raw detector result
 are retained separately in the attempt directory described above. A standalone
-rover observation can be exported with `--camera rover --capture FILE.png`.
+TCP observation can be exported with `--camera tcp --capture FILE.png`.
 
 ```sh
 ./build/flex/puppybot-sim --headless --demo --steps 250 \
@@ -1082,7 +1217,7 @@ reports an arm stop and the obstacle body and arm/gripper part that caused it
 (`0`–`2` palm/fingers, `3` and above arm visual proxies).
 Press **K** or start with `--colliders` to inspect cyan collision outlines;
 the blocking part turns red. Outlines appear only in the world view and never
-in TCP/rover sensor images or YOLO input.
+in TCP sensor images or YOLO input.
 
 The chassis/root placement (32 mm above the floor), primitive colliders, ball
 mass and motor parameters are prototype values. This version has no arm torque
@@ -1147,7 +1282,7 @@ inset with a single-view render, and checks the caption and held ball. It needs
 the native renderer and Pillow. The YOLO test runs with the inset enabled to
 verify that presentation does not contaminate inference images.
 
-`sim-markings.py` replays each saved wrist/rover input through the real native
+`sim-markings.py` replays each saved wrist input through the real native
 detector and compares the displayed class, score and box. It checks border
 pixels at the returned coordinates and the label pixels, tests empty results,
 and verifies API responsiveness, reset invalidation and worker cleanup. Only

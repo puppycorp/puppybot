@@ -32,7 +32,7 @@ def drive(directory, name, spawn, done, obstacle=None, timeout=12):
             port = int(log.read_text().split('robot API port ')[1].splitlines()[0])
             initial = simulation.request(port, '/api/sim/state')
             assert initial['environment']['staticColliders'] == 66
-            assert initial['environment']['sensorCameras'] == ['front', 'tcp']
+            assert initial['environment']['sensorCameras'] == ['tcp']
             simulation.request(port, '/api/drive', {'throttle':100, 'steering':0})
             state = simulation.await_state(port, done, timeout=timeout)
             if obstacle:
@@ -87,7 +87,7 @@ def render(directory):
     view_spec = importlib.util.spec_from_file_location('view_checks', Path(__file__).with_name('sim-views.py'))
     views = importlib.util.module_from_spec(view_spec)
     view_spec.loader.exec_module(views)
-    for camera in ('orbit', 'rover', 'tcp'):
+    for camera in ('orbit', 'tcp'):
         path = directory/(camera+'.png')
         state = simulation.run('--hidden', '--steps', '1', '--environment', str(ASSET), '--camera', camera,
             '--bind', '127.0.0.1:0', '--capture', path, '--no-tcp-view')
@@ -95,9 +95,7 @@ def render(directory):
         assert state['physicsFault'] == 0
         if camera == 'tcp':
             views.check_mount(state, metadata)
-        if camera == 'rover':
-            assert math.dist(metadata['eyeM'], [0.09, 0, 0.24]) < 0.002, metadata
-    print('Native overview, front and original TCP mount: checked', flush=True)
+    print('Native overview and original TCP mount: checked', flush=True)
 
 
 def main():

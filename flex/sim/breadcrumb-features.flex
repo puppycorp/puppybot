@@ -1,5 +1,5 @@
-// Floor-plane visual registration from front RGB alone. The fixed mount and
-// flat floor provide metric scale; no scene geometry or true pose is read.
+// Floor-plane registration from TCP RGB and joint-calibrated camera rays.
+// The flat floor provides scale; no scene geometry or true pose is read.
 import "localization.flex";
 
 global ps_cf_gray = 0;
@@ -14,11 +14,16 @@ global ps_cf_inliers = 0;
 global ps_cf_best = 0;
 global ps_cf_second = 0;
 global ps_cf_temp = 0;
+global ps_cf_camera = 0;
+global ps_cf_floor = 0;
+global ps_cf_floor_only = 0;
+
+global ps_cf_gate_mm = 65;
 
 fn ps_cf_init() {
     if ps_cf_gray { return 1; }
-    ps_cf_gray = alloc(640 * 480); ps_cf_candidates = alloc(4096 * 24); ps_cf_pattern = alloc(64 * 32); ps_cf_points = alloc(384 * 48);
-    ps_cf_matches = alloc(384 * 48); ps_cf_result = alloc(24); ps_cf_temp = alloc(96); let seed = 17; let i = 0;
+    ps_cf_gray = alloc(640 * 480); ps_cf_floor = alloc(640 * 480); ps_cf_candidates = alloc(4096 * 24); ps_cf_pattern = alloc(64 * 32); ps_cf_points = alloc(384 * 48);
+    ps_cf_matches = alloc(384 * 48); ps_cf_result = alloc(24); ps_cf_temp = alloc(96); ps_cf_camera = alloc(96); let seed = 17; let i = 0;
     while i < 256 { seed = (seed * 1664525 + 1013904223) & 0xffffffff; store64(ps_cf_pattern + i * 8, (seed % 45 - 22) * 1000); i = i + 1; } return 1;
 }
 fn ps_cf_corner(x, y) {
@@ -35,12 +40,36 @@ fn ps_cf_intensity(x, y) {
     // Micrometre base-plane coordinates -> bilinear grey sample. Subpixel
     // sampling prevents the thin floor grid from changing descriptor bits
     // simply because a projected point crosses an integer pixel boundary.
-    let dx = x - 90000; let depth = (901523 * dx + 432731 * 240000) / 1000000;
+    let dx = x - load64(ps_cf_camera); let dy = y - load64(ps_cf_camera + 8); let dz = -load64(ps_cf_camera + 16);
+    let depth = (load64(ps_cf_camera + 24) * dx + load64(ps_cf_camera + 32) * dy + load64(ps_cf_camera + 40) * dz) / 1000000;
     if depth < 20000 { return -1; }
-    let u = 320000 - 415692 * y / depth; let v = 240000 + 415692 * ((-432731 * dx + 901523 * 240000) / 1000000) / depth;
+    let right = (load64(ps_cf_camera + 48) * dx + load64(ps_cf_camera + 56) * dy + load64(ps_cf_camera + 64) * dz) / 1000000;
+    let down = (load64(ps_cf_camera + 72) * dx + load64(ps_cf_camera + 80) * dy + load64(ps_cf_camera + 88) * dz) / 1000000;
+    let u = 320000 + 415692 * right / depth; let v = 240000 + 415692 * down / depth;
     if u < 2000 || u > 637000 || v < 2000 || v > 477000 { return -1; }
     let p = ps_cf_gray + v / 1000 * 640 + u / 1000; let a = u % 1000; let b = v % 1000;
+    if ps_cf_floor_only && !load8(ps_cf_floor + v / 1000 * 640 + u / 1000) { return -1; }
     return (load8(p) * (1000 - a) * (1000 - b) + load8(p + 1) * a * (1000 - b) + load8(p + 640) * (1000 - a) * b + load8(p + 641) * a * b) / 1000;
+}
+fn ps_cf_calibrate() {
+    ps_cf_init(); ps_local_camera(ps_cf_temp); let c = f64_cos(ps_pose_heading()); let s = f64_sin(ps_pose_heading()); let i = 0;
+    while i < 4 {
+        let x = load64(ps_cf_temp + i * 24); let y = load64(ps_cf_temp + i * 24 + 8);
+        if !i { x = f64_sub(x, ps_pose_x()); y = f64_sub(y, ps_pose_y()); }
+        store64(ps_cf_camera + i * 24, f64_to_i64_nearest(f64_mul(f64_add(f64_mul(c, x), f64_mul(s, y)), f64_from_i64(1000000))));
+        store64(ps_cf_camera + i * 24 + 8, f64_to_i64_nearest(f64_mul(f64_sub(f64_mul(c, y), f64_mul(s, x)), f64_from_i64(1000000))));
+        store64(ps_cf_camera + i * 24 + 16, f64_to_i64_nearest(f64_mul(load64(ps_cf_temp + i * 24 + 16), f64_from_i64(1000000)))); i = i + 1;
+    }
+    return 1;
+}
+fn ps_cf_ground(u, v, out) {
+    let fx = (u - 320) * 1000; let fy = (v - 240) * 1000; let i = 0;
+    while i < 3 {
+        store64(out + i * 8, load64(ps_cf_camera + 24 + i * 8) + load64(ps_cf_camera + 48 + i * 8) * fx / 415692 + load64(ps_cf_camera + 72 + i * 8) * fy / 415692); i = i + 1;
+    }
+    let z = load64(out + 16); if z >= -1 { return 0; } let distance = -load64(ps_cf_camera + 16) * 1000000 / z;
+    store64(out, load64(ps_cf_camera) + distance * load64(out) / 1000000); store64(out + 8, load64(ps_cf_camera + 8) + distance * load64(out + 8) / 1000000);
+    return load64(out) > 0 && load64(out) < 1200000;
 }
 fn ps_cf_describe(out, x, y, heading) {
     let co = f64_to_i64_nearest(f64_mul(f64_cos(heading), f64_from_i64(1000000))); let si = f64_to_i64_nearest(f64_mul(f64_sin(heading), f64_from_i64(1000000)));
@@ -55,7 +84,11 @@ fn ps_cf_describe(out, x, y, heading) {
 }
 fn ps_cf_extract(rgb, heading, out) {
     ps_cf_init(); let i = 0;
-    while i < 640 * 480 { let p = rgb + i * 3; store8(ps_cf_gray + i, (77 * load8(p) + 150 * load8(p + 1) + 29 * load8(p + 2)) / 256); i = i + 1; }
+    while i < 640 * 480 {
+        let p = rgb + i * 3; let r = load8(p); let g = load8(p + 1); let b = load8(p + 2);
+        store8(ps_cf_gray + i, (77 * r + 150 * g + 29 * b) / 256);
+        store8(ps_cf_floor + i, r * 100 > g * 108 && g * 100 > b * 108 && r < g * 2 && g < b * 2); i = i + 1;
+    }
     let candidates = 0; let by = 174;
     while by < 434 { let bx = 30;
         while bx < 610 {
@@ -81,11 +114,8 @@ fn ps_cf_extract(rgb, heading, out) {
             let r = ps_cf_candidates + index * 24; let u = load64(r + 8); let v = load64(r + 16); store64(r, 0); let near = 0; i = 0;
             while i < count { let p = out + i * 48; let dx = load64(p + 32) - u; let dy = load64(p + 40) - v; if dx * dx + dy * dy < 25 { near = 1; } i = i + 1; }
             if !near {
-                let fy = ps_number(v - 240, 415692); fy = f64_mul(fy, f64_from_i64(1000));
-                let a = ps_number(901523, 1000000); let b = ps_number(432731, 1000000); let t = f64_div(ps_number(24, 100), f64_add(b, f64_mul(a, fy)));
-                let x = f64_add(ps_number(9, 100), f64_mul(t, f64_sub(a, f64_mul(b, fy)))); let y = pb_neg(f64_mul(t, ps_number((u - 320) * 1000, 415692)));
                 let point = out + count * 48;
-                if f64_lt(x, ps_number(12, 10)) && ps_cf_describe(point, f64_to_i64_nearest(f64_mul(x, f64_from_i64(1000000))), f64_to_i64_nearest(f64_mul(y, f64_from_i64(1000000))), heading) {
+                if ps_cf_ground(u, v, ps_cf_temp) && ps_cf_describe(point, load64(ps_cf_temp), load64(ps_cf_temp + 8), heading) {
                     store64(point + 24, best); store64(point + 32, u); store64(point + 40, v); count = count + 1;
                 }
             } selected = selected + 1;
@@ -97,13 +127,21 @@ fn ps_cf_popcount(value) {
     value = value - ((value >> 1) & 0x5555555555555555); value = (value & 0x3333333333333333) + ((value >> 2) & 0x3333333333333333);
     value = (value + (value >> 4)) & 0x0f0f0f0f0f0f0f0f; return ((value * 0x0101010101010101) >> 56) & 255;
 }
-fn ps_cf_pair(current, count, reference, total, pose) {
+fn ps_cf_pair(current, count, reference, total, pose, prior) {
     ps_cf_match_count = 0; let co = f64_to_i64_nearest(f64_mul(f64_cos(load64(pose + 16)), f64_from_i64(1000000))); let si = f64_to_i64_nearest(f64_mul(f64_sin(load64(pose + 16)), f64_from_i64(1000000)));
     let rx = f64_to_i64_nearest(f64_mul(load64(pose), f64_from_i64(1000000))); let ry = f64_to_i64_nearest(f64_mul(load64(pose + 8), f64_from_i64(1000000))); let i = 0;
+    let pc = f64_to_i64_nearest(f64_mul(f64_cos(load64(prior + 16)), f64_from_i64(1000000))); let ps = f64_to_i64_nearest(f64_mul(f64_sin(load64(prior + 16)), f64_from_i64(1000000)));
+    let px = f64_to_i64_nearest(f64_mul(load64(prior), f64_from_i64(1000000))); let py = f64_to_i64_nearest(f64_mul(load64(prior + 8), f64_from_i64(1000000))); let gate = ps_cf_gate_mm * 1000;
     while i < count {
         let p = current + i * 48; let first = 65; let second = 65; let index = -1; let j = 0;
-        while j < total { let distance = ps_cf_popcount(load64(p + 16) ^ load64(reference + j * 48 + 16));
-            if distance < first { second = first; first = distance; index = j; } else if distance < second { second = distance; } j = j + 1;
+        let wx = px + (pc * load64(p) - ps * load64(p + 8)) / 1000000; let wy = py + (ps * load64(p) + pc * load64(p + 8)) / 1000000;
+        while j < total {
+            let q = reference + j * 48; let dx = rx + (co * load64(q) - si * load64(q + 8)) / 1000000 - wx; let dy = ry + (si * load64(q) + co * load64(q + 8)) / 1000000 - wy;
+            if dx * dx + dy * dy < gate * gate {
+                let distance = ps_cf_popcount(load64(p + 16) ^ load64(q + 16));
+                if distance < first { second = first; first = distance; index = j; } else if distance < second { second = distance; }
+            }
+            j = j + 1;
         }
         if index >= 0 && first < 24 && first * 10 < second * 8 {
             let q = reference + index * 48; let world_x = rx + (co * load64(q) - si * load64(q + 8)) / 1000000; let world_y = ry + (si * load64(q) + co * load64(q + 8)) / 1000000;
@@ -122,7 +160,7 @@ fn ps_cf_support(co, si, tx, ty) {
 }
 fn ps_cf_fit(current, count, reference, total, pose, prior) {
     ps_cf_inliers = 0; ps_cf_best = 0; ps_cf_second = 0;
-    if count < 10 || total < 10 || ps_cf_pair(current, count, reference, total, pose) < 10 { return 0; }
+    if count < 10 || total < 10 || ps_cf_pair(current, count, reference, total, pose, prior) < 10 { return 0; }
     let best_c = 0; let best_s = 0; let best_x = 0; let best_y = 0; let trial = 0; let n = ps_cf_match_count;
     while trial < pb_min(800, n * n) {
         let a = ps_cf_matches + (trial % n) * 48; let b = ps_cf_matches + ((trial / n * 17 + trial * 7 + 1) % n) * 48;
@@ -132,7 +170,7 @@ fn ps_cf_fit(current, count, reference, total, pose, prior) {
             let norm = f64_mul(pl, ql); let c = f64_to_i64_nearest(f64_mul(f64_div(f64_from_i64(px * qx + py * qy), norm), f64_from_i64(1000000))); let s = f64_to_i64_nearest(f64_mul(f64_div(f64_from_i64(px * qy - py * qx), norm), f64_from_i64(1000000)));
             let tx = load64(a + 16) - (c * load64(a) - s * load64(a + 8)) / 1000000; let ty = load64(a + 24) - (s * load64(a) + c * load64(a + 8)) / 1000000;
             let dx = f64_sub(ps_number(tx, 1000000), load64(prior)); let dy = f64_sub(ps_number(ty, 1000000), load64(prior + 8)); let yaw = f64_atan2(f64_from_i64(s), f64_from_i64(c));
-            if f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(4225, 1000000)) && f64_lt(f64_magnitude(pb_wrap_pi(f64_sub(yaw, load64(prior + 16)))), ps_number(2, 10)) {
+            if f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(ps_cf_gate_mm * ps_cf_gate_mm, 1000000)) && f64_lt(f64_magnitude(pb_wrap_pi(f64_sub(yaw, load64(prior + 16)))), ps_number(2, 10)) {
                 let support = ps_cf_support(c, s, tx, ty);
                 if support > ps_cf_best { ps_cf_second = ps_cf_best; ps_cf_best = support; best_c = c; best_s = s; best_x = tx; best_y = ty; }
             }

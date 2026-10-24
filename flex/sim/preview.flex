@@ -1,4 +1,4 @@
-// Display-only live front/TCP streams. Own RGB buffers, components and FBOs;
+// Display-only live TCP stream. Own RGB buffers, components and FBO;
 // never call the policy samplers or modify their observations/box freshness.
 import "brick-vision.flex";
 
@@ -12,15 +12,14 @@ global ps_preview_text = 0;
 global ps_preview_builder = 0;
 global ps_preview_mesh = 0;
 global ps_preview_next = 0;
+global ps_preview_drive_mode = -1;
 
 fn ps_preview_init() {
     if ps_preview_contexts { return 1; }
-    ps_preview_contexts = alloc(320); ps_preview_rgb = alloc(640 * 480 * 3); ps_preview_mask = alloc(640 * 480); ps_preview_queue = alloc(640 * 480 * 8);
-    ps_preview_args = alloc(88); ps_preview_text = alloc(128); ps_preview_builder = alloc(32); ps_preview_mesh = ps_text_upload(0, "RGB CANDIDATES"); let i = 0;
-    while i < 2 {
-        let c = ps_preview_contexts + i * 160; store64(c, ps_vision_target_create()); if !load64(c) { return 0; }
-        store64(c + 24, alloc(32 * 64)); store64(c + 8, -1); let title = "FRONT - LIVE RGB"; if i { title = "TCP - LIVE RGB"; } store64(c + 40, ps_text_upload(0, title)); i = i + 1;
-    }
+    ps_preview_contexts = alloc(160); ps_preview_rgb = alloc(640 * 480 * 3); ps_preview_mask = alloc(640 * 480); ps_preview_queue = alloc(640 * 480 * 8);
+    ps_preview_args = alloc(88); ps_preview_text = alloc(128); ps_preview_builder = alloc(32); ps_preview_mesh = ps_text_upload(0, "RGB CANDIDATES");
+    let c = ps_preview_contexts; store64(c, ps_vision_target_create()); if !load64(c) { return 0; }
+    store64(c + 24, alloc(32 * 64)); store64(c + 8, -1); store64(c + 40, ps_text_upload(0, "TCP - INSPECTION"));
     return 1;
 }
 fn ps_preview_enqueue(pixel, colour, tail) {
@@ -64,8 +63,8 @@ fn ps_preview_mark(context) {
     }
     return 1;
 }
-fn ps_preview_sample(context, mode) {
-    let target = ps_render_target; let camera = ps_camera_mode; ps_render_target = load64(context); ps_camera_mode = mode; ps_scene(640, 480, 0, 0);
+fn ps_preview_sample(context) {
+    let target = ps_render_target; let camera = ps_camera_mode; ps_render_target = load64(context); ps_camera_mode = 2; ps_scene(640, 480, 0, 0);
     pb_copy(context + 64, ps_eye, 24); pb_copy(context + 88, ps_target, 24); pb_copy(context + 112, ps_up, 24);
     pb_zero(ps_preview_args, 88); store64(ps_preview_args + 16, 640); store64(ps_preview_args + 24, 480); store64(ps_preview_args + 32, 0x1907); store64(ps_preview_args + 40, 0x1401); store64(ps_preview_args + 48, ps_preview_rgb);
     render_gl(ps_device, "glPixelStorei", 0x0d05, 1, 0, 0, 0, 0); ffi_call_words(gui_gl_cached_proc(load64(ps_device), "glReadPixels"), ps_preview_args);
@@ -74,11 +73,16 @@ fn ps_preview_sample(context, mode) {
 }
 fn ps_preview_poll() {
     if !ps_previews || ps_render_target { return 0; } let now = pl_now(); if now < ps_preview_next { return 0; }
-    ps_require(ps_preview_init()); ps_preview_sample(ps_preview_contexts, 1); ps_preview_sample(ps_preview_contexts + 160, 2); ps_preview_next = now + 100; return 1;
+    ps_require(ps_preview_init());
+    if ps_preview_drive_mode != ps_camera_drive_mode {
+        let title = "TCP - INSPECTION"; if ps_camera_drive_mode { title = "TCP - DRIVING"; }
+        store64(ps_preview_contexts + 40, ps_text_upload(load64(ps_preview_contexts + 40), title)); ps_preview_drive_mode = ps_camera_drive_mode;
+    }
+    ps_preview_sample(ps_preview_contexts); ps_preview_next = now + 100; return 1;
 }
-fn ps_preview_context(index) {
-    if !index && ps_stock_enabled && ps_live_front >= 0 && ps_live_front_episode == ps_episode { return ps_stock_context; }
-    return ps_preview_contexts + index * 160;
+fn ps_preview_context() {
+    if ps_stock_enabled && ps_live_front >= 0 && ps_live_front_episode == ps_episode { return ps_stock_context; }
+    return ps_preview_contexts;
 }
 fn ps_preview_present(context, x, y, width, height) {
     render_gl(ps_device, "glEnable", 0x0c11, 0, 0, 0, 0, 0); ps_panel_clear(x - 3, y - 31, width + 6, height + 34, 18, 60, 65); ps_panel_clear(x, y - 28, width, 28, 4, 9, 12);
@@ -89,33 +93,29 @@ fn ps_preview_present(context, x, y, width, height) {
     render_gl(ps_device, "glBindFramebuffer", 0x8d40, 0, 0, 0, 0, 0); render_gl(ps_device, "glViewport", x, y - 28, width, 28, 0, 0); ps_text_draw(load64(context + 40), width, 28, 10, 7); return 0;
 }
 fn ps_preview_draw(w, h) {
-    if !ps_preview_contexts { return 0; } let width = pb_min(w / 4, 280); let height = width * 3 / 4;
-    if height * 2 + 100 > h { height = pb_max(30, (h - 100) / 2); width = height * 4 / 3; }
-    let x = w - width - 20; let y = h - height - 20; ps_preview_present(ps_preview_context(0), x, y, width, height);
-    ps_preview_present(ps_preview_contexts + 160, x, y - height - 48, width, height);
+    if !ps_preview_contexts { return 0; } let width = pb_min(w / 3, 400); let height = width * 3 / 4;
+    if height + 60 > h { height = pb_max(30, h - 60); width = height * 4 / 3; }
+    let x = w - width - 20; let y = h - height - 20; ps_preview_present(ps_preview_context(), x, y, width, height);
     render_gl(ps_device, "glViewport", 0, 0, w, h, 0, 0); ps_camera_update(w, h); return 0;
 }
 fn ps_preview_state(b) {
     pl_text(b, "{\"schema\":\"puppybot.sim.views.v1\",\"enabled\":"); pj_bool_text(b, ps_previews); pl_text(b, ",\"updateIntervalMs\":100,\"detector\":");
     if ps_stock_enabled { pj_text(b, "per-view"); pl_text(b, ",\"scoreMeaning\":\"per-view\""); } else { pj_text(b, "rgb-components-2d"); pl_text(b, ",\"scoreMeaning\":\"component-fill-ratio\""); }
-    pl_text(b, ",\"views\":["); let i = 0;
-    while ps_preview_contexts && i < 2 {
-        if i { pl_char(b, 44); } let c = ps_preview_context(i); pl_text(b, "{\"camera\":"); if i { pj_text(b, "tcp"); } else { pj_text(b, "front"); }
-        pl_text(b, ",\"detector\":"); if !i && ps_stock_enabled { pj_text(b, "stock-yolo"); } else { pj_text(b, "rgb-components-2d"); }
-        pl_text(b, ",\"scoreMeaning\":"); if !i && ps_stock_enabled { pj_text(b, "model-confidence"); } else { pj_text(b, "component-fill-ratio"); }
-        pl_text(b, ",\"frameId\":"); pl_int(b, load64(c + 8)); pl_text(b, ",\"capturedMs\":"); pl_int(b, load64(c + 16)); pl_text(b, ",\"detections\":"); pl_int(b, load64(c + 32)); pl_char(b, 125); i = i + 1;
+    pl_text(b, ",\"views\":[");
+    if ps_preview_contexts {
+        let c = ps_preview_context(); pl_text(b, "{\"camera\":\"tcp\",\"pose\":"); if ps_camera_drive_mode { pj_text(b, "driving"); } else { pj_text(b, "inspection"); }
+        pl_text(b, ",\"detector\":"); if ps_stock_enabled { pj_text(b, "stock-yolo"); } else { pj_text(b, "rgb-components-2d"); }
+        pl_text(b, ",\"scoreMeaning\":"); if ps_stock_enabled { pj_text(b, "model-confidence"); } else { pj_text(b, "component-fill-ratio"); }
+        pl_text(b, ",\"frameId\":"); pl_int(b, load64(c + 8)); pl_text(b, ",\"capturedMs\":"); pl_int(b, load64(c + 16)); pl_text(b, ",\"detections\":"); pl_int(b, load64(c + 32)); pl_char(b, 125);
     }
     return pl_text(b, "]}");
 }
 fn ps_preview_capture(path) {
-    if !ps_preview_contexts { return 1; } let camera = ps_camera_mode; let target = ps_render_target; let i = 0; let ok = 1;
-    while i < 2 && ok {
-        let c = ps_preview_context(i); ps_render_target = load64(c); ps_camera_mode = i + 1;
-        render_gl(ps_device, "glBindFramebuffer", 0x8d40, load64(ps_render_target + 16), 0, 0, 0, 0);
-        pb_copy(ps_eye, c + 64, 24); pb_copy(ps_target, c + 88, 24); pb_copy(ps_up, c + 112, 24);
-        let name = ".front.png"; if i { name = ".tcp.png"; }
-        ok = ps_capture_at(h_cat(path, name), load64(c + 8), load64(c + 16)); i = i + 1;
-    }
+    if !ps_preview_contexts { return 1; } let camera = ps_camera_mode; let target = ps_render_target; let ok = 1;
+    let c = ps_preview_context(); ps_render_target = load64(c); ps_camera_mode = 2;
+    render_gl(ps_device, "glBindFramebuffer", 0x8d40, load64(ps_render_target + 16), 0, 0, 0, 0);
+    pb_copy(ps_eye, c + 64, 24); pb_copy(ps_target, c + 88, 24); pb_copy(ps_up, c + 112, 24);
+    ok = ps_capture_at(h_cat(path, ".tcp.png"), load64(c + 8), load64(c + 16));
     ps_camera_mode = camera; ps_render_target = target; render_gl(ps_device, "glBindFramebuffer", 0x8d40, 0, 0, 0, 0, 0);
     ps_camera_update(gui_pixel_width(load64(ps_device)), gui_pixel_height(load64(ps_device)));
     let data = alloc(16384); let builder = alloc(32); pl_builder(builder, data, 16384); ps_preview_state(builder);
@@ -123,5 +123,5 @@ fn ps_preview_capture(path) {
     syscall(11, data, 16384, 0, 0, 0, 0); syscall(11, builder, 32, 0, 0, 0, 0); return ok;
 }
 fn ps_preview_close() {
-    if ps_preview_contexts { let i = 0; while i < 2 { render_mesh_close(load64(ps_preview_contexts + i * 160 + 40)); i = i + 1; } render_mesh_close(ps_preview_mesh); } return 0;
+    if ps_preview_contexts { render_mesh_close(load64(ps_preview_contexts + 40)); render_mesh_close(ps_preview_mesh); } return 0;
 }

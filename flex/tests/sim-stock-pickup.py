@@ -92,7 +92,7 @@ def audit(trace, frames):
         result = json.loads(path.read_text())
         assert result['runtime'] == 'pup' and result['model']['weightsSha256'] == manifest['weightsSha256']
         camera = json.loads((frames/f'frame-{s["frames"]}.png.camera.json').read_text())
-        assert camera['frameId'] == s['frameId'] and camera['view'] == 'rover'
+        assert camera['frameId'] == s['frameId'] and camera['view'] == 'tcp'
         if s['returnMatches'] and s['phase'] == 'returning':
             assert event['step']-s['frameId'] <= 20
     if last['case']['passed']:

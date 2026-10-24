@@ -54,10 +54,11 @@ fn ps_stock_init() {
     if ps_stock_rgb { return 1; }
     ps_stock_rgb = alloc(640 * 480 * 3); ps_stock_records = alloc(100 * 64); ps_stock_reference = alloc(64); ps_stock_candidate = alloc(64);
     ps_stock_patch = alloc(256); ps_stock_home_patch = alloc(256); ps_stock_context = alloc(160);
-    store64(ps_stock_context + 8, -1); store64(ps_stock_context + 40, ps_text_upload(0, "FRONT - STOCK YOLO"));
+    store64(ps_stock_context + 8, -1); store64(ps_stock_context + 40, ps_text_upload(0, "TCP - STOCK YOLO"));
     ps_stock_log_text = alloc(16384); ps_stock_log_builder = alloc(32); return 1;
 }
 fn ps_stock_begin() {
+    if !ps_stock_pickup && !ps_camera_drive_target() { return 0; }
     ps_stock_init(); ps_stock_reset(); ps_stock_phase = 1; if ps_stock_pickup { ps_stock_phase = 0; } ps_stock_start = ps_total;
     if ps_live_job && load64(ps_live_job) <= 0 { ps_live_state = "starting"; }
     if ps_stock_output {
@@ -158,6 +159,7 @@ fn ps_stock_decide() {
     } return 1;
 }
 fn ps_stock_result(result, size) {
+    if !ps_stock_pickup && (!gs_reached(ps_plant, ps_pickup_targets) || !gs_stopped(ps_plant)) { return 0; }
     // Raw detections retain all classes. The policy's static-class, confidence,
     // temporal and appearance gates are explicit, independent of the model.
     let detections = pj_need(result, "detections", 3); ps_stock_count = 0; let i = 0;
@@ -181,7 +183,7 @@ fn ps_stock_result(result, size) {
         let stem = h_cat3(directory, "/frame-", h_int(ps_stock_frames));
         if pl_atomic_file(h_cat(stem, ".json"), ps_live_buffer, size) { return 0; }
         if pl_atomic_file(h_cat(stem, ".jpg"), ps_live_packet + 16, ps_live_jpeg_size) { return 0; }
-        let target = ps_render_target; let camera = ps_camera_mode; ps_render_target = load64(ps_live_targets + ps_live_back * 8); ps_camera_mode = 1;
+        let target = ps_render_target; let camera = ps_camera_mode; ps_render_target = load64(ps_live_targets + ps_live_back * 8); ps_camera_mode = 2;
         render_gl(ps_device, "glBindFramebuffer", 0x8d40, load64(ps_render_target + 16), 0, 0, 0, 0);
         pb_copy(ps_eye, ps_live_pose, 24); pb_copy(ps_target, ps_live_pose + 24, 24); pb_copy(ps_up, ps_live_pose + 48, 24);
         let ok = ps_capture_at(h_cat(stem, ".png"), ps_stock_frame, ps_live_time); ps_render_target = target; ps_camera_mode = camera; if !ok { return 0; }

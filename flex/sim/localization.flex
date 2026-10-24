@@ -55,28 +55,23 @@ fn ps_local_kinematics() {
     }
     return ps_model_evaluate(ps_robot, ps_plant, ps_pose_x(), ps_pose_y(), ps_pose_heading(), 0, ps_local_matrices, ps_local_root, ps_local_rotation, ps_local_tcp);
 }
-fn ps_local_camera(out, mode) {
+fn ps_local_camera(out) {
     ps_local_kinematics(); let eye = ps_local_vectors; let target = eye + 24; let up = target + 24; let forward = up + 24; let right = forward + 24; let down = right + 24;
     pb_zero(eye, 144); store64(up + 16, 1000000);
-    let c = f64_cos(ps_pose_heading()); let s = f64_sin(ps_pose_heading());
-    store64(eye, f64_to_i64_trunc(f64_mul(ps_pose_x(), f64_from_i64(1000))) + f64_to_i64_trunc(f64_mul(c, f64_from_i64(90))));
-    store64(eye + 8, f64_to_i64_trunc(f64_mul(ps_pose_y(), f64_from_i64(1000))) + f64_to_i64_trunc(f64_mul(s, f64_from_i64(90)))); store64(eye + 16, 240);
-    store64(target, load64(eye) + f64_to_i64_trunc(f64_mul(c, f64_from_i64(500)))); store64(target + 8, load64(eye + 8) + f64_to_i64_trunc(f64_mul(s, f64_from_i64(500))));
-    if mode == 2 {
-        let yaw = f64_add(f64_add(ps_pose_heading(), load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(ps_joint_angle(ps_robot, ps_plant, 0)));
-        let pitch = pb_tool_pitch(ps_joint_angle(ps_robot, ps_plant, 1), ps_joint_angle(ps_robot, ps_plant, 2), ps_joint_angle(ps_robot, ps_plant, 3));
-        let i = 0;
-        while i < 3 {
-            let radial = f64_cos(yaw); if i == 1 { radial = f64_sin(yaw); }
-            let y = f64_mul(radial, f64_cos(pitch)); let z = f64_mul(radial, f64_sin(pitch)); if i == 2 { y = f64_sin(pitch); z = pb_neg(f64_cos(pitch)); }
-            let origin = f64_mul(load64(ps_local_tcp + i * 8), f64_from_i64(1000));
-            store64(eye + i * 8, f64_to_i64_nearest(f64_sub(f64_add(origin, f64_mul(y, f64_from_i64(65))), f64_mul(z, f64_from_i64(65)))));
-            let look = f64_to_i64_nearest(f64_add(origin, f64_mul(z, f64_from_i64(65))));
-            store64(target + i * 8, load64(eye + i * 8) + (look - load64(eye + i * 8)) * 1000);
-            store64(up + i * 8, f64_to_i64_nearest(f64_mul(y, f64_from_i64(-1000000)))); i = i + 1;
-        }
+    let yaw = f64_add(f64_add(ps_pose_heading(), load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(ps_joint_angle(ps_robot, ps_plant, 0)));
+    let pitch = pb_tool_pitch(ps_joint_angle(ps_robot, ps_plant, 1), ps_joint_angle(ps_robot, ps_plant, 2), ps_joint_angle(ps_robot, ps_plant, 3));
+    let i = 0;
+    while i < 3 {
+        let radial = f64_cos(yaw); if i == 1 { radial = f64_sin(yaw); }
+        let y = f64_mul(radial, f64_cos(pitch)); let z = f64_mul(radial, f64_sin(pitch)); if i == 2 { y = f64_sin(pitch); z = pb_neg(f64_cos(pitch)); }
+        let origin = f64_mul(load64(ps_local_tcp + i * 8), f64_from_i64(1000));
+        store64(eye + i * 8, f64_to_i64_nearest(f64_sub(f64_add(origin, f64_mul(y, f64_from_i64(65))), f64_mul(z, f64_from_i64(65)))));
+        let look = f64_to_i64_nearest(f64_add(origin, f64_mul(z, f64_from_i64(65))));
+        store64(target + i * 8, load64(eye + i * 8) + (look - load64(eye + i * 8)) * 1000);
+        let sign = -1000000; if ps_camera_drive_mode { sign = 1000000; }
+        store64(up + i * 8, f64_to_i64_nearest(f64_mul(y, f64_from_i64(sign)))); i = i + 1;
     }
-    let i = 0; while i < 3 { store64(forward + i * 8, load64(target + i * 8) - load64(eye + i * 8)); i = i + 1; }
+    i = 0; while i < 3 { store64(forward + i * 8, load64(target + i * 8) - load64(eye + i * 8)); i = i + 1; }
     render_normalize(forward); render_cross(right, forward, up); render_normalize(right); render_cross(down, right, forward); i = 0;
     while i < 3 {
         store64(out + i * 8, ps_number(load64(eye + i * 8), 1000)); store64(out + 24 + i * 8, ps_number(load64(forward + i * 8), 1000000));
@@ -87,7 +82,7 @@ fn ps_local_camera(out, mode) {
 fn ps_local_observation(b) {
     if !ps_house_enabled() && !ps_local_mode { return 0; }
     pl_text(b, ",\"localization\":{\"mode\":"); let mode = "oracle"; if ps_local_mode == 1 { mode = "wheel"; } if ps_local_mode == 2 { mode = "wheel-drift"; } pj_text(b, mode);
-    pl_text(b, ",\"source\":"); if ps_crumb_enabled { pj_text(b, "wheel-steering-and-front-rgb-features"); } else if ps_local_mode { pj_text(b, "wheel-steering-command-integration"); } else { pj_text(b, "simulator-truth"); }
+    pl_text(b, ",\"source\":"); if ps_crumb_enabled { pj_text(b, "wheel-steering-and-tcp-rgb-features"); } else if ps_local_mode { pj_text(b, "wheel-steering-command-integration"); } else { pj_text(b, "simulator-truth"); }
     pl_text(b, ",\"initialPrior\":\"configured-spawn\",\"cameraCalibration\":"); if ps_local_mode { pj_text(b, "estimated-base-and-joint-feedback"); } else { pj_text(b, "simulator-truth"); }
     pl_text(b, ",\"pose\":["); pl_float(b, ps_pose_x()); pl_char(b, 44); pl_float(b, ps_pose_y()); pl_char(b, 44); pl_float(b, ps_pose_heading());
     pl_text(b, "],\"seed\":"); pl_int(b, ps_local_seed); pl_text(b, ",\"driftPermille\":"); pl_int(b, ps_local_drift * (ps_local_mode == 2));

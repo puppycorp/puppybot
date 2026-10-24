@@ -42,15 +42,12 @@ fn ps_vision_target_create() {
     return target;
 }
 fn ps_sensor_capture(path) {
-    // Export the two mounted sensors through a clean FBO. Observer panels,
+    // Export the mounted TCP sensor through a clean FBO. Observer panels,
     // colour components and labels never enter a model's input image.
     let target = ps_vision_target_create(); if !target { return 0; }
-    let previous_target = ps_render_target; let previous_camera = ps_camera_mode; let mode = 1; let ok = 1;
-    while mode <= 2 && ok {
-        ps_render_target = target; ps_camera_mode = mode; ps_scene(640, 480, 0, 0);
-        let name = ".front.png"; if mode == 2 { name = ".tcp.png"; }
-        ok = ps_capture_at(h_cat(path, name), ps_total, ps_time); mode = mode + 1;
-    }
+    let previous_target = ps_render_target; let previous_camera = ps_camera_mode;
+    ps_render_target = target; ps_camera_mode = 2; ps_scene(640, 480, 0, 0);
+    let ok = ps_capture_at(h_cat(path, ".tcp.png"), ps_total, ps_time);
     ps_render_target = previous_target; ps_camera_mode = previous_camera; ps_frame(); return ok;
 }
 fn ps_vision_ray(out, box) {
@@ -123,7 +120,7 @@ fn ps_vision_observe(out) {
     ps_vision_image = h_cat(ps_vision_directory, "/camera.png"); ps_vision_result = h_cat(ps_vision_directory, "/detections.json"); ps_vision_preview = h_cat(ps_vision_directory, "/detected.png");
     if !ps_vision_sensor { ps_vision_sensor = ps_vision_target_create(); } if !ps_vision_sensor { return ps_vision_fail("cannot create the RGB camera target"); }
     let previous_camera = ps_camera_mode; let previous_target = ps_render_target;
-    ps_camera_mode = 1; ps_render_target = ps_vision_sensor; ps_frame(); ps_vision_frame = ps_total;
+    ps_camera_mode = 2; ps_render_target = ps_vision_sensor; ps_frame(); ps_vision_frame = ps_total;
     let ok = ps_capture(ps_vision_image);
     if ok {
         let args = h_args(ps_vision_binary, "--model", ps_vision_manifest, "--image", ps_vision_image, "--backend");

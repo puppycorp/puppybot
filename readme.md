@@ -38,15 +38,19 @@ Run the native [3D simulation](flex/sim/README.md) from this repository:
 ```sh
 flexscript run sim.flex --case house-blocks-into-box --drift 10
 flexscript run sim.flex --case house-blocks-into-box --drift 10 --breadcrumbs
+flexscript run sim.flex --case house-blocks-into-box --drift 10 --video build/flex/sim/house.mp4
 flexscript run sim.flex --case ball-into-bin
 flexscript run sim.flex --list-cases
 ```
 
-The house case opens live front/TCP camera views. `--drift 0` disables the added
+The house case uses one TCP camera, with forward driving and downward inspection poses. `--drift 0` disables the added
 odometry error; `--drift 50` increases it. The source entry point builds the
 native simulator automatically.
-`--breadcrumbs` tries front-camera feature tracking and reverse visual
-checkpoints for the return journey; see the simulation README for its limits.
+TCP image-based odometry is enabled by default for house collection. It uses
+floor features and confidence-gated floor-line directions referenced to the
+supplied wall map. `--no-visual-odometry` selects wheel-only integration;
+`--breadcrumbs` additionally tries reverse visual checkpoints. See the simulation
+README for assumptions and validation.
 
 [`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
 the robot-control UI. Its first backend runs the native firmware in an isolated

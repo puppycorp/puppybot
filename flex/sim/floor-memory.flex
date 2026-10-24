@@ -18,7 +18,7 @@ fn ps_floor_confirmed(target) {
     } return 0;
 }
 fn ps_floor_observe() {
-    if !ps_stock_pickup { return 0; } if !ps_floor_points { ps_floor_points = alloc(128 * 32); } let i = 0;
+    if !ps_stock_pickup && !ps_house_enabled() { return 0; } if !ps_floor_points { ps_floor_points = alloc(128 * 32); } let i = 0;
     while i < ps_brick_count {
         let r = ps_brick_records + i * 128; let x = load64(r + 32); let y = load64(r + 40);
         let ahead = f64_add(f64_mul(f64_sub(x, ps_local_x), f64_cos(ps_local_heading)), f64_mul(f64_sub(y, ps_local_y), f64_sin(ps_local_heading)));
@@ -45,7 +45,7 @@ fn ps_floor_forget(target) {
     } return 1;
 }
 fn ps_floor_clear(x, y, heading) {
-    if !ps_stock_pickup { return 1; } let c = f64_cos(heading); let s = f64_sin(heading); let i = 0;
+    if !ps_stock_pickup && !ps_house_enabled() { return 1; } let c = f64_cos(heading); let s = f64_sin(heading); let i = 0;
     while i < ps_floor_count {
         let p = ps_floor_points + i * 32; let ignore = (ps_floor_approach || ps_house_returning == 3) && ps_floor_near(load64(ps_case_target), load64(ps_case_target + 8), p, ps_number(7, 100));
         if load64(p + 16) >= 3 && !ignore {

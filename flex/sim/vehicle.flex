@@ -70,7 +70,7 @@ fn ps_vehicle_free(x, y, heading) {
             let obstacle = ph_shape(ps_physics, i); let body = load64(obstacle);
             // Floor and the rover's own gripper are excluded. A held object is
             // still an obstacle if it intersects the chassis or a tyre.
-            if (body < 4 || body >= 8) && !(ps_case_index >= 0 && body == ps_case_bin_body && load64(ph_body(ps_physics, body)) == 1 && !ps_vehicle_planning) {
+            if (body < 4 || body >= 8) && !(ps_case_index >= 0 && body == ps_case_bin_body && load64(ph_body(ps_physics, body)) == 1 && !ps_vehicle_planning && !ps_house_enabled()) {
                 pb_copy(ph_body(w, 1) + 8, ph_body(ps_physics, body) + 8, 56);
                 pb_copy(b, obstacle, 256); store64(b, 1); store64(w + 24, 0); store64(w + 192, 0);
                 ph_collide_pair(w, a, b, ph_scratch(w));

@@ -77,7 +77,7 @@ fn ps_environment_observation(b) {
     pl_text(b, "],\"blockedCollider\":"); let name = 0; i = 0;
     while i < ps_environment_count { if load64(ps_environment_bodies + i * 8) == ps_vehicle_hit { name = ps_environment + 256 + i * 128; } i = i + 1; }
     if name { pj_text(b, name); } else { pl_text(b, "null"); }
-    return pl_text(b, ",\"furnitureDynamic\":false,\"sensorCameras\":[\"front\",\"tcp\"],\"overviewCutaway\":true}");
+    return pl_text(b, ",\"furnitureDynamic\":false,\"sensorCameras\":[\"tcp\"],\"overviewCutaway\":true}");
 }
 fn ps_environment_close() {
     if ps_environment { syscall(11, ps_environment, ps_environment_size, 0, 0, 0, 0); } return 0;

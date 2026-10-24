@@ -6,6 +6,7 @@ This audit reads judge observations; it does not supply targets to the policy.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -77,6 +78,7 @@ def audit(path):
     captures, releases = [], []
     rooms = set()
     max_step = distance = 0
+    guard_stops = 0
     seen_navigation = False
     for line in path.open():
         state = json.loads(line)
@@ -84,7 +86,8 @@ def audit(path):
             first = state
         last = state
         assert state['physicsFault'] == state['vehicle']['queryFault'] == 0, state
-        assert not state['blocked'] and not state['collision']['armBlocked'], (state['step'], state['environment'], state['collision'])
+        assert not state['collision']['armBlocked'], (state['step'], state['environment'], state['collision'])
+        guard_stops += bool(state['blocked'])
         case = state['case']
         assert case['controller'] == 'rgb-house' and case['perception']['targetSource'] == 'camera-rgb'
         nav = case['navigation']
@@ -104,6 +107,11 @@ def audit(path):
             heading = previous['pose'][2]-travelled/0.18*math.tan(math.radians(drive['steeringAngleDeg']-90))
             heading = (heading+math.pi) % (2*math.pi)-math.pi
             expected = [previous['pose'][0]+travelled*math.cos(heading), previous['pose'][1]+travelled*math.sin(heading)]
+            if state['blocked']:
+                # A protective stop rejects the whole proposed chassis step.
+                # Recovery can continue, but it must never move through it.
+                expected = previous['pose'][:2]
+                heading = previous['pose'][2]
             assert math.dist(state['pose'][:2], expected) < 1e-7, (state['step'], state['pose'], expected)
             assert abs((state['pose'][2]-heading+math.pi) % (2*math.pi)-math.pi) < 1e-7
             if state['gripper']['held'] and not previous['gripper']['held']:
@@ -111,8 +119,9 @@ def audit(path):
                 assert case['visualRefinements'] > 0 and case['perception']['view'] == 'tcp'
                 captures.append(dict(step=state['step'], body=state['gripper']['body'], pose=state['pose']))
             if previous['gripper']['held'] and not state['gripper']['held']:
-                assert case['dockVision']['releaseFrameId'] == state['totalSteps']
-                assert case['dockVision']['stableObservations'] >= 3
+                dock = case['dockVision']
+                assert dock['valid'] and dock['frameId'] == dock['releaseFrameId'] == state['totalSteps']
+                assert dock['stableObservations'] >= 3
                 releases.append(state['step'])
         previous = state
     assert first and last and seen_navigation
@@ -125,11 +134,19 @@ def audit(path):
     assert len(captures) == len(releases) == len({c['body'] for c in captures}) == 6
     assert last['case']['passed'] and last['case']['placed'] == last['case']['inside'] == 6, last['case']['reason']
     assert not last['gripper']['held'] and all(o['inside'] for o in last['case']['objects'])
+    # Recompute complete object bounds in the observed moving box, rather
+    # than accepting the simulator's inside flags as the only evidence.
+    spec = importlib.util.spec_from_file_location('case_geometry', Path(__file__).with_name('sim-cases.py'))
+    geometry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(geometry)
+    definition = json.loads((ROOT/'flex/sim/cases/house-blocks-into-box.json').read_text())
+    for obj in last['case']['objects']:
+        geometry.contained(obj, definition, last['case']['container'])
     report = dict(schema='puppybot.house-audit.v1', passed=True, steps=last['step'], distanceM=distance,
         maxStepM=max_step, initialRoomCounts=initial_rooms, captures=captures, releases=releases,
-        placed=6, inside=6, faults=0, traceSha256=hashlib.sha256(path.read_bytes()).hexdigest())
-    (path.parent/'audit.json').write_text(json.dumps(report, indent=2)+'\n')
-    print(f'House audit passed: 6/6 released and settled, all three rooms, {distance:.1f} m driven, RGB targets, fresh visual dock, bilateral grasps, no teleports/collision faults')
+        placed=6, inside=6, faults=0, guardStops=guard_stops, traceSha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    (path.parent/'house-audit.json').write_text(json.dumps(report, indent=2)+'\n')
+    print(f'House audit passed: 6/6 released and settled, all three rooms, {distance:.1f} m driven, RGB targets, fresh visual dock, bilateral grasps, {guard_stops} stationary guard stops, no teleports/physics faults')
     return report
 
 
@@ -175,7 +192,7 @@ def main():
         return
     args.output.mkdir(parents=True, exist_ok=False)
     trace = args.output/'trace.jsonl'
-    command = [str(BINARY), '--hidden', '--case', 'house-blocks-into-box', '--localization', 'oracle', '--until-done', '--steps', '150000',
+    command = [str(BINARY), '--hidden', '--case', 'house-blocks-into-box', '--drift', '10', '--until-done', '--steps', '150000',
         '--bind', '127.0.0.1:0', '--record', str(trace.resolve()), '--capture', str((args.output/'outcome.png').resolve())]
     with (args.output/'run.log').open('w') as log:
         result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=1800)

@@ -84,7 +84,7 @@ def main():
         name = run['directory']
         assert name in data['fixtures'] and name in data['sensor']
         sensor = data['sensor'][name]
-        assert sensor['view'] in ('rover', 'tcp')
+        assert sensor['view'] == 'tcp'
         assert all(len(detection['box']) == 4 for detection in sensor['detections'])
         assert Path(run['replay']).is_file()
     test = r"""

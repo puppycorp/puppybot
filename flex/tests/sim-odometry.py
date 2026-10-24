@@ -22,7 +22,7 @@ fn check_same(a, b, size) {
     let i = 0; while i < size { if load8(a + i) != load8(b + i) { return 0; } i = i + 1; } return 1;
 }
 fn snapshot(out) {
-    ps_local_camera(out, 1); ps_local_camera(out + 96, 2);
+    ps_local_camera(out); pb_copy(out + 96, out, 96);
     let valid = ps_arm_solve(ps_case_target, 180, 40); store64(out + 192, valid); pb_copy(out + 200, ps_pickup_targets, 32);
     store64(out + 232, ps_house_path(ps_number(18, 100), 0));
     if !ps_nav_plan(ps_number(23, 10), 0, 0) { return 0; }
@@ -74,7 +74,7 @@ def audit(path):
         if random is None:
             random = local['seed']
         assert local['mode'] in ('wheel', 'wheel-drift')
-        assert local['source'] == ('wheel-steering-and-front-rgb-features' if 'breadcrumbs' in state else 'wheel-steering-command-integration')
+        assert local['source'] == ('wheel-steering-and-tcp-rgb-features' if 'breadcrumbs' in state else 'wheel-steering-command-integration')
         assert local['cameraCalibration'] == 'estimated-base-and-joint-feedback'
         assert state['case']['navigation']['localization'] == local['source']
         error = math.dist(local['pose'][:2], state['pose'][:2])
@@ -107,12 +107,13 @@ def audit(path):
                 captures.append(state['step'])
             if not state['gripper']['held'] and previous['gripper']['held']:
                 dock = state['case']['dockVision']
-                assert dock['releaseFrameId'] == state['totalSteps'] and dock['stableObservations'] >= 3
+                assert dock['valid'] and dock['frameId'] == dock['releaseFrameId'] == state['totalSteps']
+                assert dock['stableObservations'] >= 3
                 releases.append(state['step'])
         camera = state['case']['perception']
-        if camera['frameId'] == state['totalSteps'] and camera['view'] == 'rover':
-            x, y, heading = local['pose']
-            assert math.dist(camera['calibration'][:3], [x+0.09*math.cos(heading), y+0.09*math.sin(heading), 0.24]) < 0.003
+        if camera['frameId'] == state['totalSteps']:
+            assert camera['view'] == 'tcp'
+            assert all(math.isfinite(value) for value in camera['calibration'])
         last = previous = state
     assert last
     case = last['case']
@@ -125,7 +126,7 @@ def audit(path):
                   finalPositionErrorM=last['localization']['evaluation']['positionErrorM'], captures=captures, releases=releases,
                   blocked=last['blocked'], armBlocked=last['collision']['armBlocked'],
                   traceSha256=hashlib.sha256(path.read_bytes()).hexdigest())
-    (path.parent/'audit.json').write_text(json.dumps(report, indent=2)+'\n')
+    (path.parent/'odometry-audit.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
     return report
 

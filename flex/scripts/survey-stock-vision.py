@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Survey unmodified stock YOLO on the robot's two mounted RGB cameras."""
+"""Survey unmodified stock YOLO on the robot's single wrist RGB camera."""
 import argparse
 from collections import Counter
 from datetime import datetime
@@ -104,7 +104,7 @@ def main():
         if state['physicsFault'] or state['blocked']:
             raise RuntimeError(f'invalid physical fixture: {name}')
         (directory/'fixture-state.json').write_text(json.dumps(state, indent=2)+'\n')
-        for camera, view in (('front', 'rover'), ('tcp', 'tcp')):
+        for camera, view in (('tcp', 'tcp'),):
             image = directory/f'sensor.{camera}.png'
             calibration = json.loads(Path(str(image)+'.camera.json').read_text())
             if calibration['view'] != view or (calibration['width'], calibration['height']) != (640, 480):
@@ -120,17 +120,17 @@ def main():
             report['samples'].append(dict(name=name, camera=camera, fixturePose=pose,
                 image=str(image.relative_to(output)), imageSha256=digest(image),
                 annotation=str(annotation.relative_to(output)), detections=result['detections'], backend=result['backend']))
-        labels = [d['label'] for sample in report['samples'][-2:] for d in sample['detections']]
+        labels = [d['label'] for sample in report['samples'][-1:] for d in sample['detections']]
         print(f'{name}: '+(', '.join(labels) or 'no detections'), flush=True)
         (output/'report.json').write_text(json.dumps(report, indent=2)+'\n')
-    control = [d for s in report['samples'] if s['name'] == 'ball-control' and s['camera'] == 'front' for d in s['detections']]
+    control = [d for s in report['samples'] if s['name'] == 'ball-control' and s['camera'] == 'tcp' for d in s['detections']]
     house = [s for s in report['samples'] if s['name'] != 'ball-control']
     report['summary'] = dict(houseImages=len(house), houseImagesWithDetections=sum(bool(s['detections']) for s in house),
         houseLabels=dict(Counter(d['label'] for s in house for d in s['detections'])),
         ballPositiveControl=any(d['label'] == 'sports ball' and d['confidence'] >= 0.5 for d in control),
         limitations=['Stationary snapshots; no navigation or landmark association evaluated',
                      'No ground-truth image boxes: detections are unverified model predictions, not accuracy scores',
-                     'Existing low downward-facing camera mounts and simple native materials',
+                     'Existing wrist camera mount and simple native materials',
                      'This checkpoint has no LEGO or storage-box label',
                      'No conclusion about other stock checkpoints or real-camera generalization'])
     contact_sheet(output, report['samples'])

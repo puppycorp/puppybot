@@ -107,7 +107,7 @@ def main():
         assert case['passed'] and case['placed'] == case['inside'] == case['required'] == 6
         assert len(captures) == len(set(captures)) == 6
         assert case['visualRefinements'] >= 6 and {'searching', 'visually aligning', 'grasping'} <= phases
-        assert {view for _, view in selected} == {'rover', 'tcp'}
+        assert {view for _, view in selected} == {'tcp'}
         definition = json.loads((ROOT/'flex/sim/cases/search-blocks-into-box.json').read_text())
         for obj in case['objects']:
             cases.contained(obj, definition, case['container'])

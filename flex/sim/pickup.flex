@@ -1,5 +1,6 @@
 import "vision.flex";
 import "localization.flex";
+import "camera.flex";
 import "../runtime/server.flex";
 import "../gym/plant.flex";
 
@@ -30,7 +31,8 @@ fn ps_pickup_fail(reason) {
 }
 fn ps_pickup_start(release) {
     if !ps_pickup_ball { ps_pickup_ball = alloc(24); ps_pickup_targets = alloc(32); }
-    ps_pickup_passed = 0; ps_pickup_release = release; ps_pickup_reason = "running"; ps_gripper_command(1); ps_pickup_phase(1); return 0;
+    ps_pickup_passed = 0; ps_pickup_release = release; ps_pickup_reason = "running"; ps_gripper_command(1); ps_pickup_phase(1);
+    if ps_vision_requested && !ps_camera_drive_target() { return ps_pickup_fail("cannot aim the TCP camera for driving"); } return 0;
 }
 fn ps_arm_solve_at(point, height, pitch, x, y, heading) {
     // Transform a world TCP target into the controller's calibrated arm frame.
@@ -50,9 +52,24 @@ fn ps_arm_solve_at(point, height, pitch, x, y, heading) {
 fn ps_arm_solve(point, height, pitch) {
     return ps_arm_solve_at(point, height, pitch, ps_pose_x(), ps_pose_y(), ps_pose_heading());
 }
+fn ps_arm_move_ticks() {
+    let maximum = 0; let i = 0;
+    while i < 4 {
+        let j = pb_joint(ps_robot, i); let current = load64(ps_plant + 128 + i * 64 + 16); let target = load64(ps_pickup_targets + i * 8);
+        let error = pb_target_error(target, current); if pb_j(j, PB_J_LIMIT_ENABLED) { error = pb_limited_error(j, target, current); }
+        maximum = pb_max(maximum, pb_abs(error)); i = i + 1;
+    }
+    return maximum;
+}
+fn ps_arm_move_timeout() {
+    // The position controller uses ticks/second. Allow the commanded travel
+    // plus five seconds for acceleration, limit slowdown and settled feedback.
+    let speed = pb_max(1, pb_abs(pb_a(pb_robot_arm(ps_robot), PB_A_SPEED)));
+    return pb_clamp((ps_arm_move_ticks() * 50 + speed - 1) / speed + 250, 1000, 1500);
+}
 fn ps_arm_target(point, height, pitch) {
     if !ps_arm_solve(point, height, pitch) { return 0; }
-    if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return 0; } return 1;
+    if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return 0; } ps_camera_drive_mode = 0; return 1;
 }
 fn ps_pickup_target(height, pitch) {
     if !ps_arm_target(ps_pickup_ball, height, pitch) { return ps_pickup_fail("pickup pose exceeds calibrated arm reach or joint limits"); } return 1;
@@ -66,6 +83,7 @@ fn ps_pickup_update() {
     if !ps_pickup_stage || ps_pickup_stage >= 9 { return 1; } ps_pickup_steps = ps_pickup_steps + 1;
     if ps_pickup_stage != 7 && ps_pickup_steps > 750 { return ps_pickup_fail("pickup phase timed out"); }
     if ps_pickup_stage == 1 && ps_pickup_steps >= 50 {
+        if ps_vision_requested && !ps_pickup_settled() { return 1; }
         if ps_vision_requested {
             if !ps_vision_observe(ps_pickup_ball) { return ps_pickup_fail(ps_vision_reason); }
         } else {

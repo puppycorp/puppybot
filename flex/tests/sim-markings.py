@@ -125,11 +125,11 @@ def main():
         marked(path, state)
         camera = json.loads(Path(str(path)+'.tcp.camera.json').read_text())
         assert camera['capturedMs'] == state['vision']['live']['capturedMs']
-        path = directory/'rover.png'
-        rover = simulate('--hidden', '--steps', 60, '--camera', 'rover', '--detector-view', '--capture', path)
-        assert rover['vision']['live']['view'] == 'rover'
-        assert rover['vision']['live']['label'] == 'sports ball'
-        marked(path, rover)
+        path = directory/'tcp.png'
+        tcp = simulate('--hidden', '--steps', 60, '--camera', 'tcp', '--detector-view', '--capture', path)
+        assert tcp['vision']['live']['view'] == 'tcp'
+        assert tcp['vision']['live']['label'] == 'sports ball'
+        marked(path, tcp)
         worker = directory/'empty-worker.py'
         fixture(worker)
         path = directory/'empty.png'
@@ -144,7 +144,7 @@ def main():
         invalid = subprocess.run([str(SIM), '--headless', '--steps', '1', '--detector-view'], cwd=ROOT, capture_output=True)
         assert invalid.returncode == 2
         responsive(directory, worker)
-    print('Marking checks passed: real wrist/rover inference, exact source replay, confidence and border placement, no invented detections, responsive steps/API, reset invalidation, worker cleanup')
+    print('Marking checks passed: real wrist inference, exact source replay, confidence and border placement, no invented detections, responsive steps/API, reset invalidation, worker cleanup')
 
 
 if __name__ == '__main__':

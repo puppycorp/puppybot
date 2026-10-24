@@ -169,7 +169,7 @@ def generate():
     floor_text('HALL', 3.7, 0.85, label, 0.15)
     floor_text('DINING', 5.9, 0.85, label)
     # Authoring camera and lights are for Blender inspection only. The native
-    # renderer always uses its existing observer/front/TCP camera transforms.
+    # renderer always uses its existing observer/TCP camera transforms.
     bpy.ops.object.camera_add(location=(11, -10, 12))
     camera = bpy.context.object
     camera.name = 'Authoring overview (not a robot sensor)'
@@ -256,7 +256,7 @@ def export_world(output, source):
     manifest = dict(schema='puppybot.environment.v1', title=title, units='metres', up='Z',
         bounds=bounds, spawn=spawn, source=str(source.relative_to(ROOT)) if source.is_relative_to(ROOT) else str(source),
         sourceSha256=hashlib.sha256(source.read_bytes()).hexdigest(), binarySha256=hashlib.sha256(data).hexdigest(),
-        vertices=len(full)//36, colliders=colliders, cameraSensors=['front', 'tcp'],
+        vertices=len(full)//36, colliders=colliders, cameraSensors=['tcp'],
         physics='Static furniture OBBs; decorative books, leaves, cushions and rugs are visual only.',
         overview='Existing world observer uses cutaway walls; robot RGB views use full-height geometry.')
     publish(output/'scene.json', (json.dumps(manifest, indent=2)+'\n').encode())

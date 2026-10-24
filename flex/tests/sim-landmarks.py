@@ -79,7 +79,7 @@ def audit(trace, frames):
         result = json.loads(stem.with_suffix('.json').read_text())
         assert result['runtime'] == 'pup' and result['model']['weightsSha256'] == manifest['weightsSha256']
         camera = json.loads(Path(str(stem)+'.png.camera.json').read_text())
-        assert camera['view'] == 'rover' and camera['frameId'] == s['frameId']
+        assert camera['view'] == 'tcp' and camera['frameId'] == s['frameId']
         if s['returnMatches'] or s['stableObservations']:
             assert event['step']-s['frameId'] <= 20
         for detection in result['detections']:

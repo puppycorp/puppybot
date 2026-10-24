@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Validate native visual registration on real front-camera image pairs."""
+"""Validate native visual registration on real TCP-driving image pairs."""
 import argparse
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 
@@ -13,16 +15,25 @@ sys.path = [p for p in sys.path if Path(p).resolve() != Path(__file__).resolve()
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-BINARY = ROOT/'build/flex/puppybot-sim'
 
 
 def capture(directory):
     directory.mkdir(parents=True, exist_ok=False)
+    spec = importlib.util.spec_from_file_location('tcp_camera_checks', Path(__file__).with_name('sim-tcp-camera.py'))
+    camera = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(camera)
+    binary = camera.native(directory)
     for name, pose in (('home', [0.18, 0, 0]), ('offset', [0.21, -0.04, 0.02]), ('other', [2.3, -0.8, -1.8])):
-        command = [str(BINARY), '--hidden', '--environment', 'apartment', '--spawn', json.dumps(pose),
-                   '--steps', '1', '--camera', 'rover', '--bind', '127.0.0.1:0', '--capture', str(directory/(name+'.png'))]
-        with (directory/(name+'.log')).open('w') as output:
-            subprocess.run(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=30)
+        result = camera.capture(binary, directory/name, pose)
+        c, s = math.cos(pose[2]), math.sin(pose[2])
+        calibration = result['estimatedCamera']
+        body = []
+        for i in range(4):
+            x, y, z = calibration[i*3:i*3+3]
+            if i == 0:
+                x, y = x-pose[0], y-pose[1]
+            body.extend(round(v*1e6) for v in (c*x+s*y, c*y-s*x, z))
+        (directory/(name+'.camera.bin')).write_bytes(struct.pack('<12q', *body))
 
 
 def probe(directory):
@@ -33,12 +44,27 @@ def probe(directory):
     source = (ROOT/'flex/sim/main.flex').read_text().replace('fn main(argc, argv)', 'fn ps_application_main(argc, argv)')
     source = re.sub(r'^import "([^"]+)";', lambda m: 'import '+json.dumps(str(ROOT/'flex/sim'/m[1]))+';', source, flags=re.MULTILINE)
     source += r'''
+fn motion_gate() {
+    let reference=alloc(16*48);let current=alloc(16*48);let pose=alloc(24);let prior=alloc(24);let i=0;let seed=73;
+    while i<16 {
+        let p=reference+i*48;store64(p,300000+i%4*120000);store64(p+8,-180000+i/4*120000);
+        seed=(seed*1664525+1013904223)&0xffffffff;let high=seed;seed=(seed*1664525+1013904223)&0xffffffff;store64(p+16,(high<<32)|seed);i=i+1;
+    }
+    pb_copy(current,reference,16*48);store64(prior,ps_number(6,100));ps_cf_gate_mm=12;
+    // Body-fixed image features must not erase measured wheel travel.
+    if ps_cf_fit(current,16,reference,16,pose,prior) {return 1;}
+    i=0;while i<16 {store64(current+i*48,load64(current+i*48)-60000);i=i+1;}
+    if !ps_cf_fit(current,16,reference,16,pose,prior) {return 2;}
+    if f64_gt(f64_magnitude(f64_sub(load64(ps_cf_result),ps_number(6,100))),ps_number(1,10000)) {return 3;}
+    ps_cf_gate_mm=65;return 0;
+}
 fn main() {
     pl_init(); ps_cf_init(); let rgb = alloc(640 * 480 * 3); let reference = alloc(384 * 48); let pose = alloc(24); let prior = alloc(24); let saved = alloc(24);
     store64(pose, ps_number(18, 100)); pb_copy(prior, pose, 24);
     if pl_read_file("PAIR_DIR/home.rgb", rgb, 640 * 480 * 3) != 640 * 480 * 3 { return 1; }
+    if pl_read_file("PAIR_DIR/home.camera.bin", ps_cf_camera, 96) != 96 { return 8; }
     let n = ps_cf_extract(rgb, 0, reference);
-    pl_read_file("PAIR_DIR/offset.rgb", rgb, 640 * 480 * 3); let m = ps_cf_extract(rgb, 0, ps_cf_points);
+    pl_read_file("PAIR_DIR/offset.rgb", rgb, 640 * 480 * 3); pl_read_file("PAIR_DIR/offset.camera.bin", ps_cf_camera, 96); let m = ps_cf_extract(rgb, 0, ps_cf_points);
     if !ps_cf_fit(ps_cf_points, m, reference, n, pose, prior) || ps_cf_inliers < 10 { return 2; }
     if f64_gt(f64_magnitude(f64_sub(load64(ps_cf_result), ps_number(21, 100))), ps_number(5, 1000)) || f64_gt(f64_magnitude(f64_sub(load64(ps_cf_result + 8), ps_number(-4, 100))), ps_number(5, 1000)) || f64_gt(f64_magnitude(f64_sub(load64(ps_cf_result + 16), ps_number(2, 100))), ps_number(15, 1000)) { return 3; }
     pb_copy(saved, ps_cf_result, 24);
@@ -50,10 +76,11 @@ fn main() {
     let text = alloc(1024); let b = alloc(32); pl_builder(b, text, 1024);
     pl_text(b, "{\"estimatedPose\":["); i = 0; while i < 3 { if i { pl_char(b, 44); } pl_float(b, load64(saved + i * 8)); i = i + 1; }
     pl_text(b, "],\"inliers\":"); pl_int(b, ps_cf_inliers); pl_text(b, ",\"truthPoisoningUnchanged\":true}\n"); pl_print(1, text);
-    pl_read_file("PAIR_DIR/other.rgb", rgb, 640 * 480 * 3); m = ps_cf_extract(rgb, 0, ps_cf_points);
+    pl_read_file("PAIR_DIR/other.rgb", rgb, 640 * 480 * 3); pl_read_file("PAIR_DIR/other.camera.bin", ps_cf_camera, 96); m = ps_cf_extract(rgb, 0, ps_cf_points);
     if ps_cf_fit(ps_cf_points, m, reference, n, pose, prior) { return 6; }
     pb_zero(rgb, 640 * 480 * 3); m = ps_cf_extract(rgb, 0, ps_cf_points); if m || ps_cf_fit(ps_cf_points, m, reference, n, pose, prior) { return 7; }
-    pl_print(1, "Visual registration checks passed: metric image offset, poisoned truth, unrelated view and blackout rejection\n"); return 0;
+    if motion_gate() {return 9;}
+    pl_print(1, "Visual registration checks passed: metric image offset, poisoned truth, unrelated view, blackout and body-fixed feature rejection\n"); return 0;
 }
 '''.replace('PAIR_DIR', str(directory))
     entry, binary = directory/'probe.flex', directory/'probe'
@@ -78,8 +105,8 @@ def audit(path):
     for line in path.open():
         state = json.loads(line)
         visual = state['breadcrumbs']
-        assert visual['source'] == 'front-rgb-floor-features-v1' and visual['oraclePose'] is False
-        assert state['environment']['sensorCameras'] == ['front', 'tcp']
+        assert visual['source'] == 'tcp-rgb-floor-features-v1' and visual['oraclePose'] is False
+        assert state['environment']['sensorCameras'] == ['tcp']
         if max_corrections != visual['corrections']:
             assert visual['frameId'] == state['totalSteps'] and visual['inliers'] >= 10
             max_corrections = visual['corrections']

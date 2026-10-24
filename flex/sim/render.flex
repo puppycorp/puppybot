@@ -17,7 +17,7 @@ global ps_up = 0;
 global ps_azimuth = -40;
 global ps_elevation = 32;
 global ps_radius = 900;
-// Main camera: 0 = world orbit, 1 = rover sensor, 2 = wrist/TCP.
+// Main camera: 0 = world orbit, 2 = the single wrist/TCP sensor.
 global ps_camera_mode = 0;
 global ps_render_target = 0;
 global ps_tcp_view = 0;
@@ -204,14 +204,7 @@ fn ps_camera_update(width, height) {
     store64(ps_eye, load64(ps_target) + f64_to_i64_trunc(f64_mul(horizontal, f64_cos(az))));
     store64(ps_eye + 8, load64(ps_target + 8) + f64_to_i64_trunc(f64_mul(horizontal, f64_sin(az))));
     store64(ps_eye + 16, 120 + f64_to_i64_trunc(f64_mul(radius, f64_sin(el))));
-    if ps_camera_mode == 1 {
-        let c = f64_cos(ps_heading); let s = f64_sin(ps_heading);
-        store64(ps_eye, f64_to_i64_trunc(f64_mul(ps_x, f64_from_i64(1000))) + f64_to_i64_trunc(f64_mul(c, f64_from_i64(90))));
-        store64(ps_eye + 8, f64_to_i64_trunc(f64_mul(ps_y, f64_from_i64(1000))) + f64_to_i64_trunc(f64_mul(s, f64_from_i64(90)))); store64(ps_eye + 16, 240);
-        store64(ps_target, load64(ps_eye) + f64_to_i64_trunc(f64_mul(c, f64_from_i64(500))));
-        store64(ps_target + 8, load64(ps_eye + 8) + f64_to_i64_trunc(f64_mul(s, f64_from_i64(500)))); store64(ps_target + 16, 0);
-    }
-    if ps_camera_mode == 2 {
+    if ps_camera_mode {
         // Fixed wrist mount, in gripper coordinates: eye (0,65,-65) mm,
         // look at (0,0,65) mm. Local -Y is up; no object pose enters this view.
         let i = 0;
@@ -223,7 +216,8 @@ fn ps_camera_update(width, height) {
             // Extend the look ray so the shared integer normalizer retains
             // precision at this camera's short working distance.
             store64(ps_target + i * 8, load64(ps_eye + i * 8) + (load64(ps_target + i * 8) - load64(ps_eye + i * 8)) * 1000);
-            store64(ps_up + i * 8, f64_to_i64_nearest(f64_mul(y, f64_from_i64(-1000000)))); i = i + 1;
+            let sign = -1000000; if ps_camera_drive_mode { sign = 1000000; }
+            store64(ps_up + i * 8, f64_to_i64_nearest(f64_mul(y, f64_from_i64(sign)))); i = i + 1;
         }
     }
     let far = 10000; if ps_environment && !ps_camera_mode { far = 30000; }
@@ -411,7 +405,7 @@ fn ps_frame() {
         ps_panel_clear(x - 3, y - 31, width + 6, height + 34, 18, 60, 65);
         ps_panel_clear(x, y - 28, width, 28, 4, 9, 12);
         render_gl(ps_device, "glScissor", x, y, width, height, 0, 0);
-        ps_camera_mode = 2; if ps_live_enabled && camera == 1 { ps_camera_mode = 1; }
+        ps_camera_mode = 2;
         ps_scene(width, height, x, y);
         if ps_case_index >= 0 && ps_case_camera { ps_brick_present(width, height, x, y); }
         else { ps_live_present(width, height, x, y, ps_camera_mode); } ps_camera_mode = camera;
@@ -451,7 +445,8 @@ fn ps_camera_metadata_at(path, width, height, frame, time) {
     while i < 3 { pb_vset(forward, i, pb_vget(ps_target, i) - pb_vget(ps_eye, i)); i = i + 1; }
     render_normalize(forward); render_cross(right, forward, ps_up); render_normalize(right); render_cross(up, right, forward);
     pl_builder(b, text, 4096); pl_text(b, "{\"schema\":\"puppybot.camera.v1\",\"view\":");
-    if ps_camera_mode == 2 { pj_text(b, "tcp"); } else if ps_camera_mode == 1 { pj_text(b, "rover"); } else { pj_text(b, "orbit"); }
+    if ps_camera_mode { pj_text(b, "tcp"); } else { pj_text(b, "orbit"); }
+    pl_text(b, ",\"imageRotationDeg\":"); pl_int(b, 180 * (ps_camera_mode && ps_camera_drive_mode));
     pl_text(b, ",\"width\":"); pl_int(b, width); pl_text(b, ",\"height\":"); pl_int(b, height);
     pl_text(b, ",\"frameId\":"); pl_uint(b, frame); pl_text(b, ",\"capturedMs\":"); pl_uint(b, time);
     pl_text(b, ",\"intrinsics\":{\"fx\":"); pl_float(b, ps_number(1732051 * height, 2000000)); pl_text(b, ",\"fy\":"); pl_float(b, ps_number(1732051 * height, 2000000));

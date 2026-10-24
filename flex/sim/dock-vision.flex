@@ -15,9 +15,12 @@ global ps_dock_stable = 0;
 global ps_dock_samples = 0;
 global ps_dock_yaw = 0;
 global ps_dock_release_frame = -1;
+global ps_dock_hint = 0;
+global ps_dock_hint_seen = -1;
 
 fn ps_dock_reset() {
     ps_dock_valid = 0; ps_dock_used = 0; ps_dock_seen = -1; ps_dock_stable = 0; ps_dock_samples = 0; ps_dock_count = 0; ps_dock_yaw = 0; ps_dock_release_frame = -1;
+    ps_dock_hint_seen = -1; if !ps_dock_hint { ps_dock_hint = alloc(24); }
     if !ps_dock_frame { ps_dock_frame = alloc(128); ps_dock_markers = alloc(16 * 96); ps_dock_calibration = alloc(96); ps_dock_corners = alloc(32); }
     ps_identity(ps_dock_frame); pb_zero(ps_dock_calibration, 96); return 0;
 }
@@ -32,7 +35,10 @@ fn ps_dock_component(start) {
     if tail < 4 || tail > 1500 || x1 == 0 || y1 == 0 || x2 == 639 || y2 == 479 || ps_dock_count >= 16 { return 0; }
     let r = ps_dock_markers + ps_dock_count * 96; let u = f64_add(ps_number(sumx, tail), ps_number(1, 2)); let v = f64_add(ps_number(sumy, tail), ps_number(1, 2));
     let plane = f64_add(f64_add(load64(ps_case_bin + 40), load64(ps_case_bin + 48)), ps_number(1, 1000));
-    if !ps_rgb_ray(r + 32, u, v, plane) || f64_gt(load64(r + 40), ps_number(-6, 100)) { return 0; }
+    if !ps_rgb_ray(r + 32, u, v, plane) { return 0; }
+    // The house uses an estimated frame and a movable box. A valid RGB rim
+    // must not disappear when odometry moves it across a global Y boundary.
+    if !ps_house_enabled() && f64_gt(load64(r + 40), ps_number(-6, 100)) { return 0; }
     let scale = f64_div(f64_sub(load64(ps_brick_pose + 16), plane), ps_number(1732051 * 480, 2000000)); let span = f64_mul(f64_from_i64(pb_max(x2 - x1 + 1, y2 - y1 + 1)), scale);
     if f64_lt(span, ps_number(1, 1000)) || f64_gt(span, ps_number(2, 100)) { return 0; }
     store64(r, x1); store64(r + 8, y1); store64(r + 16, x2 + 1); store64(r + 24, y2 + 1); store64(r + 56, u); store64(r + 64, v); store64(r + 72, tail); ps_dock_count = ps_dock_count + 1; return 1;
@@ -202,16 +208,31 @@ fn ps_dock_mark() {
     render_gl(ps_device, "glDisable", 0x0c11, 0, 0, 0, 0, 0); let text = "BOX NOT SEEN - HOLDING BRICK"; if ps_house_enabled() && !ps_gripper_held { text = "LOCATING HOME BOX"; } if ps_dock_valid { text = "BOX - RIM MARKERS"; }
     ps_brick_text = ps_text_upload(ps_brick_text, text); ps_text_draw(ps_brick_text, 640, 480, 12, 12); ps_brick_caption = ps_text_upload(ps_brick_caption, "TCP BOX - LAST OBSERVATION"); return 1;
 }
+fn ps_dock_attention(found) {
+    if found { pb_copy(ps_dock_hint, ps_dock_frame + 96, 24); ps_dock_hint_seen = ps_total; }
+    else if ps_house_enabled() && ps_dock_count >= 2 {
+        // Partial RGB patches are attention cues only. They cannot update a
+        // box pose, its freshness or the observations required for release.
+        let x = 0; let y = 0; let i = 0;
+        while i < ps_dock_count { let r = ps_dock_markers + i * 96; x = f64_add(x, load64(r + 32)); y = f64_add(y, load64(r + 40)); i = i + 1; }
+        store64(ps_dock_hint, f64_div(x, f64_from_i64(ps_dock_count))); store64(ps_dock_hint + 8, f64_div(y, f64_from_i64(ps_dock_count))); store64(ps_dock_hint + 16, 0); ps_dock_hint_seen = ps_total;
+    }
+    return found;
+}
 fn ps_dock_sample() {
     ps_dock_samples = ps_dock_samples + 1;
-    if !ps_rgb_sample(2) { ps_dock_valid = 0; return 0; }
-    let found = ps_dock_detect(); if !found { ps_dock_stable = 0; } ps_dock_mark(); return found;
+    if !ps_rgb_sample() { ps_dock_valid = 0; return 0; }
+    let found = ps_dock_detect(); if !found { ps_dock_stable = 0; }
+    ps_dock_attention(found); ps_dock_mark(); return found;
 }
 fn ps_dock_fresh() { return ps_dock_valid && ps_dock_seen >= 0 && ps_total - ps_dock_seen <= 10; }
+fn ps_dock_hint_fresh() { return ps_dock_hint_seen >= 0 && ps_total - ps_dock_hint_seen <= 50; }
 fn ps_dock_observation(b) {
     pl_text(b, ",\"dockVision\":{\"source\":\"camera-rim-markers-v1\",\"valid\":"); pj_bool_text(b, ps_dock_fresh()); pl_text(b, ",\"samples\":"); pl_int(b, ps_dock_samples); pl_text(b, ",\"frameId\":"); pl_int(b, ps_dock_seen);
     pl_text(b, ",\"stableObservations\":"); pl_int(b, ps_dock_stable); pl_text(b, ",\"releaseFrameId\":"); pl_int(b, ps_dock_release_frame);
     pl_text(b, ",\"camera\":\"tcp\",\"visibleCorners\":"); pl_int(b, ps_dock_used);
+    pl_text(b, ",\"attention\":{\"source\":\"rgb-rim-patches\",\"fresh\":"); pj_bool_text(b, ps_dock_hint_fresh()); pl_text(b, ",\"frameId\":"); pl_int(b, ps_dock_hint_seen);
+    pl_text(b, ",\"positionM\":["); let attention_i = 0; while attention_i < 3 { if attention_i { pl_char(b, 44); } pl_float(b, load64(ps_dock_hint + attention_i * 8)); attention_i = attention_i + 1; } pl_text(b, "]}");
     pl_text(b, ",\"positionM\":["); let i = 0; while i < 3 { if i { pl_char(b, 44); } pl_float(b, load64(ps_dock_frame + 96 + i * 8)); i = i + 1; }
     pl_text(b, "],\"yawRad\":"); pl_float(b, ps_dock_yaw); pl_text(b, ",\"calibration\":["); i = 0;
     while i < 12 { if i { pl_char(b, 44); } pl_float(b, load64(ps_dock_calibration + i * 8)); i = i + 1; }

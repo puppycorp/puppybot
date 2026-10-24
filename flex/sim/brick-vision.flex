@@ -16,7 +16,6 @@ global ps_brick_scratch = 0;
 global ps_brick_frame = 0;
 global ps_brick_time = 0;
 global ps_brick_samples = 0;
-global ps_brick_mode = 1;
 global ps_brick_chosen = -1;
 global ps_brick_text = 0;
 global ps_brick_caption = 0;
@@ -31,7 +30,7 @@ fn ps_brick_init() {
     ps_brick_sensor = ps_vision_target_create(); if !ps_brick_sensor { return 0; }
     ps_brick_rgb = alloc(640 * 480 * 3); ps_brick_mask = alloc(640 * 480); ps_brick_queue = alloc(640 * 480 * 8);
     ps_brick_records = alloc(16 * 128); ps_brick_pose = alloc(96); ps_brick_scratch = alloc(128);
-    ps_brick_text = ps_text_upload(0, "RGB BRICK SEARCH"); ps_brick_caption = ps_text_upload(0, "RGB ROVER - COLOUR / SHAPE"); return 1;
+    ps_brick_text = ps_text_upload(0, "RGB BRICK SEARCH"); ps_brick_caption = ps_text_upload(0, "RGB TCP - COLOUR / SHAPE"); return 1;
 }
 fn ps_brick_colour(p) {
     let r = load8(p); let g = load8(p + 1); let b = load8(p + 2); let peak = pb_max(r, pb_max(g, b));
@@ -45,7 +44,7 @@ fn ps_brick_colour(p) {
     return 0;
 }
 fn ps_brick_calibrate() {
-    if ps_local_mode { return ps_local_camera(ps_brick_pose, ps_camera_mode); }
+    if ps_local_mode { return ps_local_camera(ps_brick_pose); }
     let forward = ps_brick_scratch; let right = forward + 24; let up = right + 24; let i = 0;
     while i < 3 { store64(forward + i * 8, load64(ps_target + i * 8) - load64(ps_eye + i * 8)); i = i + 1; }
     render_normalize(forward); render_cross(right, forward, ps_up); render_normalize(right); render_cross(up, right, forward); i = 0;
@@ -112,9 +111,9 @@ fn ps_brick_detect() {
     while i < 640 * 480 { store8(ps_brick_mask + i, ps_brick_colour(ps_brick_rgb + i * 3)); i = i + 1; }
     i = 0; while i < 640 * 480 { let colour = load8(ps_brick_mask + i); if colour { ps_brick_component(i, colour); } i = i + 1; } return 1;
 }
-fn ps_rgb_sample(mode) {
+fn ps_rgb_sample() {
     if !ps_brick_init() { return 0; } let previous_target = ps_render_target; let previous_mode = ps_camera_mode;
-    ps_render_target = ps_brick_sensor; ps_camera_mode = mode; ps_scene(640, 480, 0, 0); ps_brick_calibrate();
+    ps_render_target = ps_brick_sensor; ps_camera_mode = 2; ps_scene(640, 480, 0, 0); ps_brick_calibrate();
     let ok = 1;
     if ps_brick_output {
         let made = syscall(83, ps_brick_output, 493, 0, 0, 0, 0); if made && made != -17 { ok = 0; }
@@ -127,12 +126,12 @@ fn ps_rgb_sample(mode) {
     // Work in normal top-left image coordinates, independently of OpenGL.
     let row = alloc(640 * 3); let y = 0;
     while y < 240 { let a = ps_brick_rgb + y * 640 * 3; let b = ps_brick_rgb + (479 - y) * 640 * 3; pb_copy(row, a, 640 * 3); pb_copy(a, b, 640 * 3); pb_copy(b, row, 640 * 3); y = y + 1; }
-    syscall(11, row, 640 * 3, 0, 0, 0, 0); ps_brick_mode = mode; ps_brick_frame = ps_total; ps_brick_time = ps_time; ps_brick_samples = ps_brick_samples + 1; ps_brick_count = 0; ps_brick_chosen = -1;
+    syscall(11, row, 640 * 3, 0, 0, 0, 0); ps_brick_frame = ps_total; ps_brick_time = ps_time; ps_brick_samples = ps_brick_samples + 1; ps_brick_count = 0; ps_brick_chosen = -1;
     ps_render_target = previous_target; ps_camera_mode = previous_mode; return 1;
 }
-fn ps_brick_sample(mode) {
-    if !ps_rgb_sample(mode) { return 0; } ps_brick_detect();
-    let caption = "RGB ROVER - LAST OBSERVATION"; if mode == 2 { caption = "RGB TCP - LAST OBSERVATION"; } ps_brick_caption = ps_text_upload(ps_brick_caption, caption);
+fn ps_brick_sample() {
+    if !ps_rgb_sample() { return 0; } ps_brick_detect();
+    ps_brick_caption = ps_text_upload(ps_brick_caption, "RGB TCP - LAST OBSERVATION");
     return 1;
 }
 fn ps_brick_mark() {
@@ -160,7 +159,7 @@ fn ps_brick_present(width, height, x, y) {
 }
 fn ps_brick_metadata(path) {
     if !ps_brick_samples { return 1; } let text = alloc(4096); let b = alloc(32); pl_builder(b, text, 4096);
-    pl_text(b, "{\"schema\":\"puppybot.camera.v1\",\"view\":"); if ps_brick_mode == 2 { pj_text(b, "tcp"); } else { pj_text(b, "rover"); }
+    pl_text(b, "{\"schema\":\"puppybot.camera.v1\",\"view\":"); pj_text(b, "tcp");
     pl_text(b, ",\"width\":640,\"height\":480,\"frameId\":"); pl_int(b, ps_brick_frame); pl_text(b, ",\"capturedMs\":"); pl_int(b, ps_brick_time);
     pl_text(b, ",\"intrinsics\":{\"fx\":"); pl_float(b, ps_number(1732051 * 480, 2000000)); pl_text(b, ",\"fy\":"); pl_float(b, ps_number(1732051 * 480, 2000000)); pl_text(b, ",\"cx\":320,\"cy\":240}");
     let names = alloc(32); store64(names, "eyeM"); store64(names + 8, "forward"); store64(names + 16, "right"); store64(names + 24, "down"); let i = 0;
@@ -170,7 +169,7 @@ fn ps_brick_metadata(path) {
 }
 fn ps_brick_observation(b) {
     pl_text(b, ",\"perception\":{\"detector\":\"rgb-components-v1\",\"targetSource\":\"camera-rgb\",\"scoreMeaning\":\"component-fill-ratio\",\"samples\":"); pl_int(b, ps_brick_samples);
-    pl_text(b, ",\"frameId\":"); pl_int(b, ps_brick_frame); pl_text(b, ",\"view\":"); if ps_brick_mode == 2 { pj_text(b, "tcp"); } else { pj_text(b, "rover"); }
+    pl_text(b, ",\"frameId\":"); pl_int(b, ps_brick_frame); pl_text(b, ",\"view\":"); pj_text(b, "tcp");
     pl_text(b, ",\"image\":"); if ps_brick_output && ps_rgb_image { pj_text(b, ps_rgb_image); } else { pl_text(b, "null"); }
     pl_text(b, ",\"chosen\":"); pl_int(b, ps_brick_chosen); pl_text(b, ",\"calibration\":["); let i = 0;
     while i < 12 { if i { pl_char(b, 44); } let value = 0; if ps_brick_pose { value = load64(ps_brick_pose + i * 8); } pl_float(b, value); i = i + 1; }

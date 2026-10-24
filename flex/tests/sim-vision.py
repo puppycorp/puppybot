@@ -48,9 +48,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='sim-vision-', dir=ROOT/'build/flex/sim') as temp:
         directory = Path(temp)
         # Confirm native PNG's bottom-up stride agrees with the existing PPM.
-        png, ppm = directory/'rover.png', directory/'rover.ppm'
+        png, ppm = directory/'tcp.png', directory/'tcp.ppm'
         for image in (png, ppm):
-            simulate('--hidden', '--steps', 2, '--camera', 'rover', '--capture', image)
+            simulate('--hidden', '--steps', 2, '--camera', 'tcp', '--capture', image)
         with Image.open(png) as a, Image.open(ppm) as b:
             assert a.size == b.size == (640, 480)
             assert a.convert('RGB').tobytes() == b.convert('RGB').tobytes()
@@ -68,8 +68,8 @@ def main():
         camera = json.loads((evidence/'camera.png.camera.json').read_text())
         detections = json.loads((evidence/'detections.json').read_text())
         assert json.loads((directory/'held.png.tcp.camera.json').read_text())['view'] == 'tcp'
-        assert camera['view'] == 'rover' and (camera['width'], camera['height']) == (640, 480)
-        assert set(camera) == {'schema', 'view', 'width', 'height', 'frameId', 'capturedMs', 'intrinsics', 'eyeM', 'right', 'down', 'forward'}
+        assert camera['view'] == 'tcp' and (camera['width'], camera['height']) == (640, 480)
+        assert set(camera) == {'schema', 'view', 'width', 'height', 'imageRotationDeg', 'frameId', 'capturedMs', 'intrinsics', 'eyeM', 'right', 'down', 'forward'}
         assert detections['runtime'] == 'pup' and detections['backend'] in ('sass', 'cuda', 'hip', 'cpu')
         model = json.loads(MANIFEST.read_text())
         assert detections['model']['weightsSha256'] == model['weightsSha256']
