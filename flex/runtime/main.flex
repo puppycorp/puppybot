@@ -1,9 +1,11 @@
 import "server.flex";
 import "../host/serial.flex";
 import "../platform/fake.flex";
+import "dashboard.flex";
+extend "syntax.flex";
 
 fn pr_usage() {
-    return pl_print(1, "Usage: puppybot-runtime [--fake | --servo-device PATH] [--config PATH]\n       [--bind IPv4:PORT] [--baud RATE] [--ticks N] [--headless]\n\n--fake uses a byte-level fake bus, without RobotDreams physics.\n");
+    return pl_print(1, "Usage: puppybot-runtime [--fake | --servo-device PATH] [--config PATH]\n       [--bind IPv4:PORT] [--baud RATE] [--ticks N] [--headless]\n\nWith no arguments/device environment, use the byte-level fake bus.\nPhysical mode requires an existing calibration and starts in monitor mode.\nPOST /api/control/enable with fresh position/temperature feedback to allow output.\n");
 }
 fn pr_options(argc, argv, options) {
     pb_zero(options, 128); let config = pl_environment(argc, argv, "PUPPYBOT_RUNTIME_CONFIG");
@@ -32,7 +34,8 @@ fn pr_options(argc, argv, options) {
         i = i + 1;
     }
     if pb_vget(options, 3) && pb_vget(options, 2) { return -1; }
-    if !pb_vget(options, 1) { if pb_vget(options, 3) { pb_vset(options, 1, "127.0.0.1:8080"); } else { pb_vset(options, 1, "0.0.0.0:8080"); } }
+    if argc == 1 && !pb_vget(options, 2) { pb_vset(options, 3, 1); }
+    if !pb_vget(options, 1) { pb_vset(options, 1, "127.0.0.1:8081"); }
     return 0;
 }
 fn pr_bind_address(text, address) {
@@ -62,6 +65,7 @@ fn pr_fake_advance(bus) {
     return 0;
 }
 fn pr_emergency(app, now) {
+    if pb_vget(app, 37) && pb_vget(app, 38) { return pr_guard_stop(app, now); }
     pr_stop(app, now); let system = pb_vget(app, 1); let stage = pb_vget(system, 1); let index = pb_vget(system, 2); let pending = pb_vget(system, 6);
     let i = 0;
     while i < 4 {
@@ -84,7 +88,7 @@ fn pr_poll_fds(buffer, signal, serial) {
         if load64(c) >= 0 {
             let events = 0; let mode = pb_vget(c, 1);
             if (mode == 0 || mode == 2) && !pb_vget(c, 13) && !pb_vget(c, 15) { events = 1; }
-            if mode == 4 { events = 1; }
+            if mode == 4 || mode == 5 { events = 1; }
             if pb_vget(c, 4) < pb_vget(c, 3) { events = events | 4; }
             if events { store64(buffer + count * 8, (load64(c) & 0xffffffff) | (events << 32)); count = count + 1; }
         }
@@ -99,6 +103,7 @@ fn pr_reconnect(app, now) {
     pr_stop(app, now); let robot = load64(app); let system = pb_vget(app, 1);
     let i = 0; while i < 4 { pb_arm_feedback_error(robot, i); i = i + 1; }
     store64(robot + 4256, -1); pb_system_init(system, robot); ps_init(serial, fd);
+    if pb_vget(app, 37) { pr_guard_init(app); }
     pr_last(app, "serial reconnected; motion stopped"); return 1;
 }
 fn pr_loop(app, tick_limit) {
@@ -113,19 +118,27 @@ fn pr_loop(app, tick_limit) {
             if pn_listener >= 0 { syscall(3, pn_listener, 0, 0, 0, 0, 0); pn_listener = -1; }
         }
         if !fake && !stopping { pr_reconnect(app, now); }
+        if !stopping { pr_guard_poll(app, now); }
         let active = pb_system_active(system);
         if !fake && active { if ps_pump(serial, system, now) < 0 { pr_stop(app, now); } }
-        if active && !pb_system_active(system) { ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); } }
+        if active && !pb_system_active(system) { pr_guard_cycle(app); ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); } }
+        if !stopping { pr_guard_poll(app, now); }
         if stopping && ((!pb_system_active(system) && stop_cycle) || now >= stop_deadline) { return 0; }
         pnet_io(now);
+        if !stopping { pu_poll(app, now); }
+        if pb_vget(app, 37) && !stopping { pnet_dispatch(app, now); pr_guard_poll(app, now); }
         if !pb_system_active(system) {
-            if !stopping { pnet_dispatch(app, now); if fake || load64(serial) >= 0 { pr_refresh(app, now); } }
+            if !stopping { if !pb_vget(app, 37) { pnet_dispatch(app, now); } if !pu_lease && (fake || load64(serial) >= 0) { pr_refresh(app, now); } }
             if stopping || now >= next_tick {
                 next_tick = now + 20; if stopping { stop_cycle = 1; }
                 if fake {
                     pr_fake_advance(bus); let n = pb_fake_cycle(system, bus, now, trace, 1024); if n < 0 { return 3; }
                     ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); }
-                } else if load64(serial) >= 0 { pb_system_begin(system, now); if ps_pump(serial, system, now) < 0 { pr_stop(app, now); } if !pb_system_active(system) { ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); } } }
+                } else if load64(serial) >= 0 {
+                    pb_system_begin(system, now); if ps_pump(serial, system, now) < 0 { pr_stop(app, now); }
+                    if !pb_system_active(system) { pr_guard_cycle(app); ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); } }
+                    if !stopping { pr_guard_poll(app, now); }
+                }
                 else { if stopping { return 0; } }
             }
         }
@@ -146,20 +159,31 @@ fn main(argc, argv) {
     let loaded = pc_load(config, pb_vget(options, 0), input);
     if loaded < 0 { pl_print(2, "Invalid configuration: "); if pj_message { pl_print(2, pj_message); } pl_print(2, "\n"); return 2; }
     let fake = pb_vget(options, 3);
+    if !fake && !loaded { pl_print(2, "Physical servo control requires an existing calibration selected with --config PATH.\n"); return 2; }
     if fake && !loaded { pb_vset(config + 40, 2, 5); }
     if pl_signals() < 0 { return 1; }
     let fd = -1;
     if !fake {
         let path = pb_vget(options, 2); if !path { pl_print(2, "Select a serial bus with --servo-device PATH, or use --fake.\n"); return 2; }
-        fd = ps_open(path, pb_vget(options, 4)); if fd < 0 { pl_print(2, "Cannot open/configure the selected STServo device.\n"); return 1; }
+        fd = ps_open(path, pb_vget(options, 4)); if fd < 0 { ps_open_error(path, fd); return 1; }
     }
     let started = pl_now(); if pb_robot_configure(robot, config, 0) { if fd >= 0 { syscall(3, fd, 0, 0, 0, 0, 0); } return 2; }
     pb_system_init(system, robot); ps_init(serial, fd); pr_init(app, robot, system, config, pb_vget(options, 0), fake, started);
     pb_vset(app, 3, bus); pb_vset(app, 4, serial); pb_vset(app, 30, saved); if fake { pr_fake_setup(bus, config); }
+    if !fake { pr_guard_init(app); }
     pb_vset(app, 31, pb_vget(options, 2)); pb_vset(app, 32, pb_vget(options, 4));
-    if pnet_init(address) < 0 { pl_print(2, "Cannot bind the runtime listener.\n"); if fd >= 0 { syscall(3, fd, 0, 0, 0, 0, 0); } return 1; }
+    let listener = pnet_init(address);
+    if listener < 0 {
+        let error_builder = pl_scratch + 512; pl_builder(error_builder, input, 65537);
+        pl_text(error_builder, "Cannot bind the runtime listener at "); pl_text(error_builder, pb_vget(options, 1));
+        if listener == -98 { pl_text(error_builder, ": address already in use.\n"); }
+        else { pl_text(error_builder, " (error "); pl_int(error_builder, listener); pl_text(error_builder, ").\n"); }
+        pl_text(error_builder, "Choose another port with --bind 127.0.0.1:PORT, or --bind 127.0.0.1:0 for a free port.\n");
+        pl_print(2, input); if fd >= 0 { syscall(3, fd, 0, 0, 0, 0, 0); } return 1;
+    }
     let b = pl_scratch + 512; pl_builder(b, input, 65537); pl_text(b, "Puppybot runtime listening on port "); pl_uint(b, pn_port);
     if fake { pl_text(b, " (fake)\n"); } else { pl_text(b, " (hardware)\n"); } pl_print(1, input);
+    if !pu_init(app, pn_port) { pl_print(2, "Cannot initialize the dashboard.\n"); return 1; }
     let result = pr_loop(app, pb_vget(options, 5));
     if load64(serial) >= 0 { syscall(3, load64(serial), 0, 0, 0, 0, 0); }
     if pn_listener >= 0 { syscall(3, pn_listener, 0, 0, 0, 0, 0); }

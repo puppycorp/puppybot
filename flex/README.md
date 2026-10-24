@@ -2,8 +2,10 @@
 
 This branch contains the shared controller, a native Linux HTTP/WebSocket and
 serial runtime, and a protocol v1 command-line client in Flexscript. The Rust
-stack remains the reference for the migration. The dashboard, ESP32 firmware,
-Android app, and RobotDreams integration have not been replaced.
+stack remains the reference for the migration. A [classic ESP32 serial firmware](firmware/README.md)
+now builds the controller for the real chip. A Monolith dashboard controls the
+PC runtime. Android app, wireless firmware integration, and RobotDreams integration
+remain separate work.
 
 [PuppyBotGym](gym/README.md) now provides a separate Monolith experiment interface and
 headless rollout runner. It launches the native firmware target in its own
@@ -17,6 +19,77 @@ contract; Python/ONNX are preparation tools, tinygrad is a validation reference,
 and inference uses native Flexscript CPU/HIP kernels without Torch.
 
 ## Build and run
+
+Run the root entry point directly from source, without a manual build step:
+
+```sh
+flexscript run puppybot.flex
+```
+
+With no arguments and no serial-device environment setting it starts a fake
+servo bus on localhost:8081. If the compiler is not on PATH, use
+`../flexscript/build/flex run puppybot.flex`. The original
+`flex/runtime/main.flex` remains the native compiler entry point.
+The root launcher compiles it to `build/flex/puppybot-runtime` and replaces
+itself with that executable. The long-running controller therefore executes
+natively, outside the source VM's finite instruction/deadline/memory budgets.
+Every launch rebuilds from current source and atomically publishes the result;
+a failed compile never starts an older binary. `FLEXSCRIPT_COMPILER` selects
+the compiler, otherwise the launcher searches PATH and the sibling checkout.
+The default calibration is `puppybot.json`, beside `puppybot.flex`; run from
+the repository root to load it automatically. Both the PC runtime and ESP32
+build use this file. `--config PATH` or `PUPPYBOT_RUNTIME_CONFIG` selects another
+PC profile, and `PUPPYBOT_ESP32_CONFIG` overrides it for firmware builds.
+
+To connect the normal controller to a separate simulated serial bus, run
+`flexscript run simulator.flex` in another terminal and copy its printed
+Puppybot connection command. The [standalone simulator](simulator/README.md)
+creates a private `/dev/pts/N` device, uses the same calibration, and supplies
+STServo encoder/temperature replies. Controller enable, freshness, limits and
+command leases remain active. It reuses Gym's servo-motion model; articulated
+3D physics is not implemented.
+
+## Robot dashboard
+
+After starting `flexscript run puppybot.flex`, open **http://127.0.0.1:8081/**
+(or `http://localhost:8081/`). The same listener serves the dashboard, HTTP API,
+and `/ws` protocol endpoint. `/health` retains the JSON runtime health response.
+The dashboard is separate from Gym's experiment and camera interface on port 8090.
+
+The Monolith view includes live bus/output status, joint angles/ticks/targets,
+faults, limits, temperatures, calibration status, and the last command. Controls
+cover drive directions, joint and base/tool TCP jogging, speed, hold/stop,
+fault clearing, joint targets/default pose, coordinate targets, and calibration
+save. Fake mode also offers limit and reference editors. Hardware calibration
+and limit edits remain locked: update the reviewed `puppybot.json` and restart.
+Coordinate targets use the existing API's robot-base convention; TCP readout
+and base-frame jogging use the arm base.
+
+Press and hold a jog button with the pointer/touch, or focus it and hold Space
+or Enter. Release, pointer cancellation, blur, hidden page, or a failed live
+connection ends the hold. Escape stops all motion. Each hold has an owner and
+a 500 ms server-side lease, renewed only by the browser while held, including
+in fake mode. An expired/released lease cannot be renewed; reconnecting never
+resumes motion. Hardware still starts in monitor mode and requires explicit
+enable with fresh feedback; thermal shutdown and existing joint guards apply.
+
+Monolith owns server rendering, form actions, keyed patches, SSE, and input
+draft/focus preservation. The small browser bridge adds the press/hold lifecycle.
+Dashboard requests retain Monolith's localhost Host/Origin and action-token
+checks. Use a localhost URL even if binding the API to another interface.
+All dashboard responses and SSE patches use the runtime's bounded nonblocking
+queues; slow tabs cannot block the servo loop. Assets are embedded in the
+native executable, with no browser framework, Python, or separate UI server
+needed at runtime. After editing `flex/runtime/ui.css` or `controls.js`, run
+`python3 flex/scripts/prepare-dashboard.py` to refresh the checked-in assets.
+
+Verification:
+
+```sh
+python3 flex/tests/dashboard.py
+# Optional, with Playwright installed (also accepts PLAYWRIGHT_MODULE/CHROMIUM):
+node flex/tests/dashboard-browser.cjs
+```
 
 From the repository root:
 
@@ -45,8 +118,8 @@ Then use the CLI from another terminal:
 ./build/flex/puppybot arm jog --joint 0 --direction 1 --duration-ms 150
 ```
 
-The fake runtime defaults to `127.0.0.1:8080`; the CLI defaults to
-`ws://127.0.0.1:8080/ws`. Use `--bind IPv4:PORT` on the runtime and `--url`
+The fake runtime defaults to `127.0.0.1:8081`; the CLI defaults to
+`ws://127.0.0.1:8081/ws`. Use `--bind IPv4:PORT` on the runtime and `--url`
 on the CLI to change these. A bind port of zero selects an ephemeral port,
 reported at startup. CLI hostnames use the system IPv4 resolver through libc;
 numeric IPv4 addresses need no resolver. Transport deadlines begin after name
@@ -55,14 +128,50 @@ resolution. TLS and IPv6 are not implemented.
 For a physical serial adapter, select its stable path and an existing calibration:
 
 ```sh
-./build/flex/puppybot-runtime --servo-device /dev/serial/by-id/YOUR-ADAPTER \
-    --config puppybot/runtime/puppybot.json --bind 127.0.0.1:8080
+./build/flex/puppybot-runtime --servo-device /dev/serial/by-id/YOUR-ADAPTER
 ```
 
+The current user needs read/write access to the selected device. Startup errors
+name the path, failed operation, and Linux error number. For `permission denied`,
+check the adapter target with `ls -l /dev/serial/by-id/` and its device ownership;
+the serial group is commonly `uucp` on Arch or `dialout` on other distributions.
+Adding a user to that group takes effect in a new login session and grants
+access to all serial devices owned by the group.
+
 The adapter uses Linux termios2, raw 8N1, and a default baud rate of 1,000,000.
-`--baud` overrides it. The runtime also accepts `PUPPYBOT_RUNTIME_CONFIG`,
+
+The same hardware connection can run directly from source:
+
+```sh
+flexscript run puppybot.flex --servo-device /dev/serial/by-id/YOUR-ADAPTER
+```
+
+Physical mode requires an existing calibration file and starts with feedback
+reads only. Inspect `GET /api/state`, then explicitly enable outputs. Disable
+finishes a stop cycle before returning to monitor mode:
+
+```sh
+curl -X POST http://127.0.0.1:8081/api/control/enable
+curl -X POST http://127.0.0.1:8081/api/control/disable
+```
+
+PC hardware mode and ESP32 share the same admission checks: fresh position and
+temperature feedback from all four servos, no temperature above 80°C, and a
+250 ms maximum sample age. A hot/failed/stale temperature cancels pending output
+and disables movement; cooling and serial reconnect never auto-enable it.
+PC `/api/state` reports `control.state`, temperatures, freshness and the thermal
+interlock reason. Its hardware jog command lease is 500 ms. Retained HTTP state
+does not renew an abandoned hardware command; callers send new requests while
+jogging. Fake/Gym retain their existing simulation behavior.
+
+Hardware calibration/ID/limit mutations are rejected through both APIs; edit
+the configuration and restart. Every enable requires fresh wheel-mode
+acknowledgements before speed output. The server binds localhost by default;
+select another interface explicitly with `--bind`.
+
+`--baud` overrides the serial rate. The runtime also accepts `PUPPYBOT_RUNTIME_CONFIG`,
 `PUPPYBOT_RUNTIME_ADDR`, `PUPPYBOT_STSERVO_PORT`, and `PUPPYBOT_STSERVO_BAUD`;
-command-line options take precedence. A missing configuration loads controller
+command-line options take precedence. A missing fake configuration loads controller
 defaults. Only a new fake profile substitutes steering ID 5 to keep it separate
 from arm yaw ID 1; loaded profiles are preserved. There is no automatic device
 scan or mDNS discovery in this milestone.
@@ -94,11 +203,11 @@ calibration edits, and explicit calibration save. `GET /api/state`,
 For example:
 
 ```sh
-curl http://127.0.0.1:8080/api/state
+curl http://127.0.0.1:8081/api/state
 curl -H 'Content-Type: application/json' -d '{"speed":220}' \
-    http://127.0.0.1:8080/api/arm/speed
+    http://127.0.0.1:8081/api/arm/speed
 curl -H 'Content-Type: application/json' -d '{}' \
-    http://127.0.0.1:8080/api/calibration/save
+    http://127.0.0.1:8081/api/calibration/save
 ```
 
 Calibration saves use a private temporary file, file fsync, atomic rename, and
@@ -133,10 +242,10 @@ Controller commands are dispatched between complete serial cycles.
 
 `--fake` advances illustrative servo feedback through the real packet codec;
 it has no articulated physics, scene oracle, cameras, or captures. Simulation
-operations return an explicit error. The root endpoint reports runtime metadata;
-the separate robot-control dashboard and full simulation/autonomy workflows remain future work.
+operations return an explicit error. The PC runtime root serves the dashboard;
+`/health` reports runtime metadata. Full simulation/autonomy workflows remain future work.
 These services retain the existing unauthenticated local-network control model;
-choose the bind address accordingly. Hardware mode defaults to `0.0.0.0:8080`.
+choose the bind address accordingly. Both modes default to `127.0.0.1:8081`.
 
 ## Shared implementation
 
@@ -183,15 +292,25 @@ cycle. A status timeout is 50 ms. Another servo's status requests retransmission
 without extending that response deadline. Platform write timeouts and draining
 old RX bytes before each request remain platform responsibilities.
 
+The ESP32 firmware and PC hardware runtime call `pb_system_temperature_enable(system)` after init to
+read position and temperature together from registers 56..63. Successful exact
+eight-byte replies update `pb_arm_temperature` and per-joint receipt times in
+system words 12..15; failed replies invalidate that joint's temperature. Fake/Gym
+retain the default two-byte position read. `pb_system_cancel` cancels queued
+events/transport while preserving this mode and the sensor receipt times.
+Both physical adapters enforce the shared policy in `core/interlock.flex`;
+see [the firmware contract](firmware/README.md).
+
 `pb_system_queue` holds at most 16 events and reports `-11` on overflow.
 `pb_system_frame` checks room for a whole decoded event group before enqueueing;
 its protocol/config state is decoded immediately. Callers must handle overflow.
 Telemetry output requires at least 256 bytes. `pb_arm_mode_words` exports the
 complete tagged mode into 128 bytes. Optional fields use explicit presence words.
 
-The production temperature sampling and physical rear DC motor backend were
-not wired in the original ESP32 entry point. Exposing their controller state
-here does not add those hardware integrations.
+The original Rust ESP32 entry point does not poll servo temperatures or wire
+physical rear DC motor outputs. The new Flexscript ESP32 target polls
+temperatures and applies its thermal interlock; rear DC output integration
+remains unfinished.
 
 ## Verification
 
@@ -239,19 +358,18 @@ that panic are not counted as matching comparisons.
 
 ## ESP32 and remaining migration
 
-The complete controller path cross-compiles to `esp32-xip-elf`, including the
-pinned classic-chip cache initializer. Its portable numerical code exceeds the
-128 KiB all-RAM code target, so firmware must use flash code. The test output
-`build/flex/esp32-smoke.elf` is an unlinked cross-compilation fixture, not a
-flashable Puppybot release. Device execution, control-loop timing, Wi-Fi load,
-UART2 at 1 Mbaud, WebSocket/mDNS, and restoration/flashing remain unverified.
-No physical device has been opened or flashed. Linux serial timing and behavior
-have been checked with PTYs; physical-bus waveforms and robot motion remain
-unverified.
+The [classic ESP32 target](firmware/README.md) builds a fully linked ROM image
+with cached flash code, UART2 at 1 Mbaud, embedded physical calibration, bounded
+serial commands/telemetry and a 500 ms continuous-command lease. It starts with
+feedback reads only; explicit enable requires fresh feedback. The exact image
+boots and runs the real Xtensa controller against an independent servo peer in
+Espressif QEMU. `build/flex/esp32-smoke.elf` remains the older unlinked compilation
+fixture; use `./flex/scripts/build-esp32.sh` for the actual firmware image.
+No physical device has been opened or flashed. Real bus waveforms, robot motion,
+control timing, and Wi-Fi/BLE/WebSocket/mDNS integration remain unverified.
 
 Next milestones are articulated Gym simulation, datasets and training workers,
-the separate robot-control interface and discovery, and integrated classic
-ESP32 firmware.
+robot discovery, and wireless ESP32 firmware.
 RobotDreams/PGE remain the simulation reference;
 Flexscript physics currently lacks articulated joints. Existing model assets
 and Android protocol v1 are retained.

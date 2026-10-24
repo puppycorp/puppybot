@@ -4,10 +4,25 @@ import "protocol.flex";
 import "stservo.flex";
 
 // Header words: robot, stage, joint, cycle time, deadline, TX size, TX pending,
-// initial mode setup, active cycle, queued count, queue read cursor.
+// initial mode setup, active cycle, queued count, queue read cursor,
+// optional combined-temperature reads, four temperature receipt times.
 // Stages: 0 idle, 1 feedback, 2 steering, 3 wheel mode, 4 wheel speed.
 fn pb_system_init(system, robot) {
     pb_zero(system, 2048); store64(system, robot); return 0;
+}
+// Opt in to one eight-byte read of registers56..63, rather than position only.
+// Existing Linux/Gym callers retain their original position-only contract.
+fn pb_system_temperature_enable(system) {
+    pb_vset(system, 11, 1); let i = 0;
+    while i < 4 { pb_vset(system, 12 + i, -1); pb_arm_temperature(load64(system), i, 0, 0); i = i + 1; }
+    return 0;
+}
+// Cancel pending motion/transport state without forgetting sensor freshness.
+fn pb_system_cancel(system) {
+    let robot = load64(system); let mode = pb_vget(system, 11);
+    let t0 = pb_vget(system, 12); let t1 = pb_vget(system, 13); let t2 = pb_vget(system, 14); let t3 = pb_vget(system, 15);
+    pb_system_init(system, robot); pb_vset(system, 11, mode);
+    pb_vset(system, 12, t0); pb_vset(system, 13, t1); pb_vset(system, 14, t2); pb_vset(system, 15, t3); return 0;
 }
 fn pb_system_active(system) { return pb_vget(system, 8); }
 fn pb_system_packet(system) { return system + 128; }
@@ -83,6 +98,7 @@ fn pb_system_after_feedback(system) {
 fn pb_system_complete(system, success, tick) {
     let robot = load64(system); let stage = pb_vget(system, 1); let i = pb_vget(system, 2); let now = pb_vget(system, 3);
     if stage == 1 {
+        if !success && pb_vget(system, 11) { pb_arm_temperature(robot, i, 0, pb_j(pb_joint(robot, i), PB_J_TEMP)); pb_vset(system, 12 + i, -1); }
         if success { pb_arm_feedback(robot, i, tick, now); } else { pb_arm_feedback_error(robot, i); }
         return pb_system_after_feedback(system);
     }
@@ -104,7 +120,8 @@ fn pb_system_begin(system, now) {
     store64(robot + 4272, (i + 1) % 4);
     pb_vset(system, 8, 1); pb_vset(system, 2, i); pb_vset(system, 3, now);
     let id = pb_j(pb_joint(robot, i), PB_J_ID);
-    return pb_system_request(system, 1, pb_servo_read(system + 128, 256, id, 56, 2, system + 512));
+    let size = 2; if pb_vget(system, 11) { size = 8; }
+    return pb_system_request(system, 1, pb_servo_read(system + 128, 256, id, 56, size, system + 512));
 }
 fn pb_system_error(system) {
     if !pb_system_active(system) { return 0; }
@@ -132,6 +149,13 @@ fn pb_system_receive(system, bytes, size, now) {
             if pb_vget(system, 1) == 1 {
                 if pb_vget(system + 384, 4) < 2 { success = 0; }
                 else { tick = pb_u16(system + 448); }
+                if pb_vget(system, 11) {
+                    if pb_vget(system + 384, 4) != 8 { success = 0; }
+                    if success {
+                        let index = pb_vget(system, 2);
+                        pb_arm_temperature(load64(system), index, 1, load8(system + 455)); pb_vset(system, 12 + index, now);
+                    }
+                }
             }
             pb_system_complete(system, success, tick); return i;
         }

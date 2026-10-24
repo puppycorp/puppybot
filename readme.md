@@ -1,5 +1,25 @@
 # PuppyBot
 
+Run the Flexscript PC controller directly from the repository root:
+
+```sh
+flexscript run puppybot.flex
+```
+
+It defaults to a fake servo bus. For physical serial control and explicit
+output enable, see the [Flexscript instructions](flex/README.md).
+Open **http://127.0.0.1:8081/** for the Monolith robot dashboard: drive and arm
+controls, targets, live feedback, temperatures, enable/disable, and stop.
+The source entry point builds and executes the native controller automatically,
+so a long-running session does not exhaust the source VM's instruction budget.
+The default calibration is [puppybot.json](puppybot.json), beside the launcher;
+it is loaded automatically when running from the repository root.
+
+For a separate virtual serial simulator, start `flexscript run simulator.flex`
+in another terminal. It prints the `/dev/pts/N` device and the exact Puppybot
+connection command. See the [serial simulator](flex/simulator/README.md) for
+details. This models servo motion and faults; it does not yet render a 3D world.
+
 PuppyBot is PuppyCorp's four-wheel service robot with a four-joint PuppyArm.
 The active control stack is Rust and shares protocol, arm control, safety, and
 STServo behavior between the bare-metal ESP32 firmware, the OS runtime, and
@@ -8,9 +28,10 @@ RobotDreams simulation.
 ## Flexscript port
 
 The `flexscript` branch adds a shared Flexscript controller, native Linux
-HTTP/WebSocket and serial runtime, CLI, and independently verified fake-servo
-executable under [`flex/`](flex/README.md). The dashboard, firmware, and simulation
-migration remains in progress; the Rust stack below is the reference implementation.
+HTTP/WebSocket and serial runtime, Monolith dashboard, CLI, classic ESP32 serial
+firmware, and independently verified fake-servo executable under
+[`flex/`](flex/README.md). Simulation and wireless integration remain in progress;
+the Rust stack below is the reference implementation.
 
 [`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
 the robot-control UI. Its first backend runs the native firmware in an isolated

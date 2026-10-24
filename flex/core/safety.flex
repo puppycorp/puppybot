@@ -1,5 +1,8 @@
 import "layout.flex";
 
+// Platforms may choose a shorter command lease before starting the controller.
+global pb_command_timeout_ms = 1000;
+
 // Fault IDs: 1 over_temp, 2 no_feedback, 3 stale_feedback, 4 stall,
 // 5 deadman_feedback, 6 deadman_command. Zero means no fault.
 fn pb_mod(n, m) { let r = n % m; if r < 0 { r = r + m; } return r; }
@@ -125,6 +128,6 @@ fn pb_deadman(arm, now) {
         if !pb_j(j, PB_J_TARGET_VALID) && (pb_j(j, PB_J_SPEED) || (pb_j(j, PB_J_SENT_VALID) && pb_j(j, PB_J_SENT_SPEED))) { active = 1; }
         i = i + 1;
     }
-    if active && pb_elapsed(now, pb_a(arm, PB_A_LAST_CMD)) > 1000 { return 6; }
+    if active && pb_elapsed(now, pb_a(arm, PB_A_LAST_CMD)) > pb_command_timeout_ms { return 6; }
     return 0;
 }

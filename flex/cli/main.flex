@@ -275,7 +275,7 @@ fn main(argc, argv) {
     let options = alloc(128); let body = alloc(128); let vector = alloc(32); let scratch = alloc(512);
     let builder = alloc(32); let output = alloc(65536); let joints = alloc(8192);
     if pcl_marks <= 0 || options <= 0 || body <= 0 || vector <= 0 || scratch <= 0 || builder <= 0 || output <= 0 || joints <= 0 { return 1; }
-    pb_vset(options, 6, pcl_option("--url", "ws://127.0.0.1:8080/ws"));
+    pb_vset(options, 6, pcl_option("--url", "ws://127.0.0.1:8081/ws"));
     pb_vset(options, 5, pcl_integer_option("--timeout-ms", "1500", 1, 300000)); pb_vset(options, 4, pcl_boolean("--json"));
     if !pcl_build(options, body, vector) { pl_print(2, "puppybot: "); if pcl_message { pl_print(2, pcl_message); } pl_print(2, "\n"); return 2; }
     pl_builder(builder, output, 65536); let ok = pcl_execute(options, body, scratch, builder, joints); pcc_close();

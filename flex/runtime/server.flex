@@ -180,6 +180,11 @@ fn pnet_io(now) {
                     let n = syscall(0, fd, c + 512, 4096, 0, 0, 0);
                     if n == 0 || now >= pb_vget(c, 5) || (n < 0 && n != -11 && n != -4) { pnet_close(c); }
                 }
+                // Close-delimited event streams use the same bounded output queue.
+                if load64(c) >= 0 && pb_vget(c, 1) == 5 {
+                    let n = syscall(0, fd, c + 512, 32, 0, 0, 0);
+                    if n >= 0 || (n != -11 && n != -4) { pnet_close(c); }
+                }
             }
         }
         i = i + 1;

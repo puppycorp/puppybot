@@ -149,6 +149,16 @@ def wait_online(port):
     raise AssertionError('servo feedback never became online')
 
 
+def enable(port):
+    for _ in range(100):
+        status, body = request(port, '/api/control/enable', {})
+        if status == 200:
+            check(body['state']['control']['state'] == 'enabled', 'explicit output enable')
+            return body['state']
+        time.sleep(.01)
+    raise AssertionError('physical output enable never became ready')
+
+
 def fake_runtime(directory):
     config = directory/'calibration.json'
     runtime = Runtime(config)
@@ -252,6 +262,7 @@ class ServoEmulator:
         self.positions[config['drive']['steering_servo_id']] = 1535
         self.modes = {i: 0 for i in self.positions}
         self.speeds = {i: 0 for i in self.positions}
+        self.temperatures = {i: 25 for i in self.positions}
         self.writes = []
         self.drop = set()
         self.error = None
@@ -285,8 +296,10 @@ class ServoEmulator:
                         continue
                     data = b''
                     if instruction == 2:
-                        check(params == bytes([56, 2]), 'actual PTY position register read')
+                        check(params == bytes([56, 8]), 'actual PTY combined position/temperature read')
                         data = struct.pack('<H', self.positions[servo])
+                        if self.temperatures[servo] is not None:
+                            data += bytes([0, 0, 0, 0, 120, self.temperatures[servo]])
                     elif instruction == 3:
                         if params[0] == 33:
                             self.modes[servo] = params[1]
@@ -325,6 +338,10 @@ def serial_runtime(directory, config):
     try:
         state = wait_online(runtime.port)
         check(state['mode'] == 'hardware', 'PTY exercises the actual hardware adapter')
+        check(state['control']['state'] == 'monitor' and state['control']['guarded'], 'physical boot requires enable')
+        check(all(packet[4] == 2 for packet in emulator.writes), 'physical boot reads only')
+        check(request(runtime.port, '/api/drive', {'action': 'forward'})[0] == 409, 'physical REST blocked before enable')
+        enable(runtime.port)
         ws = WebSocket(runtime.port)
         ws.send(wire(27, struct.pack('<bb', 50, 100))); ws.barrier()
         time.sleep(.12)
@@ -340,6 +357,7 @@ def serial_runtime(directory, config):
         check(not state['arm']['joints'][0]['online'] and state['arm']['joints'][0]['speed'] == 0, 'serial feedback loss stops controller output')
         emulator.drop.clear()
         wait_online(runtime.port)
+        enable(runtime.port)
         request(runtime.port, '/api/arm/clear-faults', {})
         ws.send(wire(13, struct.pack('<BbH', 0, 1, 300))); ws.barrier(); time.sleep(.05)
     finally:
@@ -360,6 +378,7 @@ def serial_reconnect(directory, config):
     ws = None
     try:
         wait_online(runtime.port)
+        enable(runtime.port)
         check(request(runtime.port, '/api/arm/joints/0/spin', {'direction': 1})[0] == 200, 'held motion before serial disconnect')
         time.sleep(.05)
         device.unlink()
@@ -384,6 +403,8 @@ def serial_reconnect(directory, config):
         time.sleep(.25)
         check(all(speed == 0 for speed in emulator.speeds.values()), 'reconnect never resumes held or offline motion')
         check(state['arm']['mode'] == 'Idle', 'reconnect clears arm target mode')
+        check(state['control']['state'] == 'monitor', 'reconnect requires a fresh explicit enable')
+        enable(runtime.port)
         request(runtime.port, '/api/arm/clear-faults', {})
         # Feedback and wheel-mode recovery have separate readiness windows.
         # Keep sending live jog intents while awaiting the bounded mode retry.
@@ -400,6 +421,115 @@ def serial_reconnect(directory, config):
         runtime.close()
         if emulator:
             emulator.close()
+
+
+def wait_for(predicate, message):
+    deadline = time.monotonic()+3
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(.01)
+    raise AssertionError(message)
+
+
+def serial_safety(directory, config):
+    path = directory/'safety.json'
+    path.write_text(json.dumps(config))
+    emulator = ServoEmulator(config)
+    runtime = Runtime(path, emulator.path)
+    ws = None
+    try:
+        state = wait_online(runtime.port)
+        check(state['control']['commandTimeoutMs'] == 500, 'physical500ms command lease')
+        check(all(row['fresh'] and row['temperatureC'] == 25 for row in state['control']['temperatures']), 'real combined temperature samples in status')
+        ws = WebSocket(runtime.port)
+        jog = wire(13, struct.pack('<BbH', 0, 1, 300))
+        ws.send(jog); ws.barrier(); time.sleep(.05)
+        check(not any(emulator.speeds.values()), 'wire movement rejected before enable')
+        check(request(runtime.port, '/api/arm/joints/0/limits/enabled', {'enabled': False})[0] == 409, 'physical safety limits cannot be disabled')
+        check(request(runtime.port, '/api/arm/coordinate-calibration/rotate-base', {})[0] == 409, 'physical calibration requires reviewed profile')
+        enable(runtime.port)
+        start = time.monotonic()
+        check(request(runtime.port, '/api/arm/joints/0/spin', {'direction': 1})[0] == 200, 'physical HTTP jog admitted after enable')
+        wait_for(lambda: emulator.speeds[1] > 0, 'HTTP jog never reached servo')
+        wait_for(lambda: emulator.speeds[1] == 0, 'abandoned HTTP jog never expired')
+        check(.4 <= time.monotonic()-start < 1, 'held HTTP state cannot renew abandoned hardware jog')
+        ws.send(jog); ws.barrier()
+        wait_for(lambda: emulator.speeds[1] > 0, 'wire jog never reached servo')
+        emulator.temperatures[3] = 80
+        wait_for(lambda: request(runtime.port, '/api/state')[1]['control']['temperatures'][2]['temperatureC'] == 80, '80C sample never arrived')
+        check(request(runtime.port, '/api/state')[1]['control']['state'] == 'enabled', '80C remains admissible')
+        emulator.temperatures[3] = 81
+        wait_for(lambda: emulator.speeds[1] == 0, 'different hot joint did not stop the arm')
+        wait_for(lambda: request(runtime.port, '/api/state')[1]['control']['state'] == 'monitor', 'thermal stop did not finish')
+        state = request(runtime.port, '/api/state')[1]
+        check(state['control']['temperatureInterlock'] == 'over_temperature', 'physical thermal interlock reason')
+        check(request(runtime.port, '/api/control/enable', {})[0] == 409, 'hot enable is rejected')
+        emulator.temperatures[3] = 25
+        wait_for(lambda: request(runtime.port, '/api/state')[1]['control']['temperatures'][2]['temperatureC'] == 25, 'cool sample never arrived')
+        check(request(runtime.port, '/api/state')[1]['control']['state'] == 'monitor', 'cooling never auto-enables output')
+        ws.send(jog); ws.barrier(); time.sleep(.04)
+        check(emulator.speeds[1] == 0, 'cooled servo still requires explicit enable')
+        enable(runtime.port)
+        ws.send(jog); ws.barrier()
+        wait_for(lambda: emulator.speeds[1] > 0, 'fresh enable after cooling did not permit movement')
+        emulator.temperatures[2] = None
+        wait_for(lambda: emulator.speeds[1] == 0, 'missing temperature did not stop other joints')
+        wait_for(lambda: request(runtime.port, '/api/state')[1]['control']['state'] == 'monitor', 'missing temperature stop did not finish')
+        state = request(runtime.port, '/api/state')[1]
+        check(state['control']['temperatureInterlock'] == 'unavailable', 'missing sample is unavailable')
+        check(state['control']['temperatures'][1]['temperatureC'] is None, 'short reply never becomes zero degrees')
+        check(request(runtime.port, '/api/control/enable', {})[0] == 409, 'unknown temperature blocks enable')
+        emulator.temperatures[2] = 25
+        wait_online(runtime.port); enable(runtime.port)
+        ws.send(jog); ws.barrier()
+        wait_for(lambda: emulator.speeds[1] > 0, 'recovery never resumed explicit new jog')
+        check(request(runtime.port, '/api/control/disable', {})[0] == 200, 'explicit physical disable')
+        wait_for(lambda: emulator.speeds[1] == 0, 'disable did not send zero speed')
+    finally:
+        if ws:
+            ws.close()
+        runtime.close()
+        emulator.close()
+
+
+def source_entrypoint(directory):
+    compiler = os.environ.get('FLEXSCRIPT_COMPILER', str(ROOT.parent/'flexscript/build/flex'))
+    env = {key: value for key, value in os.environ.items() if not key.startswith('PUPPYBOT_')}
+    env.update(PUPPYBOT_RUNTIME_ADDR='127.0.0.1:0')
+    process = subprocess.Popen([compiler, 'run', str(ROOT/'puppybot.flex')], cwd=ROOT, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        ready, _, _ = select.select([process.stdout], [], [], 5)
+        check(bool(ready), 'source entry point starts without a build script')
+        line = process.stdout.readline()
+        found = re.search(r'port (\d+)', line)
+        check(found is not None and '(fake)' in line, ('bare source command selects fake bus', line))
+        port = int(found[1])
+        check(request(port, '/api/state')[1]['mode'] == 'fake', 'root source entry point serves the controller')
+        configuration = request(port, '/api/config.json')[1]
+        check(configuration['path'] == './puppybot.json', 'root calibration selected automatically')
+        check(configuration['config'] == json.loads((ROOT/'puppybot.json').read_text()), 'root calibration loaded without --config')
+        executable = os.readlink(f'/proc/{process.pid}/exe').removesuffix(' (deleted)')
+        check(Path(executable) == BIN, 'source launcher replaces itself with the native runtime')
+        # The source VM defaults to a5second deadline and finite instruction
+        # fuel. A controller must continue past both without increasing limits.
+        deadline = time.monotonic()+7
+        while time.monotonic() < deadline:
+            check(process.poll() is None, 'source-launched server remains alive')
+            check(request(port, '/health')[0] == 200, 'source-launched server remains responsive')
+            time.sleep(.25)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        _, error = process.communicate(timeout=5)
+        check(process.returncode == 0, ('source entry point graceful shutdown', error))
+    checksum = hashlib.sha256(BIN.read_bytes()).digest()
+    broken_env = dict(env, FLEXSCRIPT_COMPILER='/usr/bin/false')
+    result = subprocess.run([compiler, 'run', str(ROOT/'puppybot.flex')], cwd=ROOT, env=broken_env,
+                            capture_output=True, text=True, timeout=5)
+    check(result.returncode == 1 and 'native compilation failed' in result.stderr, 'compile failure does not start a stale runtime')
+    check(hashlib.sha256(BIN.read_bytes()).digest() == checksum, 'compile failure preserves previous runtime artifact')
 
 
 def config_boundaries(directory, config):
@@ -442,13 +572,51 @@ def config_boundaries(directory, config):
         runtime.close()
 
 
+def listener_conflict():
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0)); listener.listen()
+        address = f'127.0.0.1:{listener.getsockname()[1]}'
+        env = {key: value for key, value in os.environ.items() if not key.startswith('PUPPYBOT_')}
+        result = subprocess.run([str(BIN), '--fake', '--bind', address, '--ticks', '1'], env=env,
+                                capture_output=True, text=True, timeout=3)
+        check(result.returncode == 1, 'occupied listener exits without hanging')
+        check(address in result.stderr and 'address already in use' in result.stderr, 'listener error names the occupied address')
+        check('--bind 127.0.0.1:0' in result.stderr, 'listener error explains how to select a free port')
+
+
+def serial_open_errors(directory):
+    regular = directory/'not-a-terminal'
+    regular.write_text('not a serial terminal\n')
+    denied = directory/'permission-denied'
+    denied.write_text('')
+    denied.chmod(0)
+    env = {key: value for key, value in os.environ.items() if not key.startswith('PUPPYBOT_')}
+    cases = [(directory/'missing-adapter', 'open, error -2', 'path not found'),
+             (regular, 'read serial settings, error -25', 'not a supported serial terminal')]
+    if os.geteuid() != 0:
+        cases.append((denied, 'open, error -13', 'permission denied'))
+    try:
+        for path, stage, explanation in cases:
+            result = subprocess.run([str(BIN), '--servo-device', str(path), '--config', str(ROOT/'puppybot.json'),
+                                     '--bind', '127.0.0.1:0'], env=env, capture_output=True, text=True, timeout=3)
+            check(result.returncode == 1, 'serial startup failure returns without opening listener')
+            check(str(path) in result.stderr and stage in result.stderr, 'serial failure identifies path and operation')
+            check(explanation in result.stderr, 'serial failure provides actionable explanation')
+    finally:
+        denied.chmod(0o600)
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix='runtime-test-', dir=ROOT/'build/flex') as temporary:
         directory = Path(temporary)
+        source_entrypoint(directory)
         config = fake_runtime(directory)
         serial_runtime(directory, config)
         serial_reconnect(directory, config)
+        serial_safety(directory, config)
         config_boundaries(directory, config)
+        listener_conflict()
+        serial_open_errors(directory)
     print(f'Native runtime: {CHECKS} loopback/PTY checks passed')
 
 

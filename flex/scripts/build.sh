@@ -15,16 +15,18 @@ if [[ ! -x "$compiler" ]]; then
 fi
 
 mkdir -p "$project_dir/build/flex"
+python3 "$project_dir/flex/scripts/prepare-dashboard.py" --check
 python3 "$project_dir/flex/scripts/prepare-gym.py"
 export FLEXSCRIPT_LIB="${FLEXSCRIPT_LIB:-$project_dir/../flexscript/libs}"
 "$compiler" "$project_dir/flex/vision/compile.flex" -o "$project_dir/build/flex/compile-pup"
 detector_model="${PUPPYBOT_DETECTOR_MODEL:-$project_dir/flex/vision/models/yolo26n.pup}"
 "$project_dir/build/flex/compile-pup" "$detector_model" "$project_dir/build/flex/detector-model.flex"
 "$compiler" --target hip "$project_dir/flex/vision/kernels/run.flex" -o "$project_dir/build/flex/vision-kernel.hip"
-for entry in examples/controller runtime/main cli/main firmware/sim gym/main vision/main; do
+for entry in examples/controller runtime/main simulator/main cli/main firmware/sim gym/main vision/main; do
     case "$entry" in
         examples/controller) output=controller-demo ;;
         runtime/main) output=puppybot-runtime ;;
+        simulator/main) output=puppybot-simulator ;;
         cli/main) output=puppybot ;;
         firmware/sim) output=puppybot-firmware-sim ;;
         gym/main) output=puppybotgym ;;

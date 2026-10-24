@@ -1,11 +1,16 @@
 // One controller instance is shared by HTTP and protocol v1 WebSocket clients.
 import "../host/config.flex";
-import "../core/system.flex";
+import "../core/interlock.flex";
 
 // App words: robot, system, config, fake bus, serial, config path, start time,
 // dirty, fake mode, held drive, throttle, steer, drive refresh, held joint,
 // joint index, direction, joint refresh, held TCP, frame, dx/dy/dz, TCP refresh,
 // selected arm speed, selected TCP frame. Scratch begins at byte 768.
+// Physical admission:37 guarded,38 monitor/enabled/stopping,39 thermal reason.
+fn pr_guard_motion(command) {
+    return command == 2 || (command >= 5 && command <= 10) || (command >= 12 && command <= 14) || command == 16 || command == 101 || command == 102;
+}
+fn pr_guard_setting(command) { return command == 15 || command == 17 || command == 18 || command == 20 || command == 104; }
 fn pr_joint_name(index, lower) {
     if index == 0 { if lower { return "yaw"; } return "Yaw"; }
     if index == 1 { if lower { return "shoulder"; } return "Shoulder"; }
@@ -21,6 +26,11 @@ fn pr_dirty(app) { if pc_sync(load64(app), pb_vget(app, 2)) { pb_vset(app, 7, 1)
 fn pr_last(app, text) { let n = pb_min(pl_size(text), 255); pb_copy(app + 512, text, n); store8(app + 512 + n, 0); return 0; }
 fn pr_apply(app, command, values, now) {
     let robot = load64(app);
+    if pb_vget(app, 37) {
+        if pr_guard_setting(command) { return 8; }
+        if pr_guard_motion(command) && (pb_vget(app, 38) != 1 || !pb_feedback_ready(pb_vget(app, 1), now)) { return 7; }
+        if command == 4 || command == 11 || command == 103 { return pr_guard_abort(app, now); }
+    }
     if command == 6 { let i = 0; while i < 4 { if !pc_angle_valid(pb_vget(values, i)) { return 3; } i = i + 1; } }
     if command == 7 && !pc_angle_valid(pb_vget(values, 3)) { return 3; }
     if (command == 14 || command == 16) && !pc_angle_valid(pb_vget(values, 1)) { return 3; }
@@ -36,12 +46,19 @@ fn pr_apply(app, command, values, now) {
     return error;
 }
 fn pr_wire(app, bytes, size, response, now) {
+    if pb_vget(app, 37) && size >= 2 {
+        let command = load8(bytes + 1);
+        if command == 21 || command == 22 || command == 24 || command == 26 { return 0; }
+    }
     let robot = load64(app); let events = robot + 4608; let n = pb_decode(robot, bytes, size, events, response);
     let count = load64(robot + 4280); let i = 0;
     while i < count { let event = events + i * 64; pr_apply(app, load64(event), event + 8, now); i = i + 1; }
     if count { pr_last(app, "websocket command"); } return n;
 }
 fn pr_refresh(app, now) {
+    // Physical callers renew jogs with new requests; retained UI state must not
+    // keep an abandoned command alive beyond the500ms command lease.
+    if pb_vget(app, 37) { return 0; }
     let robot = load64(app); let values = app + 768;
     if pb_vget(app, 9) && pb_elapsed(now, pb_vget(app, 12)) >= 200 {
         pb_drive_steer(pb_robot_drive(robot), pb_vget(app, 10), pb_vget(app, 11), now); pb_vset(app, 12, now);
@@ -59,6 +76,51 @@ fn pr_refresh(app, now) {
 fn pr_stop(app, now) {
     pb_vset(app, 9, 0); pb_vset(app, 13, 0); pb_vset(app, 17, 0);
     let robot = load64(app); pb_arm_stop(robot, now); pb_as(robot, PB_A_MODE, 0); pb_drive_stop(pb_robot_drive(robot), now); return 0;
+}
+fn pr_guard_abort(app, now) {
+    if pb_vget(app, 38) == 2 { return pr_stop(app, now); }
+    pr_stop(app, now); pb_system_cancel(pb_vget(app, 1));
+    let serial = pb_vget(app, 4); let fd = load64(serial);
+    if fd >= 0 { syscall(16, fd, 0x540b, 2, 0, 0, 0); }
+    pb_zero(serial + 8, 32); pb_vset(serial, 6, pb_vget(app, 38) != 0); return 0;
+}
+fn pr_guard_stop(app, now) { pr_guard_abort(app, now); pb_vset(app, 38, 2); pb_vset(pb_vget(app, 4), 6, 1); return 0; }
+fn pr_guard_init(app) {
+    pb_vset(app, 37, 1); pb_vset(app, 38, 0); pb_vset(app, 39, 0);
+    pb_command_timeout_ms = 500; pb_system_temperature_enable(pb_vget(app, 1)); pb_vset(pb_vget(app, 4), 6, 0); return 0;
+}
+fn pr_guard_poll(app, now) {
+    if !pb_vget(app, 37) { return 0; }
+    let system = pb_vget(app, 1); let serial = pb_vget(app, 4);
+    if pb_vget(app, 38) == 1 {
+        let reason = pb_temperature_fault(system, now);
+        if reason { pb_vset(app, 39, reason); pr_guard_stop(app, now); pr_last(app, "temperature interlock; outputs disabling"); }
+    }
+    pb_vset(serial, 6, pb_vget(app, 38) != 0); return 0;
+}
+fn pr_guard_cycle(app) {
+    if pb_vget(app, 37) && pb_vget(app, 38) == 2 && !pb_system_active(pb_vget(app, 1)) {
+        pb_vset(app, 38, 0); pb_vset(pb_vget(app, 4), 6, 0);
+    } return 0;
+}
+fn pr_control_state(app, builder, now) {
+    let state = pb_vget(app, 38); let system = pb_vget(app, 1); let robot = load64(app);
+    pl_text(builder, ",\"control\":{\"state\":");
+    if !pb_vget(app, 37) || state == 1 { pj_text(builder, "enabled"); }
+    else if state == 2 { pj_text(builder, "stopping"); } else { pj_text(builder, "monitor"); }
+    pl_text(builder, ",\"guarded\":"); pj_bool_text(builder, pb_vget(app, 37));
+    pl_text(builder, ",\"commandTimeoutMs\":"); pl_uint(builder, pb_command_timeout_ms);
+    if pb_vget(app, 37) {
+        pl_text(builder, ",\"temperatureInterlock\":"); pj_text(builder, pb_temperature_reason(pb_vget(app, 39)));
+        pl_text(builder, ",\"temperatures\":["); let i = 0;
+        while i < 4 {
+            if i { pl_char(builder, 44); } let joint = pb_joint(robot, i); let time = pb_vget(system, 12 + i);
+            pl_text(builder, "{\"temperatureC\":"); if pb_j(joint, PB_J_TEMP_VALID) { pl_int(builder, pb_j(joint, PB_J_TEMP)); } else { pl_text(builder, "null"); }
+            pl_text(builder, ",\"ageMs\":"); if time >= 0 && now >= time { pl_uint(builder, now - time); } else { pl_text(builder, "null"); }
+            pl_text(builder, ",\"fresh\":"); pj_bool_text(builder, pb_j(joint, PB_J_TEMP_VALID) && time >= 0 && now >= time && now - time <= 250);
+            pl_char(builder, 125); i = i + 1;
+        } pl_char(builder, 93);
+    } return pl_char(builder, 125);
 }
 fn pr_coords(builder, robot, type) {
     let out = robot + 5000; let error = 0;
@@ -116,7 +178,7 @@ fn pr_state(app, builder, now, autonomy) {
         if pb_vget(app, 24) == 1 { pj_text(builder, "Tool"); } else { pj_text(builder, "Base"); }
         pl_text(builder, ",\"armSpeed\":"); pl_int(builder, pb_vget(app, 23)); pl_text(builder, ",\"lastCommand\":"); pj_text(builder, app + 512); pl_char(builder, 125);
     }
-    return pl_char(builder, 125);
+    pr_control_state(app, builder, now); return pl_char(builder, 125);
 }
 fn pr_problem(app, builder, status, message, code) {
     pl_text(builder, "{\"ok\":false,\"error\":");
@@ -142,7 +204,9 @@ fn pr_problem(app, builder, status, message, code) {
 fn pr_controller_error(code) {
     if code == 1 { return "invalid joint"; } if code == 2 { return "invalid servo IDs"; }
     if code == 3 { return "invalid command value"; } if code == 4 { return "joint feedback is unavailable"; }
-    if code == 5 { return "target is geometrically unreachable"; } return "controller command rejected";
+    if code == 5 { return "target is geometrically unreachable"; }
+    if code == 7 { return "outputs require explicit enable and fresh position/temperature feedback"; }
+    if code == 8 { return "hardware calibration and limit changes require a reviewed configuration and restart"; } return "controller command rejected";
 }
 fn pr_direction(name, out) {
     pb_zero(out, 24);
@@ -185,6 +249,7 @@ fn pr_joint_command(app, path, root, now) {
     }
     if pl_equal(tail, "limits/enabled") { store64(values + 8, pj_boolean(root, "enabled")); if pj_error { return -400; } return pr_apply(app, 18, values, now); }
     if pl_equal(tail, "angle-sign/flip") {
+        if pb_vget(app, 37) { return 8; }
         pr_dirty(app); let config = pb_vget(app, 2); let calibration = pb_config_joint(config, index);
         pb_vset(calibration, 5, -pb_vget(calibration, 5));
         let error = pb_robot_configure(robot, config, now); if error { return 3; }
@@ -195,6 +260,15 @@ fn pr_joint_command(app, path, root, now) {
 }
 fn pr_command(app, path, root, now) {
     let values = app + 768; pb_zero(values, 64); let robot = load64(app); let config = pb_vget(app, 2);
+    if pl_equal(path, "/api/control/enable") {
+        if !pb_vget(app, 37) { return 0; }
+        if !pb_feedback_ready(pb_vget(app, 1), now) {
+            let reason = pb_temperature_fault(pb_vget(app, 1), now); if reason { pb_vset(app, 39, reason); } return 7;
+        }
+        pr_guard_stop(app, now); pb_rearm_outputs(robot); pb_vset(app, 38, 1); pb_vset(app, 39, 0); return 0;
+    }
+    if pl_equal(path, "/api/control/disable") { if pb_vget(app, 37) { return pr_guard_stop(app, now); } return pr_stop(app, now); }
+    if pb_vget(app, 37) && pl_starts(path, "/api/arm/coordinate-calibration/") { return 8; }
     if pl_starts(path, "/api/arm/joints/") { return pr_joint_command(app, path, root, now); }
     if pl_equal(path, "/api/drive") {
         let throttle = 0; let steering = 0;
@@ -305,11 +379,11 @@ fn pr_request(app, method, path, body, size, builder, now) {
         let out = app + 1792; pb_copy(out, "/api/", 5); let n = pl_size(path + 14); if n > 240 { return pr_problem(app, builder, 404, "unknown api endpoint", 0); }
         pb_copy(out + 5, path + 14, n + 1); command_path = out;
     }
-    if !pb_vget(app, 8) && load64(pb_vget(app, 4)) < 0 && !pl_equal(command_path, "/api/arm/stop") && !pl_equal(command_path, "/api/drive/stop") && !pl_equal(command_path, "/api/arm/tcp-jog/stop") && !pl_equal(command_path, "/api/calibration/save") {
+    if !pb_vget(app, 8) && load64(pb_vget(app, 4)) < 0 && !pl_equal(command_path, "/api/control/disable") && !pl_equal(command_path, "/api/arm/stop") && !pl_equal(command_path, "/api/drive/stop") && !pl_equal(command_path, "/api/arm/tcp-jog/stop") && !pl_equal(command_path, "/api/calibration/save") {
         return pr_problem(app, builder, 409, "STServo bus is disconnected", 0);
     }
     let error = pr_command(app, command_path, root, now);
     if error < 0 { let message = pj_message; if error == -404 { message = "unknown api command"; } if !message { message = "command rejected"; } return pr_problem(app, builder, -error, message, 0); }
-    if error { return pr_problem(app, builder, 400, pr_controller_error(error), error); }
+    if error { let status = 400; if error == 7 || error == 8 { status = 409; } return pr_problem(app, builder, status, pr_controller_error(error), error); }
     pr_last(app, path); pl_text(builder, "{\"ok\":true,\"state\":"); pr_state(app, builder, now, 0); pl_char(builder, 125); return 200;
 }
