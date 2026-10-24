@@ -1,0 +1,22 @@
+[package]
+name = "puppybot-core-reference-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../../../puppybot/core/src/lib.rs"
+
+[dependencies]
+embassy-time = { version = "0.5", features = ["std", "generic-queue-8"] }
+libm = "=0.2.16"
+log = "0.4"
+
+[dev-dependencies]
+embassy-executor = { version = "0.10", features = ["embassy-time-driver", "executor-thread", "platform-std"] }
+
+[features]
+default = ["runtime"]
+runtime = []
