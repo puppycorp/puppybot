@@ -13,10 +13,16 @@ process, supplies virtual STServo hardware, and records seeded arm/fault cases.
 Its initial servo plant has no articulated/contact physics. Gym manages runs;
 robot controls connect independently to each bot's endpoint.
 
+[Native 3D simulation](sim/README.md) runs the full PuppyBot model with the
+Flexscript controller, keyboard/API controls, URDF joint poses and shared
+rigid-body ball contacts. Build it separately with `./flex/scripts/build-sim.sh`.
+The simulator includes a [case catalog](sim/cases/catalog.json) for ball-to-bin and grouped-blocks-to-box tasks.
+Robot motion is kinematic; gravity-loaded articulated dynamics remain future work.
+
 [Native Pup vision](vision/README.md) adds YOLO26n inference and Gym's Live camera
 test view. Models and checkpoints are separate from the observation/detection
 contract; Python/ONNX are preparation tools, tinygrad is a validation reference,
-and inference uses native Flexscript CPU/HIP kernels without Torch.
+and inference uses shared native Flexscript CPU/SASS/CUDA/HIP kernels without Torch.
 
 ## Build and run
 
@@ -178,7 +184,10 @@ scan or mDNS discovery in this milestone.
 
 The build selects `flexscript` on PATH, then the sibling
 `../flexscript/build/flex`. Set `FLEXSCRIPT_COMPILER` to an absolute executable
-path to select another verified compiler. No compiler or library is installed
+path to select another verified compiler. Set `FLEXSCRIPT_ROOT` to a dependency
+checkout containing `libs/ml/pup/gpu.flex` (currently Flexscript branch
+`codex/gpu-inference-lowering`, commit `4777273`). Shape specialization, graph
+fusion, tiling and operation kernels come from that repository. No compiler or library is installed
 or changed by these scripts.
 
 The finite demo connects no hardware and models no robot physics. It runs real

@@ -1,0 +1,48 @@
+{
+  "schema": "puppybot.case.v1",
+  "id": "ball-into-bin",
+  "approachX": 0.18,
+  "objects": [
+    {
+      "id": "ball",
+      "kind": "ball",
+      "position": [
+        0.38,
+        0.08,
+        0.15
+      ],
+      "halfSize": [
+        0.035,
+        0.035,
+        0.035
+      ],
+      "mass": 0.1,
+      "color": [
+        100,
+        65,
+        15
+      ]
+    }
+  ],
+  "container": {
+    "position": [
+      0.34,
+      -0.21,
+      0.0
+    ],
+    "innerSize": [
+      0.16,
+      0.16,
+      0.09
+    ],
+    "wallThickness": 0.008
+  },
+  "success": {
+    "settleSteps": 100,
+    "maxLinearSpeed": 0.02
+  },
+  "gripper": {
+    "fingerLength": 0.06,
+    "graspOffset": 0.045
+  }
+}

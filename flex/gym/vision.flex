@@ -2,6 +2,8 @@
 global gv_manifest = 0;
 global gv_binary = 0;
 global gv_kernel = 0;
+global gv_backend = 0;
+global gv_device = 0;
 global gv_job = 0;
 global gv_buffer = 0;
 global gv_state = 0;
@@ -23,9 +25,9 @@ fn gv_authorized(c) {
 }
 fn gv_start() {
     if load64(gv_job) > 0 { return 1; }
-    if syscall(21, gv_manifest, 4, 0, 0, 0, 0) || syscall(21, gv_binary, 1, 0, 0, 0, 0) || syscall(21, gv_kernel, 4, 0, 0, 0, 0) { gv_state = "unavailable"; return 0; }
+    if syscall(21, gv_manifest, 4, 0, 0, 0, 0) || syscall(21, gv_binary, 1, 0, 0, 0, 0) || (!pl_equal(gv_backend, "cpu") && syscall(21, gv_kernel, 4, 0, 0, 0, 0)) { gv_state = "unavailable"; return 0; }
     let b = gm_work + 12288; gv_log = alloc(4096); pl_builder(b, gv_log, 4096); pl_text(b, gm_root); pl_text(b, "/vision-"); pl_uint(b, syscall(39, 0, 0, 0, 0, 0, 0)); pl_char(b, 45); pl_uint(b, gv_sequence); pl_text(b, ".log"); gv_sequence = gv_sequence + 1;
-    let args = alloc(96); store64(args, gv_binary); store64(args + 8, "worker"); store64(args + 16, "--model"); store64(args + 24, gv_manifest); store64(args + 32, "--kernel"); store64(args + 40, gv_kernel); store64(args + 48, 0);
+    let args = alloc(96); store64(args, gv_binary); store64(args + 8, "worker"); store64(args + 16, "--model"); store64(args + 24, gv_manifest); store64(args + 32, "--kernel"); store64(args + 40, gv_kernel); store64(args + 48, "--backend"); store64(args + 56, gv_backend); store64(args + 64, "--device"); store64(args + 72, gv_device); store64(args + 80, 0);
     if !gx_spawn(gv_binary, args, gv_log, gv_job) { gv_state = "error"; return 0; } gv_state = "loading"; gv_deadline = pl_now() + 15000; return 1;
 }
 fn gv_finish_response(status, bytes, size, now) {
@@ -55,7 +57,7 @@ fn gv_request(c, now) {
     }
     if !pl_equal(c + 128, "POST") { pnet_error(c, 405, "Vision requires POST", now); return 1; }
     if pl_equal(path, "/api/gym/vision/start") {
-        if !gv_start() { pnet_error(c, 503, "Prepare a Pup model and native GPU kernel before starting Live", now); return 1; }
+        if !gv_start() { pnet_error(c, 503, "Prepare the model and shared Pup kernels before starting Live", now); return 1; }
         pnet_reply(c, 200, "application/json", "{\"ok\":true}", 11, now); return 1;
     }
     if pl_equal(path, "/api/gym/vision/frame") {

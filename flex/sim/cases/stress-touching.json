@@ -1,0 +1,158 @@
+{
+  "schema": "puppybot.case.v1",
+  "id": "stress-touching",
+  "approachX": 0.18,
+  "objects": [
+    {
+      "id": "red-block",
+      "kind": "block",
+      "position": [
+        0.35,
+        0.05,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        95,
+        22,
+        22
+      ],
+      "yawDegrees": 0
+    },
+    {
+      "id": "blue-block",
+      "kind": "block",
+      "position": [
+        0.39399999999999996,
+        0.05,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        95,
+        22,
+        22
+      ],
+      "yawDegrees": 0
+    },
+    {
+      "id": "yellow-block",
+      "kind": "block",
+      "position": [
+        0.6981094611436129,
+        0.10138062363606877,
+        0.013000000000000001
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        82,
+        18
+      ],
+      "yawDegrees": -65.89426835998893
+    },
+    {
+      "id": "green-block",
+      "kind": "block",
+      "position": [
+        0.5811152857169509,
+        0.14383347377181055,
+        0.013000000000000001
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        24,
+        85,
+        38
+      ],
+      "yawDegrees": 31.704809109214693
+    },
+    {
+      "id": "purple-block",
+      "kind": "block",
+      "position": [
+        0.36096053570508957,
+        0.15722150232992133,
+        0.013000000000000001
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        68,
+        28,
+        88
+      ],
+      "yawDegrees": 14.05807079281658
+    },
+    {
+      "id": "orange-block",
+      "kind": "block",
+      "position": [
+        0.49278751607984306,
+        0.04333407109603286,
+        0.013000000000000001
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        49,
+        12
+      ],
+      "yawDegrees": -56.05646021431312
+    }
+  ],
+  "container": {
+    "position": [
+      0.34,
+      -0.24,
+      0
+    ],
+    "innerSize": [
+      0.22,
+      0.2,
+      0.09
+    ],
+    "wallThickness": 0.008,
+    "mass": 0.3,
+    "visionMarkers": true
+  },
+  "success": {
+    "settleSteps": 100,
+    "maxLinearSpeed": 0.02
+  },
+  "gripper": {
+    "fingerLength": 0.08,
+    "graspOffset": 0.065
+  },
+  "controller": "rgb-search",
+  "scenery": []
+}

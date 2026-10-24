@@ -16,12 +16,20 @@ fi
 
 mkdir -p "$project_dir/build/flex"
 python3 "$project_dir/flex/scripts/prepare-dashboard.py" --check
+export FLEXSCRIPT_ROOT="${FLEXSCRIPT_ROOT:-$project_dir/../flexscript}"
+export FLEXSCRIPT_LIB="${FLEXSCRIPT_LIB:-$FLEXSCRIPT_ROOT/libs}"
+python3 "$project_dir/flex/scripts/prepare-compiler.py" --source "$FLEXSCRIPT_ROOT" --bootstrap "$compiler"
+compiler="$project_dir/build/flex/pup-compiler"
 python3 "$project_dir/flex/scripts/prepare-gym.py"
-export FLEXSCRIPT_LIB="${FLEXSCRIPT_LIB:-$project_dir/../flexscript/libs}"
-"$compiler" "$project_dir/flex/vision/compile.flex" -o "$project_dir/build/flex/compile-pup"
+"$compiler" "$project_dir/flex/ml/compile.flex" -o "$project_dir/build/flex/compile-pup"
 detector_model="${PUPPYBOT_DETECTOR_MODEL:-$project_dir/flex/vision/models/yolo26n.pup}"
 "$project_dir/build/flex/compile-pup" "$detector_model" "$project_dir/build/flex/detector-model.flex"
-"$compiler" --target hip "$project_dir/flex/vision/kernels/run.flex" -o "$project_dir/build/flex/vision-kernel.hip"
+"$compiler" "$project_dir/flex/ml/codegen.flex" -o "$project_dir/build/flex/pup-codegen.tmp.$$"
+mv -f "$project_dir/build/flex/pup-codegen.tmp.$$" "$project_dir/build/flex/pup-codegen"
+"$project_dir/build/flex/pup-codegen" --output "$project_dir/build/flex/pup-kernels" --generic-only --compiler "$compiler"
+"$compiler" "$project_dir/flex/ml/describe.flex" -o "$project_dir/build/flex/pup-describe"
+"$project_dir/build/flex/pup-describe" "$project_dir/build/flex/pup-graph.bin"
+"$project_dir/build/flex/pup-codegen" "$project_dir/build/flex/pup-graph.bin" --output "$project_dir/build/flex/pup-kernels" --compiler "$compiler" --math "${PUPPYBOT_MATH:-fp32}"
 for entry in examples/controller runtime/main simulator/main cli/main firmware/sim gym/main vision/main; do
     case "$entry" in
         examples/controller) output=controller-demo ;;

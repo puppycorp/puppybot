@@ -29,7 +29,7 @@ From the repository root:
 Open **http://127.0.0.1:8090**. Choose a case and seed, then launch a rollout.
 The top-centre Workspace menu switches between simulation rollouts and
 [Live camera testing](../vision/README.md). Live uses a resident native Pup
-YOLO26 detector and draws labels/boxes over matching camera frames. Prepare the
+YOLO26 detector using automatic SASS/CUDA/HIP/CPU selection and draws labels/boxes over matching camera frames. Prepare the
 checkpoint with `./flex/scripts/prepare-yolo.sh`; camera access starts only when
 you press **Start camera**. No live frames are recorded or sent to robot controls.
 The interface shows its outcome, encoder trace, actuator commands, firmware
@@ -40,7 +40,8 @@ Gym. The preview samples up to 32 observations; full recordings remain on disk.
 
 The manager defaults to `build/flex/gym-runs`, with a FlexDB catalog at `gym.db`.
 Use `--data DIRECTORY`, `--bind 127.0.0.1:PORT`, and `--firmware PATH`
-to change its configuration. Port zero selects an ephemeral port. The interface,
+to change its configuration. `--backend auto|sass|cuda|hip|cpu` and `--device N`
+select the detector device. Port zero selects an ephemeral port. The interface,
 browser adapter, and stylesheet are embedded in the native executable. Gym binds
 to loopback, following Monolith's host/origin and action-token checks.
 One manager owns a data directory, enforced with a file lock. At most eight
@@ -127,6 +128,12 @@ initialization and the controller's one-second wheel-mode retry window.
 Both policies are scripted. There is no articulated dynamics, link contact,
 gravity-loaded arm, camera renderer, or learned policy in this backend.
 The existing RobotDreams scenarios remain reference fixtures for those stages.
+
+The separate [native 3D simulator](../sim/README.md) now provides the full
+PuppyBot model, controller-driven joint poses, driving, and rigid-body ball
+contacts in Flexscript. Launch it with `build/flex/puppybot-sim` after running
+`flex/scripts/build-sim.sh`. It is independent of Gym's rollout lifecycle;
+Gym continues to use `servo-plant-v1`.
 
 ## Recorded evidence and lifecycle
 

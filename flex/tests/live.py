@@ -20,7 +20,8 @@ def main():
         command = [str(ROOT/'build/flex/puppybotgym'),'serve','--bind','127.0.0.1:0',
                    '--data',directory,'--model',str(ROOT/'build/flex/vision/yolo26n/model.json'),
                    '--vision',str(ROOT/'build/flex/puppybot-vision'),
-                   '--vision-kernel',str(ROOT/'build/flex/vision-kernel.hip')]
+                   '--vision-kernel',str(ROOT/'build/flex/pup-kernels'),
+                   '--backend',os.environ.get('PUPPYBOT_TEST_BACKEND','auto')]
         process = subprocess.Popen(command,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         worker = None
         try:

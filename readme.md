@@ -33,6 +33,21 @@ firmware, and independently verified fake-servo executable under
 [`flex/`](flex/README.md). Simulation and wireless integration remain in progress;
 the Rust stack below is the reference implementation.
 
+Run the native [3D simulation](flex/sim/README.md) from this repository:
+
+```sh
+flexscript run sim.flex --case house-blocks-into-box --drift 10
+flexscript run sim.flex --case house-blocks-into-box --drift 10 --breadcrumbs
+flexscript run sim.flex --case ball-into-bin
+flexscript run sim.flex --list-cases
+```
+
+The house case opens live front/TCP camera views. `--drift 0` disables the added
+odometry error; `--drift 50` increases it. The source entry point builds the
+native simulator automatically.
+`--breadcrumbs` tries front-camera feature tracking and reverse visual
+checkpoints for the return journey; see the simulation README for its limits.
+
 [`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
 the robot-control UI. Its first backend runs the native firmware in an isolated
 process against a deterministic servo plant, with seeded cases and recorded results.

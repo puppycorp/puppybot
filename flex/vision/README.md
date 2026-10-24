@@ -3,8 +3,8 @@
 YOLO26n runs as a static **Pup graph**, with its pretrained weights kept in a
 separate named FP32 checkpoint. Convolution, SiLU, pooling, attention, resizing,
 the multi-scale detection head and box decoding all execute in native Flexscript.
-HIP keeps intermediate tensors and weights on the GPU. The CPU backend executes
-the same packed FP32 kernels and is primarily a correctness/reference path.
+The shared Pup runtime keeps intermediate tensors and weights on the selected GPU. The CPU backend executes
+the same packed FP32 operations and is primarily a correctness/reference path.
 No Torch, Python inference process, ONNX Runtime or external model server is used.
 
 ## Prepare and run
@@ -26,12 +26,24 @@ resident Pup worker, and displays each analyzed frame with its matching boxes.
 Stop releases the camera and cancels frame submissions; the loaded model stays
 cached until Gym exits. Hidden tabs and navigation also stop camera capture.
 
-The default backend needs AMD HIP and a GPU compatible with the compiled kernel
-(currently gfx1201). The build itself needs no GPU. Native PNG/JPEG decoding uses
-`libpng16.so.16` / `libturbojpeg.so.0`; model integrity uses `libcrypto.so.3`.
-Use `--backend cpu` with `puppybot-vision` for the slower CPU reference path.
-Gym's Live worker currently uses HIP. The detector runs on the companion host,
-separately from the firmware and robot controls.
+Device selection defaults to `auto`: direct SASS on NVIDIA SM75 (including the
+RTX 2070), PTX/CUDA on other NVIDIA devices, HIP on compatible AMD devices, then CPU when no GPU
+is available. Both the CLI and Gym accept `--backend auto|sass|cuda|hip|cpu`
+and `--device N`. An explicit backend fails if it cannot initialize that device.
+The same Pup graph and checkpoint are used for every backend.
+
+The build emits reusable operation kernels under `build/flex/pup-kernels/`:
+SM75 cubins, PTX, and HIP source. `--kernel DIRECTORY` on the detector or
+`--vision-kernel DIRECTORY` on Gym selects another kernel directory. Building
+requires no GPU. Native PNG/JPEG decoding uses `libpng16.so.16` /
+`libturbojpeg.so.0`; checkpoint integrity uses `libcrypto.so.3`.
+
+For a separate Flexscript dependency checkout, set `FLEXSCRIPT_ROOT` alongside
+`FLEXSCRIPT_COMPILER`. The build generates absolute import adapters without
+modifying that checkout. The dependency needs `pup_parse_inference` and the
+shared `device.flex` API, plus `libs/ml/pup/gpu.flex` and its operation modules
+from Flexscript branch `codex/gpu-inference-lowering` (commit `4777273`).
+The local kernel and compiler files are adapters to those upstream modules.
 
 The preparation script uses a local build-directory venv, ONNX and NumPy to
 extract the official Ultralytics ONNX release into `.pup` plus weights. It checks
@@ -47,7 +59,10 @@ The components are intentionally separate:
 - `.pup` declares the architecture and tensor operations.
 - `model.json` identifies the model, preprocessing dimensions, class labels,
   confidence threshold, decoder and checkpoint; SHA256 binds the graph and weights.
-- `backend.flex` implements generic static Pup operations for CPU/HIP.
+- `../ml/compile.flex` lowers the Pup tensor graph into a native model factory.
+- `../ml/runtime.flex` builds the execution plan and selects the device backend.
+- `../ml/kernels/ops.flex` supplies model-independent tensor operations.
+- `backend.flex` validates the detector manifest and loads the checkpoint.
 - `detect.flex` accepts RGB observations and emits `puppybot.detections.v1`.
 - `worker.flex` keeps one loaded model resident for camera requests.
 
@@ -96,13 +111,18 @@ reaps the process, and allows a fresh start. Live images and detection results
 are not written to disk. Worker diagnostics go to the Gym data directory.
 Explicit CLI output/debug tensor options write only to their requested paths.
 
+The standalone worker accepts `--frame-bytes 48000..131072` for local
+high-quality camera experiments. Its default stays 48,000 bytes; Gym retains
+its own 48,000-byte request limit. Frame dimensions and decoder checks still
+apply. This transport setting changes neither the checkpoint nor inference.
+
 ## Verification
 
 `./flex/scripts/test.sh` includes a small independent numerical fixture covering
 all inference operators and malformed graph/checkpoint rejection. GPU validation:
 
 ```sh
-PUPPYBOT_TEST_GPU=1 python3 flex/tests/vision.py
+PUPPYBOT_TEST_BACKENDS="sass cuda auto" python3 flex/tests/vision.py
 DEV=CPU XDG_CACHE_HOME="$PWD/build/flex/vision/cache" \
     build/flex/vision-env/bin/python -m flex.tests.yolo
 ```
@@ -130,3 +150,14 @@ Upstream model: [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26/
 [pinned official release](https://github.com/ultralytics/assets/releases/tag/v8.4.0).
 The checkpoint carries Ultralytics' AGPL-3.0 / Enterprise licensing; provenance
 and upstream licensing are retained in its generated manifest.
+
+GPU launches are prepared once and captured into a resident device graph; each
+frame replays that graph. Softmax reduces each row once, and bounded tensor
+index division uses a reciprocal estimate with exact integer correction.
+Normalization uses device reciprocal approximations; numerical validation uses
+explicit tolerances rather than requiring bit identity across GPU vendors.
+The CUDA/SASS paths are validated on RTX 2070. HIP artifacts are compiled here;
+this NVIDIA host cannot provide AMD execution evidence.
+
+The current upstream HIP module loader targets gfx1201. Other AMD architectures
+need support in that shared adapter; automatic selection does not change this limit.

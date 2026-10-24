@@ -1,0 +1,42 @@
+{
+  "schema": "puppybot.release-regression.v1",
+  "source": "stock-room/route-trial1: grasp 16222, release planning 18265",
+  "inputs": "Estimated base poses, servo feedback, wrist RGB brick target and RGB box observation only",
+  "grasp": {
+    "pose": [
+      6.201495215167892,
+      0.24782714284551086,
+      0.34283731988884675
+    ],
+    "ticks": [
+      1486,
+      988,
+      2224,
+      547
+    ],
+    "target": [
+      6.351671740192511,
+      0.40164501162042227,
+      0.012
+    ]
+  },
+  "release": {
+    "pose": [
+      3.6883004145523133,
+      1.5861739479617774e-05,
+      0.005109021647153128
+    ],
+    "boxPosition": [
+      3.8606061474232063,
+      -0.23970338921274953,
+      0.0
+    ],
+    "boxYaw": 0.00018691137721566772,
+    "placed": 3,
+    "count": 6,
+    "boxSize": [
+      0.22,
+      0.2
+    ]
+  }
+}

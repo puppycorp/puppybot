@@ -1,0 +1,66 @@
+{
+  "schema": "puppybot.case.v1",
+  "id": "stock-landmark-pickup",
+  "approachX": 0.18,
+  "objects": [
+    {
+      "id": "red-block",
+      "kind": "block",
+      "position": [
+        4.72,
+        0,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        95,
+        22,
+        22
+      ],
+      "yawDegrees": 20
+    }
+  ],
+  "container": {
+    "position": [
+      3.86,
+      -0.24,
+      0
+    ],
+    "innerSize": [
+      0.22,
+      0.2,
+      0.09
+    ],
+    "wallThickness": 0.008,
+    "mass": 0.3,
+    "visionMarkers": true
+  },
+  "success": {
+    "settleSteps": 100,
+    "maxLinearSpeed": 0.02
+  },
+  "gripper": {
+    "fingerLength": 0.08,
+    "graspOffset": 0.065
+  },
+  "controller": "rgb-house",
+  "navigation": {
+    "coverage": [
+      [
+        4.92,
+        0,
+        0
+      ],
+      [
+        4.92,
+        0.4,
+        0
+      ]
+    ]
+  }
+}

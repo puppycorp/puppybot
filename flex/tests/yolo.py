@@ -40,8 +40,8 @@ def main():
         source = ASSETS/(name+'-validation.png')
         image.save(source)
         result_path, input_path, raw_path = (ASSETS/(name+suffix) for suffix in ('.json','-input.bin','-raw.bin'))
-        command = [str(ROOT/'build/flex/puppybot-vision'),'--model',str(ASSETS/'yolo26n/model.json'),
-                   '--image',str(source),'--kernel',str(ROOT/'build/flex/vision-kernel.hip'),
+        command = [os.environ.get('PUPPYBOT_TEST_VISION',str(ROOT/'build/flex/puppybot-vision')),'--model',str(ASSETS/'yolo26n/model.json'),
+                   '--image',str(source),'--backend',os.environ.get('PUPPYBOT_TEST_BACKEND','auto'),'--kernel',os.environ.get('PUPPYBOT_TEST_KERNEL',str(ROOT/'build/flex/pup-kernels')),
                    '--output',str(result_path),'--input-tensor',str(input_path),'--raw-output',str(raw_path)]
         subprocess.run(command,cwd=ROOT,check=True,capture_output=True,timeout=30)
         x = np.fromfile(input_path,'<f4').reshape(1,3,640,640)
@@ -52,7 +52,7 @@ def main():
         np.testing.assert_allclose(actual[:,:4],expected[:,:4],atol=.003,rtol=3e-5)
         np.testing.assert_allclose(actual[:,4:],expected[:,4:],atol=3e-5,rtol=3e-4)
         result = json.loads(result_path.read_text())
-        assert result['runtime'] == 'pup' and result['backend'] == 'hip'
+        assert result['runtime'] == 'pup' and result['backend'] in ('sass','cuda','hip','cpu')
         assert result['frame']['width'] == image.width and result['frame']['height'] == image.height
         scores = expected[0,4:]
         indices = np.argsort(-scores.ravel(),kind='stable')[:300]
@@ -75,11 +75,13 @@ def main():
             assert {'bus','person'} <= {d['label'] for d in result['detections']}
         if name == 'blank':
             assert not result['detections']
-        report.append(dict(case=name,comparedElements=actual.size,
+        report.append(dict(case=name,backend=result['backend'],mathMode=result['mathMode'],inferenceMs=result['inferenceMs'],comparedElements=actual.size,
                            boxMaxAbsoluteError=float(abs(actual[:,:4]-expected[:,:4]).max()),
                            scoreMaxAbsoluteError=float(abs(actual[:,4:]-expected[:,4:]).max()),
                            detections=len(result['detections']),tinygradSeconds=time.monotonic()-start))
-    (ASSETS/'validation.json').write_text(json.dumps(report,indent=2)+'\n')
+    text = json.dumps(report,indent=2)+'\n'
+    (ASSETS/'validation.json').write_text(text)
+    (ASSETS/('validation-'+report[0]['backend']+'-'+report[0]['mathMode']+'.json')).write_text(text)
     print(json.dumps(report,indent=2))
     print('Native Pup YOLO: 2,116,800 outputs and final boxes match independent tinygrad; positive/flipped/negative images pass')
 

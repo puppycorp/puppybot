@@ -1,0 +1,191 @@
+{
+  "schema": "puppybot.case.v1",
+  "id": "stock-landmark-room",
+  "approachX": 0.18,
+  "objects": [
+    {
+      "id": "red-block",
+      "kind": "block",
+      "position": [
+        4.72,
+        0,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        95,
+        22,
+        22
+      ],
+      "yawDegrees": 20
+    },
+    {
+      "id": "blue-block",
+      "kind": "block",
+      "position": [
+        5.2,
+        1.45,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        20,
+        45,
+        95
+      ],
+      "yawDegrees": -35
+    },
+    {
+      "id": "yellow-block",
+      "kind": "block",
+      "position": [
+        6.35,
+        0.4,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        82,
+        18
+      ],
+      "yawDegrees": 40
+    },
+    {
+      "id": "green-block",
+      "kind": "block",
+      "position": [
+        6.8,
+        1.65,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        24,
+        85,
+        38
+      ],
+      "yawDegrees": -15
+    },
+    {
+      "id": "purple-block",
+      "kind": "block",
+      "position": [
+        4.75,
+        -0.5,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        68,
+        28,
+        88
+      ],
+      "yawDegrees": 25
+    },
+    {
+      "id": "orange-block",
+      "kind": "block",
+      "position": [
+        6.8,
+        -0.35,
+        0.013
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        49,
+        12
+      ],
+      "yawDegrees": -30
+    }
+  ],
+  "container": {
+    "position": [
+      3.86,
+      -0.24,
+      0
+    ],
+    "innerSize": [
+      0.22,
+      0.2,
+      0.09
+    ],
+    "wallThickness": 0.008,
+    "mass": 0.3,
+    "visionMarkers": true
+  },
+  "success": {
+    "settleSteps": 100,
+    "maxLinearSpeed": 0.02
+  },
+  "gripper": {
+    "fingerLength": 0.08,
+    "graspOffset": 0.065
+  },
+  "controller": "rgb-house",
+  "navigation": {
+    "coverage": [
+      [
+        5.0,
+        0,
+        0
+      ],
+      [
+        6.55,
+        0,
+        0
+      ],
+      [
+        6.65,
+        1.5,
+        1.5707963267948966
+      ],
+      [
+        5.2,
+        1.5,
+        3.141592653589793
+      ],
+      [
+        5.0,
+        0.8,
+        -1.5707963267948966
+      ],
+      [
+        6.7,
+        0.3,
+        -1.5707963267948966
+      ]
+    ]
+  }
+}

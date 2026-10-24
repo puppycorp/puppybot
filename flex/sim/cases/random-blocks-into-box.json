@@ -1,0 +1,161 @@
+{
+  "schema": "puppybot.case.v1",
+  "id": "random-blocks-into-box",
+  "approachX": 0.18,
+  "objects": [
+    {
+      "id": "red-block",
+      "kind": "block",
+      "position": [
+        0.35,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        95,
+        22,
+        22
+      ]
+    },
+    {
+      "id": "blue-block",
+      "kind": "block",
+      "position": [
+        0.39999999999999997,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        20,
+        45,
+        95
+      ]
+    },
+    {
+      "id": "yellow-block",
+      "kind": "block",
+      "position": [
+        0.44999999999999996,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        82,
+        18
+      ]
+    },
+    {
+      "id": "green-block",
+      "kind": "block",
+      "position": [
+        0.35,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        24,
+        85,
+        38
+      ]
+    },
+    {
+      "id": "purple-block",
+      "kind": "block",
+      "position": [
+        0.35,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        68,
+        28,
+        88
+      ]
+    },
+    {
+      "id": "orange-block",
+      "kind": "block",
+      "position": [
+        0.35,
+        0.08,
+        0.025
+      ],
+      "halfSize": [
+        0.022,
+        0.014,
+        0.012
+      ],
+      "mass": 0.04,
+      "color": [
+        100,
+        49,
+        12
+      ]
+    }
+  ],
+  "container": {
+    "position": [
+      0.34,
+      -0.24,
+      0
+    ],
+    "innerSize": [
+      0.22,
+      0.2,
+      0.09
+    ],
+    "wallThickness": 0.008,
+    "mass": 0.3
+  },
+  "success": {
+    "settleSteps": 100,
+    "maxLinearSpeed": 0.02
+  },
+  "gripper": {
+    "fingerLength": 0.08,
+    "graspOffset": 0.065
+  },
+  "randomFloor": {
+    "min": [
+      0.3,
+      0.015
+    ],
+    "max": [
+      0.78,
+      0.2
+    ],
+    "clearance": 0.025,
+    "yawDegrees": 75
+  }
+}

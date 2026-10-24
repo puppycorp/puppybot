@@ -153,7 +153,7 @@ fn gm_database(root) {
 }
 fn gm_serve(argc, argv) {
     let root = "build/flex/gym-runs"; let bind = "127.0.0.1:8090"; gm_firmware = "build/flex/puppybot-firmware-sim"; gm_binary = "/proc/self/exe";
-    gv_manifest = "build/flex/vision/yolo26n/model.json"; gv_binary = "build/flex/puppybot-vision"; gv_kernel = "build/flex/vision-kernel.hip";
+    gv_manifest = "build/flex/vision/yolo26n/model.json"; gv_binary = "build/flex/puppybot-vision"; gv_kernel = "build/flex/pup-kernels"; gv_backend = "auto"; gv_device = "0";
     let i = 2;
     while i < argc {
         if i + 1 >= argc { return 2; } let arg = pb_vget(argv, i); let value = pb_vget(argv, i + 1);
@@ -161,6 +161,8 @@ fn gm_serve(argc, argv) {
         else if pl_equal(arg, "--firmware") { gm_firmware = value; }
         else if pl_equal(arg, "--model") { gv_manifest = value; }
         else if pl_equal(arg, "--vision") { gv_binary = value; }
+        else if pl_equal(arg, "--backend") { if !pl_equal(value, "auto") && !pl_equal(value, "cpu") && !pl_equal(value, "sass") && !pl_equal(value, "cuda") && !pl_equal(value, "hip") { return 2; } gv_backend = value; }
+        else if pl_equal(arg, "--device") { let ordinal = pl_integer(value, pl_size(value)); if pl_bad_number || ordinal < 0 || ordinal > 15 { return 2; } gv_device = value; }
         else if pl_equal(arg, "--vision-kernel") { gv_kernel = value; } else { return 2; } i = i + 2;
     }
     if pl_size(root) > 3000 || app_init(root) { pl_print(2, "Cannot open Gym data directory/database, or another manager holds its lock.\n"); return 1; }

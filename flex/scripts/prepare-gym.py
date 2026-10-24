@@ -7,13 +7,31 @@ would duplicate those definitions. All other database imports stay upstream.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-DB = ROOT.parent/'flexscript/libs/db'
+FLEXSCRIPT = Path(os.environ.get('FLEXSCRIPT_ROOT', ROOT.parent/'flexscript')).resolve()
+DB = FLEXSCRIPT/'libs/db'
 OUT = ROOT/'build/flex'
 OUT.mkdir(parents=True, exist_ok=True)
+codegen = FLEXSCRIPT/'libs/ml/pup/gpu.flex'
+if not codegen.is_file():
+    raise SystemExit('Flexscript dependency lacks libs/ml/pup/gpu.flex; use the GPU compiler branch.')
+
+for name, source in [('device', FLEXSCRIPT/'lib/device.flex'),
+                     ('parser', FLEXSCRIPT/'libs/ml/pup/parser.flex'),
+                     ('kernel-ops', FLEXSCRIPT/'libs/ml/pup/gpu/kernels/ops-body.flex'),
+                     ('kernel-pack', FLEXSCRIPT/'libs/ml/pup/gpu/kernels/pack.flex')]:
+    (OUT/('pup-'+name+'.flex')).write_text('import '+json.dumps(str(source))+';\n')
+
+# The model compiler and operation bodies are supplied by Flexscript.
+(OUT/'pup-codegen.flex').write_text('import '+json.dumps(str(codegen))+';\n'+
+    'fn puppybot_codegen(argc,argv) {cg_repository='+json.dumps(str(FLEXSCRIPT))+';'+
+    'cg_operations='+json.dumps(str(ROOT/'flex/ml/kernels/ops.flex'))+';'+
+    'cg_packer='+json.dumps(str(FLEXSCRIPT/'libs/ml/pup/gpu/kernels/pack.flex'))+';'+
+    'cg_output_root='+json.dumps(str(OUT/'pup-kernels'))+';return cg_main(argc,argv); }\n')
 
 query = (DB/'query.flex').read_text()
 old = 'import "../../lib/f64.flex";'

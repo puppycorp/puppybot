@@ -1,0 +1,99 @@
+{
+  "schema": "puppybot.cases.v1",
+  "cases": [
+    {
+      "id": "ball-into-bin",
+      "name": "Ball into bin",
+      "description": "Pick up the ball, carry it above the bin, release and verify it settles inside.",
+      "file": "flex/sim/cases/ball-into-bin.json",
+      "controller": "scene-state",
+      "objects": 1
+    },
+    {
+      "id": "blocks-into-box",
+      "name": "Blocks into box",
+      "description": "Pick three Lego-like blocks from a group, one at a time, and put all of them in the box.",
+      "file": "flex/sim/cases/blocks-into-box.json",
+      "controller": "scene-state",
+      "objects": 3
+    },
+    {
+      "id": "random-blocks-into-box",
+      "name": "Random blocks into box",
+      "description": "Collect six scattered, rotated blocks from a wider floor area into a movable physical box. G reshuffles.",
+      "file": "flex/sim/cases/random-blocks-into-box.json",
+      "controller": "scene-state",
+      "objects": 6
+    },
+    {
+      "id": "search-blocks-into-box",
+      "name": "Camera search and collect",
+      "description": "Detect coloured floor bricks, pick them through the wrist camera, then visually locate the marked box before returning and releasing.",
+      "file": "flex/sim/cases/search-blocks-into-box.json",
+      "controller": "rgb-search",
+      "objects": 6
+    },
+    {
+      "id": "stress-distractors",
+      "name": "Coloured distractors",
+      "description": "Level 3 distractors challenge for the unchanged RGB controller. Failure is an experimental result.",
+      "file": "flex/sim/cases/stress-distractors.json",
+      "controller": "rgb-search",
+      "objects": 6,
+      "stress": true,
+      "difficulty": 3
+    },
+    {
+      "id": "stress-touching",
+      "name": "Touching same-colour bricks",
+      "description": "Level 3 touching challenge for the unchanged RGB controller. Failure is an experimental result.",
+      "file": "flex/sim/cases/stress-touching.json",
+      "controller": "rgb-search",
+      "objects": 6,
+      "stress": true,
+      "difficulty": 3
+    },
+    {
+      "id": "stress-occlusion",
+      "name": "Partially hidden bricks",
+      "description": "Level 3 occlusion challenge for the unchanged RGB controller. Failure is an experimental result.",
+      "file": "flex/sim/cases/stress-occlusion.json",
+      "controller": "rgb-search",
+      "objects": 6,
+      "stress": true,
+      "difficulty": 3
+    },
+    {
+      "id": "house-blocks-into-box",
+      "name": "House search and collect",
+      "description": "Search a mapped apartment with the front camera, collect scattered bricks from all rooms, and return to a visually reacquired movable box.",
+      "file": "flex/sim/cases/house-blocks-into-box.json",
+      "controller": "rgb-house",
+      "objects": 6,
+      "environment": "apartment",
+      "longRunning": true
+    },
+    {
+      "id": "stock-landmark-pickup",
+      "name": "Stock landmark pickup and return",
+      "description": "Collect one RGB-detected brick, return by a stock YOLO furniture view, then visually reacquire the box and release.",
+      "file": "flex/sim/cases/stock-landmark-pickup.json",
+      "controller": "rgb-house",
+      "objects": 1,
+      "environment": "apartment",
+      "longRunning": true,
+      "experimental": true
+    },
+    {
+      "id": "stock-landmark-room",
+      "name": "Stock landmarks: scattered room blocks",
+      "description": "Six rotated blocks spread beside dining-room furniture; stock furniture-view return is challenged by repeated trips and turns.",
+      "file": "flex/sim/cases/stock-landmark-room.json",
+      "controller": "rgb-house",
+      "objects": 6,
+      "environment": "apartment",
+      "longRunning": true,
+      "experimental": true
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#10171b">
+<meta name="description" content="Twenty PuppyBot simulation tests, two layouts, and the camera evidence behind every success and failure.">
+<title>PuppyBot — What breaks the robot?</title>
+<style>__STYLE__</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to results</a>
+<header class="topbar wrap">
+  <a class="brand" href="#main" aria-label="PuppyBot test report home"><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 10 16 4l11 6v13l-11 6-11-6Z M5 10l11 6 11-6 M16 16v13" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m10 8 11 6" stroke="currentColor" stroke-width="1.7"/></svg><span>PuppyBot<span class="brand-sub"> / field tests</span></span></a>
+  <nav aria-label="Sections"><a href="#findings">Findings</a><a href="#comparison">Compare</a><a href="#runs">All runs <span id="nav-count"></span></a></nav>
+  <span class="lab-tag"><i></i> Flexscript simulation</span>
+</header>
+<main id="main">
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <div class="hero-copy"><p class="eyebrow">EXPERIMENT 01 <span>·</span> CAMERA-DRIVEN COLLECTION</p>
+      <h1 id="hero-title">What breaks<br>the robot<span class="lime">?</span></h1>
+      <p class="hero-description">Same robot. Same RGB detector. Add a little clutter, and see what still works.</p>
+      <div class="hero-actions"><a class="button primary" href="#findings">Explore the findings <span aria-hidden="true">↓</span></a><a class="text-link" href="#runs">Inspect every run ↗</a></div>
+      <div class="setup"><span>FRONT + TCP CAMERAS</span><span>6 BRICKS → 1 BOX</span><span id="setup-seeds"></span></div>
+    </div>
+    <figure class="hero-evidence"><div class="image-topline"><span><i class="status-dot fail"></i> A LOOKALIKE BECOMES A TARGET</span><button class="icon-button" id="hero-inspect" aria-label="Inspect the coloured-decoy camera evidence">↗</button></div><img id="hero-image" alt="PuppyBot tries to pick up a plain red decoy; its TCP camera shows the selected object." fetchpriority="high"><figcaption><span>Actual simulation capture</span><span>Seed 42 · visible decoy</span></figcaption></figure>
+  </section>
+  <section class="score-strip wrap" aria-label="Overall results">
+    <div class="score-main"><span class="eyebrow">TEST SET COMPLETION</span><div><strong id="pass-fraction"></strong><span> runs succeeded</span></div><div class="score-bars" id="score-bars" aria-hidden="true"></div><p>These are deliberate challenges, not an estimate of real-world reliability.</p></div>
+    <div class="score-number"><strong id="total-runs"></strong><span>recorded runs</span></div>
+    <div class="score-number"><strong id="failed-runs" class="orange"></strong><span>task failures</span></div>
+    <div class="score-number"><strong id="execution-errors"></strong><span>execution errors</span></div>
+  </section>
+  <section id="findings" class="section wrap" aria-labelledby="findings-title">
+    <div class="section-heading"><div><p class="eyebrow">THE HIGHLIGHTS</p><h2 id="findings-title">Three things we learned.</h2></div><p>Click a capture to inspect the scene,<br>camera observations and exact outcome.</p></div>
+    <div class="finding-grid" id="finding-grid"></div>
+  </section>
+  <section class="layout-story wrap" aria-labelledby="layout-title">
+    <div class="story-copy"><p class="eyebrow">SAME CHALLENGE. DIFFERENT LAYOUT.</p><h2 id="layout-title">A divider changes<br>the whole route.</h2><p>All three occlusion levels failed on layout 42. On layout 43, the robot collected every brick at all three levels.</p><p class="muted">The failed runs recorded contact with the grey divider and timed out while searching. This exposes a navigation limit; it does not show that the detector alone failed.</p><a class="text-link" href="#comparison">Compare the evidence ↓</a></div>
+    <div class="story-pair" id="story-pair"></div>
+  </section>
+  <section id="comparison" class="section wrap" aria-labelledby="comparison-title">
+    <div class="section-heading"><div><p class="eyebrow">TWO SEEDED LAYOUTS</p><h2 id="comparison-title">The full comparison.</h2></div><p>Each cell is one physical collection attempt.<br>Select a result to see its evidence.</p></div>
+    <div class="matrix-shell"><table class="matrix"><thead><tr><th scope="col">Challenge</th><th scope="col">What changed</th><th scope="col">Layout 42</th><th scope="col">Layout 43</th></tr></thead><tbody id="matrix-body"></tbody></table></div>
+    <p class="fine-print" id="control-note"></p>
+  </section>
+  <section id="runs" class="section wrap" aria-labelledby="runs-title">
+    <div class="section-heading"><div><p class="eyebrow">EVERY RUN, WITH THE RECEIPTS</p><h2 id="runs-title">Open the test bench.</h2></div><button class="button secondary" id="download-report">Download results <span aria-hidden="true">↓</span></button></div>
+    <div class="filter-bar"><div class="filter-tabs" role="group" aria-label="Filter by result"><button class="filter-tab active" data-status="all" aria-pressed="true">All results</button><button class="filter-tab" data-status="passed" aria-pressed="false">Passed</button><button class="filter-tab" data-status="failed" aria-pressed="false">Failed</button></div><div class="select-filters"><label>Challenge<select id="challenge-filter"><option value="all">All challenges</option><option value="control">Clear control</option><option value="distractors">Coloured distractors</option><option value="touching">Touching bricks</option><option value="occlusion">Occlusion</option></select></label><label>Layout<select id="seed-filter"><option value="all">Both layouts</option><option value="42">42</option><option value="43">43</option></select></label></div></div>
+    <p class="result-count" id="result-count" aria-live="polite"></p><div class="run-grid" id="run-grid"></div><p id="empty-results" class="empty" hidden>No runs match these filters.</p>
+  </section>
+  <section class="verification wrap" aria-labelledby="verification-title"><div><p class="eyebrow">BEFORE THE STRESS TESTS</p><h2 id="verification-title">The baseline still works.</h2><p class="muted">Existing physics and simulator checks passed. These checks are separate from the 20-run comparison above.</p></div><ul id="verification-list"></ul></section>
+  <section class="method wrap" aria-labelledby="method-title"><div><p class="eyebrow">HOW TO READ THIS REPORT</p><h2 id="method-title">Pixels in. Evidence out.</h2></div><div class="method-grid"><article><span>01 / PERCEPTION</span><h3>A simple RGB detector</h3><p>Colour and shape components find bricks. This collection task does not use a trained Lego YOLO model. The box uses visible rim markers.</p></article><article><span>02 / SUCCESS</span><h3>Six real placements</h3><p>A pass requires all six dynamic bricks released and settled inside the physical box. Simulator geometry checks the outcome independently.</p></article><article><span>03 / REPLAY</span><h3>Keep the original run</h3><p>Every run retains its scene, sensor images and replay script. The inspector can copy the command for your original PuppyBot workspace.</p></article></div><details class="method-details"><summary>Experimental scope and provenance</summary><p>The two existing robot cameras keep their original mounts and field of view. The world view is an observer view. No third sensing camera was added.</p><p>The robot uses ideal simulated odometry, a known flat floor and brick height, and an assisted contact-weld grasp. Scenery props are fixed cuboids. Lighting, image noise and wheel slip were not varied in this experiment.</p><p>Green sensor boxes mark the selected component; yellow boxes are other components. These are offline overlays on the actual camera frame. A component fill ratio is not a learned confidence score.</p><dl id="provenance"></dl></details></section>
+</main>
+<footer class="footer wrap"><a class="brand" href="#main">PuppyBot<span class="brand-sub"> / test highlights</span></a><span>One page. Actual captures. Reproducible scenes.</span><button class="text-link" id="save-page">Save this page ↓</button></footer>
+<dialog id="run-dialog" aria-labelledby="dialog-title"><div class="dialog-content"><header class="dialog-header"><div><p class="eyebrow" id="dialog-meta"></p><h2 id="dialog-title"></h2></div><button class="close-button" id="close-dialog" aria-label="Close run inspector">✕</button></header><div class="dialog-layout"><div><div class="view-tabs" role="group" aria-label="Evidence view"><button class="view-tab active" data-view="outcome" aria-pressed="true">Outcome</button><button class="view-tab" data-view="initial" aria-pressed="false">Starting scene</button><button class="view-tab" data-view="sensor" aria-pressed="false">Camera frame</button></div><div class="evidence-stage" id="evidence-stage"><img id="dialog-image" alt=""><svg id="sensor-overlay" viewBox="0 0 640 480" aria-hidden="true" hidden></svg></div><p id="image-caption" class="fine-print"></p></div><aside class="run-detail"><span class="badge" id="dialog-badge"></span><p id="dialog-explanation"></p><dl class="run-metrics" id="dialog-metrics"></dl><div id="sensor-legend" class="sensor-legend" hidden><span><i class="selected-key"></i>Selected</span><span><i class="other-key"></i>Other component</span></div><div class="detail-actions"><button class="button secondary" id="copy-replay">Copy replay command</button><p class="fine-print">Runs locally in the original PuppyBot workspace.</p><div><button class="text-link" id="download-case">Scene JSON ↓</button><button class="text-link" id="download-run">Run JSON ↓</button></div><p id="copy-status" class="fine-print" role="status" aria-live="polite"></p></div></aside></div><details class="replay-details"><summary>Replay command</summary><pre id="replay-command"></pre></details></div></dialog>
+<script id="report-data" type="application/json">__PAYLOAD__</script>
+<script>__SCRIPT__</script>
+<noscript><p class="wrap">Enable JavaScript to explore the embedded results and screenshots.</p></noscript>
+</body>
+</html>

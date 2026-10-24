@@ -40,7 +40,7 @@ fn gg_show(directory, replay) {
     syscall(3, fd, 0, 0, 0, 0, 0); return result;
 }
 fn gg_usage() {
-    return pl_print(1, "Usage: puppybotgym cases\n       puppybotgym serve [--bind IPv4:PORT] [--data DIRECTORY] [--firmware PATH]\n           [--model MANIFEST] [--vision BINARY] [--vision-kernel FILE]\n       puppybotgym detect --model MANIFEST --image IMAGE [detector options]\n       puppybotgym run --output NEW_DIRECTORY [--case arm-reach|joint-stall]\n           [--seed N] [--steps N] [--firmware PATH] [--realtime] [--paused]\n       puppybotgym show|replay DIRECTORY\n       puppybotgym pause|resume|stop DIRECTORY\n\nThe native firmware runs in a separate process. servo-plant-v1 models\nencoders and motor velocity; articulated/contact physics is not implemented.\n");
+    return pl_print(1, "Usage: puppybotgym cases\n       puppybotgym serve [--bind IPv4:PORT] [--data DIRECTORY] [--firmware PATH]\n           [--backend auto|sass|cuda|hip|cpu] [--device N]\n           [--model MANIFEST] [--vision BINARY] [--vision-kernel FILE]\n       puppybotgym detect --model MANIFEST --image IMAGE [detector options]\n       puppybotgym run --output NEW_DIRECTORY [--case arm-reach|joint-stall]\n           [--seed N] [--steps N] [--firmware PATH] [--realtime] [--paused]\n       puppybotgym show|replay DIRECTORY\n       puppybotgym pause|resume|stop DIRECTORY\n\nThe native firmware runs in a separate process. servo-plant-v1 models\nencoders and motor velocity; articulated/contact physics is not implemented.\n");
 }
 fn main(argc, argv) {
     if !pl_init() || !gx_init(argc, argv) { return 1; }
