@@ -8,8 +8,9 @@ Gym's rollout lifecycle, recordings, inspection, and persistent run catalog.
 
 For interactive control through a standalone virtual serial device, use
 [`flexscript run simulator.flex`](../simulator/README.md) from the repository
-root. That reuses the servo plant in an independent process, while the normal
-Puppybot runtime and dashboard connect through their real serial adapter.
+root. That exposes the 3D environment in an independent process, while the normal
+Puppybot runtime and dashboard connect through their serial adapter. Its embedded
+controller and policies are disabled; `--servo-only` selects the older plant.
 
 The management UI is a **Monolith app**: declarative Flexscript `view` definitions
 render the page and compile its keyed DOM patches. Monolith handles form actions,

@@ -17,8 +17,10 @@ it is loaded automatically when running from the repository root.
 
 For a separate virtual serial simulator, start `flexscript run simulator.flex`
 in another terminal. It prints the `/dev/pts/N` device and the exact Puppybot
-connection command. See the [serial simulator](flex/simulator/README.md) for
-details. This models servo motion and faults; it does not yet render a 3D world.
+connection command, including `--virtual-bus` for vehicle outputs. The 3D scene
+shows the motion commanded by the separate Puppybot controller. See the
+[serial simulator](flex/simulator/README.md) for details; `--servo-only` retains
+the lightweight non-rendering model.
 
 PuppyBot is PuppyCorp's four-wheel service robot with a four-joint PuppyArm.
 The active control stack is Rust and shares protocol, arm control, safety, and

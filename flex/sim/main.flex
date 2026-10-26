@@ -10,6 +10,7 @@ import "discovery.flex";
 import "grasp.flex";
 import "collect.flex";
 import "gym.flex";
+import "serial.flex";
 
 global ps_robot = 0;
 global ps_system = 0;
@@ -31,6 +32,7 @@ global ps_json = 0;
 global ps_builder = 0;
 
 fn ps_reset() {
+    if ps_external && ps_serial_context { ps_serial_quarantine(pl_now() + 350); }
     ps_preview_next = 0; ps_camera_drive_mode = 0;
     ps_stock_reset();
     ps_crumb_reset();
@@ -41,12 +43,14 @@ fn ps_reset() {
     ps_pickup_phase(0); ps_pickup_passed = 0; ps_pickup_reason = "idle";
     ps_episode = ps_episode + 1;
     ps_time = 0; ps_step = 0; ps_keyboard_drive = 0; ps_keyboard_joint = -1;
-    gs_init(ps_plant, ps_config, ps_bus, 42, -1); if pb_robot_configure(ps_robot, ps_config, 0) { return 0; }
+    let jam = -1; if ps_external { jam = ps_serial_jam; }
+    gs_init(ps_plant, ps_config, ps_bus, 42, jam); if pb_robot_configure(ps_robot, ps_config, 0) { return 0; }
     pb_system_init(ps_system, ps_robot); pr_init(ps_app, ps_robot, ps_system, ps_config, "build/flex/sim/config.json", 1, pl_now());
     pb_vset(ps_app, 3, ps_bus); pb_vset(ps_app, 30, ps_trace + 2048); ps_world_init();
     // Warm up the production controller's feedback and wheel-mode handshake.
     let i = 0;
-    while i < 64 { gs_step(ps_plant); if pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024) < 0 { return 0; } ps_time = ps_time + 20; i = i + 1; }
+    while !ps_external && i < 64 { gs_step(ps_plant); if pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024) < 0 { return 0; } ps_time = ps_time + 20; i = i + 1; }
+    if ps_external { ps_serial_feedback(); }
     ps_model_update(ps_robot, ps_plant, ps_x, ps_y, ps_heading, ps_wheel);
     ps_vehicle_init(); ps_gripper_init(ps_robot, ps_plant); ps_solid_init(); ps_arm_proxy_update(1);
     ps_local_reset();
@@ -92,7 +96,7 @@ fn ps_observation() {
     pl_text(b, ",\"frameId\":"); pl_uint(b, ps_live_frame); pl_text(b, ",\"capturedMs\":"); pl_uint(b, ps_live_time);
     pl_text(b, ",\"confidence\":"); pl_float(b, ps_live_score); pl_text(b, ",\"label\":"); if ps_live_label && ps_live_score { pj_text(b, ps_live_label); } else { pl_text(b, "null"); }
     pl_text(b, ",\"box\":"); if ps_live_score { pl_char(b, 91); i = 0; while i < 4 { if i { pl_char(b, 44); } pl_float(b, pb_vget(ps_live_box, i)); i = i + 1; } pl_char(b, 93); } else { pl_text(b, "null"); } pl_char(b, 125);
-    pl_char(b, 125); ps_case_observation(b); ps_discovery_observation(b); if ps_stock_enabled { ps_stock_state(b); } pl_text(b, ",\"controller\":"); pr_state(ps_app, b, ps_time, 0); pl_text(b, "}\n");
+    pl_char(b, 125); ps_case_observation(b); ps_discovery_observation(b); if ps_stock_enabled { ps_stock_state(b); } ps_serial_observation(b); pl_text(b, ",\"controller\":"); if ps_external { pl_text(b, "null"); } else { pr_state(ps_app, b, ps_time, 0); } pl_text(b, "}\n");
     if load64(b + 24) { return 0; } if ps_output >= 0 && pl_write(ps_output, ps_json, load64(b + 8)) { return 0; } return 1;
 }
 fn ps_demo() {
@@ -106,18 +110,18 @@ fn ps_demo() {
 }
 fn ps_tick(demo) {
     if demo && !ps_demo() { pl_print(2, "Demo joint target was rejected by the controller.\n"); return 0; }
-    pr_refresh(ps_app, ps_time); ps_solid_step();
-    let cycle = pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024);
+    if !ps_external { pr_refresh(ps_app, ps_time); } ps_solid_step();
+    let cycle = 0; if !ps_external { cycle = pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024); }
+    else { ps_serial_feedback(); }
     if cycle < 0 { pl_print(2, "Serialized servo cycle failed.\n"); return 0; }
     ps_model_update(ps_robot, ps_plant, ps_x, ps_y, ps_heading, ps_wheel);
     ps_drive_step(ps_robot); ps_model_update(ps_robot, ps_plant, ps_x, ps_y, ps_heading, ps_wheel);
-    ps_route_before_local(); ps_local_step(); ps_route_after_local();
+    if !ps_external { ps_route_before_local(); ps_local_step(); ps_route_after_local(); }
     if !ps_contacts(ps_robot, ps_plant) {
         pl_builder(ps_builder, ps_json, 16384); pl_text(ps_builder, "Physics fault code: "); pl_int(ps_builder, load64(ps_physics + 192)); pl_text(ps_builder, "\n"); pl_print(2, ps_json); return 0;
     }
     ps_step = ps_step + 1; ps_total = ps_total + 1; ps_time = ps_time + 20;
-    ps_crumb_poll();
-    ps_pickup_update(); ps_case_update(); ps_stock_update(); ps_discovery_update();
+    if !ps_external { ps_crumb_poll(); ps_pickup_update(); ps_case_update(); ps_stock_update(); ps_discovery_update(); }
     if ps_gym_directory && !(ps_step % 25) && !ps_gym_sample() { return 0; }
     // HTTP state replies and the final summary serialize their own observation.
     if ps_output >= 0 && !ps_observation() { pl_print(2, "Cannot serialize or write the simulation recording.\n"); return 0; } return 1;
@@ -156,7 +160,7 @@ fn ps_case_route(c, wall) {
     }
     return 0;
 }
-fn ps_stop() { pr_stop(ps_app, ps_time); ps_keyboard_drive = 0; ps_keyboard_joint = -1; return 0; }
+fn ps_stop() { if ps_external { ps_serial_stop(); } pr_stop(ps_app, ps_time); ps_keyboard_drive = 0; ps_keyboard_joint = -1; return 0; }
 fn ps_container_route(c, wall) {
     let path = c + 160;
     if !pl_equal(c + 128, "POST") || (!pl_equal(path, "/api/sim/container/push") && !pl_equal(path, "/api/sim/container/markers")) { return 0; }
@@ -183,6 +187,14 @@ fn ps_dispatch(wall) {
     let i = 0;
     while i < 32 {
         let c = pn_clients + i * 65536;
+        if ps_external && load64(c) >= 0 && pb_vget(c, 1) == 2 { pnet_ws_close(c, 1008, wall); }
+        if ps_external && load64(c) >= 0 && pb_vget(c, 1) == 1 {
+            let path = c + 160; let method = c + 128; let allowed = 0;
+            if pl_equal(method, "GET") && (pl_equal(path, "/api/sim/state") || pl_equal(path, "/api/sim/views")) { allowed = 1; }
+            if pl_equal(method, "POST") && (pl_equal(path, "/api/sim/pause") || pl_equal(path, "/api/sim/resume") || pl_equal(path, "/api/sim/reset") || pl_equal(path, "/api/sim/gripper/open") || pl_equal(path, "/api/sim/gripper/close")) { allowed = 1; }
+            if pl_equal(method, "GET") && pl_equal(path, "/health") { pnet_reply(c, 200, "application/json", "{\"ok\":true}", 11, wall); }
+            else if !allowed { pnet_error(c, 409, "External controller mode: connect Puppybot to the printed serial device; this endpoint only controls the scene", wall); }
+        }
         if load64(c) >= 0 && pb_vget(c, 1) == 1 && pl_starts(c + 160, "/api/sim/") {
             let path = c + 160; let method = c + 128; let handled = 0; if ps_case_route(c, wall) { handled = 2; }
             if !handled && ps_container_route(c, wall) { handled = 2; }
@@ -191,7 +203,7 @@ fn ps_dispatch(wall) {
             }
             if pl_equal(path, "/api/sim/state") && pl_equal(method, "GET") { handled = 1; }
             if pl_equal(method, "POST") {
-                if pl_equal(path, "/api/sim/pause") { if !ps_task_running() { ps_stop(); } ps_paused = 1; handled = 1; }
+                if pl_equal(path, "/api/sim/pause") { if !ps_task_running() { ps_stop(); } if ps_external { ps_serial_quarantine(-1); } ps_paused = 1; handled = 1; }
                 if pl_equal(path, "/api/sim/resume") { ps_paused = 0; handled = 1; }
                 if pl_equal(path, "/api/sim/shuffle") {
                     if ps_case_index < 0 || !ps_case_random { pnet_error(c, 400, "selected case has no random floor placement", wall); handled = 2; }
@@ -211,11 +223,17 @@ fn ps_dispatch(wall) {
         }
         i = i + 1;
     }
-    pnet_dispatch_at(ps_app, wall, ps_time); return 1;
+    if !ps_external { pnet_dispatch_at(ps_app, wall, ps_time); } return 1;
 }
 fn ps_title() {
     pl_builder(ps_builder, ps_json, 16384); pl_text(ps_builder, "PuppyBot | ");
     if ps_paused { pl_text(ps_builder, "PAUSED (N step)"); } else { pl_text(ps_builder, "RUNNING"); }
+    if ps_external {
+        pl_text(ps_builder, " | EXTERNAL SERIAL "); pl_text(ps_builder, ps_serial_path);
+        if ps_blocked { pl_text(ps_builder, " | DRIVE BLOCKED"); } if ps_arm_blocked { pl_text(ps_builder, " | ARM BLOCKED"); }
+        pl_text(ps_builder, " | Control from Puppybot dashboard | V world/TCP | T TCP inset | K colliders | Space pause | R reset | O/C gripper");
+        return gui_title(load64(ps_device), ps_json);
+    }
     pl_text(ps_builder, " | joint "); pl_text(ps_builder, pr_joint_name(ps_selected, 0));
     pl_text(ps_builder, " | ");
     if ps_case_index >= 0 { pl_text(ps_builder, ps_case_name()); pl_text(ps_builder, " | "); pl_text(ps_builder, ps_case_phase_name()); pl_text(ps_builder, " | "); pl_int(ps_builder, ps_case_placed); pl_char(ps_builder, 47); pl_int(ps_builder, ps_case_count); }
@@ -238,6 +256,7 @@ fn ps_title() {
     return gui_title(load64(ps_device), ps_json);
 }
 fn ps_keyboard() {
+    if ps_external { return 0; }
     let w = load64(ps_device); let throttle = (gui_key(w, 26) - gui_key(w, 22)) * 40; let steer = (gui_key(w, 7) - gui_key(w, 4)) * 60;
     if !ps_paused && (throttle || steer || gui_key(w, 8) || gui_key(w, 20)) { ps_task_cancel("manual robot control"); }
     if !ps_paused && (throttle || steer) { pb_drive_steer(pb_robot_drive(ps_robot), throttle, steer, ps_time); ps_keyboard_drive = 1; }
@@ -250,10 +269,14 @@ fn ps_keyboard() {
     return 0;
 }
 fn ps_usage() {
-    return pl_print(1, "Usage: flexscript run sim.flex [--case ID] [--drift 0..100] [options]\nNative: puppybot-sim [--headless | --hidden] [--steps N]\n       [--demo | --pickup | --pickup-release | --vision-pickup | --vision-pickup-release]\n       [--environment apartment|FILE] [--spawn '[x,y,headingRadians]']\n       [--case ID | --case-file FILE | --list-cases] [--seed N] [--bind IPv4:PORT] [--model FILE] [--record NEW_JSONL]\n       [--discover] [--map-output NEW_DIRECTORY] [--mapping-scans 1..100]\n       [--video NEW_MP4] [--video-fps 1..50] [--gym-output NEW_DIRECTORY]\n       [--capture NEW_PPM_OR_PNG] [--sensor-capture NEW_PREFIX] [--camera orbit|tcp] [--tcp-view | --no-tcp-view] [--camera-panels | --no-camera-panels] [--colliders] [--realtime] [--paused]\n       [--stock-landmarks | --stock-pickup] [--landmark-output NEW_DIRECTORY] [--landmark-jpeg-quality 1..100] [--landmark-confidence 25..100]\n       [--visual-odometry | --no-visual-odometry | --breadcrumbs] [--breadcrumb-output NEW_DIRECTORY] [--no-breadcrumb-corrections]\n       [--localization oracle|wheel|wheel-drift] [--odometry-seed N] [--drift 0..100 | --odometry-drift 0..100]\n       [--until-done] [--detector-model MODEL.json] [--vision-binary EXECUTABLE]\n       [--vision-kernel DIRECTORY] [--vision-backend auto|sass|cuda|hip|cpu]\n       [--vision-output DIRECTORY] [--search-output NEW_DIRECTORY] [--detector-view | --no-detector-view]\n\nWASD drive; 1-4 select joint; Q/E jog; Space pause; N single step; R reset.\nTab shows catalog; [ / ] selects a case; P runs selected case or pickup; O/C opens/closes gripper; V cycles world/TCP camera; T toggles TCP inset; L toggles the live TCP panel; B toggles live YOLO markings; K toggles robot colliders; G shuffles random cases.\nDrag mouse to orbit; wheel zoom. Escape closes. Robot API: 127.0.0.1:8082.\nHeadless requires --steps. Vision requires rendering (use --hidden for batches).\n--until-done stops a finite case run on success/failure and captures that outcome.\nRobot motion is kinematic; grasp uses a constraint after both fingers contact.\n");
+    if ps_external {
+        return pl_print(1, "Usage: flexscript run simulator.flex [--headless | --hidden --steps N] [options]\n       [--config PATH] [--environment apartment|FILE] [--spawn '[x,y,heading]']\n       [--temperature 0..255] [--jam 0..3] [--bind IPv4:PORT]\n       [--capture NEW_PNG --steps N] [--record NEW_JSONL] [--colliders]\n\nCreates a private serial bus for an independent puppybot.flex controller.\nCopy the printed connection command, then enable outputs in the dashboard.\nDefault configuration: ./puppybot.json. Arm packets use STServo; the explicit\n--virtual-bus adapter supplies DC-drive outputs on the same private PTY.\nNo embedded controller, keyboard drive/jog, or autonomous policy runs here.\nDrag/wheel change the view; V/T cameras, K colliders, O/C auxiliary gripper,\nSpace pause, R reset. Pause/reset stops motion and requires output re-enable.\nUse --servo-only for the lightweight non-rendering servo model.\n");
+    }
+    return pl_print(1, "Usage: flexscript run sim.flex [--case ID] [--drift 0..100] [options]\nNative: puppybot-sim [--headless | --hidden] [--steps N]\n       [--external-serial --config PATH --temperature 0..255 --jam 0..3]\n       [--demo | --pickup | --pickup-release | --vision-pickup | --vision-pickup-release]\n       [--environment apartment|FILE] [--spawn '[x,y,headingRadians]']\n       [--case ID | --case-file FILE | --list-cases] [--seed N] [--bind IPv4:PORT] [--model FILE] [--record NEW_JSONL]\n       [--discover] [--map-output NEW_DIRECTORY] [--mapping-scans 1..100]\n       [--video NEW_MP4] [--video-fps 1..50] [--gym-output NEW_DIRECTORY]\n       [--capture NEW_PPM_OR_PNG] [--sensor-capture NEW_PREFIX] [--camera orbit|tcp] [--tcp-view | --no-tcp-view] [--camera-panels | --no-camera-panels] [--colliders] [--realtime] [--paused]\n       [--stock-landmarks | --stock-pickup] [--landmark-output NEW_DIRECTORY] [--landmark-jpeg-quality 1..100] [--landmark-confidence 25..100]\n       [--visual-odometry | --no-visual-odometry | --breadcrumbs] [--breadcrumb-output NEW_DIRECTORY] [--no-breadcrumb-corrections]\n       [--localization oracle|wheel|wheel-drift] [--odometry-seed N] [--drift 0..100 | --odometry-drift 0..100]\n       [--until-done] [--detector-model MODEL.json] [--vision-binary EXECUTABLE]\n       [--vision-kernel DIRECTORY] [--vision-backend auto|sass|cuda|hip|cpu]\n       [--vision-output DIRECTORY] [--search-output NEW_DIRECTORY] [--detector-view | --no-detector-view]\n\nWASD drive; 1-4 select joint; Q/E jog; Space pause; N single step; R reset.\nTab shows catalog; [ / ] selects a case; P runs selected case or pickup; O/C opens/closes gripper; V cycles world/TCP camera; T toggles TCP inset; L toggles the live TCP panel; B toggles live YOLO markings; K toggles robot colliders; G shuffles random cases.\nDrag mouse to orbit; wheel zoom. Escape closes. Robot API: 127.0.0.1:8082.\nHeadless requires --steps. Vision requires rendering (use --hidden for batches).\n--until-done stops a finite case run on success/failure and captures that outcome.\nRobot motion is kinematic; grasp uses a constraint after both fingers contact.\n");
 }
 fn main(argc, argv) {
     if !pl_init() { return 1; } h_environment(argc, argv); gx_env = argv + (argc + 1) * 8;
+    ps_serial_config = "./puppybot.json";
     ps_vision_binary = "build/flex/puppybot-vision"; ps_vision_manifest = "build/flex/vision/yolo26n/model.json"; ps_vision_kernel = "build/flex/pup-kernels"; ps_vision_backend = "auto"; ps_vision_root = "build/flex/sim/vision";
     let headless = 0; let hidden = 0; let steps = 0; let demo = 0; let pickup = 0; let realtime = 0; let capture = 0; let record = 0; let tcp_view = -1; let detector_view = -1; let case_id = 0; let list_cases = 0;
     let model = "build/flex/sim/puppybot.bin"; let bind = "127.0.0.1:8082"; let i = 1; let environment = 0; let spawn = 0;
@@ -262,6 +285,7 @@ fn main(argc, argv) {
         let arg = pb_vget(argv, i);
         if pl_equal(arg, "--help") { ps_usage(); return 0; }
         if pl_equal(arg, "--list-cases") { list_cases = 1; }
+        else if pl_equal(arg, "--external-serial") { ps_external = 1; realtime = 1; }
         else if pl_equal(arg, "--headless") { headless = 1; }
         else if pl_equal(arg, "--hidden") { hidden = 1; }
         else if pl_equal(arg, "--colliders") { ps_colliders = 1; }
@@ -288,7 +312,10 @@ fn main(argc, argv) {
         else if pl_equal(arg, "--no-breadcrumb-corrections") { ps_crumb_enabled = 1; ps_crumb_apply = 0; }
         else {
             if i + 1 >= argc { ps_usage(); return 2; } let value = pb_vget(argv, i + 1); i = i + 1;
-            if pl_equal(arg, "--steps") { steps = pl_integer(value, pl_size(value)); if pl_bad_number || steps < 1 || steps > 1000000 { return 2; } }
+            if pl_equal(arg, "--config") { ps_serial_config = value; }
+            else if pl_equal(arg, "--temperature") { ps_serial_temperature = pl_integer(value, pl_size(value)); if pl_bad_number || ps_serial_temperature < 0 || ps_serial_temperature > 255 { return 2; } }
+            else if pl_equal(arg, "--jam") { ps_serial_jam = pl_integer(value, pl_size(value)); if pl_bad_number || ps_serial_jam < 0 || ps_serial_jam > 3 { return 2; } }
+            else if pl_equal(arg, "--steps") { steps = pl_integer(value, pl_size(value)); if pl_bad_number || steps < 1 || steps > 1000000 { return 2; } }
             else if pl_equal(arg, "--video") { video = value; }
             else if pl_equal(arg, "--video-fps") { ps_video_fps = pl_integer(value, pl_size(value)); if pl_bad_number || ps_video_fps < 1 || ps_video_fps > 50 { pl_print(2, "--video-fps must be an integer from 1 to 50.\n"); return 2; } video_fps = 1; }
             else if pl_equal(arg, "--seed") { ps_case_seed = pl_integer(value, pl_size(value)); if pl_bad_number || ps_case_seed < 0 || ps_case_seed > 4294967295 { return 2; } }
@@ -322,6 +349,7 @@ fn main(argc, argv) {
         }
         i = i + 1;
     }
+    if ps_external && (case_id || case_file || demo || pickup || ps_discovery_enabled || ps_stock_enabled || ps_gym_directory || ps_crumb_enabled) { pl_print(2, "External serial mode requires a manual scene, without an embedded policy or Gym worker.\n"); return 2; }
     if !ps_catalog_load() { pl_print(2, "Invalid/missing simulation case catalog.\n"); return 2; }
     if list_cases { pl_write(1, ps_catalog, ps_catalog_size); return 0; }
     if case_file {
@@ -340,7 +368,7 @@ fn main(argc, argv) {
     if mapping_arg && !ps_discovery_enabled { pl_print(2, "Mapping options require --discover or a discovery pickup case.\n"); return 2; }
     if ps_discovery_enabled && ((case_id && !ps_collect_enabled) || demo || pickup || ps_stock_enabled || headless || ps_local_requested == 0 || ps_crumb_repeat) { pl_print(2, "Discovery requires rendering, wheel localization and its own controller.\n"); return 2; }
     if ps_collect_enabled && !mapping_arg { ps_discovery_limit = 100; }
-    if (headless && (!steps || capture || hidden || ps_paused)) || (capture && !steps) || (hidden && !steps) || (ps_paused && hidden && !ps_gym_directory) || (demo && pickup) { ps_usage(); return 2; }
+    if (headless && ((!steps && !ps_external) || capture || hidden || ps_paused)) || (capture && !steps) || (hidden && !steps) || (ps_paused && hidden && !ps_gym_directory) || (demo && pickup) { ps_usage(); return 2; }
     if ps_gym_directory && (!case_id || !steps || headless || record || capture || video || !hidden || pl_size(ps_gym_directory) > 3000) { pl_print(2, "Gym output requires a finite hidden case without separate recording/capture options.\n"); return 2; }
     if sensor_capture && (headless || !steps) { pl_print(2, "--sensor-capture requires rendering and a finite --steps budget.\n"); return 2; }
     if (video && headless) || (video_fps && !video) { pl_print(2, "--video requires rendering; --video-fps requires --video.\n"); return 2; }
@@ -373,7 +401,9 @@ fn main(argc, argv) {
     }
     ps_robot = alloc(8192); ps_system = alloc(2048); ps_config = alloc(448); ps_app = alloc(2048); ps_bus = alloc(16384); ps_plant = alloc(2048);
     ps_trace = alloc(69632); ps_json = alloc(16384); ps_builder = alloc(32); pb_config_default(ps_config); pb_vset(ps_config + 40, 2, 5);
+    if ps_external && pc_load(ps_config, ps_serial_config, ps_trace) != 1 { pl_print(2, "External serial mode requires an existing valid --config file.\n"); return 2; }
     if !ps_reset() { pl_print(2, "Controller initialization failed.\n"); return 1; }
+    if ps_external && !ps_serial_open() { return 1; }
     if pickup { ps_pickup_start(pickup == 2); }
     let address = alloc(16); let size = pl_size(bind); let colon = ph_find(bind, size, ":", 1);
     if colon < 1 { return 2; } let port = pl_integer(bind + colon + 1, size - colon - 1);
@@ -382,6 +412,7 @@ fn main(argc, argv) {
     if record { ps_output = syscall(2, record, 0x800c1, 384, 0, 0, 0); if ps_output < 0 { pl_print(2, "Recording path must be new.\n"); return 2; } }
     pl_builder(ps_builder, ps_json, 16384); pl_text(ps_builder, "PuppyBot Flexscript simulation | robot API port "); pl_int(ps_builder, pn_port); pl_text(ps_builder, "\n"); pl_print(1, ps_json);
     if !headless { ps_render_init(hidden); if ps_live_enabled { ps_live_init(); } ps_usage(); }
+    if ps_external { ps_serial_announce(); }
     if ps_stock_enabled { ps_preview_init(); if !ps_stock_begin() { pl_print(2, "Landmark output must be a new writable directory.\n"); return 2; } }
     if ps_environment { pl_print(1, "Blender apartment: full walls in TCP; cutaway world overview. WASD drive, V camera, T TCP inset.\n"); }
     if case_id { ps_case_start(); }
@@ -397,19 +428,19 @@ fn main(argc, argv) {
             while gui_poll(event) {
                 let kind = gui_event_kind(event); let code = gui_event_code(event);
                 if kind == GUI_QUIT || kind == GUI_CLOSE || (kind == GUI_KEY_DOWN && code == GUI_KEY_ESCAPE) { active = 0; }
-                if kind == GUI_FOCUS && !code && !ps_task_running() { ps_stop(); }
+                if kind == GUI_FOCUS && !code && !ps_external && !ps_task_running() { ps_stop(); }
                 if kind == GUI_KEY_DOWN && !gui_event_repeat(event) {
                     if code >= 30 && code <= 33 { ps_selected = code - 30; }
                     if code == 44 { if !ps_task_running() { ps_stop(); } ps_paused = !ps_paused; }
                     if code == 17 && ps_paused { single = 1; }
                     if code == 21 { if !ps_reset() || (ps_stock_enabled && !ps_stock_restart()) { result = 1; active = 0; } }
-                    if code == 19 { if !ps_reset() { result = 1; active = 0; } else { if ps_stock_enabled { if !ps_stock_restart() { result = 1; active = 0; } } else if ps_case_index >= 0 { ps_case_start(); } else { ps_pickup_start(0); } } }
+                    if !ps_external && code == 19 { if !ps_reset() { result = 1; active = 0; } else { if ps_stock_enabled { if !ps_stock_restart() { result = 1; active = 0; } } else if ps_case_index >= 0 { ps_case_start(); } else { ps_pickup_start(0); } } }
                     if code == 18 { ps_task_cancel("manual gripper open"); ps_gripper_command(1); }
                     if code == 6 { ps_task_cancel("manual gripper close"); ps_gripper_command(0); }
                     if code == 10 && ps_case_index >= 0 && ps_case_random { ps_case_seed = (ps_case_seed + 1) & 0xffffffff; if !ps_reset() || !ps_case_start() { result = 1; active = 0; } }
                     if code == 14 { ps_colliders = !ps_colliders; }
-                    if code == 43 { ps_case_menu = !ps_case_menu; }
-                    if (code == 47 || code == 48) && !ps_discovery_enabled {
+                    if !ps_external && code == 43 { ps_case_menu = !ps_case_menu; }
+                    if !ps_external && (code == 47 || code == 48) && !ps_discovery_enabled {
                         if ps_stock_enabled { ps_task_cancel("case selection"); ps_stock_enabled = 0; ps_stock_pickup = 0; }
                         let direction = 1; if code == 47 { direction = -1; }
                         let next_case = (ps_case_index + direction + ps_catalog_count) % ps_catalog_count; let tries = 0;
@@ -431,6 +462,7 @@ fn main(argc, argv) {
             }
             ps_keyboard();
         }
+        if !ps_serial_poll(wall) { result = 1; active = 0; }
         pnet_io(wall); if !ps_dispatch(wall) { result = 1; active = 0; }
         if active && (!ps_paused || single) && ((!realtime && (headless || hidden)) || wall >= next || single) {
             next = wall + 20; single = 0;
@@ -472,7 +504,7 @@ fn main(argc, argv) {
     if ps_discovery_enabled && ps_discovery_phase != 6 { pl_print(2, "Discovery stopped: "); pl_print(2, ps_discovery_reason); pl_print(2, "\n"); result = 1; }
     if ps_discovery_job { h_stop(ps_discovery_job); ps_discovery_job = 0; }
     if ps_stock_enabled && ps_stock_phase != 4 { pl_print(2, "Landmark return incomplete: "); pl_print(2, ps_stock_reason); pl_print(2, "\n"); result = 1; }
-    pl_print(1, ps_json); ps_stop(); pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024);
+    pl_print(1, ps_json); ps_stop(); if !ps_external { pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024); } ps_serial_close();
     if ps_output >= 0 { if syscall(74, ps_output, 0, 0, 0, 0, 0) { result = 1; } syscall(3, ps_output, 0, 0, 0, 0, 0); }
     if video && !ps_video_close() { result = 1; }
     result = ps_gym_finish(result);

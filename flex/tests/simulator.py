@@ -25,7 +25,7 @@ ENV = {key: value for key, value in os.environ.items() if not key.startswith('PU
 
 class Simulator:
     def __init__(self, config=ROOT/'puppybot.json', source=False, options=()):
-        args = [COMPILER, 'run', str(ROOT/'simulator.flex')] if source else [str(BIN)]
+        args = [COMPILER, 'run', str(ROOT/'simulator.flex'), '--servo-only'] if source else [str(BIN)]
         if config is not None:
             args += ['--config', str(config)]
         args += list(options)
@@ -190,7 +190,7 @@ def boundaries(directory):
     result = subprocess.run([str(BIN), '--state', str(alias)], cwd=ROOT, env=ENV, capture_output=True, text=True, timeout=3)
     check(result.returncode == 2 and 'must not overwrite' in result.stderr, 'state output cannot overwrite calibration even through an alias')
     before = hashlib.sha256(BIN.read_bytes()).digest()
-    result = subprocess.run([COMPILER, 'run', str(ROOT/'simulator.flex')], cwd=ROOT,
+    result = subprocess.run([COMPILER, 'run', str(ROOT/'simulator.flex'), '--servo-only'], cwd=ROOT,
                             env=dict(ENV, FLEXSCRIPT_COMPILER='/usr/bin/false'), capture_output=True, text=True, timeout=5)
     check(result.returncode == 1 and 'native compilation failed' in result.stderr, 'simulator source never starts stale executable on build failure')
     check(hashlib.sha256(BIN.read_bytes()).digest() == before, 'failed simulator build preserves artifact')

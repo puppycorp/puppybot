@@ -5,7 +5,7 @@ import "dashboard.flex";
 extend "syntax.flex";
 
 fn pr_usage() {
-    return pl_print(1, "Usage: puppybot-runtime [--fake | --servo-device PATH] [--config PATH]\n       [--bind IPv4:PORT] [--baud RATE] [--ticks N] [--headless]\n\nWith no arguments/device environment, use the byte-level fake bus.\nPhysical mode requires an existing calibration and starts in monitor mode.\nPOST /api/control/enable with fresh position/temperature feedback to allow output.\n");
+    return pl_print(1, "Usage: puppybot-runtime [--fake | --servo-device PATH] [--config PATH]\n       [--bind IPv4:PORT] [--baud RATE] [--ticks N] [--headless] [--virtual-bus]\n\nWith no arguments/device environment, use the byte-level fake bus.\nPhysical mode requires an existing calibration and starts in monitor mode.\nPOST /api/control/enable with fresh position/temperature feedback to allow output.\n");
 }
 fn pr_options(argc, argv, options) {
     pb_zero(options, 128); let config = pl_environment(argc, argv, "PUPPYBOT_RUNTIME_CONFIG");
@@ -19,6 +19,7 @@ fn pr_options(argc, argv, options) {
         let arg = load64(argv + i * 8);
         if pl_equal(arg, "--help") || pl_equal(arg, "-h") { return 1; }
         if pl_equal(arg, "--fake") { pb_vset(options, 3, 1); }
+        else if pl_equal(arg, "--virtual-bus") { pb_vset(options, 6, 1); }
         else if pl_equal(arg, "--headless") {}
         else if pl_equal(arg, "--config") || pl_equal(arg, "--bind") || pl_equal(arg, "--servo-device") || pl_equal(arg, "--baud") || pl_equal(arg, "--ticks") {
             if i + 1 >= argc { return -1; } i = i + 1; let value = load64(argv + i * 8); if !load8(value) { return -1; }
@@ -34,6 +35,7 @@ fn pr_options(argc, argv, options) {
         i = i + 1;
     }
     if pb_vget(options, 3) && pb_vget(options, 2) { return -1; }
+    if pb_vget(options, 6) && (pb_vget(options, 3) || !pb_vget(options, 2)) { return -1; }
     if argc == 1 && !pb_vget(options, 2) { pb_vset(options, 3, 1); }
     if !pb_vget(options, 1) { pb_vset(options, 1, "127.0.0.1:8081"); }
     return 0;
@@ -79,7 +81,7 @@ fn pr_poll_fds(buffer, signal, serial) {
     if pn_listener >= 0 { store64(buffer, (pn_listener & 0xffffffff) | (1 << 32)); count = count + 1; }
     if signal >= 0 { store64(buffer + count * 8, (signal & 0xffffffff) | (1 << 32)); count = count + 1; }
     if serial && load64(serial) >= 0 {
-        let events = 1; if pb_vget(serial, 1) { events = events | 4; }
+        let events = 1; if pb_vget(serial, 1) || pb_vget(serial, 7) { events = events | 4; }
         store64(buffer + count * 8, (load64(serial) & 0xffffffff) | (events << 32)); count = count + 1;
     }
     let i = 0;
@@ -103,6 +105,10 @@ fn pr_reconnect(app, now) {
     pr_stop(app, now); let robot = load64(app); let system = pb_vget(app, 1);
     let i = 0; while i < 4 { pb_arm_feedback_error(robot, i); i = i + 1; }
     store64(robot + 4256, -1); pb_system_init(system, robot); ps_init(serial, fd);
+    if pb_vget(app, 40) {
+        if !ps_virtual_capable(fd) { syscall(3, fd, 0, 0, 0, 0, 0); store64(serial, -1); return 0; }
+        pb_vset(serial, 11, 1);
+    }
     if pb_vget(app, 37) { pr_guard_init(app); }
     pr_last(app, "serial reconnected; motion stopped"); return 1;
 }
@@ -123,13 +129,22 @@ fn pr_loop(app, tick_limit) {
         if !fake && active { if ps_pump(serial, system, now) < 0 { pr_stop(app, now); } }
         if active && !pb_system_active(system) { pr_guard_cycle(app); ticks = ticks + 1; if !stopping { pnet_telemetry(app, now); } }
         if !stopping { pr_guard_poll(app, now); }
-        if stopping && ((!pb_system_active(system) && stop_cycle) || now >= stop_deadline) { return 0; }
+        let virtual_ready = 1;
+        if pb_vget(app, 40) && !pb_system_active(system) && load64(serial) >= 0 {
+            virtual_ready = ps_virtual_pump(serial, robot, !stopping && pb_vget(app, 38) == 1 && pb_feedback_ready(system, now), now);
+            if virtual_ready < 0 { ps_lost(serial, system); pr_stop(app, now); }
+        }
+        if stopping && ((!pb_system_active(system) && stop_cycle && virtual_ready != 0) || now >= stop_deadline) { return 0; }
         pnet_io(now);
         if !stopping { pu_poll(app, now); }
         if pb_vget(app, 37) && !stopping { pnet_dispatch(app, now); pr_guard_poll(app, now); }
         if !pb_system_active(system) {
             if !stopping { if !pb_vget(app, 37) { pnet_dispatch(app, now); } if !pu_lease && (fake || load64(serial) >= 0) { pr_refresh(app, now); } }
-            if stopping || now >= next_tick {
+            if pb_vget(app, 40) && load64(serial) >= 0 {
+                virtual_ready = ps_virtual_pump(serial, robot, !stopping && pb_vget(app, 38) == 1 && pb_feedback_ready(system, now), now);
+                if virtual_ready < 0 { ps_lost(serial, system); pr_stop(app, now); }
+            }
+            if virtual_ready != 0 && (stopping || now >= next_tick) {
                 next_tick = now + 20; if stopping { stop_cycle = 1; }
                 if fake {
                     pr_fake_advance(bus); let n = pb_fake_cycle(system, bus, now, trace, 1024); if n < 0 { return 3; }
@@ -166,12 +181,16 @@ fn main(argc, argv) {
     if !fake {
         let path = pb_vget(options, 2); if !path { pl_print(2, "Select a serial bus with --servo-device PATH, or use --fake.\n"); return 2; }
         fd = ps_open(path, pb_vget(options, 4)); if fd < 0 { ps_open_error(path, fd); return 1; }
+        if pb_vget(options, 6) && !ps_virtual_capable(fd) {
+            pl_print(2, "--virtual-bus requires a Linux slave PTY; select the simulator's printed /dev/pts/N device.\n"); syscall(3, fd, 0, 0, 0, 0, 0); return 2;
+        }
     }
     let started = pl_now(); if pb_robot_configure(robot, config, 0) { if fd >= 0 { syscall(3, fd, 0, 0, 0, 0, 0); } return 2; }
     pb_system_init(system, robot); ps_init(serial, fd); pr_init(app, robot, system, config, pb_vget(options, 0), fake, started);
     pb_vset(app, 3, bus); pb_vset(app, 4, serial); pb_vset(app, 30, saved); if fake { pr_fake_setup(bus, config); }
     if !fake { pr_guard_init(app); }
     pb_vset(app, 31, pb_vget(options, 2)); pb_vset(app, 32, pb_vget(options, 4));
+    pb_vset(app, 40, pb_vget(options, 6)); pb_vset(serial, 11, pb_vget(options, 6));
     let listener = pnet_init(address);
     if listener < 0 {
         let error_builder = pl_scratch + 512; pl_builder(error_builder, input, 65537);

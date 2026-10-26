@@ -1,6 +1,7 @@
 // One controller instance is shared by HTTP and protocol v1 WebSocket clients.
 import "../host/config.flex";
 import "../core/interlock.flex";
+import "../host/virtual.flex";
 
 // App words: robot, system, config, fake bus, serial, config path, start time,
 // dirty, fake mode, held drive, throttle, steer, drive refresh, held joint,
@@ -82,7 +83,7 @@ fn pr_guard_abort(app, now) {
     pr_stop(app, now); pb_system_cancel(pb_vget(app, 1));
     let serial = pb_vget(app, 4); let fd = load64(serial);
     if fd >= 0 { syscall(16, fd, 0x540b, 2, 0, 0, 0); }
-    pb_zero(serial + 8, 32); pb_vset(serial, 6, pb_vget(app, 38) != 0); return 0;
+    pb_zero(serial + 8, 32); ps_virtual_cancel(serial); pb_vset(serial, 6, pb_vget(app, 38) != 0); return 0;
 }
 fn pr_guard_stop(app, now) { pr_guard_abort(app, now); pb_vset(app, 38, 2); pb_vset(pb_vget(app, 4), 6, 1); return 0; }
 fn pr_guard_init(app) {

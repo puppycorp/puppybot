@@ -55,8 +55,11 @@ To connect the normal controller to a separate simulated serial bus, run
 Puppybot connection command. The [standalone simulator](simulator/README.md)
 creates a private `/dev/pts/N` device, uses the same calibration, and supplies
 STServo encoder/temperature replies. Controller enable, freshness, limits and
-command leases remain active. It reuses Gym's servo-motion model; articulated
-3D physics is not implemented.
+command leases remain active. The 3D environment uses the separate controller's
+serial outputs with its own embedded controller disabled. The printed
+`--virtual-bus` option carries vehicle outputs on the private PTY. Use
+`--servo-only` for the lightweight plant. Arm motion remains kinematic, with
+the existing scene contact model rather than articulated motor dynamics.
 
 ## Robot dashboard
 

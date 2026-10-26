@@ -6,7 +6,7 @@ fn pu_decimal(value) {
     if tenth < 0 { sign = "-"; tenth = -tenth; }
     return m_cat(m_cat(m_cat(sign, m_int(tenth / 10)), "."), m_int(tenth % 10));
 }
-fn pu_mode() { if pb_vget(pu_app, 8) { return "Fake bus"; } return "Hardware"; }
+fn pu_mode() { if pb_vget(pu_app, 8) { return "Fake bus"; } if pb_vget(pu_app, 40) { return "Simulator"; } return "Hardware"; }
 fn pu_ready() {
     if !pb_vget(pu_app, 8) && load64(pb_vget(pu_app, 4)) < 0 { return 0; }
     if pb_vget(pu_app, 37) { return pb_vget(pu_app, 38) == 1 && pb_feedback_ready(pb_vget(pu_app, 1), pu_now); } return 1;
@@ -167,5 +167,6 @@ view app_view() {
 fn pu_config_state() { if pb_vget(pu_app, 7) { return "Unsaved changes"; } return "Saved"; }
 fn pu_admission_help() {
     if pb_vget(pu_app, 8) { return "Fake servo bus · controls exercise the controller without moving hardware."; }
+    if pb_vget(pu_app, 40) { return "Connected to the simulator. Enable after feedback appears; pause or reset returns outputs to monitor mode."; }
     return "Hardware starts in monitor mode. Enable requires fresh position and temperature feedback. Calibration changes require a restart.";
 }

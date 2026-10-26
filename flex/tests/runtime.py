@@ -114,9 +114,11 @@ class WebSocket:
 
 
 class Runtime:
-    def __init__(self, config, device=None):
+    def __init__(self, config, device=None, virtual=False):
         args = [str(BIN), '--bind', '127.0.0.1:0', '--config', str(config)]
         args += ['--servo-device', device] if device else ['--fake']
+        if virtual:
+            args += ['--virtual-bus']
         self.process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         ready, _, _ = select.select([self.process.stdout], [], [], 5)
         if not ready:

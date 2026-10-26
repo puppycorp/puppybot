@@ -6,6 +6,14 @@ transforms, vehicle motion, contact physics and the native renderer. It opens no
 physical servo device. It is independent of Gym's experiment manager and does
 not change the existing `servo-plant-v1` rollout backend.
 
+For a separate controller connected through a virtual serial device, run
+**`flexscript run simulator.flex`** and copy its printed `puppybot.flex`
+connection command into another terminal. This selects `--external-serial`,
+disables the environment's embedded controller/robot command routes and policies,
+and uses the same root calibration as Puppybot. Arm and vehicle motion arrive
+over the private PTY. See the [external serial guide](../simulator/README.md)
+for setup, scene controls, fault checks and the `--servo-only` compatibility mode.
+
 ## Build and run
 
 From the repository root:
