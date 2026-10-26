@@ -32,10 +32,14 @@ def check_mount(state, camera, grasp_offset=0.045):
     # comes from the observable grasp centre and the configured finger offset.
     tcp = simulation.urdf_tcp(state)
     axis = [(state['gripper']['centre'][i]-tcp[i])/grasp_offset for i in range(3)]
+    mount = simulation.urdf_tip_frame(state)
+    assert math.dist(axis, [-mount[i][2] for i in range(3)]) < .001, 'fingers do not extend from the TCP mounting face'
     offset = [camera['eyeM'][i]-tcp[i] for i in range(3)]
-    assert abs(math.dist(offset, [0, 0, 0])-math.hypot(0.065, 0.065)) < 0.001
+    jaw = [-mount[i][0] for i in range(3)]
+    assert abs(math.dist(offset, [0, 0, 0])-math.sqrt(.08**2+2*.065**2)) < 0.001
     assert abs(sum(a*b for a, b in zip(axis, offset))+0.065) < 0.001
-    target = [tcp[i]+0.065*axis[i]-camera['eyeM'][i] for i in range(3)]
+    assert abs(sum(a*b for a, b in zip(jaw, offset))-.08) < .001
+    target = [tcp[i]+.08*jaw[i]+0.065*axis[i]-camera['eyeM'][i] for i in range(3)]
     length = math.dist(target, [0, 0, 0])
     assert math.dist([v/length for v in target], camera['forward']) < 0.008
     for key in ('right', 'down', 'forward'):

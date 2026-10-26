@@ -49,7 +49,7 @@ def axis_angle(axis, angle):
     return m
 
 
-def urdf_tcp(state):
+def urdf_tip_frame(state):
     # Read the original model and model profile. Do not read the packed joint
     # records or import the converter's transform implementation as an oracle.
     model = ROOT/'models/puppybot'
@@ -75,6 +75,12 @@ def urdf_tcp(state):
             matrix = product(matrix, rpy(list(map(float, o.get('xyz', '0 0 0').split())), list(map(float, o.get('rpy', '0 0 0').split()))))
         if j.get('type') != 'fixed':
             matrix = product(matrix, axis_angle(list(map(float, j.find('axis').get('xyz').split())), values.get(j.get('name'), 0)))
+    return matrix
+
+
+def urdf_tcp(state):
+    profile = json.loads((ROOT/'models/puppybot/robotdreams.json').read_text())
+    matrix = urdf_tip_frame(state)
     tcp = [*profile['tcp']['offset'], 1]
     return [sum(matrix[i][j]*tcp[j] for j in range(4)) for i in range(3)]
 

@@ -10,8 +10,11 @@ remain separate work.
 [PuppyBotGym](gym/README.md) now provides a separate Monolith experiment interface and
 headless rollout runner. It launches the native firmware target in its own
 process, supplies virtual STServo hardware, and records seeded arm/fault cases.
-Its initial servo plant has no articulated/contact physics. Gym manages runs;
-robot controls connect independently to each bot's endpoint.
+It also manages native camera/contact scenes, including unknown-map house
+discovery and pickup, with pause/resume/stop, videos, maps, and saved results.
+Its servo plant has no contact physics; native arms use kinematic collision
+checks and loose objects use contact dynamics. Robot controls connect
+independently to each bot's endpoint.
 
 [Native 3D simulation](sim/README.md) runs the full PuppyBot model with the
 Flexscript controller, keyboard/API controls, URDF joint poses and shared
@@ -377,7 +380,7 @@ fixture; use `./flex/scripts/build-esp32.sh` for the actual firmware image.
 No physical device has been opened or flashed. Real bus waveforms, robot motion,
 control timing, and Wi-Fi/BLE/WebSocket/mDNS integration remain unverified.
 
-Next milestones are articulated Gym simulation, datasets and training workers,
+Next milestones are articulated dynamics, Gym dataset export and training workers,
 robot discovery, and wireless ESP32 firmware.
 RobotDreams/PGE remain the simulation reference;
 Flexscript physics currently lacks articulated joints. Existing model assets

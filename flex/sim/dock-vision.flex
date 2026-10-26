@@ -1,5 +1,5 @@
-// TCP-camera box pose from rim corner and midpoint patches. Three corners
-// initialize the rectangle; two current patches can track it at close range.
+// TCP-camera box pose from rim corner and midpoint patches. Three corners or
+// a distinct four-patch edge initialize it; two current patches can track it.
 // Inputs are RGB, calibration and dimensions/height, never simulated box poses.
 import "brick-vision.flex";
 
@@ -103,42 +103,54 @@ fn ps_dock_corner_y(index) {
     if index == 4 || index == 5 { return 0; }
     let y = f64_mul(f64_add(load64(ps_case_bin + 32), load64(ps_case_bin + 48)), ps_number(1, 2)); if index < 2 || index == 6 { y = pb_neg(y); } return y;
 }
+fn ps_dock_partial_template(used, width, depth) {
+    // Three patches on one complete rim edge plus an off-edge patch identify
+    // an L-shaped view. Width/depth must remain distinct at the fit tolerance;
+    // otherwise the partial pattern could authorize a rotated rectangle.
+    if f64_le(f64_magnitude(f64_sub(width, depth)), ps_number(16, 1000)) { return 0; }
+    return (used & 21) == 21 || (used & 42) == 42 || (used & 67) == 67 || (used & 140) == 140;
+}
 fn ps_dock_template() {
-    // Five visible corner/midpoint patches can identify the eight-patch rim
-    // even when the gripper hides an entire corner row. The centre midpoint
-    // distinguishes a rim edge from the middle row; no box pose is consulted.
-    if ps_dock_count < 5 { return 0; }
+    // Fit current RGB patches to the eight-patch rim without a remembered
+    // pose. A complete edge can span either width or depth when occluded.
+    if ps_dock_count < 4 { return 0; }
     let width = f64_add(load64(ps_case_bin + 24), load64(ps_case_bin + 48)); let depth = f64_add(load64(ps_case_bin + 32), load64(ps_case_bin + 48));
-    let best_count = 0; let best_error = PB_ONE; let best_x = 0; let best_y = 0; let best_c = 0; let best_s = 0; let a = 0;
-    while a < ps_dock_count {
-        let pa = ps_dock_markers + a * 96 + 32; let b = a + 1;
-        while b < ps_dock_count {
-            let pb = ps_dock_markers + b * 96 + 32; let ux = f64_sub(load64(pb), load64(pa)); let uy = f64_sub(load64(pb + 8), load64(pa + 8)); let length = f64_sqrt(f64_add(f64_mul(ux, ux), f64_mul(uy, uy)));
-            if f64_lt(f64_magnitude(f64_sub(length, width)), ps_number(8, 1000)) {
-                if f64_lt(ux, 0) { ux = pb_neg(ux); uy = pb_neg(uy); }
-                let co = f64_div(ux, length); let si = f64_div(uy, length); let row = -1;
-                while row <= 1 {
-                    let offset = f64_mul(f64_from_i64(row), f64_mul(depth, ps_number(1, 2)));
-                    let x = f64_add(f64_mul(f64_add(load64(pa), load64(pb)), ps_number(1, 2)), f64_mul(si, offset));
-                    let y = f64_sub(f64_mul(f64_add(load64(pa + 8), load64(pb + 8)), ps_number(1, 2)), f64_mul(co, offset));
-                    let used = 0; let count = 0; let error = 0; let i = 0;
-                    while i < ps_dock_count {
-                        let p = ps_dock_markers + i * 96 + 32; let k = 0; let match = -1; let closest = ps_number(64, 1000000);
-                        while k < 8 {
-                            let lx = ps_dock_corner_x(k); let ly = ps_dock_corner_y(k);
-                            let dx = f64_sub(load64(p), f64_add(x, f64_sub(f64_mul(co, lx), f64_mul(si, ly))));
-                            let dy = f64_sub(load64(p + 8), f64_add(y, f64_add(f64_mul(si, lx), f64_mul(co, ly)))); let d = f64_add(f64_mul(dx, dx), f64_mul(dy, dy));
-                            if !(used & (1 << k)) && f64_lt(d, closest) { match = k; closest = d; } k = k + 1;
+    let best_count = 0; let best_error = PB_ONE; let best_x = 0; let best_y = 0; let best_c = 0; let best_s = 0; let axis = 0;
+    while axis < 2 { let a = 0;
+        while a < ps_dock_count {
+            let pa = ps_dock_markers + a * 96 + 32; let b = a + 1;
+            while b < ps_dock_count {
+                let pb = ps_dock_markers + b * 96 + 32; let ux = f64_sub(load64(pb), load64(pa)); let uy = f64_sub(load64(pb + 8), load64(pa + 8)); let length = f64_sqrt(f64_add(f64_mul(ux, ux), f64_mul(uy, uy)));
+                let span = width; let extent = depth; if axis { span = depth; extent = width; }
+                if f64_lt(f64_magnitude(f64_sub(length, span)), ps_number(8, 1000)) {
+                    let co = f64_div(ux, length); let si = f64_div(uy, length);
+                    if axis { co = f64_div(uy, length); si = pb_neg(f64_div(ux, length)); }
+                    if f64_lt(co, 0) { co = pb_neg(co); si = pb_neg(si); } let row = -1;
+                    while row <= 1 {
+                        let offset = f64_mul(f64_from_i64(row), f64_mul(extent, ps_number(1, 2)));
+                        let x = f64_mul(f64_add(load64(pa), load64(pb)), ps_number(1, 2)); let y = f64_mul(f64_add(load64(pa + 8), load64(pb + 8)), ps_number(1, 2));
+                        if axis { x = f64_sub(x, f64_mul(co, offset)); y = f64_sub(y, f64_mul(si, offset)); }
+                        else { x = f64_add(x, f64_mul(si, offset)); y = f64_sub(y, f64_mul(co, offset)); }
+                        let used = 0; let count = 0; let error = 0; let i = 0;
+                        while i < ps_dock_count {
+                            let p = ps_dock_markers + i * 96 + 32; let k = 0; let match = -1; let closest = ps_number(64, 1000000);
+                            while k < 8 {
+                                let lx = ps_dock_corner_x(k); let ly = ps_dock_corner_y(k);
+                                let dx = f64_sub(load64(p), f64_add(x, f64_sub(f64_mul(co, lx), f64_mul(si, ly))));
+                                let dy = f64_sub(load64(p + 8), f64_add(y, f64_add(f64_mul(si, lx), f64_mul(co, ly)))); let d = f64_add(f64_mul(dx, dx), f64_mul(dy, dy));
+                                if !(used & (1 << k)) && f64_lt(d, closest) { match = k; closest = d; } k = k + 1;
+                            }
+                            if match >= 0 { used = used | (1 << match); count = count + 1; error = f64_add(error, closest); } i = i + 1;
                         }
-                        if match >= 0 { used = used | (1 << match); count = count + 1; error = f64_add(error, closest); } i = i + 1;
+                        let supported = count >= 5 && (used & 192); if count == 4 { supported = ps_dock_partial_template(used, width, depth); }
+                        if supported && (count > best_count || (count == best_count && f64_lt(error, best_error))) { best_count = count; best_error = error; best_x = x; best_y = y; best_c = co; best_s = si; }
+                        row = row + 1;
                     }
-                    if count >= 5 && (used & 192) && (count > best_count || (count == best_count && f64_lt(error, best_error))) { best_count = count; best_error = error; best_x = x; best_y = y; best_c = co; best_s = si; }
-                    row = row + 1;
-                }
-            } b = b + 1;
-        } a = a + 1;
+                } b = b + 1;
+            } a = a + 1;
+        } axis = axis + 1;
     }
-    if best_count < 5 { return 0; }
+    if best_count < 4 { return 0; }
     let corner = 0;
     while corner < 4 {
         let lx = ps_dock_corner_x(corner); let ly = ps_dock_corner_y(corner); let closest = ps_number(64, 1000000); let match = -1; let i = 0;

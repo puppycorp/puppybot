@@ -44,6 +44,7 @@ fn ps_house_plan_view(target) {
     return 0;
 }
 fn ps_house_begin(returning) {
+    if ps_collect_enabled && returning != 1 { return ps_collect_search_begin(); }
     ps_house_block_replans = 0;
     ps_house_returning = returning; let target = ps_case_coverage + ps_house_waypoint * 24; if returning { target = ps_house_home; }
     if ps_stock_pickup && returning == 1 { if !ps_stock_return_begin() { return 0; } ps_case_phase(21); return 1; }
@@ -58,7 +59,7 @@ fn ps_house_filter(x, y) {
     // The home staging area is not searched for floor bricks. After learning
     // the box from RGB, also reject its observed footprint, even if moved.
     let dx = f64_sub(x, load64(ps_house_home)); let dy = f64_sub(y, load64(ps_house_home + 8));
-    if f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(25, 100)) { return 0; }
+    if !ps_collect_enabled && f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(25, 100)) { return 0; }
     if ps_dock_seen >= 0 {
         dx = f64_sub(x, load64(ps_dock_frame + 96)); dy = f64_sub(y, load64(ps_dock_frame + 104));
         if f64_lt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(4, 100)) { return 0; }
@@ -78,6 +79,7 @@ fn ps_house_path(x, y) {
     return 1;
 }
 fn ps_house_pick_base() {
+    if ps_collect_enabled { return ps_collect_pick_base(); }
     let original_x = ps_pose_x(); let original_y = ps_pose_y(); let c = f64_cos(ps_pose_heading()); let s = f64_sin(ps_pose_heading());
     let ahead = f64_add(f64_mul(c, f64_sub(load64(ps_case_target), ps_pose_x())), f64_mul(s, f64_sub(load64(ps_case_target + 8), ps_pose_y()))); let step = 0;
     while step <= 240 {
@@ -111,6 +113,7 @@ fn ps_house_detection(index) {
     return 1;
 }
 fn ps_house_reposition() {
+    if ps_collect_enabled { if ps_collect_plan_pick() { return 1; } return ps_case_fail("no observed-space path to the refined RGB grasp pose"); }
     let view = 0;
     while view < 8 {
         let turn = (view + 1) / 2; if !(view % 2) { turn = -turn; }
@@ -128,12 +131,66 @@ fn ps_house_reposition() {
     }
     return ps_case_fail("no collision-free reachable approach to the RGB brick target");
 }
+fn ps_house_probe_drive(point, speed, steering) {
+    let distance = ps_number(speed, 10000); let angle = pb_radians(f64_from_i64(steering * 45 / 100));
+    let heading = pb_wrap_pi(f64_sub(load64(point + 16), f64_mul(f64_div(distance, ps_number(18, 100)), f64_div(f64_sin(angle), f64_cos(angle)))));
+    let x = f64_add(load64(point), f64_mul(distance, f64_cos(heading))); let y = f64_add(load64(point + 8), f64_mul(distance, f64_sin(heading)));
+    if !ps_nav_transition_clear(x, y, heading, load64(point), load64(point + 8), load64(point + 16)) { return 0; }
+    let corner = 0;
+    while corner < 4 {
+        let dx = ps_number(-5, 1000); let dy = dx; if corner % 2 { dx = pb_neg(dx); } if corner >= 2 { dy = pb_neg(dy); }
+        if !ps_nav_clear(f64_add(x, dx), f64_add(y, dy), heading) { return 0; } corner = corner + 1;
+    }
+    store64(point, x); store64(point + 8, y); store64(point + 16, heading); return 1;
+}
+fn ps_house_probe_heading(point, target) {
+    let i = 0;
+    while i < 200 {
+        let error = pb_wrap_pi(f64_sub(target, load64(point + 16)));
+        if f64_lt(f64_magnitude(error), ps_number(1, 1000)) { return 1; }
+        let steering = 100; if f64_lt(error, 0) { steering = -100; }
+        let speed = -pb_clamp(f64_to_i64_nearest(f64_mul(f64_magnitude(error), f64_from_i64(1800))), 1, 40);
+        if !ps_house_probe_drive(point, speed, steering) { return 0; } i = i + 1;
+    }
+    return 0;
+}
+fn ps_house_parking_clear(point, target) {
+    // Simulate the production parking corrections over observed floor before
+    // accepting a coarse Hybrid A* arrival. Only the scratch pose is changed.
+    let heading = load64(target + 16); if !ps_house_probe_heading(point, heading) { return 0; } let i = 0; let aligned = 0;
+    while i < 4 && !aligned {
+        let dx = f64_sub(load64(target), load64(point)); let dy = f64_sub(load64(target + 8), load64(point + 8));
+        let lateral = f64_sub(f64_mul(f64_cos(heading), dy), f64_mul(f64_sin(heading), dx));
+        if f64_lt(f64_magnitude(lateral), ps_number(2, 1000)) { aligned = 1; }
+        else {
+            let co = f64_sub(PB_ONE, f64_div(f64_magnitude(lateral), ps_number(36, 100))); if f64_lt(co, 0) { return 0; }
+            let angle = f64_atan2(f64_sqrt(f64_sub(PB_ONE, f64_mul(co, co))), co); if f64_gt(lateral, 0) { angle = pb_neg(angle); }
+            if !ps_house_probe_heading(point, pb_wrap_pi(f64_add(heading, angle))) || !ps_house_probe_heading(point, heading) { return 0; }
+        } i = i + 1;
+    }
+    if !aligned { return 0; } i = 0;
+    while i < 256 {
+        let remaining = f64_add(f64_mul(f64_sub(load64(target), load64(point)), f64_cos(heading)), f64_mul(f64_sub(load64(target + 8), load64(point + 8)), f64_sin(heading)));
+        if !f64_gt(f64_magnitude(remaining), ps_number(1, 1000)) { return 1; }
+        if !ps_house_probe_drive(point, pb_clamp(f64_to_i64_nearest(f64_mul(remaining, f64_from_i64(10000))), -40, 40), 0) { return 0; } i = i + 1;
+    }
+    return 0;
+}
+fn ps_house_park_drive(speed, steering) {
+    if ps_collect_enabled && !ps_collect_drive_clear(speed, steering) {
+        pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
+        if ps_gripper_held { ps_case_survey_index = 0; return ps_case_tcp_survey(); }
+        ps_collect_map_until = ps_discovery_scans + 1;
+        return ps_collect_recover_target("pickup parking requires another floor scan");
+    }
+    pb_drive_steer(pb_robot_drive(ps_robot), speed, steering, ps_time); return 1;
+}
 fn ps_house_park_heading(target) {
     let error = pb_wrap_pi(f64_sub(target, ps_pose_heading()));
     if f64_lt(f64_magnitude(error), ps_number(1, 1000)) { pb_drive_stop(pb_robot_drive(ps_robot), ps_time); return 1; }
     let steering = 100; if f64_lt(error, 0) { steering = -100; }
     let speed = pb_clamp(f64_to_i64_nearest(f64_mul(f64_magnitude(error), f64_from_i64(1800))), 1, 40);
-    pb_drive_steer(pb_robot_drive(ps_robot), -speed, steering, ps_time); return 0;
+    ps_house_park_drive(-speed, steering); return 0;
 }
 fn ps_house_park_to(target) {
     if ps_blocked { return ps_case_fail("collision guard stopped home parking"); }
@@ -154,7 +211,7 @@ fn ps_house_park_to(target) {
     if ps_house_parking == 3 { if ps_house_park_heading(heading) { ps_house_parking = 1; } return 1; }
     let remaining = f64_add(f64_mul(f64_sub(load64(target), ps_pose_x()), f64_cos(heading)), f64_mul(f64_sub(load64(target + 8), ps_pose_y()), f64_sin(heading)));
     if f64_gt(f64_magnitude(remaining), ps_number(1, 1000)) {
-        pb_drive_steer(pb_robot_drive(ps_robot), pb_clamp(f64_to_i64_nearest(f64_mul(remaining, f64_from_i64(10000))), -40, 40), 0, ps_time); return 1;
+        ps_house_park_drive(pb_clamp(f64_to_i64_nearest(f64_mul(remaining, f64_from_i64(10000))), -40, 40), 0); return 1;
     }
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time); return 2;
 }
@@ -166,6 +223,7 @@ fn ps_house_park_update() {
 }
 fn ps_house_pick_park_update() {
     if ps_house_park_to(ps_nav_goal) != 2 { return 1; }
+    if ps_collect_enabled { return ps_collect_staging_inspect(); }
     if !ps_house_pick_base() { return ps_case_fail("RGB pickup approach remains unreachable after precise parking"); }
     ps_case_phase(2); return 1;
 }
@@ -212,6 +270,7 @@ fn ps_house_update() {
     if ps_crumb_enabled && ps_crumb_repeat && ps_house_returning == 1 { return ps_crumb_return_tick(); }
     if !ps_nav_tick() { return 1; }
     if ps_house_returning == 3 {
+        if ps_collect_enabled { ps_house_parking = 0; ps_case_phase(25); return 1; }
         if !ps_house_pick_base() { ps_house_parking = 0; ps_case_phase(25); return 1; } ps_case_phase(2); return 1;
     }
     if ps_house_returning { ps_house_parking = 0; ps_case_phase(22); return 1; }
@@ -222,7 +281,7 @@ fn ps_house_update() {
 }
 fn ps_house_observation(b) {
     if !ps_house_enabled() { return 0; }
-    pl_text(b, ",\"navigation\":{\"planner\":\"hybrid-a-star-ackermann-v1\",\"mapSource\":\"known-blender-static-colliders\",\"localization\":");
+    pl_text(b, ",\"navigation\":{\"planner\":\"hybrid-a-star-ackermann-v1\",\"mapSource\":"); if ps_discovery_enabled { pj_text(b, "tcp-rgb-active-stereo"); } else { pj_text(b, "known-blender-static-colliders"); } pl_text(b, ",\"localization\":");
     if ps_crumb_enabled { pj_text(b, "wheel-steering-and-tcp-rgb-features"); } else if ps_local_mode { pj_text(b, "wheel-steering-command-integration"); } else { pj_text(b, "simulator-odometry"); }
     pl_text(b, ",\"objectTargets\":\"camera-rgb-only\",\"returning\":"); pj_bool_text(b, ps_house_returning);
     pl_text(b, ",\"rememberedRgbObstacles\":"); pl_int(b, ps_floor_count);

@@ -13,7 +13,18 @@ fn gu_bool_attr(value) { if value { return ""; } return 0; }
 fn gu_run_class(id) { if id == gu_selected { return "selected"; } return ""; }
 fn gu_joint_name(index) { if !index { return "Yaw"; } if index == 1 { return "Shoulder"; } if index == 2 { return "Elbow"; } return "Wrist"; }
 fn gu_color(index) { if !index { return "#b9e39c"; } if index == 1 { return "#e0bb80"; } if index == 2 { return "#8abed6"; } return "#c8a0d6"; }
-fn gu_case_name(name) { if m_eq(name, "arm-reach") { return "Seeded joint targets"; } if m_eq(name, "joint-stall") { return "Jammed yaw servo"; } return name; }
+fn gu_case_name(name) { return gg_case_name(name); }
+fn gu_cases() {
+    let items = ui_items(); let source = pj_parse(gg_case_catalog(), pl_size(gg_case_catalog())); let i = 0;
+    while i < pj_count(source) {
+        let entry = pj_index(source, i); let row = m_take(16); let id = pj_string_field(entry, "id"); let name = pj_string_field(entry, "name");
+        store64(row, m_slice(id, m_len(id))); store64(row + 8, m_slice(name, m_len(name))); ui_item_add(items, row); i = i + 1;
+    }
+    return items;
+}
+fn gu_native() { let row = flexdb_get(gm_runs, gu_selected); return row && gg_native_case(flexdb_word(flexdb_cell(row, 0))); }
+fn gu_artifact(leaf) { return m_cat(m_cat("/api/gym/runs/", m_int(gu_selected)), m_cat("/artifacts/", leaf)); }
+fn gu_metric_label(native) { if native { return "BRICKS DELIVERED"; } return "BUS PACKETS"; }
 fn gu_rows() {
     let result = ui_items(); let q = flexdb_query(gm_db); let rows = flexdb_scan(q, gm_runs); let n = flexdb_count(rows); let i = n - 1;
     while i >= pb_max(n - 50, 0) {
@@ -27,7 +38,7 @@ fn gu_rows() {
     flexdb_query_close(q); if !gu_selected && load64(result) { gu_selected = load64(load64(result + 8)); } return result;
 }
 fn gu_detail() {
-    let out = m_take(80); let i = 0; while i < 10 { store64(out + i * 8, "—"); i = i + 1; }
+    let out = m_take(88); let i = 0; while i < 10 { store64(out + i * 8, "—"); i = i + 1; } store64(out + 80, 0);
     store64(out, 0); let joints = ui_items(); store64(out + 72, joints); let row = flexdb_get(gm_runs, gu_selected);
     if !row { return out; }
     store64(out, gu_selected); store64(out + 8, gu_case_name(flexdb_word(flexdb_cell(row, 0))));
@@ -36,20 +47,26 @@ fn gu_detail() {
     let progress = gm_load(row, "progress.json");
     if progress {
         let reason = pj_string_field(progress, "reason"); if !pj_error { store64(out + 16, m_slice(reason, m_len(reason))); }
+        if pj_get(progress, "recordingReady") { store64(out + 80, pj_boolean(progress, "recordingReady")); }
         let ms = pj_integer(progress, "timeMs", 0, 1000000000);
         if !pj_error { let fraction = m_int((ms % 1000) / 10); if m_len(fraction) == 1 { fraction = m_cat("0", fraction); } store64(out + 24, m_cat(m_cat(m_int(ms / 1000), "."), m_cat(fraction, " s"))); }
-        let packets = pj_integer(progress, "serialPackets", 0, 1000000000); if !pj_error { store64(out + 32, m_int(packets)); }
+        if pj_get(progress, "serialPackets") { let packets = pj_integer(progress, "serialPackets", 0, 1000000000); if !pj_error { store64(out + 32, m_int(packets)); } }
         let fault = pj_string_field(progress, "fault"); if !pj_error { if !m_len(fault) { fault = "None"; } store64(out + 40, m_slice(fault, m_len(fault))); }
+        if gg_native_case(flexdb_word(flexdb_cell(row, 0))) {
+            let placed = pj_integer(progress, "placed", 0, 100); let count = pj_integer(progress, "objects", 0, 100);
+            if !pj_error { store64(out + 32, m_cat(m_int(placed), m_cat(" / ", m_int(count)))); }
+        }
         let plant = pj_get(progress, "plant"); let targets = pj_get(progress, "targets"); i = 0;
-        if pj_kind(plant) == 3 && pj_count(plant) == 4 && pj_kind(targets) == 3 && pj_count(targets) == 4 {
+        if pj_kind(plant) == 3 && pj_count(plant) == 4 {
             while i < 4 {
                 let j = m_take(32); store64(j, i); let p = pj_index(plant, i);
-                store64(j + 8, gu_number(pj_integer(p, "tick", 0, 4095))); store64(j + 16, gu_number(pj_value(pj_index(targets, i))));
+                store64(j + 8, gu_number(pj_integer(p, "tick", 0, 4095))); store64(j + 16, "—");
+                if pj_kind(targets) == 3 && pj_count(targets) == 4 { store64(j + 16, gu_number(pj_value(pj_index(targets, i)))); }
                 store64(j + 24, gu_number(pj_integer(p, "command", -32767, 32767))); if !pj_error { ui_item_add(joints, j); } i = i + 1;
             }
         }
     }
-    let endpoint = gm_load(row, "endpoint.json"); let url = "Starting firmware…";
+    let endpoint = gm_load(row, "endpoint.json"); let url = "Starting simulator…";
     let ready = 0;
     if endpoint { let value = pj_string_field(endpoint, "url"); if !pj_error { url = m_slice(value, m_len(value)); ready = 1; } }
     if !ready && (m_eq(state, "running") || m_eq(state, "paused")) { store64(out + 64, "starting"); }
@@ -111,6 +128,7 @@ view gu_run(row) {
         td(m_cat(key, "-outcome")) { span(m_cat(key, "-badge"), text: state, class: m_cat("badge ", state)); }
     }
 }
+view gu_case_option(row) { option(m_cat("case-", load64(row)), text: load64(row + 8), value: load64(row)); }
 view gu_joint(j) {
     let index = load64(j); let key = m_cat("joint-", m_int(index));
     tr(key) {
@@ -119,7 +137,8 @@ view gu_joint(j) {
     }
 }
 view app_view() {
-    let rows = gu_rows(); let detail = gu_detail(); let samples = gu_samples(); let indices = gu_indices(); let id = load64(detail); let state = load64(detail + 64);
+    let cases = gu_cases(); let rows = gu_rows(); let detail = gu_detail(); let samples = gu_samples(); let indices = gu_indices(); let id = load64(detail); let state = load64(detail + 64); let native = gu_native();
+    let metric_label = gu_metric_label(native);
     div("gym-app") {
         header("header") {
             b("brand", text: "● PuppyBotGym");
@@ -158,23 +177,23 @@ view app_view() {
         }
         main("workspace", id: "workspace") {
             div("eyebrow", class: "eyebrow", text: "Experiment workspace"); h1("heading", text: "Run a case. Inspect the outcome.");
-            p("intro", class: "muted", text: "Each rollout runs the bot firmware in its own process with virtual hardware and a recorded seed.");
+            p("intro", class: "muted", text: "Launch servo checks or camera-based room discovery and pickup. Each rollout has its own process, seed, and recordings.");
             div("layout", class: "layout") {
                 aside("sidebar") {
                     form("launch", id: "launch", class: "panel", action: "launch") {
                         h2("launch-heading", text: "New rollout"); label("case-label", text: "Case", for: "case");
                         select("case", id: "case", name: "case", required: "") {
-                            option("case-reach", text: "Seeded joint targets", value: "arm-reach"); option("case-stall", text: "Jammed yaw servo", value: "joint-stall");
+                            each entry in cases { use gu_case_option(entry); }
                         }
-                        p("case-description", class: "muted", text: "Reach seeded joint targets, or verify the firmware stops a jammed servo.");
+                        p("case-description", class: "muted", text: "Discover house and collect builds its map from the wrist camera. Native scenes run at maximum speed and record a video.");
                         label("seed-label", text: "Seed", for: "seed"); input("seed", id: "seed", name: "seed", type: "number", min: "0", max: "4294967295", value: "42", required: "");
                         button("start", id: "start", text: "Start rollout ↗", class: "primary", type: "submit");
                         div("error", id: "error", role: "alert", data-mono-error: "");
                     }
                     section("backend", class: "panel") {
-                        div("backend-eyebrow", class: "eyebrow", text: "Simulation backend"); h2("backend-title", text: "Servo plant v1");
-                        p("backend-description", class: "muted", text: "Encoder feedback, motor velocity, acceleration, and a jammed-servo fault case.");
-                        p("backend-scope", class: "muted", text: "Articulated arm and contact physics are not available in this backend.");
+                        div("backend-eyebrow", class: "eyebrow", text: "Simulation backends"); h2("backend-title", text: "Servo plant + native scenes");
+                        p("backend-description", class: "muted", text: "Servo checks exercise encoder feedback and faults. Native scenes add the apartment, wrist RGB, physical contacts, mapping, and pickup.");
+                        p("backend-scope", class: "muted", text: "The native arm is kinematic with swept collision checks; loose objects use contact dynamics.");
                     }
                 }
                 div("results") {
@@ -200,8 +219,14 @@ view app_view() {
                         p("reason", id: "reason", class: "muted", text: load64(detail + 16));
                         div("metrics", class: "metrics") {
                             div("time-metric", class: "metric") { small("time-label", text: "SIMULATION TIME"); b("time", id: "time", text: load64(detail + 24)); }
-                            div("packets-metric", class: "metric") { small("packets-label", text: "BUS PACKETS"); b("packets", id: "packets", text: load64(detail + 32)); }
-                            div("fault-metric", class: "metric") { small("fault-label", text: "FIRMWARE FAULT"); b("fault", id: "fault", text: load64(detail + 40)); }
+                            div("packets-metric", class: "metric") { small("packets-label", text: metric_label); b("packets", id: "packets", text: load64(detail + 32)); }
+                            div("fault-metric", class: "metric") { small("fault-label", text: "CONTROLLER FAULT"); b("fault", id: "fault", text: load64(detail + 40)); }
+                        }
+                        if native && load64(detail + 80) {
+                            h2("video-title", text: "Simulation recording");
+                            video("mission-video", id: "mission-video", controls: "", preload: "metadata", src: gu_artifact("mission.mp4")) { }
+                            p("video-download") { a("video-link", href: gu_artifact("mission.mp4"), text: "Open recording"); }
+                            img("outcome-image", class: "native-outcome", src: gu_artifact("outcome.png"), alt: "Final simulator view with the TCP camera");
                         }
                         h2("plot-title", text: "Encoder trace");
                         svg("plot", id: "plot", viewbox: "0 0 700 180", role: "img", aria-label: "Recorded encoder positions over simulation steps") {

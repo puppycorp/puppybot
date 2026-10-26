@@ -6,6 +6,10 @@ import "preview.flex";
 import "breadcrumbs.flex";
 import "landmarks.flex";
 import "video.flex";
+import "discovery.flex";
+import "grasp.flex";
+import "collect.flex";
+import "gym.flex";
 
 global ps_robot = 0;
 global ps_system = 0;
@@ -46,7 +50,9 @@ fn ps_reset() {
     ps_model_update(ps_robot, ps_plant, ps_x, ps_y, ps_heading, ps_wheel);
     ps_vehicle_init(); ps_gripper_init(ps_robot, ps_plant); ps_solid_init(); ps_arm_proxy_update(1);
     ps_local_reset();
+    if ps_discovery_enabled && !ps_discovery_reset() { return 0; }
     if ps_house_enabled() && !ps_house_reset() { pl_print(2, "Cannot initialize the house navigation map.\n"); return 0; }
+    if ps_collect_enabled { ps_collect_reset(); }
     if ps_environment && !ps_vehicle_free(ps_x, ps_y, ps_heading) { pl_print(2, "Environment spawn intersects the robot or lies outside the floor.\n"); return 0; } return 1;
 }
 fn ps_observation() {
@@ -86,7 +92,7 @@ fn ps_observation() {
     pl_text(b, ",\"frameId\":"); pl_uint(b, ps_live_frame); pl_text(b, ",\"capturedMs\":"); pl_uint(b, ps_live_time);
     pl_text(b, ",\"confidence\":"); pl_float(b, ps_live_score); pl_text(b, ",\"label\":"); if ps_live_label && ps_live_score { pj_text(b, ps_live_label); } else { pl_text(b, "null"); }
     pl_text(b, ",\"box\":"); if ps_live_score { pl_char(b, 91); i = 0; while i < 4 { if i { pl_char(b, 44); } pl_float(b, pb_vget(ps_live_box, i)); i = i + 1; } pl_char(b, 93); } else { pl_text(b, "null"); } pl_char(b, 125);
-    pl_char(b, 125); ps_case_observation(b); if ps_stock_enabled { ps_stock_state(b); } pl_text(b, ",\"controller\":"); pr_state(ps_app, b, ps_time, 0); pl_text(b, "}\n");
+    pl_char(b, 125); ps_case_observation(b); ps_discovery_observation(b); if ps_stock_enabled { ps_stock_state(b); } pl_text(b, ",\"controller\":"); pr_state(ps_app, b, ps_time, 0); pl_text(b, "}\n");
     if load64(b + 24) { return 0; } if ps_output >= 0 && pl_write(ps_output, ps_json, load64(b + 8)) { return 0; } return 1;
 }
 fn ps_demo() {
@@ -111,12 +117,15 @@ fn ps_tick(demo) {
     }
     ps_step = ps_step + 1; ps_total = ps_total + 1; ps_time = ps_time + 20;
     ps_crumb_poll();
-    ps_pickup_update(); ps_case_update(); ps_stock_update();
-    if !ps_observation() { pl_print(2, "Cannot serialize or write the simulation recording.\n"); return 0; } return 1;
+    ps_pickup_update(); ps_case_update(); ps_stock_update(); ps_discovery_update();
+    if ps_gym_directory && !(ps_step % 25) && !ps_gym_sample() { return 0; }
+    // HTTP state replies and the final summary serialize their own observation.
+    if ps_output >= 0 && !ps_observation() { pl_print(2, "Cannot serialize or write the simulation recording.\n"); return 0; } return 1;
 }
-fn ps_task_running() { return ps_pickup_running() || ps_case_running() || (ps_stock_enabled && ps_stock_phase > 0 && ps_stock_phase < 4); }
-fn ps_task_cancel(reason) { ps_pickup_cancel(reason); ps_case_cancel(reason); if ps_stock_enabled && ps_stock_phase > 0 && ps_stock_phase < 4 { ps_stock_finish(5, reason); } return 0; }
+fn ps_task_running() { return (ps_discovery_enabled && ps_discovery_phase < 6) || ps_pickup_running() || ps_case_running() || (ps_stock_enabled && ps_stock_phase > 0 && ps_stock_phase < 4); }
+fn ps_task_cancel(reason) { if ps_discovery_enabled && ps_discovery_phase < 6 { ps_discovery_finish(reason, 1); } ps_pickup_cancel(reason); ps_case_cancel(reason); if ps_stock_enabled && ps_stock_phase > 0 && ps_stock_phase < 4 { ps_stock_finish(5, reason); } return 0; }
 fn ps_case_available(index) {
+    if load64(ps_catalog_cameras + index * 8) == 3 { return 0; }
     if ps_stock_case(ps_catalog_entries + index * 768) { return 0; }
     return load64(ps_catalog_cameras + index * 8) != 2 || ps_environment;
 }
@@ -124,8 +133,10 @@ fn ps_case_route(c, wall) {
     let path = c + 160; let method = c + 128;
     if pl_equal(method, "GET") && pl_equal(path, "/api/sim/cases") { pnet_reply(c, 200, "application/json", ps_catalog, ps_catalog_size, wall); return 1; }
     if pl_equal(method, "POST") && pl_starts(path, "/api/sim/cases/") {
+        if ps_discovery_enabled { pnet_error(c, 400, "restart without --discover to select a collection case", wall); return 1; }
         let index = ps_case_find(path + 15);
         if index < 0 { pnet_error(c, 404, "unknown simulation case", wall); return 1; }
+        if load64(ps_catalog_cameras + index * 8) == 3 { pnet_error(c, 400, "launch the discovery pickup case in a fresh simulator", wall); return 1; }
         if ps_stock_case(ps_catalog_entries + index * 768) { pnet_error(c, 400, "launch this stock-landmark case in a fresh simulator", wall); return 1; }
         if load64(ps_catalog_cameras + index * 8) == 2 && !ps_environment { pnet_error(c, 400, "house search requires --environment apartment", wall); return 1; }
         if !ps_device && load64(ps_catalog_cameras + index * 8) { pnet_error(c, 400, "camera search requires rendering; use --hidden", wall); return 1; }
@@ -208,6 +219,7 @@ fn ps_title() {
     pl_text(ps_builder, " | joint "); pl_text(ps_builder, pr_joint_name(ps_selected, 0));
     pl_text(ps_builder, " | ");
     if ps_case_index >= 0 { pl_text(ps_builder, ps_case_name()); pl_text(ps_builder, " | "); pl_text(ps_builder, ps_case_phase_name()); pl_text(ps_builder, " | "); pl_int(ps_builder, ps_case_placed); pl_char(ps_builder, 47); pl_int(ps_builder, ps_case_count); }
+    else if ps_discovery_enabled { pl_text(ps_builder, "MAPPING | scan "); pl_int(ps_builder, ps_discovery_scans); pl_text(ps_builder, " | observed cells "); pl_int(ps_builder, ps_discovery_free + ps_discovery_occupied); }
     else { pl_text(ps_builder, ps_pickup_name()); }
     if ps_blocked { pl_text(ps_builder, " | DRIVE BLOCKED"); }
     if ps_arm_blocked { pl_text(ps_builder, " | ARM BLOCKED"); }
@@ -238,14 +250,14 @@ fn ps_keyboard() {
     return 0;
 }
 fn ps_usage() {
-    return pl_print(1, "Usage: flexscript run sim.flex [--case ID] [--drift 0..100] [options]\nNative: puppybot-sim [--headless | --hidden] [--steps N]\n       [--demo | --pickup | --pickup-release | --vision-pickup | --vision-pickup-release]\n       [--environment apartment|FILE] [--spawn '[x,y,headingRadians]']\n       [--case ID | --list-cases] [--seed N] [--bind IPv4:PORT] [--model FILE] [--record NEW_JSONL]\n       [--video NEW_MP4] [--video-fps 1..50]\n       [--capture NEW_PPM_OR_PNG] [--sensor-capture NEW_PREFIX] [--camera orbit|tcp] [--tcp-view | --no-tcp-view] [--camera-panels | --no-camera-panels] [--colliders] [--realtime] [--paused]\n       [--stock-landmarks | --stock-pickup] [--landmark-output NEW_DIRECTORY] [--landmark-jpeg-quality 1..100] [--landmark-confidence 25..100]\n       [--visual-odometry | --no-visual-odometry | --breadcrumbs] [--breadcrumb-output NEW_DIRECTORY] [--no-breadcrumb-corrections]\n       [--localization oracle|wheel|wheel-drift] [--odometry-seed N] [--drift 0..100 | --odometry-drift 0..100]\n       [--until-done] [--detector-model MODEL.json] [--vision-binary EXECUTABLE]\n       [--vision-kernel DIRECTORY] [--vision-backend auto|sass|cuda|hip|cpu]\n       [--vision-output DIRECTORY] [--search-output NEW_DIRECTORY] [--detector-view | --no-detector-view]\n\nWASD drive; 1-4 select joint; Q/E jog; Space pause; N single step; R reset.\nTab shows catalog; [ / ] selects a case; P runs selected case or pickup; O/C opens/closes gripper; V cycles world/TCP camera; T toggles TCP inset; L toggles the live TCP panel; B toggles live YOLO markings; K toggles robot colliders; G shuffles random cases.\nDrag mouse to orbit; wheel zoom. Escape closes. Robot API: 127.0.0.1:8082.\nHeadless requires --steps. Vision requires rendering (use --hidden for batches).\n--until-done stops a finite case run on success/failure and captures that outcome.\nRobot motion is kinematic; grasp uses a constraint after both fingers contact.\n");
+    return pl_print(1, "Usage: flexscript run sim.flex [--case ID] [--drift 0..100] [options]\nNative: puppybot-sim [--headless | --hidden] [--steps N]\n       [--demo | --pickup | --pickup-release | --vision-pickup | --vision-pickup-release]\n       [--environment apartment|FILE] [--spawn '[x,y,headingRadians]']\n       [--case ID | --case-file FILE | --list-cases] [--seed N] [--bind IPv4:PORT] [--model FILE] [--record NEW_JSONL]\n       [--discover] [--map-output NEW_DIRECTORY] [--mapping-scans 1..100]\n       [--video NEW_MP4] [--video-fps 1..50] [--gym-output NEW_DIRECTORY]\n       [--capture NEW_PPM_OR_PNG] [--sensor-capture NEW_PREFIX] [--camera orbit|tcp] [--tcp-view | --no-tcp-view] [--camera-panels | --no-camera-panels] [--colliders] [--realtime] [--paused]\n       [--stock-landmarks | --stock-pickup] [--landmark-output NEW_DIRECTORY] [--landmark-jpeg-quality 1..100] [--landmark-confidence 25..100]\n       [--visual-odometry | --no-visual-odometry | --breadcrumbs] [--breadcrumb-output NEW_DIRECTORY] [--no-breadcrumb-corrections]\n       [--localization oracle|wheel|wheel-drift] [--odometry-seed N] [--drift 0..100 | --odometry-drift 0..100]\n       [--until-done] [--detector-model MODEL.json] [--vision-binary EXECUTABLE]\n       [--vision-kernel DIRECTORY] [--vision-backend auto|sass|cuda|hip|cpu]\n       [--vision-output DIRECTORY] [--search-output NEW_DIRECTORY] [--detector-view | --no-detector-view]\n\nWASD drive; 1-4 select joint; Q/E jog; Space pause; N single step; R reset.\nTab shows catalog; [ / ] selects a case; P runs selected case or pickup; O/C opens/closes gripper; V cycles world/TCP camera; T toggles TCP inset; L toggles the live TCP panel; B toggles live YOLO markings; K toggles robot colliders; G shuffles random cases.\nDrag mouse to orbit; wheel zoom. Escape closes. Robot API: 127.0.0.1:8082.\nHeadless requires --steps. Vision requires rendering (use --hidden for batches).\n--until-done stops a finite case run on success/failure and captures that outcome.\nRobot motion is kinematic; grasp uses a constraint after both fingers contact.\n");
 }
 fn main(argc, argv) {
     if !pl_init() { return 1; } h_environment(argc, argv); gx_env = argv + (argc + 1) * 8;
     ps_vision_binary = "build/flex/puppybot-vision"; ps_vision_manifest = "build/flex/vision/yolo26n/model.json"; ps_vision_kernel = "build/flex/pup-kernels"; ps_vision_backend = "auto"; ps_vision_root = "build/flex/sim/vision";
     let headless = 0; let hidden = 0; let steps = 0; let demo = 0; let pickup = 0; let realtime = 0; let capture = 0; let record = 0; let tcp_view = -1; let detector_view = -1; let case_id = 0; let list_cases = 0;
     let model = "build/flex/sim/puppybot.bin"; let bind = "127.0.0.1:8082"; let i = 1; let environment = 0; let spawn = 0;
-    let until_done = 0; let drift_arg = 0; let sensor_capture = 0; let video = 0; let video_fps = 0; let visual_mode = -1;
+    let until_done = 0; let drift_arg = 0; let sensor_capture = 0; let video = 0; let video_fps = 0; let visual_mode = -1; let mapping_arg = 0; let case_file = 0;
     while i < argc {
         let arg = pb_vget(argv, i);
         if pl_equal(arg, "--help") { ps_usage(); return 0; }
@@ -261,6 +273,7 @@ fn main(argc, argv) {
         else if pl_equal(arg, "--realtime") { realtime = 1; }
         else if pl_equal(arg, "--paused") { ps_paused = 1; }
         else if pl_equal(arg, "--until-done") { until_done = 1; }
+        else if pl_equal(arg, "--discover") { ps_discovery_enabled = 1; }
         else if pl_equal(arg, "--detector-view") { detector_view = 1; }
         else if pl_equal(arg, "--no-detector-view") { detector_view = 0; }
         else if pl_equal(arg, "--tcp-view") { tcp_view = 1; }
@@ -283,11 +296,15 @@ fn main(argc, argv) {
             else if pl_equal(arg, "--odometry-seed") { ps_local_seed = pl_integer(value, pl_size(value)); if pl_bad_number || ps_local_seed < 0 || ps_local_seed > 4294967295 { return 2; } }
             else if pl_equal(arg, "--odometry-drift") || pl_equal(arg, "--drift") { ps_local_drift = pl_integer(value, pl_size(value)); if pl_bad_number || ps_local_drift < 0 || ps_local_drift > 100 { return 2; } if pl_equal(arg, "--drift") { drift_arg = 1; } }
             else if pl_equal(arg, "--case") { case_id = value; }
+            else if pl_equal(arg, "--case-file") { case_file = value; }
+            else if pl_equal(arg, "--map-output") { ps_discovery_root = value; mapping_arg = 1; }
+            else if pl_equal(arg, "--mapping-scans") { mapping_arg = 1; ps_discovery_limit = pl_integer(value, pl_size(value)); if pl_bad_number || ps_discovery_limit < 1 || ps_discovery_limit > 100 { return 2; } }
             else if pl_equal(arg, "--model") { model = value; }
             else if pl_equal(arg, "--environment") { environment = value; }
             else if pl_equal(arg, "--spawn") { spawn = value; }
             else if pl_equal(arg, "--bind") { bind = value; }
             else if pl_equal(arg, "--record") { record = value; }
+            else if pl_equal(arg, "--gym-output") { ps_gym_directory = value; }
             else if pl_equal(arg, "--search-output") { ps_brick_output = value; }
             else if pl_equal(arg, "--breadcrumb-output") { ps_crumb_output = value; ps_crumb_enabled = 1; }
             else if pl_equal(arg, "--capture") { capture = value; }
@@ -307,31 +324,39 @@ fn main(argc, argv) {
     }
     if !ps_catalog_load() { pl_print(2, "Invalid/missing simulation case catalog.\n"); return 2; }
     if list_cases { pl_write(1, ps_catalog, ps_catalog_size); return 0; }
+    if case_file {
+        if case_id { pl_print(2, "Choose --case or --case-file.\n"); return 2; }
+        let index = ps_case_file(case_file); if index < 0 { pl_print(2, "Invalid external case file or duplicate case ID.\n"); return 2; } case_id = ps_catalog_entries + index * 768;
+    }
     if ps_stock_pickup && !case_id { case_id = "stock-landmark-pickup"; }
     if case_id && ps_stock_case(case_id) { ps_stock_enabled = 1; ps_stock_pickup = 1; }
-    if until_done && ((!case_id && !ps_stock_enabled) || !steps) { ps_usage(); return 2; }
+    if until_done && ((!case_id && !ps_stock_enabled && !ps_discovery_enabled) || !steps) { ps_usage(); return 2; }
     if ps_stock_enabled && (headless || (case_id && !ps_stock_pickup) || demo || pickup || detector_view == 0 || ps_previews == 0) { pl_print(2, "Stock landmarks require rendering and their own controller/camera panels.\n"); return 2; }
     if ps_stock_pickup && (!ps_stock_case(case_id) || ps_crumb_enabled || ps_local_requested == 0) { pl_print(2, "Stock pickup requires a stock-landmark case and wheel localization.\n"); return 2; }
     if ps_stock_pickup && ps_local_requested < 0 { ps_local_requested = 1; }
     if case_id {
         if demo || pickup || !ps_case_load(ps_case_find(case_id)) { pl_print(2, "Unknown/invalid case or conflicting controller options.\n"); return 2; } ps_case_menu = !ps_stock_pickup;
     }
-    if (headless && (!steps || capture || hidden || ps_paused)) || (capture && !steps) || (hidden && !steps) || (ps_paused && hidden) || (demo && pickup) { ps_usage(); return 2; }
+    if mapping_arg && !ps_discovery_enabled { pl_print(2, "Mapping options require --discover or a discovery pickup case.\n"); return 2; }
+    if ps_discovery_enabled && ((case_id && !ps_collect_enabled) || demo || pickup || ps_stock_enabled || headless || ps_local_requested == 0 || ps_crumb_repeat) { pl_print(2, "Discovery requires rendering, wheel localization and its own controller.\n"); return 2; }
+    if ps_collect_enabled && !mapping_arg { ps_discovery_limit = 100; }
+    if (headless && (!steps || capture || hidden || ps_paused)) || (capture && !steps) || (hidden && !steps) || (ps_paused && hidden && !ps_gym_directory) || (demo && pickup) { ps_usage(); return 2; }
+    if ps_gym_directory && (!case_id || !steps || headless || record || capture || video || !hidden || pl_size(ps_gym_directory) > 3000) { pl_print(2, "Gym output requires a finite hidden case without separate recording/capture options.\n"); return 2; }
     if sensor_capture && (headless || !steps) { pl_print(2, "--sensor-capture requires rendering and a finite --steps budget.\n"); return 2; }
     if (video && headless) || (video_fps && !video) { pl_print(2, "--video requires rendering; --video-fps requires --video.\n"); return 2; }
     if headless && detector_view == 1 { pl_print(2, "Detector view requires rendering; use --hidden instead of --headless.\n"); return 2; }
     if headless && (ps_vision_requested || (case_id && ps_case_camera)) { pl_print(2, "Camera pickup requires rendering; use --hidden instead of --headless.\n"); return 2; }
     if headless && ps_previews == 1 { pl_print(2, "Camera panels require rendering.\n"); return 2; }
-    if ps_local_requested > 0 && !ps_house_enabled() { pl_print(2, "Wheel localization currently requires a house collection case.\n"); return 2; }
-    if drift_arg && !ps_house_enabled() { pl_print(2, "--drift currently applies to the house collection case.\n"); return 2; }
+    if ps_local_requested > 0 && !ps_house_enabled() && !ps_discovery_enabled { pl_print(2, "Wheel localization requires house collection or discovery.\n"); return 2; }
+    if drift_arg && !ps_house_enabled() && !ps_discovery_enabled { pl_print(2, "--drift requires house collection or discovery.\n"); return 2; }
     if drift_arg && ps_local_requested == 0 { pl_print(2, "--drift requires wheel localization; omit --localization oracle.\n"); return 2; }
     if drift_arg { ps_local_requested = 2; }
     if visual_mode == 0 && ps_crumb_enabled { pl_print(2, "--no-visual-odometry conflicts with visual route/correction options.\n"); return 2; }
-    if visual_mode < 0 && !ps_crumb_enabled && ps_house_enabled() && !ps_stock_pickup && ps_local_requested != 0 { ps_crumb_enabled = 1; }
-    if ps_crumb_enabled && (!ps_house_enabled() || ps_local_requested == 0) { pl_print(2, "Visual breadcrumbs require house collection with wheel localization.\n"); return 2; }
+    if visual_mode < 0 && !ps_crumb_enabled && (ps_house_enabled() || ps_discovery_enabled) && !ps_stock_pickup && ps_local_requested != 0 { ps_crumb_enabled = 1; }
+    if ps_crumb_enabled && ((!ps_house_enabled() && !ps_discovery_enabled) || ps_local_requested == 0) { pl_print(2, "Visual odometry requires house collection or discovery with wheel localization.\n"); return 2; }
     if ps_previews < 0 { ps_previews = !hidden && !headless && ps_house_enabled(); }
     if ps_stock_enabled { ps_previews = 1; detector_view = 1; realtime = 1; if !environment { environment = "apartment"; } if !spawn { spawn = "[3.7,0,0]"; if ps_stock_pickup { spawn = "[3.52,0,0]"; } } }
-    if ps_house_enabled() && !environment { environment = "apartment"; }
+    if (ps_house_enabled() || ps_discovery_enabled) && !environment { environment = "apartment"; }
     if environment {
         if pl_equal(environment, "apartment") { environment = "build/flex/sim/environments/apartment/apartment.bin"; }
         if !ps_environment_load(environment) { pl_print(2, "Invalid/missing Blender environment. Run prepare-environment.py in Blender first.\n"); return 2; }
@@ -341,6 +366,11 @@ fn main(argc, argv) {
     ps_tcp_view = tcp_view; if tcp_view < 0 { ps_tcp_view = !hidden && !headless; }
     ps_live_enabled = detector_view; if detector_view < 0 { ps_live_enabled = !hidden && !headless && ps_vision_requested; }
     if !ps_model_load(model) { pl_print(2, "Invalid/missing simulation assets. Run ./flex/scripts/build-sim.sh first.\n"); return 2; }
+    if ps_gym_directory {
+        if syscall(83, ps_gym_directory, 448, 0, 0, 0, 0) { pl_print(2, "Gym output directory must be new and its parent must exist.\n"); return 2; }
+        record = ps_gym_path("simulation.jsonl"); video = ps_gym_path("mission.mp4"); capture = ps_gym_path("outcome.png"); ps_video_fps = 5; until_done = 1;
+        ps_brick_output = ps_gym_path("sensor"); if ps_discovery_enabled { ps_discovery_root = ps_gym_path("map"); }
+    }
     ps_robot = alloc(8192); ps_system = alloc(2048); ps_config = alloc(448); ps_app = alloc(2048); ps_bus = alloc(16384); ps_plant = alloc(2048);
     ps_trace = alloc(69632); ps_json = alloc(16384); ps_builder = alloc(32); pb_config_default(ps_config); pb_vset(ps_config + 40, 2, 5);
     if !ps_reset() { pl_print(2, "Controller initialization failed.\n"); return 1; }
@@ -355,11 +385,14 @@ fn main(argc, argv) {
     if ps_stock_enabled { ps_preview_init(); if !ps_stock_begin() { pl_print(2, "Landmark output must be a new writable directory.\n"); return 2; } }
     if ps_environment { pl_print(1, "Blender apartment: full walls in TCP; cutaway world overview. WASD drive, V camera, T TCP inset.\n"); }
     if case_id { ps_case_start(); }
+    if !ps_gym_start(steps, model, environment) { pl_print(2, "Cannot initialize Gym artifacts.\n"); return 1; }
+    if hidden && video { ps_case_menu = 0; }
     let event = 0; if !headless { event = gui_event(); } let signal = pl_signals(); if signal < 0 { return 1; }
     if video && !ps_video_open(video) { ps_video_close(); ps_render_close(); return 1; }
     let signals = alloc(128); let active = 1; let result = 0; let next = pl_now(); let next_draw = 0; let single = 0; let frames = 0;
     while active && (!steps || ps_total < steps) {
-        let wall = pl_now(); if syscall(0, signal, signals, 128, 0, 0, 0) > 0 { active = 0; }
+        let wall = pl_now(); if syscall(0, signal, signals, 128, 0, 0, 0) > 0 { active = 0; if ps_gym_directory { ps_gym_cancelled = 1; } }
+        if !ps_gym_poll(wall) { active = 0; if !ps_gym_cancelled { result = 1; } }
         if !headless {
             while gui_poll(event) {
                 let kind = gui_event_kind(event); let code = gui_event_code(event);
@@ -376,7 +409,7 @@ fn main(argc, argv) {
                     if code == 10 && ps_case_index >= 0 && ps_case_random { ps_case_seed = (ps_case_seed + 1) & 0xffffffff; if !ps_reset() || !ps_case_start() { result = 1; active = 0; } }
                     if code == 14 { ps_colliders = !ps_colliders; }
                     if code == 43 { ps_case_menu = !ps_case_menu; }
-                    if code == 47 || code == 48 {
+                    if (code == 47 || code == 48) && !ps_discovery_enabled {
                         if ps_stock_enabled { ps_task_cancel("case selection"); ps_stock_enabled = 0; ps_stock_pickup = 0; }
                         let direction = 1; if code == 47 { direction = -1; }
                         let next_case = (ps_case_index + direction + ps_catalog_count) % ps_catalog_count; let tries = 0;
@@ -404,7 +437,7 @@ fn main(argc, argv) {
             if !ps_tick(demo) { pl_print(2, "Simulation step failed (controller, physics or recording).\n"); result = 1; active = 0; }
             pnet_telemetry(ps_app, wall);
         }
-        let done = until_done && (ps_case_stage == 12 || ps_case_stage == 13 || (ps_stock_enabled && !ps_stock_pickup && ps_stock_phase >= 4));
+        let done = until_done && ((ps_discovery_enabled && ps_discovery_phase >= 6) || ps_case_stage == 12 || ps_case_stage == 13 || (ps_stock_enabled && !ps_stock_pickup && ps_stock_phase >= 4));
         // Camera policies render their clean sensor FBOs at sampling time.
         // Hidden batches need the observer frame only for the final capture;
         // live detector jobs still keep their regular polling/frame cadence.
@@ -419,26 +452,30 @@ fn main(argc, argv) {
         let video_final = !active || done || (steps && ps_total >= steps);
         let video_due = ps_video_due(ps_total, video_final);
         if video_due { draw = 1; }
+        if ps_gym_directory && !active { draw = 1; }
         if !headless && (draw || (steps && ps_total >= steps) || done) {
             next_draw = wall + 20;
             if !hidden || !ps_stock_enabled { ps_live_poll(); } ps_frame(); frames = frames + 1; if frames % 10 == 1 { ps_title(); }
             if !ps_stock_capture_scene() { result = 1; active = 0; }
-            if capture && (ps_total >= steps || done) { if ps_previews { ps_preview_next = 0; ps_frame(); } if ps_live_enabled { if !ps_live_finish_frame() { result = 1; } ps_frame(); } if !ps_capture(capture) { result = 1; } if ps_live_enabled && !ps_live_capture(capture) { result = 1; } }
+            if capture && (ps_total >= steps || done || (ps_gym_directory && !active)) { if ps_previews { ps_preview_next = 0; ps_frame(); } if ps_live_enabled { if !ps_live_finish_frame() { result = 1; } ps_frame(); } if !ps_capture(capture) { result = 1; } if ps_live_enabled && !ps_live_capture(capture) { result = 1; } }
             if sensor_capture && (ps_total >= steps || done) { if !ps_sensor_capture(sensor_capture) { result = 1; } }
             if video_due && !ps_video_frame(ps_total, video_final) { result = 1; active = 0; }
             gui_gl_swap(load64(ps_device));
         }
         if done { active = 0; }
         if headless { if realtime { syscall(7, 0, 0, 1, 0, 0, 0); } }
-        else { gui_delay(1); }
+        else if !hidden || realtime || ps_paused { gui_delay(1); }
     }
     let recording = ps_output; ps_output = -1; ps_observation(); ps_output = recording;
     if pickup && (!ps_pickup_passed || (pickup == 2 && ps_pickup_stage != 9)) { pl_print(2, "Pickup incomplete: "); pl_print(2, ps_pickup_reason); pl_print(2, "\n"); result = 1; }
     if case_id && !ps_case_passed { pl_print(2, "Case incomplete: "); pl_print(2, ps_case_reason); pl_print(2, "\n"); result = 1; }
+    if ps_discovery_enabled && ps_discovery_phase != 6 { pl_print(2, "Discovery stopped: "); pl_print(2, ps_discovery_reason); pl_print(2, "\n"); result = 1; }
+    if ps_discovery_job { h_stop(ps_discovery_job); ps_discovery_job = 0; }
     if ps_stock_enabled && ps_stock_phase != 4 { pl_print(2, "Landmark return incomplete: "); pl_print(2, ps_stock_reason); pl_print(2, "\n"); result = 1; }
     pl_print(1, ps_json); ps_stop(); pb_fake_cycle(ps_system, ps_bus, ps_time, ps_trace, 1024);
     if ps_output >= 0 { if syscall(74, ps_output, 0, 0, 0, 0, 0) { result = 1; } syscall(3, ps_output, 0, 0, 0, 0, 0); }
     if video && !ps_video_close() { result = 1; }
+    result = ps_gym_finish(result);
     if !headless { ps_live_close(); ps_render_close(); } ph_world_close(ps_physics); ps_environment_close();
     if ps_crumb_log >= 0 { syscall(3, ps_crumb_log, 0, 0, 0, 0, 0); }
     if ps_stock_log >= 0 { syscall(3, ps_stock_log, 0, 0, 0, 0, 0); }

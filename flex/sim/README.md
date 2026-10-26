@@ -90,11 +90,22 @@ The simulation itself runs as native Flexscript code, outside the runner's
 short VM time and memory budgets.
 The source entry point chooses an available local API port automatically;
 an explicit `--bind` overrides that default.
+For SSH/TTY shells with no display variables, it selects a single Wayland
+socket owned by the current user in `XDG_RUNTIME_DIR` (or `/run/user/UID`).
+The window opens on that machine's desktop. Explicit `DISPLAY`,
+`WAYLAND_DISPLAY` and `SDL_VIDEODRIVER` choices are preserved. With multiple
+sessions, select one explicitly, for example:
 
-`--drift` is the shorter house-case argument for the existing synthetic error
+```sh
+WAYLAND_DISPLAY=wayland-1 flexscript run sim.flex --discover
+```
+
+`--hidden` still requires a graphics session; only `--headless` omits rendering.
+
+`--drift` is the shorter house/discovery argument for the existing synthetic error
 scale: **0** uses wheel integration without added error, **10** is the default
 1% distance/0.2 degree steering bias, and **50** is the stronger 5%/1 degree
-setting. It selects wheel-drift localization and rejects use with another case
+setting. It selects wheel-drift localization and rejects use with another task
 or explicit oracle localization. `--odometry-drift` remains available.
 
 The original pickup cases keep their short floor search lane. The separate
@@ -159,10 +170,22 @@ unchanged in wheel mode.
 
 ### TCP-only validation status
 
-The current simulator has one wrist sensor; the fixed front camera, its separate
-calibration and its exports are removed. Native empty/loaded pose, calibration,
-floor-ray, image registration, controller, apartment and video checks pass.
-The verified TCP-only house run at `--drift 10` and odometry seed 42 placed
+The gripper mounting has since been corrected to follow the original URDF TCP
+plate's outward normal instead of extending sideways. Mechanical mount checks,
+empty forward-camera calibration and a two-scan unknown-map trial pass. A new
+folded-wrist grasp and staged loaded transfer pass bilateral-contact and
+chassis/arm-clearance checks for centred/off-centre targets and a 1 mm perturbation.
+The RGB approach fixture also passes at two rover headings and refuses pickup
+when a previously observed target is no longer visible to the detector.
+The legacy vertical floor-pickup poses still exceed the calibrated arm limits.
+The corrected-mount unknown-map collector has completed all six deliveries in
+the original apartment; its validation is described in the discovery section.
+The supplied-map collection results below describe the earlier mount.
+
+The simulator has one wrist sensor; the fixed front camera, its separate
+calibration and its exports are removed. Before the mechanical mount correction,
+native empty/loaded pose, calibration, floor-ray, image registration, controller,
+apartment and video checks passed. That TCP-only house run at `--drift 10` and odometry seed 42 placed
 **6/6** in 33,771 steps, driving 71.8 m. Independent audits verified six distinct
 bilateral captures, six same-step RGB-authorized releases, physical containment
 of all six, coverage of all three rooms and every chassis increment. There were
@@ -182,12 +205,341 @@ is supplied. This remains a separate visibility limitation. Stock-model and
 stress measurements below predate this
 conversion unless explicitly identified as TCP-only results.
 
+### Mapping without a supplied map
+
+The separate `--discover` controller starts with an entirely unknown grid and
+pose `(0,0,0)` in its own local frame. The apartment is loaded by the simulator
+for rendering and physical collision checks. Its bounds, colliders, spawn,
+coverage itinerary, wall axes and live object coordinates are excluded from
+the mapping controller. This mode currently runs the apartment with the legacy
+loose ball; it does not start the six-brick collection case.
+
+For the experimental combined mapping and pickup task, use:
+
+```sh
+flexscript run sim.flex --case discover-house-blocks-into-box
+```
+
+This keeps the original six house bricks and box but supplies no navigation
+map or coverage itinerary. Each stationary scan also detects bricks and the
+box through the same wrist RGB image. Frontier travel checks the forward wrist
+view too; a newly confirmed floor object stops the rover for another scan
+before replanning an approach. Confirmed brick observations guide
+exploration until an approach fits inside observed free space. Brick memory
+retains valid RGB sightings within 2 m to guide frontier selection even when
+the floor near the brick is still unknown. The stereo map keeps its 1.3 m
+evidence range, and a distant sighting cannot authorize driving or pickup
+through unknown floor.
+The arm refines the target with fresh RGB, grasps with the folded wrist, raises
+the payload in stages, and attempts to return over the learned map. Release
+requires fresh, stable box-rim observations. Physical contacts establish object
+identity only after capture.
+
+The corrected-mount original-apartment trial completed **6/6** from an empty
+map and local origin in 247,800 steps and 47 scans, travelling 68.79 m. It used
+the default wheel drift (10 permille, seed 42), one wrist RGB camera and binary
+protective stops. Independent audits checked six distinct bilateral grasps,
+six same-frame RGB-authorized releases, all six full brick bounds inside the
+settled box, all three rooms and every chassis increment. All 26,091 held
+frames passed independent chassis/arm and payload-mask checks. Six drive
+protective stops used bounded completed-motion recovery; there were no arm
+stops or physics/query faults.
+
+Evidence is retained under `build/flex/sim/discovery-pickup-v52-18emvf_8/`:
+`pickup-audit.json`, `source-manifest.json`, `trace.jsonl`, raw sensor images,
+map evidence, `mission.mp4` and `outcome.png`. The map benchmark is separate at
+`build/flex/sim/map-benchmark-v52-final/`: 26.52% free-floor coverage and 97.75%
+free-space precision in the fixed initial frame. Mapping remains partial and
+position drift remains significant. This single original-scene completion does
+not establish completion or localization accuracy on generated layouts.
+
+Release turns the held wrist before lowering toward the observed slot, keeping
+the shoulder, elbow and wrist pitch fixed during yaw. This avoids sweeping a
+low payload across the chassis. Each commanded release stage has a bounded
+deadline based on encoder travel and arm speed, including long yaw moves.
+Discovery release poses start at 280 mm so the wrist view can retain rim
+markers over near-side slots. Fresh RGB still authorizes the actual release.
+If that view is lost, loaded recovery raises the shoulder, unfolds the wrist
+high, then turns toward the driving posture. It uses current encoders rather
+than treating the compensated drop TCP as another floor grasp.
+
+A recorded-state regression reproduces the earlier fourth-delivery failure
+when the wrist loses the box. The recovery above now delivers that brick with
+fresh RGB release, 1,209 clear held frames and all three earlier deliveries
+retained. The full cold-start trial above separately validates all six.
+
+Recovery compares the encoder-derived reach of the fingers with the back of the
+moving arm. More exposed fingers need an elbow retreat while yaw, shoulder and
+wrist stay fixed, followed by raising, turning and deploying the requested view.
+When the empty forearm protrudes farther, its shoulder retracts first, followed
+by raising the remaining joints. This avoids relying on simultaneous movement:
+fractional servo positions can advance the elbow one encoder tick before the
+shoulder. Loaded-arm staging retains its existing motion. Recorded finger,
+forearm and fractional doorway replays reach a raised scan pose and return to
+driving without another rejected motion. These local regressions do not
+establish a complete house mission.
+
+Collection completes an initial surrounding scan before selecting a brick.
+If precise pickup parking needs unknown floor, it finishes another full scan
+before retrying. Loaded parking instead stops and looks for the box from the
+current safe pose. A rejected wrist scan rolls back physically and switches the
+remaining views at that location to the raised posture. Later frontier choices
+avoid the surrounding 30 cm. The protective-stop budget remains bounded;
+obstacle IDs do not enter mapping. During collection, long travel over already
+observed floor refreshes its route every 0.8 m without another stereo scan.
+If a full scan leaves no mapped car exit, at most two further surrounding scans
+use different wrist heights and pitches. Ordinary planning continues to reject
+unknown floor. If those views still yield no exit, the empty rover can retrace
+up to 20 previously completed drive steps, then take another surrounding scan.
+A drive stop during empty-rover exploration triggers the same bounded backoff
+before another wrist scan. When the arm is idle and stopped at exactly the
+recorded driving encoders, it backs away without another wrist movement. This
+avoids sweeping the gripper beside furniture immediately after a drive stop.
+It retains at most 64 successful wheel commands and their encoder postures,
+restores a different driving posture through guarded wrist staging, and consumes
+the history while retracing. Failed or interrupted commands cannot continue
+that recovery, and pickup/search transitions clear stale history. The retrace
+does not change the stored floor map; new wrist stereo updates it from the new
+viewpoint. Failed-direction constraints and physical collision guards remain
+active. Exhausting both views and completed motion declares a dead end.
+Retracing matches failed gear, steering and heading commands within two
+centimetres, the fine map resolution. This keeps a nearby failure from erasing
+a previously completed section of the approach. Exploration retains its broader
+18 cm direction exclusion, and an actual failed command at the same location
+still blocks retracing. The physical guards and stop budget remain active.
+Short escapes remember both odometry endpoints so that another escape cannot
+immediately return to a previously visited endpoint. This leaves alternate
+views and completed-motion retracing available instead of cycling between scans.
+Fresh RGB targets, failed route refreshes and physical stops still interrupt
+travel. Exploration remembers a failed travel direction across nearby steering
+changes, including a turn and gear change that would repeat the same direction
+in its local map. The opposite travel direction remains available for escape.
+After a failed turn, an untried straight command in that travel direction
+remains available over observed free floor. It does not require a nearby
+failure in the opposite gear. A short recovery escape moves one 12 cm primitive
+before scanning again. Every sampled footprint must already be observed free;
+a failed straight command remains forbidden across body turns and gear changes.
+The straight exception and the failed-direction rule use the same heading
+association, so a small change in heading cannot disable only the exception.
+After a drive stop during exploration, the selected frontier and its surrounding
+30 cm are excluded from later frontier selection. The controller retains at
+most 16 such failed goals in its local frame. This prevents repeated approaches
+to the same frontier while leaving the learned floor, other routes, pickup
+parking and arm-view selection intact. Stops during collection or completed-path
+retracing do not add failed frontier goals. The existing physical guards and
+protective-stop budget remain active.
+Frontier proposals prefer up to six destinations with more observed room to
+steer, while retaining proposals for narrow passages. This ranks destinations;
+the traversability grid, observed floor evidence and physical clearances stay
+unchanged. Ranking retains the complete scan-visit history so that older areas
+do not appear unexplored again after forty newer scans.
+The fixed camera's look direction is formed from its mounting axes before
+rounding. Translating the eye therefore does not introduce artificial rotation
+between stereo views. The odometry regression checks this for both the renderer
+and estimated calibration, including sub-millimetre translations.
+Pickup staging and docking check each candidate's arm reach, mapped car route
+and complete final parking correction. A coarse planner arrival cannot authorize a reverse arc
+over unknown floor. Its local search retains finer chassis poses and includes
+short, slow turns at full steering. It keeps searching past approximate arrivals
+that cannot park safely, and accepts an already arm-feasible arrival without an
+unnecessary correction to the sampled goal. Beside partially occupied 10 cm cells, parking checks every
+overlapping 2 cm cell against persistent fine floor and obstacle evidence.
+Legacy maps supply no fine floor prior. A visible box with no mapped release
+approach triggers at most two surrounding wrist scans while holding the brick
+and keeping the chassis parked. The self mask includes a conservative payload
+envelope derived from the RGB grasp estimate and encoders. After mapping, the
+robot reacquires the box before selecting a route or releasing. This recovery
+builds a fresh local docking map from an unknown grid, leaving the learned house
+map unchanged. This avoids old rim observations displaced by accumulated
+odometry error. Exploration restores the house map after delivery. The recorded
+second-brick failure now passes with both bricks contained and the house-map
+evidence preserved. The full six-brick validation above is a separate cold run.
+An occluded box can initialize from four rim patches when
+they contain a complete edge and an off-edge patch with distinct width/depth;
+ambiguous partial patterns remain invalid. Release still needs three fresh,
+stable RGB observations.
+The car completes steering manoeuvres at a staging pose 20 cm behind the grasp
+base. It reacquires the brick from the forward wrist view, drives the final
+straight segment over observed floor, then refines again from above before
+lowering the folded fingers. Both other observed bricks and the pickup target
+exclude chassis/tyre collision approaches.
+The grasp uses a 30 degree folded-back finger pitch, an 18.6 cm forward target
+offset and a higher pad contact point. Five-millimetre Cartesian lift stages
+keep joint motion from swinging the payload back into the chassis.
+
+`python3 flex/tests/sim-discovery-pickup.py --probe` checks the no-map control
+boundary. `--grasp NEW_DIRECTORY` runs the local RGB approach/grasp fixtures at
+two rover headings, plus an unavailable-target control. Their small observed
+floor grid is an explicit sensor fixture, separate from full-house discovery.
+`--travel NEW_DIRECTORY` checks actual forward wrist RGB while driving over a
+short observed-floor fixture: a confirmed brick stops travel for a scan, while
+an unavailable target leaves travel running and cannot authorize a grasp.
+`python3 flex/tests/sim-parking.py` compares parking predictions with actual
+controller/vehicle motion and rejects unknown corrective arcs.
+It also checks fine floor fallback, unseen patches between coarse footprint
+samples, and rotated chassis corners beside an occupied subcell.
+`python3 flex/tests/sim-discovery-dock.py --recorded TRACE --frame STEP --output
+NEW_DIRECTORY` restores a held-brick checkpoint and its earlier RGB map evidence,
+then runs the actual camera-driven return through release and settled containment.
+Its audit checks every held frame, payload self-mask coverage, parked stereo
+captures, rendered/estimated camera calibration, fresh release authorization,
+earlier deliveries, an initially unknown local docking map and restoration of
+the unchanged house-map evidence. This is a return regression, separate
+from a fresh complete house mission. `--trace FILE` audits a retained replay.
+`python3 flex/tests/sim-discovery-restow.py --recorded TRACE --frame STEP --output
+NEW_DIRECTORY` starts with a raised payload and lost box vision. It checks
+the recovery, actual base increments, every held frame, fresh RGB release,
+settled containment and preservation of earlier deliveries. Its source snapshot
+is retained separately from the worktree. This is also a checkpoint regression.
+`python3 flex/tests/sim-discovery-approach.py --recorded TRACE --frame STEP --output
+NEW_DIRECTORY` restores an RGB pickup-planning checkpoint, executes its staging
+route and parking, then checks fresh visual refinement, bilateral capture and
+the settled loaded driving pose. Earlier deliveries must stay contained.
+`python3 flex/tests/sim-discovery-retrace.py --recorded TRACE --frame STEP --output
+NEW_DIRECTORY` restores a no-exit checkpoint and its completed command history.
+It checks the guarded retrace against the actual earlier path, fresh stationary
+stereo, subsequent mapped travel and preservation of earlier deliveries. These
+checkpoint regressions do not establish a complete house mission.
+`--escape-origin-frame STEP` also restores the preceding escape's odometry
+endpoints and requires rejection of the recorded forward/reverse cycle. Earlier
+checkpoints rebuild their map from only the recorded RGB prefix and verify it
+against the saved map snapshots before replaying.
+`--initial-map DIRECTORY` reuses a hash-checked archive of that earlier RGB
+evidence after matching it to the checkpoint's saved map. Each replay saves
+its own `initial-map` archive. Onward travel is measured separately from the
+consumed recovery commands; fresh stereo is required between recovery batches.
+`python3 flex/tests/sim-dock-patterns.py` checks occluded rim geometry, stale
+partial sightings and ambiguous patterns. Both support `--recorded TRACE
+--frame STEP --output NEW_DIRECTORY` for recorded controller/RGB regressions.
+`python3 flex/tests/sim-discovery-pickup.py --trace FILE` audits a complete six-brick mission, including actual
+drive increments, fresh stationary RGB refinement, bilateral captures, fresh
+box-authorized releases, independently reconstructed held-brick/robot clearance,
+settled containment and the mapper's recorded RGB/calibration inputs.
+
+Install NumPy and OpenCV into the `python3` environment on `PATH`, for example:
+
+```sh
+python3 -m venv build/flex/discovery-env
+build/flex/discovery-env/bin/pip install -r flex/vision/discovery-requirements.txt
+PATH="$PWD/build/flex/discovery-env/bin:$PATH" flexscript run sim.flex --discover
+```
+
+For an unattended recorded experiment, use new output paths:
+
+```sh
+flexscript run sim.flex --discover --hidden --mapping-scans 8 \
+    --steps 80000 --until-done --map-output build/flex/sim/my-map \
+    --record build/flex/sim/my-mapping.jsonl --video build/flex/sim/my-mapping.mp4
+python3 flex/tests/sim-discovery.py --trace build/flex/sim/my-mapping.jsonl
+```
+
+The robot stops and moves its wrist to translated views at several bearings
+and two tilts. Normal views use 370–380 mm TCP height and 50 mm radial
+translation between positions 11 and 61 mm from the arm base. After a rejected
+view, the remaining raised views use 410–415 mm height, a more horizontal finger
+pitch and 35 mm translation between positions 6 and 41 mm. Recovery retracts
+and raises at the current yaw, turns while tucked, then deploys the next view;
+return to driving after a rejection uses the same staging steps.
+The pose search rejects IK branches that turn the camera away from the
+requested bearing. Empty jaws close for mapping, and capture waits for both
+the arm and jaws to settle. A bounded corrective command handles a final tick
+of coast beyond the controller's settling band without relaxing that band.
+Pickup opens the jaws again before approaching a brick.
+A partial scan can leave floor hidden by the chassis;
+when no route fits, the controller completes a surrounding scan before moving.
+`flex/vision/discovery.py` receives clean RGB files, camera calibration and known
+robot boxes from encoder-based forward kinematics, and local wheel/visual
+odometry. No scene boxes enter that robot model. Rectification handles horizontal and vertical disparities, retaining
+the common image field and centring the actual viewing direction for radial
+wrist motion. Floor evidence needs both a textured ground-plane image match
+and consistent stereo height within 25 mm of the floor. A ground-plane match
+alone can confuse repeated wall or floor patterns with open space. Two stereo
+observations must support an occupied cell. Height evidence is stored in 2 cm 3D voxels;
+two views must agree on height as well as horizontal position. A repeated
+floor pattern at incompatible reconstructed heights cannot confirm an obstacle.
+Within each floor column, fresh floor at the same location contradicts an old
+obstacle, while floor beside a leg leaves the leg occupied. Unseen obstacles
+retain their evidence.
+These scores persist between workers; the navigation grid remains 10 cm.
+The robot's known footprint seeds its current
+location. Unknown cells remain excluded from driving. Frontier proposals feed
+the Ackermann planner, which checks the oriented chassis against observed free
+cells. A protective-stop bit can reject a failed drive command and trigger a
+new scan; collision body identities never enter the controller.
+Arrival heading is unconstrained for frontiers because the wrist scans after
+parking; the planner still checks every sampled chassis orientation. The next
+wrist scan points into the selected frontier even after reversing into place.
+If the first wrist pose cannot reach that bearing, it tries a farther pose and
+neighbouring bearings without turning the scan back toward mapped space.
+
+The map uses 10 cm cells in a fixed 20 m square storage capacity, centred on
+the local origin. This is not a supplied room boundary. Each `episode-N`
+directory retains `map.png`, `map.json`, evidence, camera inputs and per-pair
+results. The map shows unknown space in grey, observed floor in white, candidate
+driving centres in green, confirmed obstacles in red, scan positions in blue,
+and frontier candidates in yellow.
+
+This is an initial stop-and-scan mapper. It assumes a flat floor, calibrated
+camera/joints and known robot dimensions. Encoder FK projects the robot's own
+arm, chassis and gripper boxes into each image for stereo masking; matching
+furniture colours remain observable. These boxes contain no scene geometry
+or world-pose input. Old recordings without robot boxes retain the conservative
+colour mask. It retains seeded wheel drift and TCP feature odometry,
+with the supplied-wall-axis compass disabled. There is no loop closure or
+dynamic obstacle tracker. The combined collection case attempts return to a
+remembered RGB box-viewing pose; standalone discovery only maps.
+Observed edge cells can overlap walls at this coarse resolution; inferred
+free space is not a guarantee of physical clearance, and the drive guard stays
+enabled.
+`--mapping-scans` defaults to 12 for standalone mapping and 100 for collection;
+it limits scanning attempts. Reaching that
+budget means the partial map was retained, not that the whole house is mapped.
+For the collection case, exhausting the scan budget is a mission failure.
+No confidently reachable frontier stops the run with a failure reason rather
+than driving blindly. Use `--hidden` for rendering without a visible window;
+`--headless` cannot provide the required RGB images.
+
+`python3 flex/tests/sim-discovery.py` checks map isolation with poisoned world
+state, unknown-space rejection, metric stereo reconstruction, coordinate-frame
+equivariance, obstacle confirmation, direct floor contradictions, persisted
+evidence and camera-blackout behavior without a GPU. Control checks cover
+observed-floor transit refreshes, unknown-route stops, failed-direction memory,
+rejected scan locations, bounded settling corrections and at most two alternate
+view scans when no frontier can be reached.
+`--reverse-view NEW_DIRECTORY` additionally renders a local reverse-arrival
+fixture, a wall corner and two west-wall positions from failed missions. It checks the initial rear
+frontier views, a reachable car path after a surrounding scan, stereo bearing
+consistency, and a complete corner scan plus driving-pose transition without
+an arm contact. Wall fixtures record one scan; the reverse arrival can use up
+to three surrounding scans before it must produce a reachable exit.
+`--sofa-view NEW_DIRECTORY` checks teal furniture observations and the recorded
+sofa failures with folded and forward fingers, including protected view rejection
+and a staged return to the calibrated forward driving view. Rejected motions
+must preserve the previous joint and chassis pose.
+`--rescan-view NEW_DIRECTORY` restores 71 recorded RGB floor cells from a scan
+whose proposed frontiers are all unreachable. New stereo images must reveal
+more floor and produce a reachable car exit while the chassis remains parked.
+This restored sensor fixture is separate from the full mission, which still
+starts with an entirely unknown map.
+`--trace` also audits recorded exploration, physical stops and actual movement.
+
+Before the mechanical mount correction, the local GPU trial completed eight scans (126 RGB images), travelled 1.41 m,
+and retained 5.58 m² of observed cells in part of the living room. Three physical
+stops prevented motion; no physics/query faults or blocked arm motions occurred.
+The independent pose judge measured a maximum position error of 3.17 cm. This
+took 741.6 simulated seconds, mostly wrist scanning, so both coverage and scan
+efficiency still need improvement. That standalone probe did not exercise
+other rooms or return home.
+
 ### Stock-model perception baseline
 
 The target is to run the controller from sensor observations. Oracle poses,
 object identities and map truth can remain in the simulator for independent
-scoring and future training labels. The current house collector still has a
-supplied map, spawn prior and task-judge feedback; it does not meet that target.
+scoring and future training labels. The legacy `house-blocks-into-box` collector
+still has a supplied map, spawn prior and task-judge feedback. The experimental
+discovery case above removes the map, spawn and coverage priors and has
+completed an independently audited six-brick original-scene trial. It uses RGB
+components and active stereo; the stock detector experiment below is separate.
 
 Before training a custom model, survey the installed, unchanged YOLO26n COCO
 checkpoint on the TCP camera:
@@ -627,6 +979,77 @@ negative control removes visual target colours and requires zero captures.
 The full house audit independently checks all six captures/releases, physical
 containment, all three rooms and every chassis increment against drive commands.
 
+## Map benchmarks and generated layouts
+
+Install the offline plotting dependency in the discovery Python environment:
+
+```sh
+build/flex/discovery-env/bin/pip install -r flex/scripts/benchmark-requirements.txt
+```
+
+`benchmark-map.py` compares a coherent learned-map checkpoint with the actual
+environment geometry. The reference is used only by the offline evaluator.
+It reports free-floor coverage, free-space precision, false-free area, obstacle
+precision/recall/IoU, fine floor evidence and sampled odometry error. Unknown
+floor reduces coverage; declaring walls or out-of-floor space free reduces
+precision. Coordinates stay anchored to the actual initial local frame, with
+no best-fit registration that could conceal drift. Structural scores use the
+mapper's 2–45 cm obstacle height band and explicitly exclude the initial/current
+brick and box footprints. They measure floor points, not guaranteed clearance
+for a complete robot pose.
+
+```sh
+python3 flex/scripts/benchmark-map.py --run build/flex/sim/MY_RUN \
+  --output build/flex/sim/MY_NEW_REPORT
+```
+
+The report retains `benchmark.json`, a coherent evidence checkpoint,
+`comparison.png` (reference, learned map and errors in the same frame), and
+`progress.png`. The input run needs `trace.jsonl`, `source-manifest.json` and
+the mapping evidence. It can still be running: the evaluator snapshots between
+mapping workers and checks immutable per-frame masks. Native sources may be
+retained in their recorded source snapshot; all manifest hashes must match.
+
+Generate a different connected world without modifying the owned apartment or
+case catalog:
+
+```sh
+python3 flex/scripts/generate-layout.py --seed 202 --rooms 4 \
+  --output build/flex/sim/layout-202
+flexscript run sim.flex --case-file build/flex/sim/layout-202/case.json \
+  --environment build/flex/sim/layout-202/environment.bin
+```
+
+The seed determines a rectangular partition layout with 2–6 rooms, a connected
+doorway graph, variable door positions/widths, furniture, spawn heading and six
+brick locations. Generated `environment.bin` uses the production renderer and
+physical colliders; `case.json` uses the existing RGB discovery controller.
+`layout.json` and `floorplan.png` are reference artifacts. The robot still starts
+with an empty map and local origin. Geometry preflight checks 20 cm-radius
+connectivity, room centres and separated brick positions; actual Ackermann
+parking and pickup remain measured outcomes.
+
+Run the same freshly compiled controller across several seeds:
+
+```sh
+python3 flex/scripts/benchmark-exploration.py --seeds 101 202 303 \
+  --rooms 3 4 5 --steps 20000 --output build/flex/sim/generalization
+```
+
+This short budget checks the benchmark workflow and early exploration. Omit
+`--steps` for the default 750,000-step six-brick attempts. `--video` records each
+trial. The batch saves a source snapshot and one binary shared by all seeds,
+per-run inputs/trace/exit status, independent motion/grasp/release/containment
+audits, floorplan comparison figures and aggregate `summary.json`/`summary.csv`.
+Incomplete and failed trials remain explicit results. These scenes vary room
+geometry and furniture while retaining the robot, brick types and RGB detector.
+
+`sim-map-benchmark.py` checks scoring on exact, shifted, all-free, unknown and
+partial synthetic maps. `sim-layout-generator.py` checks 20 seed/room-count
+combinations for deterministic output and physically connected doorways.
+`sim-case-file.py --entry` checks external case loading, malformed input
+rejection, catalog preservation and the `sim.flex` selector.
+
 ## Controls
 
 | Input | Action |
@@ -659,13 +1082,20 @@ is a destination marker, not a grasp or task acceptance condition.
 
 ## TCP view
 
-The house collection case shows one live **TCP** panel, refreshed about every
-100 ms. The arm physically moves the same wrist camera between a forward
+The house collection case shows one live **TCP** panel, refreshed for every
+displayed frame and polled in the background about every 100 ms. The arm physically moves the same wrist camera between a forward
 **DRIVING** pose and an **INSPECTION** pose for grasping and box alignment.
 Driving uses a 180 degree image rotation to keep the picture upright; pixel
 rays, feature registration and exported calibration include that rotation.
-The driving target is 180 mm forward, 40 mm to the robot's right, at 180 mm
-height with a 90 degree tool pitch. Travel waits for the arm to settle.
+For the legacy controllers, the empty driving target is 220 mm forward, 40 mm to the robot's right, at 80 mm
+height with a 90 degree finger pitch (horizontal). Travel waits for the arm to
+settle. Discovery instead keeps the empty TCP above the arm base, 16 mm forward
+along its calibrated radial axis, at 370 mm height and a 75 degree finger pitch.
+This reduces the wrist sweep near walls while retaining a forward floor view.
+With a payload, the driving target is 180 mm forward, 40 mm right,
+at 370 mm height and a 65 degree finger pitch, reached through a staged
+transfer that keeps the brick clear of the forearm. Simulation pose pitches describe the fingers: 0 is down and 90 is
+forward. The underlying calibrated arm pitch measures 0 forward and -90 down.
 
 Press **L** to hide/show the panel. `--camera-panels` enables it for any rendered
 case, including hidden captures; `--no-camera-panels` disables it. Green boxes
@@ -676,14 +1106,22 @@ or box freshness. `GET /api/sim/views` reports one TCP view's capture step/time,
 pose and detection count. Captures add `.tcp.png`, `.tcp.png.camera.json` and
 `.views.json`. Clean `--sensor-capture` exports also contain only the TCP sensor.
 
-Other visible windows can show a **TCP POV** inset. Press **T** to toggle it,
+Other visible windows can show a **TCP LIVE** inset. It renders the current
+wrist view throughout arm motion, scanning, driving and release. Policy camera
+observations retain their own sampling schedule; the inset does not replace
+the live image with the last detection snapshot. Captures record the current
+inset pose in `.tcp.camera.json` and retain policy camera metadata separately
+in `.sensor.camera.json` for RGB cases. `sim-tcp-live.py` checks moving live
+images while deliberately keeping the policy observation frozen.
+Press **T** to toggle the inset,
 or **V** to switch the main view between the world observer and TCP. The world
 observer is for reviewing the simulation and is never a robot sensor input.
 `camera` telemetry identifies the pose, image rotation and whether the arm has
 settled. `--camera` accepts `orbit` or `tcp`.
 
 The virtual camera has a fixed mount relative to the gripper: eye
-`(0, 65, -65)` mm, looking toward `(0, 0, 65)` mm, with local `-Y` as up.
+`(80, 65, -65)` mm, looking toward `(80, 0, 65)` mm, with local `-Y` as up.
+The 80 mm offset puts the single sensor beside the palm so it can see distant floor.
 Local X is jaw travel and local Z points along the fingers. It uses the current
 wrist pose, without following the ball position. This is a simulated wrist camera;
 it does not imply a physical camera has been mounted there.
@@ -993,8 +1431,10 @@ sequence continues.
 
 The procedural gripper has one palm and two sliding fingers. Its opening is
 0–90 mm, with 60 mm long fingers, 10 mm finger thickness and 30 mm pad depth.
-The fingers move symmetrically at 50 mm/s of opening width. A right-angle wrist
-mount points them downward at controller tool pitch zero. The 60 mm length lets
+The fingers move symmetrically at 50 mm/s of opening width. The palm mounts
+flat against the original URDF `part_1_4` TCP plate, with fingers extending along
+its local `-Z` normal. This follows the calibrated arm's final tool segment;
+it replaces the previous sideways, right-angle mounting. The 60 mm length lets
 the fingers reach around the 70 mm ball while keeping the palm clear.
 
 Grasping uses **`bilateral-contact-weld-v1`**: closing must generate actual ball
@@ -1097,6 +1537,23 @@ when the filename ends in `.png`, otherwise PPM, and never overwrite existing
 files. Each capture also writes a new `.camera.json` sidecar. `--capture` and `--hidden` require a finite
 step count. Normal interactive execution advances at 50 Hz. Hidden/headless
 execution runs as fast as possible unless `--realtime` is specified.
+Unpaced hidden runs do not sleep between steps. Without `--record`, full state
+JSON is serialized only for API requests and the final summary. Physics still
+uses the same 50 Hz controller and ten 2 ms contact substeps.
+
+These scenes also run inside [PuppyBotGym](../gym/README.md). Its case picker
+includes the simulator catalog, with lifecycle controls, persisted results,
+recorded video playback, and the live TCP inset in recordings. For a CLI run:
+
+```sh
+./build/flex/puppybotgym run --case discover-house-blocks-into-box \
+    --output build/flex/gym-discovery-42
+```
+
+Gym's native adapter uses `--gym-output NEW_DIRECTORY` internally. That mode
+requires a finite hidden case and owns its trace, video, capture, sensor, and map
+paths. It also allows `--paused` so Gym can start a frozen episode and resume it
+through its control file. Existing recording directories are never overwritten.
 
 ## Video recording
 

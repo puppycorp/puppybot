@@ -1,9 +1,10 @@
 # PuppyBotGym
 
-PuppyBotGym manages simulation experiments. The bot runs in a separate native
-firmware process; its robot-control API is independent of the Gym interface.
-This first milestone implements reproducible servo cases, rollout lifecycle,
-recording, inspection, and a persistent run catalog.
+PuppyBotGym manages both servo experiments and native 3D simulation episodes.
+Servo cases run the firmware in a separate process against virtual hardware.
+Scene cases run the same camera/contact simulator as `flexscript run sim.flex`,
+including house discovery and pickup without a supplied floorplan. Both use
+Gym's rollout lifecycle, recordings, inspection, and persistent run catalog.
 
 For interactive control through a standalone virtual serial device, use
 [`flexscript run simulator.flex`](../simulator/README.md) from the repository
@@ -27,6 +28,17 @@ From the repository root:
 ```
 
 Open **http://127.0.0.1:8090**. Choose a case and seed, then launch a rollout.
+Choose **Discover house and collect** for wrist-camera mapping and pickup.
+Native scenes run at maximum speed, record the observer and live TCP inset,
+and show delivered bricks and encoder traces. After stopping or completing a
+rollout, its video and final image appear in the results panel. Playback supports
+seeking and remains available after restarting Gym. Existing servo cases keep
+their real-time pacing. Native case choices come from the simulator catalog.
+
+Camera scenes require a working graphics session even though their window is
+hidden. The normal simulator launcher prepares missing exports and rebuilds
+the simulator from current sources. `--simulator PATH` selects an already built
+native executable or compatible launcher for both `serve` and `run`.
 The top-centre Workspace menu switches between simulation rollouts and
 [Live camera testing](../vision/README.md). Live uses a resident native Pup
 YOLO26 detector using automatic SASS/CUDA/HIP/CPU selection and draws labels/boxes over matching camera frames. Prepare the
@@ -35,7 +47,7 @@ you press **Start camera**. No live frames are recorded or sent to robot control
 The interface shows its outcome, encoder trace, actuator commands, firmware
 fault, and separate robot endpoint. Pause freezes simulation time; resume
 continues the same processes. Stop finalizes a cancelled rollout after the
-firmware's zero-speed cycle. Completed results can be reopened after restarting
+controller's zero-speed cycle. Completed results can be reopened after restarting
 Gym. The preview samples up to 32 observations; full recordings remain on disk.
 
 The manager defaults to `build/flex/gym-runs`, with a FlexDB catalog at `gym.db`.
@@ -56,8 +68,10 @@ runs Monolith's view compiler on `views.flex` and Monolith's server module,
 skipping unrelated firmware/database sources to stay within the extension VM's
 budget. It retains upstream rendering and patch generation. The native listener
 hands UI requests to Monolith's dispatcher and retains `/api/gym/` for tools.
-Neither Python nor the sibling source tree is needed by a built Gym executable
-at runtime.
+Servo runs need neither Python nor the sibling source tree at runtime. Native
+scenes additionally use the repository's simulation assets, FFmpeg, and their
+perception workers; discovery needs the Python packages in
+`flex/vision/discovery-requirements.txt`.
 
 All connected tabs share Monolith's selected rollout and experiment state;
 input drafts and focus stay local to each browser. Worker progress invalidates
@@ -73,13 +87,39 @@ the view at most five times per second and updates clients over SSE.
     --output build/flex/stall-42
 ./build/flex/puppybotgym show build/flex/reach-42
 ./build/flex/puppybotgym replay build/flex/reach-42
+./build/flex/puppybotgym run --case discover-house-blocks-into-box --seed 42 \
+    --output build/flex/discovery-42
 ```
 
 Output directories must be new, with an existing parent. Prior recordings are
 never overwritten. `replay` streams saved observations as JSONL; it does not
 rerun the simulation. `--steps N` bounds an episode (default 500, maximum
-10,000); exhausted episodes fail. Exit codes are 0 for accepted cases, 1 for
+10,000 for servo cases; native defaults to 750,000 and accepts up to 10,000,000).
+Exhausted episodes fail rather than reporting a completed task. Exit codes are 0 for accepted cases, 1 for
 failed/error cases, 2 for invalid startup, and 130 for cancellation.
+
+Native runs save `simulation.jsonl` with every actual 20 ms step,
+`observations.jsonl` with a compact encoder preview every 25 steps, `mission.mp4`
+at 5 fps in simulation time, `outcome.png`, perception captures under `sensor/`,
+and discovery maps under `map/`. `progress.json` and `result.json` identify the
+backend, contact physics, delivered bricks, scans, faults, and elapsed time.
+The exact executable is retained as `simulator.elf`; `manifest.json` records
+the case and live asset paths. Assets and perception source are not frozen by
+this wrapper. `replay` streams the compact saved observations, not the video.
+The native arm remains kinematic with swept collision checks; loose objects
+use contact dynamics. This is not articulated robot dynamics.
+
+Generated scenes use the same backend:
+
+```sh
+python3 flex/scripts/generate-layout.py --seed 202 --rooms 4 \
+    --output build/flex/layout-202
+./build/flex/puppybotgym run --case-file build/flex/layout-202/case.json \
+    --environment build/flex/layout-202/environment.bin --steps 750000 \
+    --output build/flex/generated-202
+```
+
+External scenes currently launch through the CLI; the UI lists catalog scenes.
 
 For an inspectable, paused bot:
 
@@ -177,8 +217,12 @@ polling for rollout state.
 The camera bridge is bundled separately from Monolith's rollout behavior and
 requires its own real-media/browser checks, documented in `../vision/README.md`.
 
-Next stages are articulated simulation and camera observations, dataset export,
-then real training/evaluation workers with checkpoint lineage. Training jobs,
+Native integration checks run with `python3 flex/tests/gym-native.py --output
+NEW_DIRECTORY`. `node flex/tests/gym-native-browser.cjs` exercises actual native
+launch/pause/resume/stop and browser video decoding against a running Gym.
+
+Next stages are dataset export and training/evaluation workers with checkpoint
+lineage. A synchronous Gymnasium `step(action)` adapter, training jobs,
 model promotion, full world replay, and mid-episode checkpoint resume are not
 implemented in this milestone. Simulator truth should remain available to
 judges and offline labeling; learned policies should use the bot's observation

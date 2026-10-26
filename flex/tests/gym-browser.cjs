@@ -41,7 +41,7 @@ async function reconnectProxy(url) {
         assert.match(await page.locator('meta[name="monolith-token"]').getAttribute('content'), /^[a-f0-9]{32}$/);
         assert.deepEqual(await page.locator('script').evaluateAll(nodes => nodes.map(node => node.getAttribute('src'))), ['/client.js']);
         await page.waitForFunction(() => document.querySelector('[data-mono-status]')?.textContent === 'Live');
-        await page.waitForFunction(() => document.querySelector('#case').options.length === 2);
+        await page.waitForFunction(() => [...document.querySelector('#case').options].some(option => option.value === 'discover-house-blocks-into-box'));
         const second = await page.context().newPage();
         second.on('pageerror', error => errors.push(error.message));
         proxy = await reconnectProxy(url);
@@ -71,7 +71,10 @@ async function reconnectProxy(url) {
         await page.waitForFunction(() => document.querySelector('#plot polyline'));
         await page.waitForFunction(() => document.querySelector('[data-mono-status]')?.textContent === 'Live');
         assert.equal(await page.locator('#error').textContent(), '');
-        assert.equal(requests.filter(request => new URL(request.url()).pathname.startsWith('/api/gym/')).length, 0);
+        assert.equal(requests.filter(request => {
+            const pathname = new URL(request.url()).pathname;
+            return pathname.startsWith('/api/gym/') && !pathname.includes('/artifacts/');
+        }).length, 0);
         const actions = requests.filter(request => new URL(request.url()).pathname === '/action');
         assert(actions.length >= 3);
         assert(actions.every(request => request.headers()['content-type'] === 'application/x-www-form-urlencoded' && /^[a-f0-9]{32}$/.test(new URLSearchParams(request.postData()).get('token'))));

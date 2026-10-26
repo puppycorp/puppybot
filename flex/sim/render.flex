@@ -160,7 +160,7 @@ fn ps_text_draw(mesh, width, height, x, y) {
     return ps_require(render_draw(ps_device, load64(mesh + 8), 4, 0, load64(mesh + 32)));
 }
 fn ps_label_init() {
-    ps_label_mesh = ps_text_upload(0, "TCP POV");
+    ps_label_mesh = ps_text_upload(0, "TCP LIVE");
     ps_label_material = render_material(ps_device, "#version 450 core\nlayout(location=0) in vec3 aPosition; uniform mat4 uCamera; void main(){gl_Position=uCamera*vec4(aPosition,1);}", "#version 450 core\nout vec4 color; void main(){color=vec4(0.55,0.95,0.95,1);}");
     ps_require(ps_label_material); return render_material_state(ps_label_material, 0, 0);
 }
@@ -205,17 +205,18 @@ fn ps_camera_update(width, height) {
     store64(ps_eye + 8, load64(ps_target + 8) + f64_to_i64_trunc(f64_mul(horizontal, f64_sin(az))));
     store64(ps_eye + 16, 120 + f64_to_i64_trunc(f64_mul(radius, f64_sin(el))));
     if ps_camera_mode {
-        // Fixed wrist mount, in gripper coordinates: eye (0,65,-65) mm,
-        // look at (0,0,65) mm. Local -Y is up; no object pose enters this view.
+        // Fixed outboard wrist mount: eye (80,65,-65) mm, looking toward
+        // (80,0,65) mm. It sees past the palm without hiding robot geometry.
         let i = 0;
         while i < 3 {
             let origin = f64_mul(pb_vget(ps_gripper_frame, 12 + i), f64_from_i64(1000));
+            origin = f64_add(origin, f64_mul(pb_vget(ps_gripper_frame, i), f64_from_i64(80)));
             let y = pb_vget(ps_gripper_frame, 4 + i); let z = pb_vget(ps_gripper_frame, 8 + i);
             store64(ps_eye + i * 8, f64_to_i64_nearest(f64_sub(f64_add(origin, f64_mul(y, f64_from_i64(65))), f64_mul(z, f64_from_i64(65)))));
-            store64(ps_target + i * 8, f64_to_i64_nearest(f64_add(origin, f64_mul(z, f64_from_i64(65)))));
-            // Extend the look ray so the shared integer normalizer retains
-            // precision at this camera's short working distance.
-            store64(ps_target + i * 8, load64(ps_eye + i * 8) + (load64(ps_target + i * 8) - load64(ps_eye + i * 8)) * 1000);
+            // Round a direction from the fixed mount axes, so translation
+            // does not introduce false rotation into the stereo baseline.
+            let look = f64_sub(f64_mul(z, f64_from_i64(130000)), f64_mul(y, f64_from_i64(65000)));
+            store64(ps_target + i * 8, load64(ps_eye + i * 8) + f64_to_i64_nearest(look));
             let sign = -1000000; if ps_camera_drive_mode { sign = 1000000; }
             store64(ps_up + i * 8, f64_to_i64_nearest(f64_mul(y, f64_from_i64(sign)))); i = i + 1;
         }
@@ -394,7 +395,9 @@ fn ps_frame() {
     let w = gui_pixel_width(load64(ps_device)); let h = gui_pixel_height(load64(ps_device)); ps_tcp_view_width = 0; ps_tcp_view_height = 0;
     if ps_render_target { w = load64(ps_render_target + 24); h = load64(ps_render_target + 32); }
     if w < 1 || h < 1 { return 1; }
-    if !ps_render_target && ps_previews { ps_preview_poll(); } ps_scene(w, h, 0, 0);
+    // Displayed frames use the current wrist pose, including fast recordings.
+    // The live panel owns its buffers and never refreshes policy observations.
+    if !ps_render_target && ps_previews { ps_preview_next = 0; ps_preview_poll(); } ps_scene(w, h, 0, 0);
     // Scissor keeps both color and depth clears inside the inset. Detector
     // framebuffers always receive one clean camera, irrespective of UI layout.
     if !ps_render_target && !ps_previews && w >= 320 && h >= 240 && ((ps_tcp_view && ps_camera_mode != 2) || ps_live_enabled || (ps_case_index >= 0 && ps_case_camera)) {
@@ -407,11 +410,9 @@ fn ps_frame() {
         render_gl(ps_device, "glScissor", x, y, width, height, 0, 0);
         ps_camera_mode = 2;
         ps_scene(width, height, x, y);
-        if ps_case_index >= 0 && ps_case_camera { ps_brick_present(width, height, x, y); }
-        else { ps_live_present(width, height, x, y, ps_camera_mode); } ps_camera_mode = camera;
+        if !(ps_case_index >= 0 && ps_case_camera) { ps_live_present(width, height, x, y, ps_camera_mode); } ps_camera_mode = camera;
         render_gl(ps_device, "glViewport", x, y - 28, width, 28, 0, 0); render_gl(ps_device, "glScissor", x, y - 28, width, 28, 0, 0);
-        if ps_case_index >= 0 && ps_case_camera && ps_brick_caption { ps_text_draw(ps_brick_caption, width, 28, 12, 7); }
-        else if ps_live_enabled { ps_text_draw(ps_live_caption, width, 28, 12, 7); } else { ps_text_draw(ps_label_mesh, width, 28, 12, 7); }
+        if ps_live_enabled && !(ps_case_index >= 0 && ps_case_camera) { ps_text_draw(ps_live_caption, width, 28, 12, 7); } else { ps_text_draw(ps_label_mesh, width, 28, 12, 7); }
         render_gl(ps_device, "glDisable", 0x0c11, 0, 0, 0, 0, 0); render_gl(ps_device, "glViewport", 0, 0, w, h, 0, 0);
         if camera != 1 || !ps_live_enabled { ps_tcp_view_width = width; ps_tcp_view_height = height; } ps_camera_update(w, h);
     }
@@ -473,11 +474,11 @@ fn ps_capture_at(path, capture_frame, capture_time) {
     syscall(11, data, w * h * 3, 0, 0, 0, 0); syscall(11, args, 88, 0, 0, 0, 0); syscall(11, header, 128, 0, 0, 0, 0); syscall(11, b, 32, 0, 0, 0, 0);
     if ok { ok = ps_camera_metadata_at(path, w, h, capture_frame, capture_time); }
     if ok && !ps_render_target && ps_case_index >= 0 && ps_case_camera { ok = ps_brick_metadata(path); }
-    if ok && ps_tcp_view_width && !ps_render_target && !(ps_case_index >= 0 && ps_case_camera) {
+    if ok && ps_tcp_view_width && !ps_render_target {
         let camera = ps_camera_mode; ps_camera_mode = 2; ps_camera_update(ps_tcp_view_width, ps_tcp_view_height);
         let name = alloc(4096); let builder = alloc(32); pl_builder(builder, name, 4096); pl_text(builder, path); pl_text(builder, ".tcp");
         let frame = ps_total; let time = ps_time;
-        if ps_live_enabled && ps_live_front >= 0 && ps_live_front_mode == 2 && ps_live_front_episode == ps_episode {
+        if ps_live_enabled && !(ps_case_index >= 0 && ps_case_camera) && ps_live_front >= 0 && ps_live_front_mode == 2 && ps_live_front_episode == ps_episode {
             pb_copy(ps_eye, ps_live_front_pose, 24); pb_copy(ps_target, ps_live_front_pose + 24, 24); pb_copy(ps_up, ps_live_front_pose + 48, 24); frame = ps_live_front_step; time = ps_live_time;
         }
         ok = !load64(builder + 24) && ps_camera_metadata_at(name, ps_tcp_view_width, ps_tcp_view_height, frame, time);

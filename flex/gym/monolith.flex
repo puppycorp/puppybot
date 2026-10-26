@@ -14,6 +14,12 @@ fn gm_monolith_init(port) {
 fn gm_monolith_route(path) {
     return pl_equal(path, "/") || pl_equal(path, "/live") || pl_equal(path, "/client.js") || pl_equal(path, "/style.css") || pl_equal(path, "/events") || pl_equal(path, "/action");
 }
+fn gm_page_reply(fd) {
+    let body = sv_html(); let b = m_buffer();
+    m_text(b, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: "); m_text(b, m_int(m_len(body)));
+    m_text(b, "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n\r\n");
+    if !m_eq(sv_method, "HEAD") { m_text(b, body); } return m_send(fd, m_data(b), load64(b + 8));
+}
 fn gm_monolith_request(c) {
     let slot = 0; let i = 0;
     while i < 64 && !slot { let candidate = sv_slots + i * 64; if load64(candidate) < 0 { slot = candidate; } i = i + 1; }
@@ -23,7 +29,7 @@ fn gm_monolith_request(c) {
     store64(slot, load64(c)); store64(c, -1); store64(slot + 8, bytes); store64(slot + 16, size); store64(slot + 32, pb_vget(c, 10));
     let code = sv_parse(slot);
     if code == 200 {
-        if m_eq(sv_method, "GET") && m_eq(sv_path, "/live") { sv_reply(load64(slot), 200, "text/html; charset=utf-8", sv_html(), ""); sv_close(slot); }
+        if (m_eq(sv_method, "GET") || m_eq(sv_method, "HEAD")) && (m_eq(sv_path, "/") || m_eq(sv_path, "/live")) { gm_page_reply(load64(slot)); sv_close(slot); }
         else if m_eq(sv_method, "GET") && m_eq(sv_path, "/client.js") { sv_reply(load64(slot), 200, "text/javascript; charset=utf-8", m_cat(mono_client_js(), gm_camera_js()), ""); sv_close(slot); }
         else { sv_dispatch(slot); }
     }

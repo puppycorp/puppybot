@@ -32,6 +32,7 @@ fn pb_acos(x) {
     let w = f64_add(f64_mul(pb_acos_r(z), s), c); return f64_mul(0x4000000000000000, f64_add(df, w));
 }
 fn pb_geometric_yaw(yaw) { return f64_add(yaw, 0x3ff70be937858458); }
+fn pb_arm_lateral_offset() { return pb_neg(0x40332669b11ada8f); }
 fn pb_tool_pitch(shoulder, elbow, wrist) { return pb_wrap_pi(f64_add(f64_add(f64_sub(shoulder, elbow), wrist), pb_neg(0x40095e2a7b8b5d8d))); }
 fn pb_tip_down(shoulder, elbow, pitch) { return pb_wrap_pi(f64_sub(f64_add(f64_sub(pitch, shoulder), elbow), pb_neg(0x40095e2a7b8b5d8d))); }
 // Output: yaw, shoulder, elbow, wrist binary64 words, then reachable boolean.

@@ -18,9 +18,13 @@ fn main() {
     if !pl_init() || !ps_catalog_load() || !ps_case_load(ps_case_find("house-blocks-into-box")) || !ps_environment_load("build/flex/sim/environments/apartment/apartment.bin") || !ps_model_load("build/flex/sim/puppybot.bin") {return 1;}
     ps_robot=alloc(8192);ps_system=alloc(2048);ps_config=alloc(448);ps_app=alloc(2048);ps_bus=alloc(16384);ps_plant=alloc(2048);ps_trace=alloc(69632);ps_json=alloc(16384);ps_builder=alloc(32);
     pb_config_default(ps_config);pb_vset(ps_config+40,2,5);ps_local_requested=1;ps_previews=0;
-    if !ps_reset() {return 2;}ps_render_init(1);if !ps_case_start(){return 3;}
-    let steps=0;while steps<1500 && !ps_house_ready {if !ps_tick(0){return 4;}steps=steps+1;}
-    if !ps_house_ready {return 5;}ps_case_phase(0);pb_drive_stop(pb_robot_drive(ps_robot),ps_time);
+    if !ps_reset() {return 2;}ps_render_init(1);ps_case_phase(0);
+    // Isolate frame invariance from the legacy collector's unreachable
+    // pre-mount-correction survey. Use the calibrated compact wrist view.
+    if !ps_pickup_targets {ps_pickup_targets=alloc(32);}let point=alloc(24);let speed=alloc(8);store64(speed,200);pr_apply(ps_app,1,speed,ps_time);
+    ps_camera_compact_point(point,pb_neg(f64_div(PB_PI,f64_from_i64(4))),ps_number(11,1000));if !ps_arm_target(point,370,65) {return 3;}
+    let steps=0;while steps<1500 && !ps_pickup_settled() {if !ps_tick(0){return 4;}steps=steps+1;}
+    if steps==1500 {return 5;}pb_drive_stop(pb_robot_drive(ps_robot),ps_time);
     if !ps_dock_sample() || !ps_dock_valid {return 6;}
     let x=load64(ps_dock_frame+96);let y=load64(ps_dock_frame+104);let pixels=alloc(640*480*3);pb_copy(pixels,ps_brick_rgb,640*480*3);
     ps_local_y=f64_add(ps_local_y,ps_number(4,10));

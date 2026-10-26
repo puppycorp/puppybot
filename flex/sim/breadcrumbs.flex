@@ -96,6 +96,7 @@ fn ps_crumb_depart() {
     } return 1;
 }
 fn ps_crumb_ground_heading() {
+    if ps_discovery_enabled { return 0; }
     if !ps_crumb_axis_known {
         let index = 0;
         while index < ps_environment_count {
@@ -112,7 +113,7 @@ fn ps_crumb_ground_heading() {
     ps_local_visual_heading = f64_add(ps_local_visual_heading, delta); ps_crumb_heading_corrections = ps_crumb_heading_corrections + 1; return 1;
 }
 fn ps_crumb_poll() {
-    if !ps_crumb_enabled || !ps_house_enabled() || !ps_house_ready || !ps_crumb_recording || ps_total % 10 != 1 { return 0; }
+    if !ps_crumb_enabled || (!ps_discovery_enabled && (!ps_house_enabled() || !ps_house_ready)) || !ps_crumb_recording || ps_total % 10 != 1 { return 0; }
     if !ps_camera_drive_mode { ps_crumb_last_count = 0; ps_ground_confidence = 0; ps_ground_samples = 0; return 0; }
     if !ps_camera_still() { ps_crumb_last_count = 0; return 0; }
     let d = pb_robot_drive(ps_robot); if !load64(d + 48) && !load64(d + 56) && ps_crumb_cursor < 0 { return 0; }
@@ -163,12 +164,12 @@ fn ps_crumb_return_tick() {
     if ps_crumb_cursor < 0 { ps_crumb_recording = 0; return ps_case_tcp_survey(); } return ps_crumb_plan();
 }
 fn ps_crumb_observation(b) {
-    if !ps_crumb_enabled || !ps_house_enabled() { return 0; }
+    if !ps_crumb_enabled || (!ps_house_enabled() && !ps_discovery_enabled) { return 0; }
     pl_text(b, ",\"breadcrumbs\":{\"source\":\"tcp-rgb-floor-features-v1\",\"oraclePose\":false,\"flatFloor\":true,\"applyCorrections\":"); pj_bool_text(b, ps_crumb_apply); pl_text(b, ",\"count\":"); pl_int(b, ps_crumb_count);
     pl_text(b, ",\"returnIndex\":"); pl_int(b, ps_crumb_cursor); pl_text(b, ",\"samples\":"); pl_int(b, ps_crumb_samples); pl_text(b, ",\"frameId\":"); pl_int(b, ps_crumb_frame);
     pl_text(b, ",\"features\":"); pl_int(b, ps_crumb_features); pl_text(b, ",\"inliers\":"); pl_int(b, ps_cf_inliers); pl_text(b, ",\"corrections\":"); pl_int(b, ps_crumb_corrections);
     pl_text(b, ",\"checkpointMatches\":"); pl_int(b, ps_crumb_key_matches);
-    pl_text(b, ",\"groundHeading\":{\"source\":\"tcp-floor-lines-and-known-wall-axis\",\"mapAxisKnown\":"); pj_bool_text(b, ps_crumb_axis_known);
+    pl_text(b, ",\"groundHeading\":{\"source\":"); if ps_discovery_enabled { pj_text(b, "disabled-for-discovery"); } else { pj_text(b, "tcp-floor-lines-and-known-wall-axis"); } pl_text(b, ",\"mapAxisKnown\":"); pj_bool_text(b, ps_crumb_axis_known);
     pl_text(b, ",\"samples\":"); pl_int(b, ps_ground_samples); pl_text(b, ",\"confidence\":"); pl_float(b, ps_ground_confidence); pl_text(b, ",\"corrections\":"); pl_int(b, ps_crumb_heading_corrections); pl_char(b, 125);
     pl_text(b, ",\"correctionDelta\":["); pl_float(b, ps_local_visual_x); pl_char(b, 44); pl_float(b, ps_local_visual_y); pl_char(b, 44); pl_float(b, ps_local_visual_heading); return pl_text(b, "]}");
 }

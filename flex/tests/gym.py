@@ -89,7 +89,8 @@ def audit(directory):
 
 
 def cli_cases(directory):
-    check({c['id'] for c in json.loads(run(['cases']).stdout)} == {'arm-reach', 'joint-stall'}, 'case catalog')
+    native = {c['id'] for c in read(ROOT/'flex/sim/cases/catalog.json')['cases']}
+    check({c['id'] for c in json.loads(run(['cases']).stdout)} == {'arm-reach', 'joint-stall'} | native, 'servo and native case catalog')
     a, b, c = [directory/name for name in ('seed42-a', 'seed42-b', 'seed43')]
     for path, seed in [(a, 42), (b, 42), (c, 43)]:
         run(['run', '--output', path, '--seed', seed])
@@ -208,7 +209,8 @@ def management(directory):
         manager.monolith('/action', {'token': token, 'action': 'launch', 'case': 'arm-reach', 'seed': 99}, 403, {'Origin': 'http://example.invalid'})
         manager.monolith('/action', {'token': token, 'action': 'launch', 'case': 'invented', 'seed': 99}, 422)
         manager.monolith('/action', {'token': token, 'action': 'launch', 'case': 'arm-reach', 'seed': '1.5'}, 422)
-        check(len(manager.request('/api/gym/cases')) == 2, 'HTTP case catalog')
+        check({c['id'] for c in manager.request('/api/gym/cases')} ==
+              {c['id'] for c in json.loads(run(['cases']).stdout)}, 'HTTP and CLI case catalogs agree')
         check(manager.request('/api/gym/runs') == [], 'empty catalog')
         manager.request('/api/drive', {}, 404)
         manager.request('/api/gym/runs', {'case': 'invented', 'seed': 42}, 400)

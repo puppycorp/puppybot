@@ -71,10 +71,18 @@ fn ps_vehicle_free(x, y, heading) {
             // Floor and the rover's own gripper are excluded. A held object is
             // still an obstacle if it intersects the chassis or a tyre.
             if (body < 4 || body >= 8) && !(ps_case_index >= 0 && body == ps_case_bin_body && load64(ph_body(ps_physics, body)) == 1 && !ps_vehicle_planning && !ps_house_enabled()) {
-                pb_copy(ph_body(w, 1) + 8, ph_body(ps_physics, body) + 8, 56);
-                pb_copy(b, obstacle, 256); store64(b, 1); store64(w + 24, 0); store64(w + 192, 0);
-                ph_collide_pair(w, a, b, ph_scratch(w));
-                if load64(w + 24) || load64(w + 192) { ps_vehicle_hit = body; ps_vehicle_part = part; ps_vehicle_fault = load64(w + 192); return 0; }
+                // Apply the solver's exact cached AABB rejection before copying
+                // either record into the query world. Touching bounds still pass.
+                let overlap = 1; let k = 0;
+                while k < 3 {
+                    if ph_lt(load64(a + 216 + k * 8), load64(obstacle + 192 + k * 8)) || ph_lt(load64(obstacle + 216 + k * 8), load64(a + 192 + k * 8)) { overlap = 0; } k = k + 1;
+                }
+                if overlap {
+                    pb_copy(ph_body(w, 1) + 8, ph_body(ps_physics, body) + 8, 56);
+                    pb_copy(b, obstacle, 256); store64(b, 1); store64(w + 24, 0); store64(w + 192, 0);
+                    ph_collide_pair(w, a, b, ph_scratch(w));
+                    if load64(w + 24) || load64(w + 192) { ps_vehicle_hit = body; ps_vehicle_part = part; ps_vehicle_fault = load64(w + 192); return 0; }
+                }
             }
             i = i + 1;
         }

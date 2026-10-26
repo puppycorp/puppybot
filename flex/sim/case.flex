@@ -10,6 +10,9 @@ import "dock-search.flex";
 global ps_case_stage = 0;
 global ps_case_survey_index = 0;
 global ps_case_survey_timeout = 1000;
+global ps_case_drop_timeout = 1000;
+global ps_case_drop_turning = 0;
+global ps_case_drop_ticks = 0;
 global ps_case_steps = 0;
 global ps_case_passed = 0;
 global ps_case_placed = 0;
@@ -57,6 +60,11 @@ fn ps_case_phase_name() {
     if ps_case_stage == 23 { return "learning box landmark"; }
     if ps_case_stage == 24 { return "circling for box"; }
     if ps_case_stage == 25 { return "parking for pickup"; }
+    if ps_case_stage == 26 { return "discovering space"; }
+    if ps_case_stage == 31 { return "inspecting RGB grasp"; }
+    if ps_case_stage == 32 { return "inspecting staged approach"; }
+    if ps_case_stage == 35 { return "observing docking floor"; }
+    if ps_case_stage >= 27 && ps_case_stage <= 30 { return "clearing loaded wrist"; }
     if ps_case_stage == 13 { return "failed"; } return "idle";
 }
 fn ps_case_running() { return (ps_case_stage > 0 && ps_case_stage < 12) || ps_case_stage >= 14; }
@@ -68,6 +76,7 @@ fn ps_case_travel_pose() {
 }
 fn ps_case_reset() {
     ps_case_survey_index = 0; ps_case_survey_timeout = 1000;
+    ps_case_drop_timeout = 1000; ps_case_drop_turning = 0;
     ps_case_refine_radius = ps_number(5, 100); ps_case_target_colour = 0;
     ps_case_phase(0); ps_case_passed = 0; ps_case_placed = 0; ps_case_selected = -1; ps_case_reason = "idle";
     ps_gripper_auto = 0; ps_brick_reset(); ps_case_search_direction = 1; ps_case_search_distance = 0; ps_case_search_previous = 0; ps_case_refinements = 0; ps_case_repositions = 0;
@@ -85,6 +94,7 @@ fn ps_case_start() {
     if !ps_pickup_targets { ps_pickup_targets = alloc(32); } ps_case_reason = "running with scene-state controller";
     ps_gripper_auto = ps_case_camera; if ps_case_camera { ps_case_reason = "searching with RGB colour/shape detection and calibrated camera rays"; }
     ps_case_passed = 0; ps_case_placed = 0; ps_gripper_command(1); ps_case_phase(1); let values = ps_trace + 1024; store64(values, 220); pr_apply(ps_app, 1, values, ps_time);
+    if ps_collect_enabled { ps_case_reason = "searching and collecting over TCP-observed space"; return ps_collect_search_begin(); }
     if ps_case_camera && !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera for travel"); } return 1;
 }
 fn ps_case_extent(index, axis) {
@@ -121,6 +131,10 @@ fn ps_case_inside_count() {
     let i = 0; let count = 0; while i < ps_case_count { count = count + ps_case_inside(i); i = i + 1; } return count;
 }
 fn ps_case_move(height, pitch) {
+    if ps_collect_enabled && (ps_case_stage == 2 || ps_case_stage == 3 || ps_case_stage == 4 || ps_case_stage == 5) {
+        let lift = 0; if ps_case_stage == 2 || ps_case_stage == 5 { lift = 40; }
+        if ps_grasp_move(ps_case_target, lift, ps_collect_pitch) { return 1; } return ps_case_fail("camera grasp estimate exceeds calibrated folded-wrist reach");
+    }
     let step = 0;
     while step <= 12 {
         let offset = ((step + 1) / 2) * 10; if !(step % 2) { offset = -offset; } let candidate = pitch + offset;
@@ -137,7 +151,7 @@ fn ps_case_attachment_capture() {
         ps_local_kinematics();
         let dx = f64_sub(load64(ps_case_target), load64(ps_local_tcp)); let dy = f64_sub(load64(ps_case_target + 8), load64(ps_local_tcp + 8)); let dz = f64_sub(load64(ps_case_target + 16), load64(ps_local_tcp + 16));
         let yaw = f64_add(f64_add(ps_pose_heading(), load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(ps_joint_angle(ps_robot, ps_plant, 0)));
-        let pitch = pb_tool_pitch(ps_joint_angle(ps_robot, ps_plant, 1), ps_joint_angle(ps_robot, ps_plant, 2), ps_joint_angle(ps_robot, ps_plant, 3));
+        let pitch = ps_gripper_pitch(ps_robot, ps_plant);
         let radial = f64_add(f64_mul(f64_cos(yaw), dx), f64_mul(f64_sin(yaw), dy));
         store64(ps_case_attachment, f64_sub(f64_mul(f64_cos(yaw), dy), f64_mul(f64_sin(yaw), dx)));
         store64(ps_case_attachment + 8, f64_add(f64_mul(f64_cos(pitch), radial), f64_mul(f64_sin(pitch), dz)));
@@ -164,7 +178,7 @@ fn ps_case_drop_solve_at(height, pitch, x, y, heading) {
     while i < 8 {
         if !ps_arm_solve_at(ps_case_target, height, pitch, x, y, heading) { return 0; }
         let yaw = f64_add(f64_add(heading, load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(pb_tick_angle(pb_joint(ps_robot, 0), load64(ps_pickup_targets))));
-        let actual = pb_tool_pitch(pb_tick_angle(pb_joint(ps_robot, 1), load64(ps_pickup_targets + 8)), pb_tick_angle(pb_joint(ps_robot, 2), load64(ps_pickup_targets + 16)), pb_tick_angle(pb_joint(ps_robot, 3), load64(ps_pickup_targets + 24)));
+        let actual = pb_wrap_pi(f64_add(pb_tool_pitch(pb_tick_angle(pb_joint(ps_robot, 1), load64(ps_pickup_targets + 8)), pb_tick_angle(pb_joint(ps_robot, 2), load64(ps_pickup_targets + 16)), pb_tick_angle(pb_joint(ps_robot, 3), load64(ps_pickup_targets + 24))), PB_HALF_PI));
         let cy = f64_cos(yaw); let sy = f64_sin(yaw); let radial = f64_add(f64_mul(f64_cos(actual), load64(ps_case_attachment + 8)), f64_mul(f64_sin(actual), load64(ps_case_attachment + 16)));
         store64(ps_case_target, f64_sub(load64(ps_case_drop), f64_sub(f64_mul(cy, radial), f64_mul(sy, load64(ps_case_attachment)))));
         store64(ps_case_target + 8, f64_sub(load64(ps_case_drop + 8), f64_add(f64_mul(sy, radial), f64_mul(cy, load64(ps_case_attachment))))); i = i + 1;
@@ -175,6 +189,9 @@ fn ps_case_drop_solve(height, pitch) { return ps_case_drop_solve_at(height, pitc
 fn ps_case_drop_find(height, x, y, heading) {
     // Keep rim landmarks in the fixed TCP camera's field of view. Gravity
     // completes the drop from this higher, physically reachable release pose.
+    // Near-side slots can hide every rim patch behind a loaded wrist at
+    // 200 mm. Discovery keeps the release view high enough to track the box.
+    if ps_collect_enabled && height < 280 { height = 280; }
     if ps_case_camera && height < 200 { height = 200; }
     ps_case_slot_target(); pb_copy(ps_case_drop, ps_case_target, 24); let raised = 0;
     // A moved box and a rotated grasp change the reachable wrist poses.
@@ -182,12 +199,13 @@ fn ps_case_drop_find(height, x, y, heading) {
     // reach, use a higher pose and let gravity place the brick through the top.
     // Some near-side slots need a higher TCP pose once the observed grasp
     // offset is included. Keep the same slot and search calibrated reach.
-    let ceiling = 220; if ps_case_camera { ceiling = 260; }
+    let ceiling = 220; if ps_case_camera { ceiling = 260; } if ps_collect_enabled { ceiling = 380; }
     while height + raised <= ceiling {
         let step = 0;
-        while step <= 8 {
-            let offset = ((step + 1) / 2) * 10; if !(step % 2) { offset = -offset; } let centre = 40; if ps_case_camera { centre = 60; } let pitch = centre + offset;
-            if pitch >= 0 && pitch <= 60 && ps_case_drop_solve_at(height + raised + f64_to_i64_nearest(f64_mul(load64(ps_case_destination_frame() + 112), f64_from_i64(1000))), pitch, x, y, heading) {
+        let attempts = 8; let minimum = 0; if ps_collect_enabled { attempts = 20; minimum = -80; }
+        while step <= attempts {
+            let offset = ((step + 1) / 2) * 10; if !(step % 2) { offset = -offset; } let centre = 40; if ps_case_camera { centre = 60; } if ps_collect_enabled { centre = -35; } let pitch = centre + offset;
+            if pitch >= minimum && pitch <= 60 && ps_case_drop_solve_at(height + raised + f64_to_i64_nearest(f64_mul(load64(ps_case_destination_frame() + 112), f64_from_i64(1000))), pitch, x, y, heading) {
                 return 1;
             }
             step = step + 1;
@@ -198,8 +216,30 @@ fn ps_case_drop_find(height, x, y, heading) {
 }
 fn ps_case_drop_target(height) {
     if ps_case_camera && !ps_dock_fresh() { return 0; }
-    if ps_case_drop_find(height, ps_pose_x(), ps_pose_y(), ps_pose_heading()) && !pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { pb_copy(ps_case_drop_frame, ps_case_destination_frame(), 128); return 1; }
-    return ps_case_fail("no reachable release pose above moving container");
+    if !ps_case_drop_find(height, ps_pose_x(), ps_pose_y(), ps_pose_heading()) { return ps_case_fail("no reachable release pose above moving container"); }
+    if !ps_case_drop_ticks { ps_case_drop_ticks = alloc(32); } pb_copy(ps_case_drop_ticks, ps_pickup_targets, 32);
+    ps_case_drop_turning = 0;
+    if ps_collect_enabled && ps_gripper_held {
+        let joint = pb_joint(ps_robot, 0); let target = load64(ps_pickup_targets); let current = load64(ps_plant + 144);
+        let turn = pb_target_error(target, current); if pb_j(joint, PB_J_LIMIT_ENABLED) { turn = pb_limited_error(joint, target, current); }
+        if pb_abs(turn) > 8 {
+            // Keep the payload high while turning. Lowering at the same time
+            // can sweep a held brick through the chassis on a long yaw move.
+            ps_case_drop_turning = 1; let i = 1;
+            while i < 4 { store64(ps_pickup_targets + i * 8, load64(ps_plant + 144 + i * 64)); i = i + 1; }
+        }
+    }
+    ps_case_drop_timeout = ps_arm_move_timeout();
+    if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return ps_case_fail("cannot command release arm pose"); }
+    pb_copy(ps_case_drop_frame, ps_case_destination_frame(), 128); return 1;
+}
+fn ps_case_drop_turn_update() {
+    if !ps_gripper_held { return ps_case_fail("object lost while turning above container"); }
+    if !ps_pickup_settled() { return 1; }
+    pb_copy(ps_pickup_targets, ps_case_drop_ticks, 32); ps_case_drop_turning = 0;
+    ps_case_drop_timeout = ps_arm_move_timeout();
+    if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return ps_case_fail("cannot lower release arm pose after turning"); }
+    ps_case_phase(ps_case_stage); return 1;
 }
 fn ps_case_drop_clearance(height, x, y, heading) {
     if !ps_case_drop_find(height, x, y, heading) { return 0; }
@@ -340,7 +380,7 @@ fn ps_case_refine_index() {
 fn ps_case_camera_refine() {
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time); if !ps_brick_sample() { return ps_case_fail("cannot read wrist RGB camera"); }
     let selected = ps_case_refine_index(); ps_brick_chosen = selected; ps_brick_mark();
-    if selected < 0 { return ps_case_fail("brick lost from wrist camera; refusing blind grasp"); }
+    if selected < 0 { if ps_collect_enabled { ps_collect_recover_target("lost RGB brick; exploring for a fresh observation"); return 0; } return ps_case_fail("brick lost from wrist camera; refusing blind grasp"); }
     pb_copy(ps_case_target, ps_brick_records + selected * 128 + 32, 24); ps_case_refine_radius = ps_number(5, 100);
     ps_case_refinements = ps_case_refinements + 1; return 1;
 }
@@ -403,7 +443,7 @@ fn ps_case_return_update() {
     if !ps_case_drop_target(180) { return 0; } ps_case_phase(7); return 1;
 }
 fn ps_case_withdraw() {
-    if !ps_stock_pickup { return ps_case_move(200, 40); }
+    if !ps_stock_pickup && !ps_collect_enabled { return ps_case_move(200, 40); }
     // The compensated drop TCP can be unreachable at a different pitch.
     // Once released, return to the calibrated upright pose directly instead
     // of reusing the held-object offset as an empty-gripper retreat target.
@@ -412,6 +452,7 @@ fn ps_case_withdraw() {
     if pr_apply(ps_app, 5, ps_pickup_targets, ps_time) { return ps_case_fail("cannot withdraw to the calibrated stow pose"); } return 1;
 }
 fn ps_case_payload_stow() {
+    if ps_collect_enabled { return ps_collect_stow_begin(); }
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
     ps_case_survey_index = 0;
     if !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera before visual return"); } ps_case_phase(19); return 1;
@@ -466,7 +507,12 @@ fn ps_case_dock_changed() {
 }
 fn ps_case_update() {
     if !ps_case_running() { return 1; } ps_case_steps = ps_case_steps + 1;
+    if ps_collect_enabled && ps_case_stage == 26 { return 1; }
+    if ps_collect_enabled && ps_case_stage == 35 { if !ps_gripper_held { return ps_case_fail("brick lost while observing docking floor"); } return 1; }
+    if ps_collect_enabled && ps_case_stage >= 27 && ps_case_stage <= 30 { return ps_collect_stow_update(); }
+    if ps_collect_enabled && (ps_case_stage == 31 || ps_case_stage == 32) { return ps_collect_inspect_update(); }
     let timeout = 1000; if ps_case_stage == 15 || ps_case_stage == 18 { timeout = 3000; }
+    if ps_case_stage == 7 || ps_case_stage == 8 { timeout = ps_case_drop_timeout; }
     if ps_case_stage == 20 { timeout = ps_case_survey_timeout; }
     if ps_house_enabled() && ps_case_stage == 21 { timeout = 20000; }
     if ps_case_stage == 24 { timeout = 12000; }
@@ -481,6 +527,7 @@ fn ps_case_update() {
     if ps_case_stage == 19 && ps_pickup_settled() { if ps_house_enabled() { return ps_house_begin(1); } return ps_case_tcp_survey(); }
     if ps_case_stage == 20 && ps_pickup_settled() { if ps_house_enabled() && !ps_house_ready { ps_case_phase(23); return 1; } ps_case_return_direction = -1; ps_case_phase(18); return 1; }
     if ps_case_camera && (ps_case_stage == 7 || ps_case_stage == 8) && ps_case_steps % 10 == 1 { ps_dock_sample(); }
+    if (ps_case_stage == 7 || ps_case_stage == 8) && ps_case_drop_turning { return ps_case_drop_turn_update(); }
     if ps_case_stage == 17 && ps_pickup_settled() {
         if !ps_case_pick_base() { if ps_house_enabled() { return ps_house_reposition(); } return ps_case_fail("no reachable base pose for visually refined brick"); } ps_case_phase(2); return 1;
     }
@@ -494,6 +541,7 @@ fn ps_case_update() {
         else {
             pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
             if !ps_case_camera { let body = ph_body(ps_physics, ps_gripper_body); let i = 0; while i < 3 { pb_vset(ps_case_target, i, pb_f32_to_f64(load64(body + 8 + i * 8))); i = i + 1; } }
+            if ps_collect_enabled { return ps_collect_inspect(); }
             if !ps_case_move(200, 40) { return 0; } ps_case_phase(3);
         }
     }
@@ -507,8 +555,11 @@ fn ps_case_update() {
     }
     else if ps_case_stage == 4 && ps_pickup_settled() {
         if ps_case_camera {
-            if !ps_case_camera_refine() { return 0; }
-            if !ps_arm_solve(ps_case_target, ps_case_pick_height(), 0) {
+            if ps_collect_enabled {
+                if !ps_collect_refined || ps_total - ps_collect_refined > 1500 { return ps_collect_recover_target("RGB grasp observation expired before contact"); }
+            } else if !ps_case_camera_refine() { return 0; }
+            let reachable = 0; if ps_collect_enabled { reachable = ps_grasp_solve(ps_case_target, 0, ps_collect_pitch); } else { reachable = ps_arm_solve(ps_case_target, ps_case_pick_height(), 0); }
+            if !reachable {
                 ps_case_repositions = ps_case_repositions + 1; if ps_case_repositions > 3 { return ps_case_fail("visual grasp did not converge after repositioning"); }
                 if !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera before repositioning"); } ps_case_phase(17); return 1;
             }
@@ -521,9 +572,10 @@ fn ps_case_update() {
             // Identity is learned from physical contact after grasping, solely
             // for outcome accounting. It never supplies a pickup target.
             if ps_case_camera { let i = 0; while i < ps_case_count { if load64(ps_case_objects + i * 256 + 184) == ps_gripper_body { ps_case_selected = i; } i = i + 1; } if ps_case_selected < 0 { return ps_case_fail("grasped body is not a task brick"); } }
-            ps_case_attachment_capture(); if !ps_case_move(180, 40) { return 0; } ps_case_phase(6);
+            ps_case_attachment_capture(); if ps_collect_enabled { return ps_collect_lift_begin(0); }
+            if !ps_case_move(180, 40) { return 0; } ps_case_phase(6);
         }
-        else if ps_case_steps > 200 { return ps_case_fail("selected object did not contact both fingers"); }
+        else if ps_case_steps > 200 { if ps_collect_enabled { return ps_collect_recover_target("no bilateral grasp; exploring for a new approach"); } return ps_case_fail("selected object did not contact both fingers"); }
     }
     else if ps_case_stage == 6 && ps_pickup_settled() {
         if !ps_gripper_held { return ps_case_fail("object lost during lift"); }
@@ -579,7 +631,7 @@ fn ps_case_update() {
 }
 fn ps_case_observation(b) {
     pl_text(b, ",\"case\":"); if ps_case_index < 0 { return pl_text(b, "null"); }
-    pl_text(b, "{\"id\":"); pj_text(b, ps_catalog_entries + ps_case_index * 768); pl_text(b, ",\"controller\":"); if ps_house_enabled() { pj_text(b, "rgb-house"); } else if ps_case_camera { pj_text(b, "rgb-search"); } else { pj_text(b, "scene-state"); } pl_text(b, ",\"phase\":"); pj_text(b, ps_case_phase_name());
+    pl_text(b, "{\"id\":"); pj_text(b, ps_catalog_entries + ps_case_index * 768); pl_text(b, ",\"controller\":"); if ps_collect_enabled { pj_text(b, "rgb-discovery"); } else if ps_house_enabled() { pj_text(b, "rgb-house"); } else if ps_case_camera { pj_text(b, "rgb-search"); } else { pj_text(b, "scene-state"); } pl_text(b, ",\"phase\":"); pj_text(b, ps_case_phase_name());
     if ps_case_camera {
         ps_brick_observation(b); ps_dock_observation(b); ps_house_observation(b); if ps_house_enabled() { ps_dock_search_observation(b); } pl_text(b, ",\"searchDistanceM\":"); pl_float(b, ps_case_search_distance); pl_text(b, ",\"visualRefinements\":"); pl_int(b, ps_case_refinements);
         pl_text(b, ",\"pickupTargetM\":["); let k = 0; while k < 3 { if k { pl_char(b, 44); } pl_float(b, load64(ps_case_target + k * 8)); k = k + 1; } pl_char(b, 93);

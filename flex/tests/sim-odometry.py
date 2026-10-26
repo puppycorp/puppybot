@@ -21,9 +21,31 @@ def probe():
 fn check_same(a, b, size) {
     let i = 0; while i < size { if load8(a + i) != load8(b + i) { return 0; } i = i + 1; } return 1;
 }
+fn camera_translation() {
+    let x=ps_local_x;let y=ps_local_y;let heading=ps_local_heading;
+    let world_x=ps_x;let world_y=ps_y;let world_heading=ps_heading;
+    ps_local_x=ps_number(-779670628,1000000000);ps_local_y=ps_number(454056115,1000000000);ps_local_heading=ps_number(1341658493,1000000000);
+    let first=alloc(96);let current=alloc(96);let rendered=alloc(24);let initial_rendered=alloc(24);
+    ps_view=alloc(64);ps_eye=alloc(24);ps_target=alloc(24);ps_up=alloc(24);ps_camera_mode=2;
+    ps_local_camera(first);let sample=0;
+    while sample<30 {
+        ps_x=ps_local_x;ps_y=ps_local_y;ps_heading=ps_local_heading;
+        ps_model_update(ps_robot,ps_plant,ps_x,ps_y,ps_heading,ps_wheel);ps_gripper_frame_update(ps_robot,ps_plant);
+        if !ps_camera_update(640,480) {return 0;}let i=0;
+        while i<3 {store64(rendered+i*8,load64(ps_target+i*8)-load64(ps_eye+i*8));i=i+1;}render_normalize(rendered);
+        if !sample {pb_copy(initial_rendered,rendered,24);}ps_local_camera(current);i=0;
+        while i<3 {
+            if load64(rendered+i*8)!=load64(initial_rendered+i*8) || load64(first+24+i*8)!=load64(current+24+i*8) {return 0;}
+            if f64_gt(f64_magnitude(f64_sub(ps_number(load64(rendered+i*8),1000000),load64(current+24+i*8))),ps_number(2,100000)) {return 0;}i=i+1;
+        }
+        ps_local_x=f64_add(ps_local_x,ps_number(13,100000));ps_local_y=f64_add(ps_local_y,ps_number(19,100000));sample=sample+1;
+    }
+    ps_local_x=x;ps_local_y=y;ps_local_heading=heading;ps_x=world_x;ps_y=world_y;ps_heading=world_heading;ps_camera_mode=0;
+    ps_model_update(ps_robot,ps_plant,ps_x,ps_y,ps_heading,ps_wheel);ps_gripper_frame_update(ps_robot,ps_plant);return 1;
+}
 fn snapshot(out) {
     ps_local_camera(out); pb_copy(out + 96, out, 96);
-    let valid = ps_arm_solve(ps_case_target, 180, 40); store64(out + 192, valid); pb_copy(out + 200, ps_pickup_targets, 32);
+    let valid = ps_arm_solve(ps_case_target, 180, 0); store64(out + 192, valid); pb_copy(out + 200, ps_pickup_targets, 32);
     store64(out + 232, ps_house_path(ps_number(18, 100), 0));
     if !ps_nav_plan(ps_number(23, 10), 0, 0) { return 0; }
     store64(out + 240, ps_nav_path_count); let hash = 0; let i = 0;
@@ -34,7 +56,8 @@ fn main() {
     if !pl_init() || !ps_catalog_load() || !ps_case_load(ps_case_find("house-blocks-into-box")) || !ps_environment_load("build/flex/sim/environments/apartment/apartment.bin") || !ps_model_load("build/flex/sim/puppybot.bin") { return 1; }
     ps_robot = alloc(8192); ps_system = alloc(2048); ps_config = alloc(448); ps_app = alloc(2048); ps_bus = alloc(16384); ps_plant = alloc(2048); ps_trace = alloc(69632);
     pb_config_default(ps_config); pb_vset(ps_config + 40, 2, 5); ps_local_requested = 1; if !ps_reset() { return 2; } ps_pickup_targets = alloc(32);
-    store64(ps_case_target, ps_number(20, 100)); store64(ps_case_target + 8, ps_number(8, 100)); store64(ps_case_target + 16, ps_number(12, 1000));
+    store64(ps_case_target, ps_number(20, 100)); store64(ps_case_target + 8, ps_number(-4, 100)); store64(ps_case_target + 16, ps_number(12, 1000));
+    if !camera_translation() {return 9;}
     let a = alloc(280); let b = alloc(280); if !snapshot(a) || !load64(a + 192) || !load64(a + 232) { return 3; }
     // Corrupt all live world geometry used by the old policy/calibration.
     // Wheel-mode camera, IK, path and grasp estimates must remain identical.

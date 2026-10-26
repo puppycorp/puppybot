@@ -72,6 +72,7 @@ fn ps_solid_free(x, y, heading) {
     return 1;
 }
 fn ps_solid_step() {
+    ps_arm_blocked = 0; ps_arm_hit = -1; ps_arm_part = -1;
     pb_copy(ps_solid_saved, ps_plant + 128, 256); let gap = ps_gripper_gap; gs_step(ps_plant); pb_copy(ps_solid_next, ps_plant + 128, 256);
     let next_gap = gap; if !ps_gripper_held { next_gap = gap + pb_clamp(ps_gripper_goal - gap, -1000, 1000); }
     let travel = 0; let i = 0;
@@ -79,7 +80,7 @@ fn ps_solid_step() {
     if !travel && gap == next_gap { return 1; }
     // A 0.5 m reach bound and <= 1 tick of summed interpolation make the maximum
     // summed joint arc < 1 mm; fingers also advance by at most 0.5 mm/sample.
-    let count = travel / 1000 + pb_abs(next_gap - gap) / 500 + 1; let sample = 1; ps_arm_blocked = 0; ps_model_fraction = 1;
+    let count = travel / 1000 + pb_abs(next_gap - gap) / 500 + 1; let sample = 1; ps_model_fraction = 1;
     while sample <= count {
         i = 0;
         while i < 4 {
@@ -97,7 +98,7 @@ fn ps_solid_step() {
         while i < 4 {
             let j = ps_plant + 128 + i * 64; store64(j + 8, 0); store64(ps_bus + load64(j + 24) * 48 + 16, load64(j + 16)); i = i + 1;
         }
-        ps_task_cancel("robot motion blocked by a fixed obstacle"); pb_arm_stop(ps_robot, ps_time);
+        if !ps_discovery_arm_stop() { ps_task_cancel("robot motion blocked by a fixed obstacle"); } pb_arm_stop(ps_robot, ps_time);
     } else { pb_copy(ps_plant + 128, ps_solid_next, 256); ps_gripper_gap = next_gap; ps_arm_hit = -1; ps_arm_part = -1; }
     ps_model_update(ps_robot, ps_plant, ps_x, ps_y, ps_heading, ps_wheel); ps_gripper_frame_update(ps_robot, ps_plant); return !ps_arm_blocked;
 }

@@ -59,6 +59,23 @@ style = (ROOT/'flex/gym/ui.css').read_text()
 camera = (ROOT/'flex/gym/camera.js').read_text()
 (OUT/'gym-camera.flex').write_text('fn gm_camera_js() { return '+json.dumps(camera, ensure_ascii=False)+'; }\n')
 
+# Keep Gym's native scene choices tied to the simulator's case catalog.
+native_cases = json.loads((ROOT/'flex/sim/cases/catalog.json').read_text())['cases']
+cases = [dict(id='arm-reach', name='Seeded joint targets', backend='servo-plant-v1',
+              description='All four joints settle within 8 ticks for 25 steps.'),
+         dict(id='joint-stall', name='Jammed yaw servo', backend='servo-plant-v1',
+              description='Firmware reports stall and stops wheel outputs.')]
+cases += [dict(id=c['id'], name=c['name'], backend='flexscript-kinematic-contact-v1',
+               description=c['description']) for c in native_cases]
+catalog = json.dumps(cases, separators=(',', ':'), ensure_ascii=False)
+(OUT/'gym-sim-cases.flex').write_text(
+    'fn gg_project_root() { return '+json.dumps(str(ROOT))+'; }\n'+
+    'fn gg_case_catalog() { return '+json.dumps(catalog, ensure_ascii=False)+'; }\n'+
+    'fn gg_native_case(name) { return '+
+    ' || '.join('pl_equal(name, '+json.dumps(c['id'])+')' for c in native_cases)+'; }\n'+
+    'fn gg_case_name(name) { '+''.join('if pl_equal(name, '+json.dumps(c['id'])+
+        ') { return '+json.dumps(c['name'], ensure_ascii=False)+'; } ' for c in cases)+'return name; }\n')
+
 # A scoped wrapper invokes the upstream Monolith compiler without spending its
 # VM fuel lexing unrelated controller/codec/database modules. Rename only the
 # entry hook so the wrapper can export transform_syntax itself.
@@ -75,4 +92,5 @@ manifest.update({'monolith/'+str(p.relative_to(mono)): hashlib.sha256(p.read_byt
 manifest['gym/views.flex'] = hashlib.sha256((ROOT/'flex/gym/views.flex').read_bytes()).hexdigest()
 manifest['gym/ui.css'] = hashlib.sha256(style.encode()).hexdigest()
 manifest['gym/camera.js'] = hashlib.sha256(camera.encode()).hexdigest()
+manifest['sim/cases/catalog.json'] = hashlib.sha256((ROOT/'flex/sim/cases/catalog.json').read_bytes()).hexdigest()
 (OUT/'gym-dependencies.json').write_text(json.dumps(manifest, indent=2)+'\n')

@@ -1,5 +1,5 @@
 // Search a ring of camera viewpoints around the last RGB box observation.
-// Only remembered image geometry, estimated odometry and the supplied map
+// Only remembered image geometry, estimated odometry and the navigation map
 // supply goals. Live body poses remain private to collision guards/judging.
 import "house.flex";
 
@@ -11,13 +11,16 @@ global ps_dock_search_wait = 0;
 global ps_dock_search_anchor = 0;
 global ps_dock_search_goal = 0;
 global ps_dock_search_blocks = 0;
-global ps_dock_search_staging = 0;
 global ps_dock_search_staged = 0;
 global ps_dock_search_hint = 0;
 global ps_dock_search_view_start = 0;
+global ps_dock_search_candidates = 0;
+global ps_dock_search_endpoint = 0;
+global ps_dock_search_maps = 0;
+global ps_dock_search_map_index = -1;
 
 fn ps_dock_search_reset() {
-    ps_dock_search_active = 0; ps_dock_search_index = 0; ps_dock_search_mode = 0; ps_dock_search_started = 0; ps_dock_search_blocks = 0; ps_dock_search_staged = 0; ps_dock_search_hint = 0; ps_dock_search_view_start = 0; return 0;
+    ps_dock_search_active = 0; ps_dock_search_index = 0; ps_dock_search_mode = 0; ps_dock_search_started = 0; ps_dock_search_blocks = 0; ps_dock_search_staged = 0; ps_dock_search_hint = 0; ps_dock_search_view_start = 0; ps_dock_search_maps = 0; ps_dock_search_map_index = -1; return 0;
 }
 fn ps_dock_search_candidate(index, out) {
     // Clockwise viewpoints change both position and heading. The camera's
@@ -32,21 +35,23 @@ fn ps_dock_search_candidate(index, out) {
 fn ps_dock_search_stage() {
     // Once RGB supplies the box pose, search actual arm-feasible staging
     // poses instead of circling merely to obtain another view of it.
-    if !ps_dock_search_staging { ps_dock_search_staging = alloc(24); }
-    let best = f64_from_i64(100); let found = 0; let view = 0;
+    if !ps_dock_search_candidates { ps_dock_search_candidates = alloc(2304 * 32); ps_dock_search_endpoint = alloc(24); }
+    let count = 0; let view = 0;
     while view < 24 {
         let angle = pb_neg(f64_mul(PB_TAU, ps_number(view, 24)));
         let bearing = f64_add(load64(ps_dock_search_anchor + 16), angle); let radius = 28;
         while radius <= 40 {
             let x = f64_add(load64(ps_dock_frame + 96), f64_mul(ps_number(radius, 100), f64_cos(bearing)));
             let y = f64_add(load64(ps_dock_frame + 104), f64_mul(ps_number(radius, 100), f64_sin(bearing))); let turn = 0;
-            while turn < 5 {
+            // Camera viewing direction does not constrain a release pose.
+            // Search a complete turn; IK and mapped parking still decide.
+            while turn < 24 {
                 let offset = (turn + 1) / 2; if !(turn % 2) { offset = -offset; }
                 let heading = pb_wrap_pi(f64_add(f64_add(load64(ps_dock_search_anchor + 24), angle), f64_mul(PB_TAU, ps_number(offset, 24))));
                 let dx = f64_sub(x, ps_pose_x()); let dy = f64_sub(y, ps_pose_y()); let distance = f64_sqrt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)));
                 let score = f64_add(distance, f64_mul(ps_number(1, 10), f64_magnitude(pb_wrap_pi(f64_sub(heading, ps_pose_heading())))));
-                if f64_gt(distance, ps_number(5, 100)) && f64_lt(score, best) && ps_nav_clear(x, y, heading) && ps_case_drop_clearance(180, x, y, heading) {
-                    best = score; found = 1; store64(ps_dock_search_staging, x); store64(ps_dock_search_staging + 8, y); store64(ps_dock_search_staging + 16, heading);
+                if f64_gt(distance, ps_number(5, 100)) && ps_nav_clear(x, y, heading) {
+                    let p = ps_dock_search_candidates + count * 32; store64(p, x); store64(p + 8, y); store64(p + 16, heading); store64(p + 24, score); count = count + 1;
                 }
                 turn = turn + 1;
             }
@@ -54,8 +59,32 @@ fn ps_dock_search_stage() {
         }
         view = view + 1;
     }
-    if !found || !ps_nav_plan(load64(ps_dock_search_staging), load64(ps_dock_search_staging + 8), load64(ps_dock_search_staging + 16)) { return 0; }
-    pb_copy(ps_dock_search_goal, ps_dock_search_staging, 24); return 1;
+    // Try candidates in distance order. A nearby clear endpoint can still
+    // require an unmapped reverse arc after the planner's coarse arrival.
+    let tried = 0;
+    while tried < count {
+        let best = -1; let score = f64_from_i64(100); let i = 0;
+        while i < count { let p = ps_dock_search_candidates + i * 32; if f64_lt(load64(p + 24), score) { best = i; score = load64(p + 24); } i = i + 1; }
+        if best < 0 { return 0; } let p = ps_dock_search_candidates + best * 32; store64(p + 24, f64_from_i64(100));
+        let x = load64(p); let y = load64(p + 8); let heading = load64(p + 16);
+        let planned = 0;
+        if ps_case_drop_clearance(180, x, y, heading) {
+            if ps_collect_enabled { planned = ps_nav_plan_release(x, y, heading); } else { planned = ps_nav_plan(x, y, heading); }
+        }
+        if planned {
+            ps_nav_end_pose(ps_dock_search_endpoint);
+            // The planner's actual arrival may itself be a safe release
+            // pose. Prefer it over an unnecessary precise correction to a
+            // sampled ring point; fresh RGB still authorizes the transfer.
+            let end_x = load64(ps_dock_search_endpoint); let end_y = load64(ps_dock_search_endpoint + 8); let end_heading = load64(ps_dock_search_endpoint + 16);
+            if ps_collect_enabled && ps_nav_clear(end_x, end_y, end_heading) && ps_case_drop_clearance(180, end_x, end_y, end_heading) {
+                pb_copy(ps_dock_search_goal, ps_dock_search_endpoint, 24); pb_copy(ps_nav_goal, ps_dock_search_endpoint, 24); return 1;
+            }
+            if !ps_collect_enabled || ps_house_parking_clear(ps_dock_search_endpoint, ps_nav_goal) { pb_copy(ps_dock_search_goal, p, 24); return 1; }
+        }
+        tried = tried + 1;
+    }
+    return 0;
 }
 fn ps_dock_search_next() {
     pb_drive_stop(pb_robot_drive(ps_robot), ps_time);
@@ -64,6 +93,8 @@ fn ps_dock_search_next() {
         if !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera before docking travel"); }
         ps_dock_search_index = ps_dock_search_index + 1; ps_dock_search_mode = 3; ps_dock_search_staged = 1; return 1;
     }
+    if ps_dock_fresh() && ps_dock_stable >= 3 && ps_collect_map_begin() { return 1; }
+    if ps_case_stage == 13 { return 0; }
     while ps_dock_search_index < 36 {
         ps_dock_search_candidate(ps_dock_search_index, ps_dock_search_goal); ps_dock_search_index = ps_dock_search_index + 1;
         if ps_nav_plan(load64(ps_dock_search_goal), load64(ps_dock_search_goal + 8), load64(ps_dock_search_goal + 16)) {
@@ -71,6 +102,7 @@ fn ps_dock_search_next() {
             ps_dock_search_mode = 1; return 1;
         }
     }
+    if ps_dock_fresh() && ps_dock_stable >= 3 { return ps_case_fail("box observed but no mapped arm-feasible docking pose found"); }
     return ps_case_fail("box not reacquired from the bounded circular camera search");
 }
 fn ps_dock_search_attention() {
@@ -119,7 +151,7 @@ fn ps_dock_search_update() {
 }
 fn ps_dock_search_observation(b) {
     pl_text(b, ",\"boxSearch\":{\"strategy\":\"circular-camera-viewpoints\",\"active\":"); pj_bool_text(b, ps_case_stage == 24);
-    pl_text(b, ",\"viewpoint\":"); pl_int(b, ps_dock_search_index); pl_text(b, ",\"maxViewpoints\":36,\"blockedMoves\":"); pl_int(b, ps_dock_search_blocks);
+    pl_text(b, ",\"viewpoint\":"); pl_int(b, ps_dock_search_index); pl_text(b, ",\"maxViewpoints\":36,\"blockedMoves\":"); pl_int(b, ps_dock_search_blocks); pl_text(b, ",\"mapRefreshes\":"); pl_int(b, ps_dock_search_maps);
     if ps_dock_search_active {
         pl_text(b, ",\"centreM\":["); pl_float(b, load64(ps_dock_search_anchor)); pl_char(b, 44); pl_float(b, load64(ps_dock_search_anchor + 8));
         pl_text(b, "],\"goal\":["); let i = 0; while i < 3 { if i { pl_char(b, 44); } pl_float(b, load64(ps_dock_search_goal + i * 8)); i = i + 1; } pl_char(b, 93);

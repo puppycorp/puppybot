@@ -19,7 +19,7 @@ fn main(argc, argv) {
     let selected = 0; i = 1;
     while i < argc {
         let arg = load64(argv + i * 8);
-        if sim_equal(arg, "--case") || sim_equal(arg, "--demo") || sim_equal(arg, "--pickup") || sim_equal(arg, "--pickup-release") || sim_equal(arg, "--vision-pickup") || sim_equal(arg, "--vision-pickup-release") || sim_equal(arg, "--stock-landmarks") || sim_equal(arg, "--stock-pickup") || sim_equal(arg, "--landmark-output") { selected = 1; }
+        if sim_equal(arg, "--discover") || sim_equal(arg, "--case") || sim_equal(arg, "--case-file") || sim_equal(arg, "--demo") || sim_equal(arg, "--pickup") || sim_equal(arg, "--pickup-release") || sim_equal(arg, "--vision-pickup") || sim_equal(arg, "--vision-pickup-release") || sim_equal(arg, "--stock-landmarks") || sim_equal(arg, "--stock-pickup") || sim_equal(arg, "--landmark-output") { selected = 1; }
         i = i + 1;
     }
     let args = alloc((argc + 7) * 8); store64(args, "/bin/bash"); store64(args + 8, "flex/scripts/run-sim.sh");

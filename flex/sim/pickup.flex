@@ -45,7 +45,10 @@ fn ps_arm_solve_at(point, height, pitch, x, y, heading) {
     let az = f64_sub(f64_sub(ps_number(height, 1000), ps_number(32, 1000)), load64(frame + 16));
     c = f64_cos(load64(frame + 40)); s = f64_sin(load64(frame + 40));
     let ax = f64_add(f64_mul(c, bx), f64_mul(s, by)); let ay = f64_sub(f64_mul(c, by), f64_mul(s, bx));
-    let error = pb_nearest_branch(ps_robot, ps_trace + 1024, f64_mul(ax, f64_from_i64(1000)), f64_mul(ay, f64_from_i64(1000)), f64_mul(az, f64_from_i64(1000)), pb_radians(f64_from_i64(pitch)), 0);
+    // Simulation poses specify finger pitch: 0 down, 90 forward. The arm's
+    // calibrated tool segment instead measures 0 forward, -90 down.
+    let tool_pitch = pb_radians(f64_from_i64(pitch - 90));
+    let error = pb_nearest_branch(ps_robot, ps_trace + 1024, f64_mul(ax, f64_from_i64(1000)), f64_mul(ay, f64_from_i64(1000)), f64_mul(az, f64_from_i64(1000)), tool_pitch, 0);
     if error { return 0; }
     pb_angles_ticks(ps_robot, ps_pickup_targets, ps_trace + 1024, 1); return 1;
 }

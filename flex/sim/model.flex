@@ -20,6 +20,11 @@ fn ps_joint_angle(robot, plant, index) {
     if ps_model_fraction { angle = f64_add(angle, f64_div(f64_mul(ps_number(load64(p) - tick * 1000, 1000), f64_div(PB_TAU, f64_from_i64(4096))), pb_j(j, PB_J_SIGN))); }
     return angle;
 }
+fn ps_gripper_pitch(robot, plant) {
+    // The TCP lies beyond the -Z face of the URDF part_1_4 mounting plate.
+    // Fingers extend normal to that face, along the arm's final tool segment.
+    return pb_wrap_pi(f64_add(pb_tool_pitch(ps_joint_angle(robot, plant, 1), ps_joint_angle(robot, plant, 2), ps_joint_angle(robot, plant, 3)), PB_HALF_PI));
+}
 fn ps_identity(m) {
     let i = 0; while i < 16 { store64(m + i * 8, 0); if i % 5 == 0 { store64(m + i * 8, PB_ONE); } i = i + 1; } return m;
 }

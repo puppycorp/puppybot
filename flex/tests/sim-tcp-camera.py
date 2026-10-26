@@ -76,7 +76,7 @@ def check(directory):
         forward = camera['forward']
         assert forward[0] > .85 and abs(forward[1]) < .12 and -.6 < forward[2] < -.3
         assert camera['down'][2] < -.8, 'driving image is upside-down'
-        assert .2 < camera['eyeM'][2] < .3
+        assert .135 < camera['eyeM'][2] < .165
         expected = result['estimatedCamera']
         assert math.dist(expected[:3], camera['eyeM']) < .002
         assert math.dist(expected[3:6], forward) < .01

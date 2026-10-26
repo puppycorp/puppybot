@@ -94,6 +94,7 @@ fn ps_brick_component(start, colour) {
     if count < 8 || ps_brick_count >= 16 { return 0; }
     let r = ps_brick_records + ps_brick_count * 128; pb_zero(r, 128); let u = f64_add(ps_number(sumx, count), ps_number(1, 2)); let v = f64_add(ps_number(sumy, count), ps_number(1, 2));
     if !ps_brick_ray(r + 32, u, v) { return 0; }
+    if ps_collect_self_target(r + 32) { return 0; }
     // Restrict collection to the positive-Y floor lane. The known return dock
     // is on the other side, so deposited pieces are not collected again.
     if ps_house_enabled() { if !ps_house_filter(load64(r + 32), load64(r + 40)) { return 0; } }
@@ -107,6 +108,7 @@ fn ps_brick_component(start, colour) {
     ps_brick_count = ps_brick_count + 1; return 1;
 }
 fn ps_brick_detect() {
+    if ps_collect_enabled { ps_local_kinematics(); }
     ps_brick_count = 0; ps_brick_chosen = -1; let i = 0;
     while i < 640 * 480 { store8(ps_brick_mask + i, ps_brick_colour(ps_brick_rgb + i * 3)); i = i + 1; }
     i = 0; while i < 640 * 480 { let colour = load8(ps_brick_mask + i); if colour { ps_brick_component(i, colour); } i = i + 1; } return 1;

@@ -27,16 +27,19 @@ fn ps_gripper_command(open) {
     if open { ps_gripper_goal = 90000; ps_gripper_release(); }
     return 0;
 }
-fn ps_gripper_frame_update(robot, plant) {
-    let yaw = f64_add(f64_add(ps_heading, load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(ps_joint_angle(robot, plant, 0)));
-    let pitch = pb_tool_pitch(ps_joint_angle(robot, plant, 1), ps_joint_angle(robot, plant, 2), ps_joint_angle(robot, plant, 3));
-    let cy = f64_cos(yaw); let sy = f64_sin(yaw); let cp = f64_cos(pitch); let sp = f64_sin(pitch); let m = ps_gripper_frame; ps_identity(m);
-    // Local X is jaw travel, local Z is finger length. A right-angle wrist
-    // mount makes the fingers point down when the controller tool pitch is 0.
+fn ps_gripper_matrix(m, tcp, heading, robot, plant) {
+    let yaw = f64_add(f64_add(heading, load64(ps_asset + 64 + ps_groups * 256 + 64)), pb_geometric_yaw(ps_joint_angle(robot, plant, 0)));
+    let pitch = ps_gripper_pitch(robot, plant);
+    let cy = f64_cos(yaw); let sy = f64_sin(yaw); let cp = f64_cos(pitch); let sp = f64_sin(pitch); ps_identity(m);
+    // Local X is jaw travel, local Z is finger length. Mount the palm flat
+    // against the TCP plate, with fingers continuing straight out of it.
     pb_vset(m, 0, pb_neg(sy)); pb_vset(m, 1, cy); pb_vset(m, 2, 0);
     pb_vset(m, 4, f64_mul(cy, cp)); pb_vset(m, 5, f64_mul(sy, cp)); pb_vset(m, 6, sp);
     pb_vset(m, 8, f64_mul(cy, sp)); pb_vset(m, 9, f64_mul(sy, sp)); pb_vset(m, 10, pb_neg(cp));
-    pb_vset(m, 12, load64(ps_tcp)); pb_vset(m, 13, load64(ps_tcp + 8)); pb_vset(m, 14, load64(ps_tcp + 16));
+    pb_vset(m, 12, load64(tcp)); pb_vset(m, 13, load64(tcp + 8)); pb_vset(m, 14, load64(tcp + 16)); return yaw;
+}
+fn ps_gripper_frame_update(robot, plant) {
+    let m = ps_gripper_frame; let yaw = ps_gripper_matrix(m, ps_tcp, ps_heading, robot, plant); let pitch = ps_gripper_pitch(robot, plant);
     let a = f64_mul(f64_add(yaw, PB_HALF_PI), ps_number(1, 2)); let b = f64_mul(f64_sub(PB_PI, pitch), ps_number(1, 2));
     store64(ps_gripper_quat, pb_f64_to_f32(f64_mul(f64_cos(a), f64_sin(b))));
     store64(ps_gripper_quat + 8, pb_f64_to_f32(f64_mul(f64_sin(a), f64_sin(b))));

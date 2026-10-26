@@ -40,6 +40,8 @@ flexscript run sim.flex --case house-blocks-into-box --drift 10
 flexscript run sim.flex --case house-blocks-into-box --drift 10 --breadcrumbs
 flexscript run sim.flex --case house-blocks-into-box --drift 10 --video build/flex/sim/house.mp4
 flexscript run sim.flex --case ball-into-bin
+flexscript run sim.flex --discover
+flexscript run sim.flex --case discover-house-blocks-into-box
 flexscript run sim.flex --list-cases
 ```
 
@@ -52,9 +54,31 @@ supplied wall map. `--no-visual-odometry` selects wheel-only integration;
 `--breadcrumbs` additionally tries reverse visual checkpoints. See the simulation
 README for assumptions and validation.
 
+`--discover` starts a separate camera-based mapping experiment with an unknown
+grid and a local origin. It scans with the wrist camera, estimates free floor
+and obstacles from translated RGB views, then drives toward observed frontiers.
+It requires Python with NumPy and OpenCV; see the simulation README for setup,
+recording commands and current limits.
+
+`discover-house-blocks-into-box` combines that mapper with the six-brick house
+task. It learns the box and brick targets from wrist RGB and plans over observed
+free space, without a supplied floorplan, coverage route or starting world pose.
+A cold-start trial in the original apartment completed all six deliveries,
+with independent grasp, release, containment, camera and motion audits.
+This remains an experimental collector; completion on generated layouts is
+not established by that original-scene result.
+
+[Map benchmarks and generated layouts](flex/sim/README.md#map-benchmarks-and-generated-layouts)
+compare learned maps with an offline reference and run the same controller on
+seeded room layouts. Generate a world with `flex/scripts/generate-layout.py`,
+then select its `case.json` using `flexscript run sim.flex --case-file FILE
+--environment ENVIRONMENT_BIN`.
+
 [`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
 the robot-control UI. Its first backend runs the native firmware in an isolated
 process against a deterministic servo plant, with seeded cases and recorded results.
+Gym also launches the native house discovery/pickup scenes, keeps their maps
+and recordings, and provides pause/resume/stop and video playback in the same UI.
 Its Live camera view tests [native Pup YOLO detection](flex/vision/README.md) with
 camera frames, labels and boxes, separately from firmware rollouts and robot controls.
 

@@ -94,6 +94,17 @@
       "environment": "apartment",
       "longRunning": true,
       "experimental": true
+    },
+    {
+      "id": "discover-house-blocks-into-box",
+      "name": "Discover house and collect",
+      "description": "Build a local map from the wrist camera, find the six scattered bricks, and return them to a visually learned box without a supplied floorplan or coverage route.",
+      "file": "flex/sim/cases/discover-house-blocks-into-box.json",
+      "controller": "rgb-discovery",
+      "objects": 6,
+      "environment": "apartment",
+      "longRunning": true,
+      "experimental": true
     }
   ]
 }

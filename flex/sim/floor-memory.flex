@@ -22,7 +22,13 @@ fn ps_floor_observe() {
     while i < ps_brick_count {
         let r = ps_brick_records + i * 128; let x = load64(r + 32); let y = load64(r + 40);
         let ahead = f64_add(f64_mul(f64_sub(x, ps_local_x), f64_cos(ps_local_heading)), f64_mul(f64_sub(y, ps_local_y), f64_sin(ps_local_heading)));
-        if f64_ge(ahead, ps_number(16, 100)) && f64_le(ahead, ps_number(12, 10)) && ps_house_filter(x, y) && ps_house_detection(i) {
+        let nearby = f64_ge(ahead, ps_number(16, 100)) && f64_le(ahead, ps_number(12, 10));
+        if ps_collect_enabled {
+            // Wrist discovery observes behind and beside the chassis too.
+            let dx = f64_sub(x, ps_local_x); let dy = f64_sub(y, ps_local_y); let distance = f64_add(f64_mul(dx, dx), f64_mul(dy, dy));
+            nearby = f64_ge(distance, ps_number(256, 10000)) && f64_le(distance, ps_number(169, 100));
+        }
+        if nearby && ps_house_filter(x, y) && ps_house_detection(i) {
             let index = -1; let j = 0;
             while j < ps_floor_count { if ps_floor_near(x, y, ps_floor_points + j * 32, ps_number(6, 100)) { index = j; } j = j + 1; }
             if index < 0 && ps_floor_count < 128 { index = ps_floor_count; ps_floor_count = ps_floor_count + 1; pb_zero(ps_floor_points + index * 32, 32); }
