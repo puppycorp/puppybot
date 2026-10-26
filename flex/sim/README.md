@@ -1784,3 +1784,26 @@ them. Neither endpoint updates the controller's visual estimate directly.
 clearance and separation across 37 seeds, then verifies seed replay, API reset
 and shuffle, unchanged fixed cases, and rejection of invalid seeds or impossible
 regions. Catalog checks also run and render the seeded random pickup case.
+
+## Find one brick and return
+
+`flexscript run sim.flex --case find-return-house` runs a navigation-only
+curriculum in the unknown house. The first TCP RGB brick sighting consumes one
+prop; the robot then returns to the observed collection box. It succeeds after
+stopping 30–65 cm from the box, facing it within 35 degrees, with three stable
+current observations. No physical pickup, carry or drop is performed. Wrist
+movement is still used to acquire camera views. Launch this mode in a fresh
+simulator process, as with discovery pickup. Generated case files can select
+`"controller": "rgb-find-return"`.
+
+`--observer-distance-mm 3500` gives a closer observer view following the robot;
+the TCP sensor is unaffected.
+
+The separate [direct visual-control experiment](../control/README.md) bypasses
+the frontier planner and wrist sweeps. A CNN/GRU consumes actual TCP RGB and
+own feedback and emits continuous steering/speed commands. Collection, image
+resizing, training orchestration, inference, evaluation and recorded-run
+verification are Flexscript, with no Python dependency in this workflow.
+Use `./flex/control.sh build` and `./flex/control.sh --help`. Its
+private `--agent-fd` bridge is launched by the experiment runner, with physical
+collision guards retained. It is not the default collection controller.

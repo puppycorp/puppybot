@@ -74,7 +74,7 @@ def api(directory, catalog):
             port = int(log.read_text().split('robot API port ')[1].splitlines()[0])
             assert simulation.request(port, '/api/sim/cases') == catalog
             for entry in catalog['cases']:
-                if entry['controller'] in ('rgb-search', 'rgb-house'):
+                if entry['controller'] in ('rgb-search', 'rgb-house', 'rgb-discovery', 'rgb-find-return'):
                     before = simulation.request(port, '/api/sim/state')
                     try:
                         simulation.request(port, '/api/sim/cases/'+entry['id'], {})

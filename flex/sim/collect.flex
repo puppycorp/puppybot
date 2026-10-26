@@ -121,6 +121,7 @@ fn ps_collect_search_begin() {
     ps_discovery_full = ps_collect_map_until || !ps_house_ready || !(ps_discovery_scans % 4); ps_case_phase(26); return 1;
 }
 fn ps_collect_attention() {
+    if ps_seek_enabled { if ps_seek_found && ps_dock_seen >= 0 { return ps_dock_frame + 96; } return 0; }
     if !ps_collect_enabled || !ps_house_ready { return 0; } let best = 0; let distance = f64_from_i64(1000); let i = 0;
     while i < ps_collect_count { let p = ps_collect_points + i * 64;
         let dx = f64_sub(load64(p), ps_pose_x()); let dy = f64_sub(load64(p + 8), ps_pose_y()); let d = f64_add(f64_mul(dx, dx), f64_mul(dy, dy));
@@ -128,6 +129,7 @@ fn ps_collect_attention() {
     } return best;
 }
 fn ps_collect_frontiers() {
+    if ps_seek_enabled { return 0; }
     let target = ps_collect_attention(); if !target { return 0; } let i = 0;
     while i < ps_discovery_goal_count { let best = i; let distance = f64_from_i64(1000); let j = i;
         while j < ps_discovery_goal_count { let p = ps_discovery_goals + j * 24;
@@ -155,6 +157,7 @@ fn ps_collect_resume_plan() {
     if ps_collect_resume_tries >= 3 { ps_collect_resume_valid = 0; } return 0;
 }
 fn ps_collect_observe() {
+    if ps_seek_enabled { return ps_seek_observe(); }
     if !ps_collect_enabled { return 0; }
     ps_dock_samples = ps_dock_samples + 1; let dock = ps_dock_detect(); ps_dock_attention(dock); let hold = dock && ps_dock_stable < 3;
     if dock && ps_dock_stable >= 3 && !ps_house_ready {
@@ -248,6 +251,7 @@ fn ps_collect_plan_pick() {
     ps_house_returning = 0; return 0;
 }
 fn ps_collect_select() {
+    if ps_seek_enabled { return 0; }
     if !ps_collect_enabled || !ps_house_ready || ps_collect_busy { return 0; }
     if ps_collect_map_until { if ps_discovery_scans < ps_collect_map_until { return 0; } ps_collect_map_until = 0; }
     ps_collect_busy = 1;

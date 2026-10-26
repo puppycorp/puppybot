@@ -105,6 +105,16 @@
       "environment": "apartment",
       "longRunning": true,
       "experimental": true
+    },
+    {
+      "id": "find-return-house",
+      "name": "Find one brick and return",
+      "description": "Explore an unknown house, consume the first RGB brick sighting, then stop facing the freshly observed box. No grasp or drop.",
+      "file": "flex/sim/cases/find-return-house.json",
+      "controller": "rgb-find-return",
+      "objects": 6,
+      "environment": "apartment",
+      "longRunning": true
     }
   ]
 }

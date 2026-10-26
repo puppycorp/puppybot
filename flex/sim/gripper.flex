@@ -93,6 +93,7 @@ fn ps_gripper_contact_select() {
     ps_gripper_body = -1; return 0;
 }
 fn ps_gripper_try_capture() {
+    if ps_seek_enabled { return 0; }
     if ps_gripper_held || ps_gripper_goal >= ps_gripper_gap || ps_gripper_contacts != 3 || ps_gripper_gap > 80000 { return 0; }
     let ball = ph_body(ps_physics, ps_gripper_body); let distance = 0; let i = 0;
     while i < 3 {

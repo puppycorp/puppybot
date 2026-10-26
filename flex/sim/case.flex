@@ -60,7 +60,7 @@ fn ps_case_phase_name() {
     if ps_case_stage == 23 { return "learning box landmark"; }
     if ps_case_stage == 24 { return "circling for box"; }
     if ps_case_stage == 25 { return "parking for pickup"; }
-    if ps_case_stage == 26 { return "discovering space"; }
+    if ps_case_stage == 26 { if ps_seek_enabled { if ps_seek_found { return "returning to box"; } return "seeking first brick"; } return "discovering space"; }
     if ps_case_stage == 31 { return "inspecting RGB grasp"; }
     if ps_case_stage == 32 { return "inspecting staged approach"; }
     if ps_case_stage == 35 { return "observing docking floor"; }
@@ -94,6 +94,8 @@ fn ps_case_start() {
     if !ps_pickup_targets { ps_pickup_targets = alloc(32); } ps_case_reason = "running with scene-state controller";
     ps_gripper_auto = ps_case_camera; if ps_case_camera { ps_case_reason = "searching with RGB colour/shape detection and calibrated camera rays"; }
     ps_case_passed = 0; ps_case_placed = 0; ps_gripper_command(1); ps_case_phase(1); let values = ps_trace + 1024; store64(values, 220); pr_apply(ps_app, 1, values, ps_time);
+    if ps_agent_fd { return ps_agent_begin(); }
+    if ps_seek_enabled { ps_gripper_auto = 0; ps_case_reason = "find one RGB brick and return without manipulation"; return ps_collect_search_begin(); }
     if ps_collect_enabled { ps_case_reason = "searching and collecting over TCP-observed space"; return ps_collect_search_begin(); }
     if ps_case_camera && !ps_case_travel_pose() { return ps_case_fail("cannot aim the TCP camera for travel"); } return 1;
 }
@@ -631,7 +633,7 @@ fn ps_case_update() {
 }
 fn ps_case_observation(b) {
     pl_text(b, ",\"case\":"); if ps_case_index < 0 { return pl_text(b, "null"); }
-    pl_text(b, "{\"id\":"); pj_text(b, ps_catalog_entries + ps_case_index * 768); pl_text(b, ",\"controller\":"); if ps_collect_enabled { pj_text(b, "rgb-discovery"); } else if ps_house_enabled() { pj_text(b, "rgb-house"); } else if ps_case_camera { pj_text(b, "rgb-search"); } else { pj_text(b, "scene-state"); } pl_text(b, ",\"phase\":"); pj_text(b, ps_case_phase_name());
+    pl_text(b, "{\"id\":"); pj_text(b, ps_catalog_entries + ps_case_index * 768); pl_text(b, ",\"controller\":"); if ps_seek_enabled { pj_text(b, "rgb-find-return"); } else if ps_collect_enabled { pj_text(b, "rgb-discovery"); } else if ps_house_enabled() { pj_text(b, "rgb-house"); } else if ps_case_camera { pj_text(b, "rgb-search"); } else { pj_text(b, "scene-state"); } pl_text(b, ",\"phase\":"); pj_text(b, ps_case_phase_name());
     if ps_case_camera {
         ps_brick_observation(b); ps_dock_observation(b); ps_house_observation(b); if ps_house_enabled() { ps_dock_search_observation(b); } pl_text(b, ",\"searchDistanceM\":"); pl_float(b, ps_case_search_distance); pl_text(b, ",\"visualRefinements\":"); pl_int(b, ps_case_refinements);
         pl_text(b, ",\"pickupTargetM\":["); let k = 0; while k < 3 { if k { pl_char(b, 44); } pl_float(b, load64(ps_case_target + k * 8)); k = k + 1; } pl_char(b, 93);

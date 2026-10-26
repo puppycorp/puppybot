@@ -32,7 +32,7 @@ global ps_nav_contact_next = 0;
 global ps_nav_parking_goal = 0;
 global ps_nav_parking_point = 0;
 
-fn ps_nav_heading_free() { return ps_discovery_enabled && (!ps_collect_enabled || !ps_collect_busy); }
+fn ps_nav_heading_free() { if ps_seek_enabled && ps_seek_found && ps_dock_seen >= 0 { return 0; } return ps_discovery_enabled && (!ps_collect_enabled || !ps_collect_busy); }
 fn ps_nav_contact_add() {
     let d = pb_robot_drive(ps_robot); let direction = pb_sign(load64(d + 48) + load64(d + 56)); if !direction { return 0; }
     let r = ps_nav_contacts + (ps_nav_contact_next % 16) * 40; ps_nav_contact_next = ps_nav_contact_next + 1; ps_nav_contact_count = pb_min(16, ps_nav_contact_count + 1);

@@ -12,7 +12,7 @@ fn ps_case_add_object(index) {
     let mass = pb_f64_to_f32(load64(r + 128)); let hx = pb_f64_to_f32(load64(r + 96)); let hy = pb_f64_to_f32(load64(r + 104)); let hz = pb_f64_to_f32(load64(r + 112)); let id = 0;
     if load64(r + 64) { id = ph_sphere_body(ps_physics, 1, x, y, z, mass, hx); } else { id = ph_box_body(ps_physics, 1, x, y, z, mass, hx, hy, hz); }
     if !load64(r + 64) { let half = f64_mul(load64(r + 200), ps_number(1, 2)); ph_body_quaternion(ps_physics, id, 0, 0, pb_f64_to_f32(f64_sin(half)), pb_f64_to_f32(f64_cos(half))); }
-    store64(r + 184, id); store64(r + 192, 0); return id;
+    store64(r + 184, id); store64(r + 192, 0); store64(r + 208, 0); return id;
 }
 fn ps_world_init() {
     ps_x = 0; ps_y = 0; ps_heading = 0; ps_wheel = 0; ps_blocked = 0;

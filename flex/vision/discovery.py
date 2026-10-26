@@ -222,7 +222,7 @@ def update(free, occupied, points, pose, detail, height_seen, height_confirmed, 
     return dict(floorPoints=int(floor.sum()), obstaclePoints=int(obstacles.sum()))
 
 
-def navigation(free, occupied, pose, visits):
+def navigation(free, occupied, pose, visits, task=None, directory=None, frame=None):
     # Height outliers must agree in two stereo observations. A verified floor
     # patch contradicts height evidence only in the same 2 cm subcell.
     known_free = (free >= 3) & (occupied < 2)
@@ -259,6 +259,12 @@ def navigation(free, occupied, pose, visits):
         ry, cx = np.nonzero(unknown[max(0,row-4):row+5, max(0,col-4):col+5])
         heading = math.atan2(float(ry.mean()-min(4,row)), float(cx.mean()-min(4,col))) if len(ry) else pose[2]
         candidates.append((score, [float(xy[0]), float(xy[1]), heading], bool(comfortable[row,col]) and score>0))
+    if task is not None:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'exploration'))
+        from seek_policy import navigation as seek_navigation
+        goals = seek_navigation(candidates, safe, known_free, blocked, pose, visits, distance, task, directory, frame)
+        return safe, known_free, blocked, goals
     candidates.sort(key=lambda item: -item[0])
     goals = []
     # Prefer room to steer and localize at a frontier. Keep two proposals
@@ -300,7 +306,7 @@ def run(request, directory):
     metrics.update(update(free, occupied, points, request['pose'], detail, height_seen, height_confirmed, floor_detail))
     if request.get('newScan'):
         visits.append(request['pose'])
-    safe, known_free, blocked, goals = navigation(free, occupied, request['pose'], visits)
+    safe, known_free, blocked, goals = navigation(free, occupied, request['pose'], visits, request.get('seek'), directory, request['frameId'])
     np.savez_compressed(state, free=free, occupied=occupied, detail=detail, heightSeen=height_seen, heightConfirmed=height_confirmed, floorDetail=floor_detail, visits=np.asarray(visits).reshape(-1,3))
     safe_bytes = (~safe).astype(np.uint8).tobytes()
     (directory/'safe.bin').write_bytes(safe_bytes)

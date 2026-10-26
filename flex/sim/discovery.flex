@@ -333,7 +333,7 @@ fn ps_discovery_request() {
     let capacity = (ps_arm_collider_count + 5) * 1024 + 4096; let text = alloc(capacity); let b = alloc(32); pl_builder(b, text, capacity);
     pl_text(b, "{\"schema\":\"puppybot.discovery-input.v1\",\"frameId\":"); pl_int(b, ps_total); pl_text(b, ",\"newScan\":"); pj_bool_text(b, !ps_discovery_scan_recorded);
     pl_text(b, ",\"pose\":["); pl_float(b, ps_pose_x()); pl_char(b, 44); pl_float(b, ps_pose_y()); pl_char(b, 44); pl_float(b, ps_pose_heading()); pl_text(b, "],\"frames\":[");
-    ps_discovery_frame_text(b, ps_discovery_left, ps_discovery_frames); pl_char(b, 44); ps_discovery_frame_text(b, ps_discovery_right, ps_discovery_frames + 96); pl_text(b, "]}\n");
+    ps_discovery_frame_text(b, ps_discovery_left, ps_discovery_frames); pl_char(b, 44); ps_discovery_frame_text(b, ps_discovery_right, ps_discovery_frames + 96); pl_char(b, 93); ps_seek_request(b); pl_text(b, "}\n");
     let request = h_cat(ps_discovery_directory, "/request.json"); let ok = !load64(b + 24) && !pl_atomic_file(request, text, load64(b + 8));
     syscall(11, text, capacity, 0, 0, 0, 0); syscall(11, b, 32, 0, 0, 0, 0); if !ok { return 0; }
     let args = h_args(h_executable("python3"), "flex/vision/discovery.py", "--request", request, "--output", ps_discovery_directory);

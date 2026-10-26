@@ -266,25 +266,28 @@ fn ps_case_render() {
     }
     i = 0;
     while i < ps_case_count {
-        let record = ps_case_objects + i * 256; let id = load64(record + 184); let mesh = ps_cube; let count = 36;
-        if load64(record + 64) { mesh = ps_ball_mesh; count = 24 * 12 * 6; }
-        ps_body_matrix(id, load64(record + 96), load64(record + 104), load64(record + 112));
-        let red = f64_to_i64_nearest(load64(record + 160)); let green = f64_to_i64_nearest(load64(record + 168)); let blue = f64_to_i64_nearest(load64(record + 176));
-        ps_draw(mesh, ps_draw_model, 0, count, red, green, blue);
-        if !load64(record + 64) {
-            // Decorative studs follow the same physical box transform. The
-            // collider stays a cuboid; interlocking brick physics is separate.
-            let body = ph_body(ps_physics, id); let stud = 0;
-            while stud < 4 {
-                let x = f64_mul(load64(record + 96), ps_number(-1, 2)); if stud % 2 { x = pb_neg(x); }
-                let y = f64_mul(load64(record + 104), ps_number(-1, 2)); if stud >= 2 { y = pb_neg(y); }
-                let z = f64_add(load64(record + 112), ps_number(2, 1000)); let axis = 0;
-                while axis < 3 {
-                    let position = pb_f32_to_f64(load64(body + 8 + axis * 8));
-                    position = f64_add(position, f64_add(f64_add(f64_mul(pb_f32_to_f64(load64(body + 256 + axis * 8)), x), f64_mul(pb_f32_to_f64(load64(body + 280 + axis * 8)), y)), f64_mul(pb_f32_to_f64(load64(body + 304 + axis * 8)), z)));
-                    pb_vset(ps_gripper_local, axis, position); axis = axis + 1;
+        let record = ps_case_objects + i * 256;
+        if !load64(record + 208) {
+            let id = load64(record + 184); let mesh = ps_cube; let count = 36;
+            if load64(record + 64) { mesh = ps_ball_mesh; count = 24 * 12 * 6; }
+            ps_body_matrix(id, load64(record + 96), load64(record + 104), load64(record + 112));
+            let red = f64_to_i64_nearest(load64(record + 160)); let green = f64_to_i64_nearest(load64(record + 168)); let blue = f64_to_i64_nearest(load64(record + 176));
+            ps_draw(mesh, ps_draw_model, 0, count, red, green, blue);
+            if !load64(record + 64) {
+                // Decorative studs follow the same physical box transform. The
+                // collider stays a cuboid; interlocking brick physics is separate.
+                let body = ph_body(ps_physics, id); let stud = 0;
+                while stud < 4 {
+                    let x = f64_mul(load64(record + 96), ps_number(-1, 2)); if stud % 2 { x = pb_neg(x); }
+                    let y = f64_mul(load64(record + 104), ps_number(-1, 2)); if stud >= 2 { y = pb_neg(y); }
+                    let z = f64_add(load64(record + 112), ps_number(2, 1000)); let axis = 0;
+                    while axis < 3 {
+                        let position = pb_f32_to_f64(load64(body + 8 + axis * 8));
+                        position = f64_add(position, f64_add(f64_add(f64_mul(pb_f32_to_f64(load64(body + 256 + axis * 8)), x), f64_mul(pb_f32_to_f64(load64(body + 280 + axis * 8)), y)), f64_mul(pb_f32_to_f64(load64(body + 304 + axis * 8)), z)));
+                        pb_vset(ps_gripper_local, axis, position); axis = axis + 1;
+                    }
+                    ps_box_matrix(load64(ps_gripper_local), load64(ps_gripper_local + 8), load64(ps_gripper_local + 16), ps_number(4, 1000), ps_number(4, 1000), ps_number(3, 1000)); ps_draw(ps_ball_mesh, ps_draw_model, 0, 24 * 12 * 6, red, green, blue); stud = stud + 1;
                 }
-                ps_box_matrix(load64(ps_gripper_local), load64(ps_gripper_local + 8), load64(ps_gripper_local + 16), ps_number(4, 1000), ps_number(4, 1000), ps_number(3, 1000)); ps_draw(ps_ball_mesh, ps_draw_model, 0, 24 * 12 * 6, red, green, blue); stud = stud + 1;
             }
         }
         i = i + 1;
