@@ -5,7 +5,7 @@ cd "$project_dir"
 if [[ "${1:-}" == build ]]; then exec bash flex/scripts/build-control.sh; fi
 if [[ "${1:-}" == test ]]; then shift; exec bash flex/scripts/test-control.sh "$@"; fi
 if [[ ! -x build/flex/control/control ]]; then bash flex/scripts/build-control.sh; fi
-if [[ "${1:-}" == collect || "${1:-}" == run ]]; then
+if [[ "${1:-}" == collect || "${1:-}" == run || "${1:-}" == correct ]]; then
     if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}${SDL_VIDEODRIVER:-}" ]]; then
         display_runtime="${XDG_RUNTIME_DIR:-/run/user/$UID}"
         display_sockets=()

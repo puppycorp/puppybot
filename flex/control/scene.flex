@@ -41,9 +41,13 @@ fn vc_case(path,template,seed,hidden) {
     vc_rng=seed&2147483647;let root=vc_json_file(template);let id=pj_get(root,"id");let name=vc_concat("pixel-native-",vc_int(seed));vc_require(pj_kind(id)==2,"curriculum case ID is missing");store64(id+8,name);store64(id+16,pl_size(name));let objects=pj_get(root,"objects");let first=pj_value(objects);
     vc_require(pj_kind(objects)==3 && first,"curriculum case must contain an object");store64(objects+16,1);store64(first+24,0);
     let position=pj_get(first,"position");let x=vc_uniform(vc_number(235,100),vc_number(285,100));let y=vc_uniform(vc_number(-4,10),vc_number(4,10));
-    if hidden {x=vc_number(27,10);y=vc_number(19,10);}vc_set_number(pj_index(position,0),x);vc_set_number(pj_index(position,1),y);
+    if hidden {x=vc_uniform(vc_number(24,10),vc_number(29,10));y=vc_uniform(vc_number(17,10),vc_number(23,10));}vc_set_number(pj_index(position,0),x);vc_set_number(pj_index(position,1),y);
     let container=pj_get(root,"container");position=pj_get(container,"position");vc_set_number(pj_index(position,0),vc_number(5,10));vc_random();let side=-1;
-    if vc_rng&1 {side=1;}vc_set_number(pj_index(position,1),vc_number(side*27,100));
+    // Mixed collection alternates difficulty by parity; the RNG low bit would
+    // couple every easy episode to the same box side.
+    if (vc_rng>>8)&1 {side=1;}
+    // The collection box must not close the approach to the narrow doorway.
+    if hidden {side=1;}vc_set_number(pj_index(position,1),vc_number(side*27,100));
     let fixed=pj_get(container,"fixed");if !fixed {fixed=pj_node(5,1,0);store64(fixed+32,"fixed");store64(fixed+40,5);store64(fixed+24,pj_value(container));store64(container+8,fixed);store64(container+16,pj_count(container)+1);}else {store64(fixed+8,1);}
     let scenery=pj_get(root,"scenery");if scenery {store64(scenery+8,0);store64(scenery+16,0);}
     let text=alloc(16384);let builder=alloc(32);pl_builder(builder,text,16384);pj_emit(builder,root);pl_char(builder,10);

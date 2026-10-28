@@ -33,15 +33,22 @@ fn ga_poll(wall) {
     return 0;
 }
 fn ga_request(c, wall) {
-    let path = c + 160; if !pl_equal(c + 128, "GET") || !pl_starts(path, "/api/gym/runs/") { return 0; }
-    let text = path + 14; let n = 0; while load8(text + n) >= 48 && load8(text + n) <= 57 { n = n + 1; }
+    let path = c + 160; if !pl_equal(c + 128, "GET") { return 0; }
+    let history = pl_starts(path, "/api/gym/history/");
+    if !history && !pl_starts(path, "/api/gym/runs/") { return 0; }
+    let text = path + 14; if history { text = path + 17; }
+    let n = 0; while load8(text + n) >= 48 && load8(text + n) <= 57 { n = n + 1; }
     let id = pl_integer(text, n); if pl_bad_number || id < 1 || !pl_starts(text + n, "/artifacts/") { return 0; }
-    let row = flexdb_get(gm_runs, id); if !row { pnet_error(c, 404, "unknown rollout", wall); return 1; }
     let leaf = text + n + 11; let mime = 0;
     if pl_equal(leaf, "mission.mp4") { mime = "video/mp4"; }
     if pl_equal(leaf, "outcome.png") { mime = "image/png"; }
     if !mime { pnet_error(c, 404, "unknown artifact", wall); return 1; }
-    gr_path(gm_work, flexdb_word(flexdb_cell(row, 2)), leaf); let fd = syscall(2, gm_work, 0xa0000, 0, 0, 0, 0);
+    let fd = -1;
+    if history { fd = gc_artifact(id, leaf); }
+    else {
+        let row = flexdb_get(gm_runs, id); if !row { pnet_error(c, 404, "unknown rollout", wall); return 1; }
+        gr_path(gm_work, flexdb_word(flexdb_cell(row, 2)), leaf); fd = syscall(2, gm_work, 0xa0000, 0, 0, 0, 0);
+    }
     if fd < 0 { pnet_error(c, 404, "artifact is not available", wall); return 1; }
     let size = syscall(8, fd, 0, 2, 0, 0, 0); let start = 0; let end = size - 1; let partial = 0;
     let range = ph_header(c + 512, pb_vget(c, 10), "range"); let valid = !ph_duplicates;

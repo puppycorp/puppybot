@@ -1,0 +1,26 @@
+{
+  "schema": "puppybot.transfer-results.v1",
+  "date": "2026-10-27",
+  "previous": {
+    "episodes": 32,
+    "physicalReturns": 3,
+    "auditedApproaches": 6,
+    "openReturns": 3,
+    "hiddenReturns": 0,
+    "auditFailures": 0
+  },
+  "expanded": {
+    "episodes": 32,
+    "physicalReturns": 2,
+    "auditedApproaches": 9,
+    "openReturns": 1,
+    "hiddenReturns": 1,
+    "auditFailures": 0
+  },
+  "all64NativeAuditsPassed": true,
+  "autonomousCompletionImproved": false,
+  "interpretation": "Expanded model reaches more bricks and returns once in hidden rooms, but loses open returns and completes fewer episodes overall",
+  "qualificationThresholdsUnchanged": true,
+  "reservedFinalRun": false,
+  "retainedPolicyOverwritten": false
+}

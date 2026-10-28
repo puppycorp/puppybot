@@ -1,6 +1,7 @@
-// Navigation curriculum: see one brick, consume it, return to an observed box.
-// Consumption is a simulator event. Only RGB detections can trigger it; object
-// bodies are consulted here to remove the matching prop, never to plan motion.
+// Navigation curriculum: approach a visible brick, consume it, return to a box.
+// Consumption is a simulator event. RGB detections trigger it; physical poses
+// judge approach distance and match the prop for removal, never plan motion.
+import "seek-projection.flex";
 global ps_seek_enabled = 0;
 global ps_seek_found = 0;
 global ps_seek_consumed = -1;
@@ -11,6 +12,24 @@ global ps_seek_return_observations = 0;
 fn ps_seek_reset() {
     ps_seek_found = 0; ps_seek_consumed = -1; ps_seek_detection_step = -1; ps_seek_return_observations = 0;
     if !ps_seek_detection { ps_seek_detection = alloc(128); } pb_zero(ps_seek_detection, 128); return 1;
+}
+fn ps_seek_detection_matches_body(detection, body) {
+    // Reconstruct the exact world-space camera basis used for the recorded
+    // sensor metadata, independently of estimated robot localization.
+    if ps_brick_frame != ps_total { return 0; }
+    let vectors = alloc(72); let camera = alloc(96); let point = alloc(24);
+    let forward = vectors; let right = vectors + 24; let up = vectors + 48; let i = 0;
+    while i < 3 { store64(forward + i * 8, load64(ps_target + i * 8) - load64(ps_eye + i * 8)); i = i + 1; }
+    render_normalize(forward); render_cross(right, forward, ps_up); render_normalize(right); render_cross(up, right, forward); i = 0;
+    while i < 3 {
+        store64(camera + i * 8, ps_number(load64(ps_eye + i * 8), 1000));
+        store64(camera + 24 + i * 8, ps_number(load64(forward + i * 8), 1000000));
+        store64(camera + 48 + i * 8, ps_number(load64(right + i * 8), 1000000));
+        store64(camera + 72 + i * 8, ps_number(-load64(up + i * 8), 1000000));
+        store64(point + i * 8, pb_f32_to_f64(load64(body + 8 + i * 8))); i = i + 1;
+    }
+    let matched = ps_seek_projection_match(detection, camera, point);
+    syscall(11, vectors, 72, 0, 0, 0, 0); syscall(11, camera, 96, 0, 0, 0, 0); syscall(11, point, 24, 0, 0, 0, 0); return matched;
 }
 fn ps_seek_consume(detection) {
     // Undo estimated base localization ONLY inside the simulation's event
@@ -25,21 +44,20 @@ fn ps_seek_consume(detection) {
         let r = ps_case_objects + i * 256; let body = ph_body(ps_physics, load64(r + 184));
         let bx = f64_sub(pb_f32_to_f64(load64(body + 8)), x); let by = f64_sub(pb_f32_to_f64(load64(body + 16)), y);
         let d = f64_add(f64_mul(bx, bx), f64_mul(by, by));
-        if !load64(r + 208) && f64_lt(d, distance) { distance = d; best = i; } i = i + 1;
+        if !load64(r + 208) && f64_lt(d, distance) && ps_seek_detection_matches_body(detection, body) { distance = d; best = i; } i = i + 1;
     }
     if best < 0 { return 0; }
-    if ps_agent_fd && ps_agent_task == 1 {
-        let body = ph_body(ps_physics, load64(ps_case_objects + best * 256 + 184));
-        let dx = f64_sub(pb_f32_to_f64(load64(body + 8)), ps_x); let dy = f64_sub(pb_f32_to_f64(load64(body + 16)), ps_y);
-        if f64_gt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)), ps_number(1225, 10000)) { return 0; }
-    }
     let r = ps_case_objects + best * 256; let body = ph_body(ps_physics, load64(r + 184));
+    // Seeing a distant brick is insufficient in both approach-only and return
+    // tasks. Judge planar base-to-brick distance using physical positions.
+    let brick_dx = f64_sub(pb_f32_to_f64(load64(body + 8)), ps_x); let brick_dy = f64_sub(pb_f32_to_f64(load64(body + 16)), ps_y);
+    if f64_gt(f64_add(f64_mul(brick_dx, brick_dx), f64_mul(brick_dy, brick_dy)), ps_number(1225, 10000)) { return 0; }
     // Retain stable body IDs, but park an inert invisible prop below the world.
     // Both contact physics and swept queries now see it away from the floor.
     store64(r + 208, 1); store64(body, 0); store64(body + 24, ps_float(-10, 1));
     ph_vset(body + 64, 0, 0, 0); ph_vset(body + 88, 0, 0, 0); store64(body + 112, 0); ph_vset(body + 120, 0, 0, 0); ph_cache_body(body);
     ps_seek_found = 1; ps_seek_consumed = best; ps_seek_detection_step = ps_total; pb_copy(ps_seek_detection, detection, 128);
-    ps_case_reason = "brick seen and consumed; returning to the RGB box landmark"; return 1;
+    ps_case_reason = "visible brick approached within 35 cm and consumed; returning to the RGB box landmark"; return 1;
 }
 fn ps_seek_observe() {
     ps_dock_samples = ps_dock_samples + 1; let dock = ps_dock_detect(); ps_dock_attention(dock);
@@ -58,7 +76,7 @@ fn ps_seek_observe() {
         if f64_ge(distance, ps_number(30, 100)) && f64_le(distance, ps_number(65, 100)) && f64_le(error, pb_radians(f64_from_i64(35))) && !load64(drive + 48) && !load64(drive + 56) {
             ps_seek_return_observations = ps_seek_return_observations + 1;
             if ps_seek_return_observations >= 3 {
-                ps_case_reason = "one RGB brick consumed and stopped facing the freshly observed box";
+                ps_case_reason = "one RGB brick approached within 35 cm and stopped facing the freshly observed box";
                 ps_case_passed = 1; ps_case_phase(12); pr_stop(ps_app, ps_time); ps_discovery_finish(ps_case_reason, 0); return 1;
             }
             return 1;
@@ -77,6 +95,7 @@ fn ps_seek_observation(b) {
     if !ps_seek_enabled { return 0; }
     pl_text(b, ",\"findReturn\":{\"phase\":"); if ps_case_passed { pj_text(b, "docked"); } else if ps_seek_found { pj_text(b, "return"); } else { pj_text(b, "search"); }
     pl_text(b, ",\"consumedIndex\":"); pl_int(b, ps_seek_consumed); pl_text(b, ",\"detectionStep\":"); pl_int(b, ps_seek_detection_step);
+    pl_text(b, ",\"maximumBrickDistanceM\":0.35");
     pl_text(b, ",\"detectionPixelBox\":["); let i = 0; while i < 4 { if i { pl_char(b, 44); } pl_int(b, load64(ps_seek_detection + i * 8)); i = i + 1; }
     pl_text(b, "],\"detectedPoint\":["); i = 0; while i < 3 { if i { pl_char(b, 44); } pl_float(b, load64(ps_seek_detection + 32 + i * 8)); i = i + 1; }
     pl_text(b, "],\"stableReturnObservations\":"); pl_int(b, ps_seek_return_observations); return pl_char(b, 125);

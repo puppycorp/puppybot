@@ -1,0 +1,14 @@
+{
+  "purpose":"Test spatial heatmap supervision on early camera features for the find-and-return task",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetsSHA256":"9846229a1a28aa77c7e8653d1bbe14dbe6185c27d90a46b77d68b5e1bf0e5294",
+  "targetQuality":"heuristic projection, color pixels and detector component, not proven instance segmentation",
+  "labelsTrainingOnly":true,"actorInputs":["TCP RGB84x84","own feedback7","recurrent128"],"actorTaskEventInputZero":true,
+  "baseline":"completed memory-pose-v1 eventOnly run at seed197",
+  "treatment":"same initialization, data order and event head; a training-only 1x1 convolution reads first 20x20 CNN feature map and trains one positive plus sixteen separated negatives per candidate frame",
+  "additionalTrainingParameters":17,"epochs":40,"batch":2,"learningRateMicros":100,"seed":197,"checkpointEveryEpoch":1,
+  "fixedEvaluationEpochs":[1,5,10,20,40,"best-validation-loss"],
+  "evaluation":"Canonical eight-case screen; paired full32 if either matched checkpoint returns in both room types",
+  "qualification":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

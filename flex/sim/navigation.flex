@@ -31,8 +31,9 @@ global ps_nav_contact_count = 0;
 global ps_nav_contact_next = 0;
 global ps_nav_parking_goal = 0;
 global ps_nav_parking_point = 0;
+global ps_nav_training_oracle = 0;
 
-fn ps_nav_heading_free() { if ps_seek_enabled && ps_seek_found && ps_dock_seen >= 0 { return 0; } return ps_discovery_enabled && (!ps_collect_enabled || !ps_collect_busy); }
+fn ps_nav_heading_free() { if ps_nav_training_oracle { return 0; } if ps_seek_enabled && ps_seek_found && ps_dock_seen >= 0 { return 0; } return ps_discovery_enabled && (!ps_collect_enabled || !ps_collect_busy); }
 fn ps_nav_contact_add() {
     let d = pb_robot_drive(ps_robot); let direction = pb_sign(load64(d + 48) + load64(d + 56)); if !direction { return 0; }
     let r = ps_nav_contacts + (ps_nav_contact_next % 16) * 40; ps_nav_contact_next = ps_nav_contact_next + 1; ps_nav_contact_count = pb_min(16, ps_nav_contact_count + 1);
@@ -87,7 +88,12 @@ fn ps_nav_contact_clear_mode(x, y, heading, from_x, from_y, from_heading, mode) 
     }
     return 1;
 }
-fn ps_nav_contact_clear(x, y, heading, from_x, from_y, from_heading) { return ps_nav_contact_clear_mode(x, y, heading, from_x, from_y, from_heading, ps_nav_heading_free()); }
+fn ps_nav_contact_clear(x, y, heading, from_x, from_y, from_heading) {
+    // Training plans use true poses and exact physical geometry. Contact
+    // memories are in estimated coordinates and cannot constrain that oracle.
+    if ps_nav_training_oracle { return 1; }
+    return ps_nav_contact_clear_mode(x, y, heading, from_x, from_y, from_heading, ps_nav_heading_free());
+}
 
 fn ps_nav_cell(x, y) {
     if ps_discovery_enabled {
@@ -172,6 +178,8 @@ fn ps_nav_observed_clear(x, y, heading) {
     } return 1;
 }
 fn ps_nav_clear(x, y, heading) {
+    // Only the opt-in training label query may consult complete physical truth.
+    if ps_nav_training_oracle { return ps_vehicle_free(x, y, heading); }
     if ps_discovery_enabled {
         if !ps_floor_clear(x, y, heading) || !ps_nav_observed_clear(x, y, heading) { return 0; }
         if ps_collect_enabled && ps_house_ready && f64_lt(ps_nav_box_gap(x, y, heading), 0) { return 0; }
@@ -333,6 +341,7 @@ fn ps_nav_plan(x, y, heading) {
         let c = f64_cos(load64(r + 16)); let s = f64_sin(load64(r + 16)); let action = 0; let actions = 6; if ps_nav_parking_goal || ps_nav_heading_free() { actions = 12; }
         while action < actions {
             let a = ps_nav_actions + action * 128; let sample = 0; let clear = 1; let nx = 0; let ny = 0;
+            if ps_nav_training_oracle && index == start { clear = ps_vehicle_primitive_free(load64(r), load64(r + 8), load64(r + 16), a); }
             let from_x = load64(r); let from_y = load64(r + 8); let from_heading = load64(r + 16);
             while sample < 5 && clear {
                 let dx = load64(a + 24 + sample * 16); let dy = load64(a + 32 + sample * 16);

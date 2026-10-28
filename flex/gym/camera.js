@@ -2,7 +2,8 @@
 // Detection runs in the native Pup worker; camera frames are never persisted.
 (() => {
   const live = location.pathname === '/live';
-  document.body.dataset.page = live ? 'live' : 'rollouts';
+  const catalog = location.pathname === '/cases';
+  document.body.dataset.page = live ? 'live' : catalog ? 'catalog' : 'rollouts';
   const byId = id => document.getElementById(id);
   const navigation = byId('site-navigation');
   const toggle = byId('navigation-toggle');

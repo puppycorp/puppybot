@@ -14,8 +14,9 @@ controller and policies are disabled; `--servo-only` selects the older plant.
 
 The management UI is a **Monolith app**: declarative Flexscript `view` definitions
 render the page and compile its keyed DOM patches. Monolith handles form actions,
-action tokens, and SSE updates through its bundled browser adapter. The Gym has
-no handwritten browser rollout logic or JSON polling loop. The Live view has a
+action tokens, and SSE updates through its bundled browser adapter. The Gym rollout view has
+no handwritten browser rollout logic or JSON polling loop. The catalog loads its
+read-only index in batches as the manager discovers saved episodes. The Live view has a
 small media bridge for browser camera capture and native detection. FlexDB remains the run
 catalog; the firmware process and robot-control endpoint stay separate.
 
@@ -40,8 +41,17 @@ Camera scenes require a working graphics session even though their window is
 hidden. The normal simulator launcher prepares missing exports and rebuilds
 the simulator from current sources. `--simulator PATH` selects an already built
 native executable or compatible launcher for both `serve` and `run`.
-The top-centre Workspace menu switches between simulation rollouts and
-[Live camera testing](../vision/README.md). Live uses a resident native Pup
+The top-centre Workspace menu includes **Case catalog**, which lists available Gym
+cases, all Gym rollouts, and saved visual-control or video episodes under
+`build/flex/sim` and `datasets/visual-control`. Search and filter the attempts,
+inspect their saved outcomes, and open videos or final images when available.
+Teacher-assisted runs are identified from their supervision files and controller
+metadata; older recordings without that metadata have unknown provenance. The
+index is rebuilt in memory at startup, does not follow directory symlinks, and
+can be refreshed after new episodes are saved. Override its two roots with
+`--catalog-sim DIRECTORY` and `--catalog-datasets DIRECTORY`.
+
+The menu also switches to [Live camera testing](../vision/README.md). Live uses a resident native Pup
 YOLO26 detector using automatic SASS/CUDA/HIP/CPU selection and draws labels/boxes over matching camera frames. Prepare the
 checkpoint with `./flex/scripts/prepare-yolo.sh`; camera access starts only when
 you press **Start camera**. No live frames are recorded or sent to robot controls.

@@ -1,0 +1,106 @@
+{
+  "purpose": "Teach recovery on actual late student states, including explicit return windows",
+  "student": "build/flex/sim/approach35-train-v1/policy-warm5",
+  "studentSHA256": "8aeffe83f433ebf53d03974a99058caa65f78a2f592b128214df7857befceaf5",
+  "baseData": "datasets/visual-control/approach35-v1/artifacts/data128/data.bin",
+  "baseDataSHA256": "e45f28097f8f58b00b915b026c921b9013334c3795be205aca0dce2c13c3a148",
+  "baseSubset": {
+    "histories": 64,
+    "fit": 48,
+    "validation": 16,
+    "scenesPerLayout": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "newCorrections": {
+    "histories": 32,
+    "fit": 24,
+    "validation": 8,
+    "workers": 4,
+    "perWorker": {
+      "fit": 6,
+      "validation": 2
+    },
+    "sceneIndexFormula": "(worker*3+layout*2)%16",
+    "returnWindowWorkers": [
+      0,
+      1
+    ],
+    "initialWindowWorkers": [
+      2,
+      3
+    ],
+    "studentWindowActions": [
+      90,
+      150
+    ],
+    "horizonActions": 512,
+    "teacherReturnViaHome": true
+  },
+  "aggregate": {
+    "histories": 96,
+    "fit": 72,
+    "validation": 24
+  },
+  "fittingLayouts": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "validationLayouts": [
+    6,
+    7
+  ],
+  "excludedFromAllData": [
+    8,
+    9,
+    10,
+    11
+  ],
+  "teacherPrivileges": [
+    "geometry",
+    "physical pose",
+    "object coordinates"
+  ],
+  "studentInputs": "TCP RGB84x84 + own feedback7 + recurrent128; reserved event input stays zero",
+  "acceptance": "All32 correction histories physically complete and pass native RGB/input/label/student-command/physics/proximity/docking audit; reuse source-hash-covered audits for64 unchanged base histories, preserve every split role through native merges and byte-identical native repack",
+  "failurePolicy": "Retain failed attempts and stop aggregate publication; repair and retry the same scenes",
+  "task": "Actual RGB brick detection within0.35m, then stop 0.30-0.65m from box facing within35deg with fresh markers and three stable return samples",
+  "pythonRequired": false,
+  "finalTestLayoutsRemainReserved": [
+    10,
+    11
+  ],
+  "training": {
+    "arms": [
+      "flat",
+      "learned-phase-gate-plus-camera-event-aux"
+    ],
+    "initial": "same student checkpoint",
+    "learningRateMicros": 100,
+    "epochs": 80,
+    "seed": 89,
+    "batch": 2,
+    "fixedEvaluatedEpochs": [
+      20,
+      80
+    ],
+    "selection": "Physical autonomous completions then lower whole simulation time; minimum1/8 screen completion for full32 validation; fresh16 only after at least24/32 returns and at least8/16 in each development layout"
+  },
+  "limitations": "Two room-generator families and directionally biased targets; teacher completions are not neural success evidence",
+  "outputDirectory": "artifacts-primitive",
+  "teacherPrimitiveContinuation": true,
+  "teacherFirstPrimitiveSweptGuard": true,
+  "pilotGateHistories": 12,
+  "reason": "Use the corrected teacher consistently for all32 late recovery histories; preserve the earlier collection as an immutable attempt"
+}

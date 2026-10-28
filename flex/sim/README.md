@@ -1788,16 +1788,30 @@ regions. Catalog checks also run and render the seeded random pickup case.
 ## Find one brick and return
 
 `flexscript run sim.flex --case find-return-house` runs a navigation-only
-curriculum in the unknown house. The first TCP RGB brick sighting consumes one
-prop; the robot then returns to the observed collection box. It succeeds after
+curriculum in the unknown house. A fresh TCP RGB brick detection consumes one
+prop only after the robot base is within 35 cm of the brick centre in the floor
+plane and the projected physical center lies within the detected bounds, with
+a 12-pixel tolerance. This simulator-side association rejects detections that
+miss that projection; it supplies no coordinates to the policy. A distant sighting alone
+does not count. The robot then returns to the
+observed collection box. It succeeds after
 stopping 30–65 cm from the box, facing it within 35 degrees, with three stable
 current observations. No physical pickup, carry or drop is performed. Wrist
 movement is still used to acquire camera views. Launch this mode in a fresh
-simulator process, as with discovery pickup. Generated case files can select
-`"controller": "rgb-find-return"`.
+simulator process, as with discovery pickup.
+
+Generated case files can select `"controller": "rgb-find-return"`. By default
+navigation uses the heuristic. `PUPPYBOT_SEEK_POLICY=mlp` and
+`PUPPYBOT_SEEK_WEIGHTS=/absolute/path/checkpoint.npz` select the trained goal
+network. The training approximations, whole-episode benchmark and independent
+RGB/geometry audits are documented in [exploration](../exploration/README.md).
 
 `--observer-distance-mm 3500` gives a closer observer view following the robot;
-the TCP sensor is unaffected.
+the TCP sensor is unaffected. Use a distant single-brick scene to test actual
+exploration: a brick already within 35 cm can satisfy the approach phase after
+a stationary scan. The
+exploration runner's `--hidden-brick` option creates a separate-room target and
+checks excursion and room visits, as well as find-and-return success.
 
 The separate [direct visual-control experiment](../control/README.md) bypasses
 the frontier planner and wrist sweeps. A CNN/GRU consumes actual TCP RGB and

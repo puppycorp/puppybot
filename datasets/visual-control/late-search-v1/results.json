@@ -1,0 +1,517 @@
+{
+  "schema": "puppybot.late-search-results.v1",
+  "date": "2026-10-27",
+  "data": {
+    "passed": true,
+    "episodes": 172,
+    "fittingHistories": 136,
+    "validationHistories": 36,
+    "existingHistoriesRetained": 142,
+    "newAuditedHistories": 30,
+    "fittingLaterDisagreements": 1230,
+    "fittingHistoriesWith20LaterDisagreements": 23,
+    "sourceAudits": [
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 1100,
+        "physicalMotionIncrements": 12470,
+        "supervisedSteps": 1100,
+        "studentRollinCommandsReplayed": 600,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "a285cd0a133f1ce7020aa732ab6a97f21379911e51b2328c8b3413e38e314aea",
+        "worker": 0,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 600
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 1181,
+        "physicalMotionIncrements": 13280,
+        "supervisedSteps": 1181,
+        "studentRollinCommandsReplayed": 600,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "4ac7c10d61ceb99a9762c12e82f6a0fed4adbda0284f115f3d5e21fe6d38fc49",
+        "worker": 1,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 600
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 1022,
+        "physicalMotionIncrements": 11690,
+        "supervisedSteps": 1022,
+        "studentRollinCommandsReplayed": 600,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "8c2ce988c58e5ad3340aef76c579ca06551cc27953ef5117d644d02548a67172",
+        "worker": 2,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 600
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 1064,
+        "physicalMotionIncrements": 12110,
+        "supervisedSteps": 1064,
+        "studentRollinCommandsReplayed": 600,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "bfcf5a1141b4b0aa3afe73f2e4cd890d44fc2817607d933e0f4b78af0f7f83ec",
+        "worker": 3,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 600
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 916,
+        "physicalMotionIncrements": 10630,
+        "supervisedSteps": 916,
+        "studentRollinCommandsReplayed": 567,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "c242d7149c560f6ea0b6334b34183c36607fdf09b3915522ab97f2580ffd4754",
+        "worker": 4,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 567
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 1108,
+        "physicalMotionIncrements": 12550,
+        "supervisedSteps": 1108,
+        "studentRollinCommandsReplayed": 600,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "2611852382ec7e9b5d38a1c2f8725997146016bdddb5a898c3b06d0041386c54",
+        "worker": 5,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "studentCommands": 600
+      }
+    ],
+    "dataSHA256": "05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+    "completeHistoriesAndOriginalRolesPreserved": true,
+    "studentInputsUnchanged": true,
+    "finalLayoutsExcludedFromFitting": [
+      10,
+      11
+    ],
+    "teacherSuccessIsNotAutonomousPerformance": true
+  },
+  "dataBytes": 1292286944,
+  "sequenceLength": 354,
+  "contactDirections": {
+    "dataSHA256": "05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+    "classes": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "contactRows": [
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 252,
+        "oracleCounts": [
+          129,
+          48,
+          75,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 337,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          193,
+          120,
+          24,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 1013,
+        "oracleCounts": [
+          286,
+          98,
+          628,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 24,
+        "oracleCounts": [
+          6,
+          3,
+          15,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 218,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          108,
+          110,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 273,
+        "oracleCounts": [
+          202,
+          0,
+          71,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "previousPolicyPhaseDiagnostic": {
+    "weightsSHA256": "c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7",
+    "actions": 300,
+    "searchFramesPredictedReturning": 189,
+    "searchFramesPredictedReturningAbove90Percent": 138,
+    "firstReverse": {
+      "actionIndex": 34,
+      "frame": 635,
+      "actualReturning": false,
+      "predictedReturnProbability": 0.014378416199890607,
+      "actionClass": 3,
+      "contact": false
+    },
+    "actualCommandsReplayedExactly": true,
+    "doesNotEstablishCause": true
+  },
+  "training": {
+    "status": "complete",
+    "arms": [
+      "baseline142",
+      "late172"
+    ],
+    "epochs": 20,
+    "batch": 2,
+    "learningRateMicros": 100,
+    "seed": 149,
+    "initialWeightsByteIdentical": true,
+    "architectureUnchanged": true
+  },
+  "evaluation": {
+    "status": "fixed and loss-selected screens complete; full32 transfer complete",
+    "screens": [
+      {
+        "candidate": "baseline142-10",
+        "episodes": 8,
+        "physicalReturns": 0,
+        "auditedApproaches": 1,
+        "openReturns": 0,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      {
+        "candidate": "baseline142-20",
+        "episodes": 8,
+        "physicalReturns": 0,
+        "auditedApproaches": 1,
+        "openReturns": 0,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      {
+        "candidate": "best-baseline142",
+        "episodes": 8,
+        "physicalReturns": 1,
+        "auditedApproaches": 1,
+        "openReturns": 1,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      {
+        "candidate": "best-late172",
+        "episodes": 8,
+        "physicalReturns": 1,
+        "auditedApproaches": 1,
+        "openReturns": 1,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      {
+        "candidate": "late172-10",
+        "episodes": 8,
+        "physicalReturns": 0,
+        "auditedApproaches": 1,
+        "openReturns": 0,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      {
+        "candidate": "late172-20",
+        "episodes": 8,
+        "physicalReturns": 1,
+        "auditedApproaches": 3,
+        "openReturns": 0,
+        "hiddenReturns": 1,
+        "auditFailures": 0
+      }
+    ],
+    "transfer": {
+      "schema": "puppybot.transfer-results.v1",
+      "date": "2026-10-27",
+      "previous": {
+        "episodes": 32,
+        "physicalReturns": 3,
+        "auditedApproaches": 6,
+        "openReturns": 3,
+        "hiddenReturns": 0,
+        "auditFailures": 0
+      },
+      "expanded": {
+        "episodes": 32,
+        "physicalReturns": 2,
+        "auditedApproaches": 9,
+        "openReturns": 1,
+        "hiddenReturns": 1,
+        "auditFailures": 0
+      },
+      "all64NativeAuditsPassed": true,
+      "autonomousCompletionImproved": false,
+      "interpretation": "Expanded model reaches more bricks and returns once in hidden rooms, but loses open returns and completes fewer episodes overall",
+      "qualificationThresholdsUnchanged": true,
+      "reservedFinalRun": false,
+      "retainedPolicyOverwritten": false
+    },
+    "autonomousImprovementProven": false,
+    "reservedFinalRun": false
+  },
+  "retainedPolicyOverwritten": false,
+  "pythonRequired": false,
+  "supervisedFrames": 24639,
+  "exactHistoryLabelConsistency": [
+    {
+      "fit": false,
+      "frames": 5164,
+      "groups": {
+        "all": 4664,
+        "ambiguous": 70,
+        "affectedFrames": 205,
+        "minimumErrors": 82
+      }
+    },
+    {
+      "fit": true,
+      "frames": 19475,
+      "groups": {
+        "all": 17911,
+        "ambiguous": 167,
+        "affectedFrames": 559,
+        "minimumErrors": 213
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "puppybot.visual-dataset-plan.v1",
+  "task": "approach an actual RGB-detected brick within 0.35m of robot base, then return and dock",
+  "episodes": 128,
+  "fittingEpisodes": 96,
+  "validationEpisodes": 32,
+  "layouts": 8,
+  "scenesPerLayout": 16,
+  "fittingLayouts": [0, 1, 2, 3, 4, 5],
+  "validationLayouts": [6, 7],
+  "geometryFamilies": ["rectangular room", "two rooms with a doorway"],
+  "variation": ["room dimensions", "partition position", "doorway position and width", "spawn position and heading", "brick position, color, size and yaw", "box side in open rooms", "floor color"],
+  "teacher": "Privileged physical route planner, 0.24m brick standoff allowing for 0.10m arrival tolerance inside the 0.35m acceptance radius, actual RGB needed for consumption, original box docking criteria",
+  "teacherPrivileges": ["true pose", "physical geometry", "brick and box coordinates"],
+  "studentInputs": "TCP RGB84x84, own feedback7, recurrent state128; no oracle, map, pose or event hints",
+  "collectionArms": [
+    {"workers": [0, 2], "studentActions": 0, "episodes": 64},
+    {"workers": [1, 3], "studentActionsMinimum": 8, "studentActionsMaximum": 32, "episodes": 64}
+  ],
+  "studentPolicy": "build/flex/sim/teach-v13/final-v2/policy",
+  "studentWeightsSHA256": "1a7033fd0607ddbf2137fb082d5cf9a56b2e9d0fe485fc51bdb77725f91ce7f2",
+  "allValidFramesOracleLabeled": true,
+  "format": "PVDATA03; oracle targets separate from executed commands",
+  "horizonActions": 300,
+  "acceptance": "All128 scenes complete and every RGB input, feedback value, oracle label, student command, physical tick, proximity event and docking pose independently verified",
+  "failurePolicy": "Preserve failures; stop publication, repair and retry the same scene identities rather than drop cases",
+  "trainingRequested": false,
+  "legacyDataIncluded": false,
+  "runtime": "native Flexscript/Pup CUDA",
+  "pythonRequired": false,
+  "limitations": "Eight layout instances from two families, not arbitrary houses. Teacher-assisted collection success is not student benchmark performance."
+}

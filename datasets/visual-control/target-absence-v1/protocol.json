@@ -1,0 +1,14 @@
+{
+  "purpose":"Test post-consumption absent-frame supervision for the camera heatmap used by the gradient-separated policy",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetsSHA256":"9846229a1a28aa77c7e8653d1bbe14dbe6185c27d90a46b77d68b5e1bf0e5294",
+  "targetQuality":"heuristic projection, color pixels and detector component, not proven instance segmentation",
+  "labelsTrainingOnly":true,"actorInputs":["TCP RGB84x84","own feedback7","recurrent128"],"actorTaskEventInputZero":true,
+  "baseline":"matched target-detach-v1 actor without absence supervision",
+  "treatment":"same model, weights, data, shuffle and gradient separation; add sampled all-negative heatmap loss on valid post-consumption frames, excluding the first consumption-labelled image",
+  "inferenceGraphUnchanged":true,"epochs":40,"batch":2,"learningRateMicros":100,"seed":197,"checkpointEveryEpoch":1,
+  "fixedEvaluationEpochs":[1,5,10,20,40,"best-validation-loss"],
+  "evaluation":"Canonical eight-case screen; paired full32 if either matched checkpoint returns in both room types",
+  "qualification":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

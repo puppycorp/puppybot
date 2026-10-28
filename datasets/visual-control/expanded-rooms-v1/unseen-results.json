@@ -1,0 +1,95 @@
+{
+  "protocol": "Corrected simulator; fixed policies selected before these layouts were evaluated",
+  "allEpisodeAuditsPassed": true,
+  "episodesPerPolicy": 32,
+  "layouts": [
+    18,
+    19
+  ],
+  "limits": [
+    "Two room layouts, not 32 independently generated layouts",
+    "All 16 hidden-room cases share the same starting RGB frame",
+    "Navigation-only find within 35 cm and return; no physical pickup"
+  ],
+  "caseAudit": {
+    "passed": true,
+    "cases": 32,
+    "noPriorOrCohortCaseOrEnvironmentOverlap": true
+  },
+  "baseline": {
+    "episodes": 32,
+    "returns": 0,
+    "approaches": 0,
+    "actions": 9600,
+    "forward": 368,
+    "reverse": 2040,
+    "stop": 7192,
+    "blocked": 1288,
+    "meanPathM": 2.137268049735741,
+    "meanMaxExcursionM": 0.9141350934718998,
+    "pathsUnderOneMeter": 24,
+    "distinctInitialRGBFrames": 6,
+    "byLayout": [
+      {
+        "layoutId": 18,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 2392,
+        "reverse": 2040,
+        "blocked": 1288,
+        "pathsUnderOneMeter": 8
+      },
+      {
+        "layoutId": 19,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 4800,
+        "reverse": 0,
+        "blocked": 0,
+        "pathsUnderOneMeter": 16
+      }
+    ]
+  },
+  "student": {
+    "episodes": 32,
+    "returns": 0,
+    "approaches": 0,
+    "actions": 9600,
+    "forward": 1432,
+    "reverse": 976,
+    "stop": 7192,
+    "blocked": 16,
+    "meanPathM": 4.497768464551156,
+    "meanMaxExcursionM": 0.6138312560178758,
+    "pathsUnderOneMeter": 24,
+    "distinctInitialRGBFrames": 6,
+    "byLayout": [
+      {
+        "layoutId": 18,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 2392,
+        "reverse": 976,
+        "blocked": 16,
+        "pathsUnderOneMeter": 8
+      },
+      {
+        "layoutId": 19,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 4800,
+        "reverse": 0,
+        "blocked": 0,
+        "pathsUnderOneMeter": 16
+      }
+    ]
+  }
+}

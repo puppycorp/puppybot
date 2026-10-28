@@ -99,7 +99,7 @@ fn ps_observation() {
     pl_text(b, ",\"frameId\":"); pl_uint(b, ps_live_frame); pl_text(b, ",\"capturedMs\":"); pl_uint(b, ps_live_time);
     pl_text(b, ",\"confidence\":"); pl_float(b, ps_live_score); pl_text(b, ",\"label\":"); if ps_live_label && ps_live_score { pj_text(b, ps_live_label); } else { pl_text(b, "null"); }
     pl_text(b, ",\"box\":"); if ps_live_score { pl_char(b, 91); i = 0; while i < 4 { if i { pl_char(b, 44); } pl_float(b, pb_vget(ps_live_box, i)); i = i + 1; } pl_char(b, 93); } else { pl_text(b, "null"); } pl_char(b, 125);
-    pl_char(b, 125); ps_case_observation(b); ps_discovery_observation(b); ps_seek_observation(b); if ps_stock_enabled { ps_stock_state(b); } ps_serial_observation(b); pl_text(b, ",\"controller\":"); if ps_external { pl_text(b, "null"); } else { pr_state(ps_app, b, ps_time, 0); } pl_text(b, "}\n");
+    pl_char(b, 125); ps_case_observation(b); ps_discovery_observation(b); ps_seek_observation(b); if ps_stock_enabled { ps_stock_state(b); } ps_serial_observation(b); ps_agent_oracle_state(b); pl_text(b, ",\"controller\":"); if ps_external { pl_text(b, "null"); } else { pr_state(ps_app, b, ps_time, 0); } pl_text(b, "}\n");
     if load64(b + 24) { return 0; } if ps_output >= 0 && pl_write(ps_output, ps_json, load64(b + 8)) { return 0; } return 1;
 }
 fn ps_demo() {
@@ -291,6 +291,8 @@ fn main(argc, argv) {
         else if pl_equal(arg, "--external-serial") { ps_external = 1; realtime = 1; }
         else if pl_equal(arg, "--headless") { headless = 1; }
         else if pl_equal(arg, "--hidden") { hidden = 1; }
+        else if pl_equal(arg, "--oracle-labels") { ps_agent_oracle = 1; }
+        else if pl_equal(arg, "--oracle-cache-check") { ps_oracle_cache_verify = 1; }
         else if pl_equal(arg, "--colliders") { ps_colliders = 1; }
         else if pl_equal(arg, "--demo") { demo = 1; }
         else if pl_equal(arg, "--pickup") { pickup = 1; }
@@ -373,6 +375,8 @@ fn main(argc, argv) {
     if mapping_arg && !ps_discovery_enabled { pl_print(2, "Mapping options require --discover or a discovery pickup case.\n"); return 2; }
     if ps_discovery_enabled && ((case_id && !ps_collect_enabled) || demo || pickup || ps_stock_enabled || headless || ps_local_requested == 0 || ps_crumb_repeat) { pl_print(2, "Discovery requires rendering, wheel localization and its own controller.\n"); return 2; }
     if ps_agent_fd && (!hidden || headless || !ps_seek_enabled || ps_gym_directory) { pl_print(2, "--agent-fd requires a hidden RGB find-return case.\n"); return 2; }
+    if ps_agent_oracle && (!ps_agent_fd || ps_external) { pl_print(2, "--oracle-labels requires the training agent bridge.\n"); return 2; }
+    if ps_oracle_cache_verify && !ps_agent_oracle { pl_print(2, "--oracle-cache-check requires --oracle-labels.\n"); return 2; }
     if ps_collect_enabled && !mapping_arg { ps_discovery_limit = 100; }
     if (headless && ((!steps && !ps_external) || capture || hidden || ps_paused)) || (capture && !steps) || (hidden && !steps) || (ps_paused && hidden && !ps_gym_directory) || (demo && pickup) { ps_usage(); return 2; }
     if ps_gym_directory && (!case_id || !steps || headless || record || capture || video || !hidden || pl_size(ps_gym_directory) > 3000) { pl_print(2, "Gym output requires a finite hidden case without separate recording/capture options.\n"); return 2; }

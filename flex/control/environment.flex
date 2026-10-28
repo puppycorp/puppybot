@@ -9,6 +9,9 @@ global ve_json=0;
 global ve_json_size=0;
 global ve_rgb=0;
 global ve_image=0;
+global ve_image_side=84;
+global ve_image_bytes=21168;
+global ve_memory_width=128;
 global ve_feedback=0;
 global ve_previous=0;
 global ve_request=0;
@@ -33,33 +36,47 @@ global ve_directory=0;
 global ve_steering=0;
 global ve_speed=0;
 global ve_frame_checks=0;
+// Lean episodes keep only the decision journal: no video, trace, sensor PNGs, actor files or frame digests.
+global ve_lean=0;
+// Wheel-only odometry skips the simulator's per-step visual feature matching.
+global ve_wheel_odometry=0;
 global ve_rooms=0;
 global ve_room_count=0;
 global ve_start_room=0;
 global ve_room_visits=0;
+global ve_teacher_oracle=0;
+global ve_task=2;
+global ve_oracle_goal=0;
+global ve_oracle_action_previous=0;
+global ve_oracle_step=-2;
+global ve_oracle_duration=0;
 fn ve_open_buffers() {
-    ve_rgb=alloc(640*480*3);ve_json=alloc(65537);ve_image=alloc(21168);ve_feedback=alloc(28);ve_previous=alloc(8);ve_request=alloc(64);
-    ve_policy_input=alloc((21168+7+128)*4);ve_policy_output=alloc(130*4);ve_pose=alloc(24);ve_initial_pose=alloc(24);ve_arm=alloc(32);ve_rooms=alloc(64*32);vc_pixels_init();return 0;
+    ve_rgb=alloc(640*480*3);ve_json=alloc(65537);ve_image=alloc(ve_image_bytes);ve_feedback=alloc(28);ve_previous=alloc(8);ve_request=alloc(64);
+    // Data audits can replay histories from either supported memory width.
+    ve_policy_input=alloc((ve_image_bytes+7+256)*4);ve_policy_output=alloc((2+256)*4);ve_pose=alloc(24);ve_initial_pose=alloc(24);ve_arm=alloc(32);ve_rooms=alloc(64*32);vc_pixels_init();return 0;
 }
 fn ve_policy_open(directory,output) {
     let root=vc_json_file(vc_path(directory,"receipt.json"));let weights=vc_string(pj_string_field(root,"weightsSHA256"));let binary=vc_string(pj_string_field(root,"binarySHA256"));
     vc_require(!pj_error && pl_equal(vc_file_sha(vc_path(directory,"weights.bin")),weights) && pl_equal(vc_file_sha(vc_path(directory,"policy")),binary),"policy receipt/hash mismatch");
+    let width=128;if pj_get(root,"memoryWidth") {width=vc_json_int(root,"memoryWidth",0);}vc_require(!pj_error && width==ve_memory_width,"policy memory width mismatch");
     let kernels=pj_get(root,"kernels");let child=pj_value(kernels);
     while child {let name=load64(child+32);vc_require(!pl_starts(name,"/") && !pl_starts(name,"..") && pl_equal(vc_file_sha(vc_path(vc_path(directory,"kernels"),name)),pj_value(child)),"policy kernel hash mismatch");child=load64(child+24);}
     vc_require(pj_kind(kernels)==4 && pj_count(kernels)>=5,"policy kernel receipt is missing");
     let args=vc_args();vc_add(args,vc_path(directory,"policy"));vc_add(args,vc_path(directory,"weights.bin"));vc_add(args,weights);vc_add(args,vc_path(directory,"kernels"));vc_add(args,"3");
-    ve_policy=vc_spawn(args,vc_path(output,"policy.log"),0,1);let marker=alloc(8);vc_io(1,load64(ve_policy+8),marker,8);vc_require(load64(marker)==load64("VCPOL001"),"invalid policy handshake");return weights;
+    ve_policy=vc_spawn(args,vc_path(output,"policy.log"),0,1);let marker=alloc(8);vc_io(1,load64(ve_policy+8),marker,8);let expected="VCPOL001";if ve_image_side==128 {expected="VCP12801";}if ve_memory_width==256 {expected="VCP25601";}vc_require(load64(marker)==load64(expected),"invalid policy handshake or dimensions");return weights;
 }
-fn ve_command(command,steering,speed) {
-    ve_sequence=ve_sequence+1;pb_zero(ve_request,64);store64(ve_request,command);store64(ve_request+8,ve_sequence);
-    store64(ve_request+16,steering);store64(ve_request+24,speed);store64(ve_request+32,10);store64(ve_request+48,2);
-    vc_io(0,load64(ve_process+8),ve_request,64);if command==3 {return 0;}
+fn ve_receive() {
     let header=alloc(32);vc_io(1,load64(ve_process+8),header,32);ve_json_size=load64(header);
     vc_require(ve_json_size>0 && ve_json_size<=65536 && load64(header+8)==640*480*3 && load64(header+16)==ve_sequence,"invalid simulator response");
     ve_contact=load64(header+24);vc_require(ve_contact==0 || ve_contact==1,"invalid contact feedback");
     vc_io(1,load64(ve_process+8),ve_json,ve_json_size);store8(ve_json+ve_json_size,0);vc_io(1,load64(ve_process+8),ve_rgb,640*480*3);
-    ve_state=pj_parse(ve_json,ve_json_size);vc_require(ve_state,pj_message);vc_resize(ve_rgb,ve_image);
+    ve_state=pj_parse(ve_json,ve_json_size);vc_require(ve_state,pj_message);vc_resize_to(ve_rgb,ve_image,ve_image_side);
     vc_feedback(pj_get(pj_get(ve_state,"controller"),"drive"),ve_previous,ve_contact,ve_feedback);syscall(11,header,32,0,0,0,0);return 1;
+}
+fn ve_command(command,steering,speed) {
+    ve_sequence=ve_sequence+1;pb_zero(ve_request,64);store64(ve_request,command);store64(ve_request+8,ve_sequence);
+    store64(ve_request+16,steering);store64(ve_request+24,speed);store64(ve_request+32,10);store64(ve_request+48,ve_task);
+    vc_io(0,load64(ve_process+8),ve_request,64);if command==3 {return 0;}return ve_receive();
 }
 fn ve_pose_read(root,out) {let pose=pj_get(root,"pose");vc_require(pj_kind(pose)==3 && pj_count(pose)==3,"invalid physical pose");let i=0;while i<3 {let value=pj_real_node(pj_index(pose,i));vc_require(!pj_error && f64_is_finite(value),"nonfinite physical pose");store64(out+i*8,value);i=i+1;}return out;}
 fn ve_distance(a,b) {return f64_hypot(f64_sub(load64(a),load64(b)),f64_sub(load64(a+8),load64(b+8)));}
@@ -76,6 +93,7 @@ fn ve_reference(scene,environment,hidden) {
     }return 0;
 }
 fn ve_check(first) {
+    let oracle=pj_get(ve_state,"trainingOracle");if oracle && !ve_teacher_oracle {vc_require(!pj_boolean(oracle,"enabled") && !vc_json_int(oracle,"queries",0),"student used a privileged training oracle");}
     vc_require(!vc_json_int(ve_state,"physicsFault",0) && !vc_json_int(pj_get(ve_state,"vehicle"),"queryFault",0),"native physics fault");
     let gripper=pj_get(ve_state,"gripper");vc_require(!pj_boolean(gripper,"held") && !vc_json_int(gripper,"grasps",0) && !vc_json_int(gripper,"releases",0),"visual control must not grasp/release");
     let discovery=pj_get(ve_state,"discovery");vc_require(!pj_boolean(discovery,"suppliedMap") && !pj_boolean(discovery,"worldPoseInput") && !vc_json_int(discovery,"scans",0) && !vc_json_int(discovery,"freeCells",0) && !vc_json_int(discovery,"occupiedCells",0),"visual control received automatic mapping/scans");
@@ -94,16 +112,16 @@ fn ve_check(first) {
     vc_require(!pj_error && !pb_u32(ve_feedback+24),"actor task-event hint must remain zero");ve_last_step=state_step;ve_frame_checks=ve_frame_checks+1;return 0;
 }
 fn ve_observation_save() {
-    let frame=vc_json_int(ve_state,"totalSteps",0);let stem=vc_concat("actor-",vc_int(frame));vc_write(vc_path(ve_directory,vc_concat(stem,".rgb")),ve_image,21168);
+    let frame=vc_json_int(ve_state,"totalSteps",0);let stem=vc_concat("actor-",vc_int(frame));vc_write(vc_path(ve_directory,vc_concat(stem,".rgb")),ve_image,ve_image_bytes);
     vc_write(vc_path(ve_directory,vc_concat(stem,".feedback")),ve_feedback,28);return 0;
 }
 fn ve_record(action) {
     let builder=alloc(32);let text=alloc(65536);pl_builder(builder,text,65536);pl_text(builder,"{\"sequence\":");pl_int(builder,ve_sequence);
     pl_text(builder,",\"step\":");pl_int(builder,ve_last_step);pl_text(builder,",\"action\":[");pl_float(builder,pb_read_float(action));pl_char(builder,44);pl_float(builder,pb_read_float(action+4));
     pl_text(builder,"],\"proprio\":[");let i=0;while i<7 {if i {pl_char(builder,44);}pl_float(builder,pb_read_float(ve_feedback+i*4));i=i+1;}
-    pl_text(builder,"],\"rgbSHA256\":");pj_text(builder,vc_digest(ve_rgb,921600));pl_text(builder,",\"actorSHA256\":");pj_text(builder,vc_digest(ve_image,21168));
+    if !ve_lean {pl_text(builder,"],\"rgbSHA256\":");pj_text(builder,vc_digest(ve_rgb,921600));pl_text(builder,",\"actorSHA256\":");pj_text(builder,vc_digest(ve_image,ve_image_bytes));}else {pl_char(builder,93);}
     pl_text(builder,",\"state\":");let n=ve_json_size;if load8(ve_json+n-1)==10 {n=n-1;}pl_append(builder,ve_json,n);pl_text(builder,"}\n");vc_require(!load64(builder+24) && !pl_write(ve_journal,text,load64(builder+8)),"cannot journal visual controls");
-    ve_observation_save();syscall(11,builder,32,0,0,0,0);syscall(11,text,65536,0,0,0,0);return 0;
+    if !ve_lean {ve_observation_save();}syscall(11,builder,32,0,0,0,0);syscall(11,text,65536,0,0,0,0);return 0;
 }
 fn ve_open(binary,output,scene,template,seed,hidden) {
     ve_directory=output;vc_mkdir(output);let world=vc_path(output,"scene");vc_mkdir(world);ve_hidden=hidden;
@@ -111,12 +129,14 @@ fn ve_open(binary,output,scene,template,seed,hidden) {
     else {vc_environment(vc_path(world,"environment.bin"),hidden);vc_case(vc_path(world,"case.json"),template,seed,hidden);}
     ve_reference(scene,vc_path(world,"environment.bin"),hidden);let args=vc_args();vc_add(args,binary);vc_add(args,"--hidden");vc_add(args,"--case-file");vc_add(args,vc_path(world,"case.json"));vc_add(args,"--environment");vc_add(args,vc_path(world,"environment.bin"));
     vc_add(args,"--steps");vc_add(args,"1000000");vc_add(args,"--bind");vc_add(args,"127.0.0.1:0");vc_add(args,"--agent-fd");vc_add(args,"3");vc_add(args,"--observer-distance-mm");vc_add(args,"2500");vc_add(args,"--tcp-view");
-    vc_add(args,"--video");vc_add(args,vc_path(output,"mission.mp4"));vc_add(args,"--video-fps");vc_add(args,"5");vc_add(args,"--record");vc_add(args,vc_path(output,"trace.jsonl"));
-    vc_add(args,"--capture");vc_add(args,vc_path(output,"outcome.png"));vc_add(args,"--search-output");vc_add(args,vc_path(output,"sensor"));
-    ve_process=vc_spawn(args,vc_path(output,"native.log"),0,1);ve_sequence=0;ve_steps=0;ve_found=0;ve_passed=0;ve_path=0;ve_excursion=0;ve_search_excursion=0;ve_left_room=0;ve_frame_checks=0;
+    if ve_teacher_oracle {vc_add(args,"--oracle-labels");}
+    if ve_wheel_odometry {vc_add(args,"--no-visual-odometry");}
+    if !ve_lean {vc_add(args,"--video");vc_add(args,vc_path(output,"mission.mp4"));vc_add(args,"--video-fps");vc_add(args,"5");vc_add(args,"--record");vc_add(args,vc_path(output,"trace.jsonl"));
+        vc_add(args,"--capture");vc_add(args,vc_path(output,"outcome.png"));vc_add(args,"--search-output");vc_add(args,vc_path(output,"sensor"));}
+    ve_process=vc_spawn(args,vc_path(output,"native.log"),0,1);ve_sequence=0;ve_steps=0;ve_found=0;ve_passed=0;ve_path=0;ve_excursion=0;ve_search_excursion=0;ve_left_room=0;ve_frame_checks=0;ve_oracle_step=-2;ve_oracle_duration=0;
     pb_zero(ve_previous,8);ve_command(1,0,0);ve_check(1);ve_pose_read(ve_state,ve_pose);vc_copy(ve_initial_pose,ve_pose,24);ve_initial_step=ve_last_step;
     vc_require(vc_json_int(ve_state,"findReturn","consumedIndex")<0 && !pj_boolean(pj_get(ve_state,"case"),"passed"),"reset already satisfies task");
-    let room=ve_room(ve_pose);if room>=0 {ve_room_visits=ve_room_visits|(1<<room);}ve_journal=syscall(2,vc_path(output,"decisions.jsonl"),0x800c1,384,0,0,0);vc_require(ve_journal>=0,"cannot create decision journal");ve_observation_save();vc_write(vc_path(output,"initial.json"),ve_json,ve_json_size);return 0;
+    let room=ve_room(ve_pose);if room>=0 {ve_room_visits=ve_room_visits|(1<<room);}ve_journal=syscall(2,vc_path(output,"decisions.jsonl"),0x800c1,384,0,0,0);vc_require(ve_journal>=0,"cannot create decision journal");if !ve_lean {ve_observation_save();}vc_write(vc_path(output,"initial.json"),ve_json,ve_json_size);return 0;
 }
 fn ve_step(action) {
     let steering=pb_read_float(action);let speed=pb_read_float(action+4);vc_require(f64_is_finite(steering) && f64_is_finite(speed) && f64_le(f64_magnitude(steering),PB_ONE) && f64_le(f64_magnitude(speed),PB_ONE),"nonfinite/unbounded policy action");
@@ -133,7 +153,18 @@ fn ve_step(action) {
     ve_steps=ve_steps+1;ve_record(action);return ve_passed;
 }
 fn ve_action(hidden,blackout) {
-    vc_policy_input(ve_image,ve_feedback,hidden,ve_policy_input,blackout);vc_io(0,load64(ve_policy+8),ve_policy_input,(21168+7+128)*4);vc_io(1,load64(ve_policy+8),ve_policy_output,130*4);
-    vc_copy(hidden,ve_policy_output+8,128*4);return ve_policy_output;
+    vc_policy_input_dimensions(ve_image,ve_feedback,hidden,ve_policy_input,blackout,ve_image_bytes,ve_memory_width);vc_io(0,load64(ve_policy+8),ve_policy_input,(ve_image_bytes+7+ve_memory_width)*4);vc_io(1,load64(ve_policy+8),ve_policy_output,(2+ve_memory_width)*4);
+    vc_copy(hidden,ve_policy_output+8,ve_memory_width*4);return ve_policy_output;
+}
+fn ve_oracle_action(x,y,heading,action) {
+    vc_require(ve_teacher_oracle,"oracle labels are unavailable to a student");ve_sequence=ve_sequence+1;pb_zero(ve_request,64);store64(ve_request,4);store64(ve_request+8,ve_sequence);store64(ve_request+16,x);store64(ve_request+24,y);store64(ve_request+32,heading);
+    if !ve_oracle_goal {ve_oracle_goal=alloc(24);ve_oracle_action_previous=alloc(8);}
+    // Planner primitives last20 ticks; policy actions last10. Retain the
+    // teacher's route only after its preceding label was actually executed.
+    // The simulator rechecks pose, goal, contact and the next swept movement.
+    let continuing=ve_oracle_duration>=10 && ve_steps==ve_oracle_step+1 && !ve_contact && load64(ve_previous)==load64(ve_oracle_action_previous);let i=0;
+    while continuing && i<3 {if f64_gt(f64_magnitude(f64_sub(load64(ve_request+16+i*8),load64(ve_oracle_goal+i*8))),vc_number(1,100000)) {continuing=0;}i=i+1;}store64(ve_request+40,continuing);
+    vc_io(0,load64(ve_process+8),ve_request,64);let reply=alloc(64);vc_io(1,load64(ve_process+8),reply,64);vc_require(load64(reply)==load64("VCLAB001") && load64(reply+8)==ve_sequence,"invalid training oracle reply");let ok=load64(reply+16);
+    ve_oracle_duration=0;if ok {vc_require(pb_abs(load64(reply+24))<=1000 && pb_abs(load64(reply+32))<=1000,"unbounded training oracle label");pb_put32(action,pb_f64_to_f32(vc_number(load64(reply+24),1000)));pb_put32(action+4,pb_f64_to_f32(vc_number(load64(reply+32),1000)));let ticks=load64(reply+40);vc_require(ticks==0 || ticks==10 || ticks==20,"invalid oracle primitive duration");ve_oracle_duration=ticks;vc_copy(ve_oracle_action_previous,action,8);vc_copy(ve_oracle_goal,ve_request+16,24);ve_oracle_step=ve_steps;}syscall(11,reply,64,0,0,0,0);return ok;
 }
 fn ve_close() {ve_command(3,0,0);vc_finish(ve_process,45000);syscall(3,ve_journal,0,0,0,0,0);return 0;}

@@ -1,0 +1,10 @@
+// Count contact recovery labels and their unnormalized action-loss weights.
+import "../../../flex/control/dataset.flex";
+import "../../../flex/control/action-weight.flex";
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_require(argc==3,"contact-weight-survey DATA OUTPUT");let data=vc_map(vc_absolute(load64(argv+8)));let bytes=vc_size;let n=load64(data+8);let fit=load64(data+16);let length=load64(data+24);vc_require(vd_row_bytes(data)==56 && n>=2 && n<=256 && fit>=1 && fit<n && length>=1 && length<=512 && bytes==32+n*length*21224,"invalid contact survey data");
+    let text=alloc(65536);let b=alloc(32);pl_builder(b,text,65536);pl_text(b,"{\"sourceDataSHA256\":");pj_text(b,vc_digest(data,bytes));pl_text(b,",\"weighting\":\"Current action weights before per-batch normalization; not causal influence\",\"episodes\":[");let episode=0;
+    while episode<n {let base=data+32+episode*length*21224;let frames=0;let contacts=0;let weights=0;let contact_weights=0;let reversals=0;let t=0;while t<length {let row=base+length*21168+t*56;if vd_valid_word(row,56) && pb_u32(row+40) {let speed=pb_read_float(row+32);let previous=pb_read_float(row+4);let weight=f64_to_i64_nearest(pt_control_weight(PB_ONE,speed,previous));let contact=f64_gt(pb_read_float(row+20),vc_number(1,2));frames=frames+1;weights=weights+weight;if contact {contacts=contacts+1;contact_weights=contact_weights+weight;if f64_lt(f64_mul(speed,previous),0) {reversals=reversals+1;}}}t=t+1;}
+        if episode {pl_char(b,44);}pl_text(b,"{\"index\":");pl_int(b,episode);pl_text(b,",\"fit\":");pj_bool_text(b,episode<fit);pl_text(b,",\"frames\":");pl_int(b,frames);pl_text(b,",\"contactFrames\":");pl_int(b,contacts);pl_text(b,",\"actionWeight\":");pl_int(b,weights);pl_text(b,",\"contactActionWeight\":");pl_int(b,contact_weights);pl_text(b,",\"contactReversals\":");pl_int(b,reversals);pl_char(b,125);episode=episode+1;
+    }pl_text(b,"]}\n");vc_require(!load64(b+24),"contact survey report overflow");vc_write(vc_absolute(load64(argv+16)),text,load64(b+8));return 0;
+}

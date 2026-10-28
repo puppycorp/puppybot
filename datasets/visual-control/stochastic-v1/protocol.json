@@ -1,0 +1,15 @@
+{
+  "purpose":"Test whether sampling the learned joint-action probabilities breaks deterministic driving loops",
+  "weights":"build/flex/sim/forward-contact-v2/policy-contact142-20",
+  "weightsSHA256":"c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7",
+  "arms":[{"name":"greedy","temperature":0},{"name":"half","temperature":0.5},{"name":"one","temperature":1}],
+  "seed":73,"futureRobustnessSeedsIfPromising":[151,229],
+  "randomness":"Pure local LCG, reset when the caller resets all128 recurrent-memory values; no time, scene or task state inputs",
+  "architectureAndWeightsUnchanged":true,"rawLogitsAndMemoriesUnchanged":true,
+  "actorInputs":"Actual TCP RGB84x84, own feedback7, recurrent128; task-event field remains zero",
+  "control":"One complete joint action from the original seven-action table per policy request; no added controller, scans or collision override",
+  "acceptanceBeforeBenchmark":"Native decoder contracts, raw forward parity, and exact greedy replay of a previously audited episode",
+  "evaluation":"Original strict frozen runtime, canonical eight-case screen for all three arms; any arm returning in both room types triggers paired full32 against greedy, then unchanged qualification and reserved-final gates",
+  "greedyCompatibilityExpected":{"screenReturns":1,"hiddenReturns":0,"approaches":1},
+  "stochasticBehaviorIsNotTrainingImprovement":true,"retainedPolicyOverwritten":false,"pythonRequired":false
+}

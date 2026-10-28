@@ -82,7 +82,7 @@ class VisibilityTeacher:
         return target, raw
 
 
-def replay(entry, mapper_path, evaluator, group_start, maximum_candidates):
+def replay(entry, mapper_path, evaluator, group_start, maximum_candidates, encoder=None):
     run = Path(entry['run'])
     requests = [json.loads(p.read_text()) for p in sorted(
         (run/'map/episode-0').glob('input-*.json'), key=lambda p: int(p.stem.split('-')[-1]))]
@@ -122,6 +122,10 @@ def replay(entry, mapper_path, evaluator, group_start, maximum_candidates):
     height_confirmed = np.zeros_like(height_seen)
     floor_detail = np.zeros(detail.shape, np.int32)
     visits = []
+    memory = None
+    if encoder is not None:
+        from visual import VisualMemory
+        memory = VisualMemory()
     rows = {key: [] for key in ('features', 'targets', 'raw_utility', 'groups', 'scenes', 'heuristic', 'gain')}
     images = set()
     manifests = {str(trace): sha256(trace), str(Path(entry['environment'])): sha256(entry['environment'])}
@@ -138,6 +142,8 @@ def replay(entry, mapper_path, evaluator, group_start, maximum_candidates):
             manifests[str(path)] = sha256(path)
             images.add(str(path))
         points, _ = mapper.cloud(request['frames'])
+        if memory is not None:
+            memory.update(request, points, encoder)
         mapper.update(free, occupied, points, request['pose'], detail, height_seen, height_confirmed, floor_detail)
         if request['newScan']:
             visits.append(request['pose'])
@@ -159,6 +165,8 @@ def replay(entry, mapper_path, evaluator, group_start, maximum_candidates):
             selected = np.sort(np.r_[best, rng.choice(others, maximum_candidates-len(best), replace=False)])
             candidates = [candidates[i] for i in selected]
         actor = features(known, blocked, pose, observed_visits, candidates, distances)
+        if memory is not None:
+            actor = np.column_stack((actor, memory.features(candidates, request['frameId'])))
         # Actual poses/reference geometry are used only after actor extraction.
         targets, raw = teacher.labels(known, pose, state['pose'], candidates, distances)
         heuristic = np.asarray([c[0] for c in candidates], np.float32)
@@ -182,15 +190,22 @@ def main():
     parser.add_argument('--inputs', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--max-candidates', type=int, default=192)
+    parser.add_argument('--encoder', type=Path, help='append frozen native YOLO visual-memory features')
     args = parser.parse_args()
     cv2.setNumThreads(1)
     args.output.mkdir(parents=True, exist_ok=False)
+    encoder = None
+    feature_names = FEATURE_NAMES
+    if args.encoder:
+        from visual import Encoder, VISUAL_NAMES
+        encoder = Encoder(args.encoder.resolve(), args.output/'encoder-cache')
+        feature_names += VISUAL_NAMES
     sys.path.insert(0, str(args.workspace/'flex/vision'))
     evaluator = module('training_map_evaluator', args.workspace/'flex/scripts/benchmark-map.py')
     entries = json.loads(args.inputs.read_text())
     splits = {name: sorted({int(e['scene']) for e in entries if e['split'] == name}) for name in ('train', 'validation')}
     assert splits['train'] and splits['validation'] and not set(splits['train']) & set(splits['validation'])
-    manifest = dict(schema='puppybot.native-frontier-data.v1', splits=splits, actorFeatures=FEATURE_NAMES,
+    manifest = dict(schema='puppybot.native-frontier-data.v1', splits=splits, actorFeatures=feature_names,
         actorContainsReferenceGeometry=False, actorSource='Actual native wrist-RGB stereo replay; all observed/safe masks byte matched',
         teacher='Offline static reference: 1.3m full-circle geometric visibility per estimated route cost, 20cm endpoint risk; utility normalized per decision. Not counterfactual RGB or executed action outcomes.',
         candidateSampling=f'Full native pool, up to {args.max_candidates} examples per decision: one quarter top heuristic plus uniform others',
@@ -206,7 +221,7 @@ def main():
             mapper_path = args.workspace/'flex/vision/discovery-base.py'
             if not mapper_path.exists():
                 mapper_path = args.workspace/'flex/vision/discovery.py'
-            rows, group, receipt, sources = replay(entry, mapper_path, evaluator, group, args.max_candidates)
+            rows, group, receipt, sources = replay(entry, mapper_path, evaluator, group, args.max_candidates, encoder)
             if combined is None:
                 combined = rows
             else:
@@ -215,12 +230,14 @@ def main():
             manifest['replays'].append(receipt)
             source_manifest.update(sources)
         data = {key: np.asarray(value, np.int32 if key in ('groups', 'scenes') else np.float32) for key, value in combined.items()}
-        assert len(data['features']) and data['features'].shape[1] == len(FEATURE_NAMES)
+        assert len(data['features']) and data['features'].shape[1] == len(feature_names)
         path = args.output/(name+'.npz')
         np.savez_compressed(path, **data)
         manifest['files'][name] = dict(path=path.name, sha256=sha256(path), scenes=len(splits[name]),
             decisions=len(np.unique(data['groups'])), candidates=len(data['features']))
     manifest['elapsedSeconds'] = time.monotonic()-started
+    if encoder:
+        manifest['encoder'] = encoder.manifest
     (args.output/'dataset-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     (args.output/'replay-source-manifest.json').write_text(json.dumps(source_manifest, indent=2)+'\n')
     print(json.dumps(manifest), flush=True)

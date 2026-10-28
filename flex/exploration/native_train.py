@@ -90,7 +90,12 @@ def main():
     parser.add_argument('--seeds', type=int, nargs='+', default=[7, 19, 43])
     parser.add_argument('--epochs', type=int, default=120)
     parser.add_argument('--reselect', action='store_true', help='recompute validation selection from retained trained seeds')
+    parser.add_argument('--visual', action='store_true', help='train the 154-input frozen-YOLO fusion head')
     args = parser.parse_args()
+    if args.visual:
+        global Network
+        from visual_policy import VisualNetwork
+        Network = VisualNetwork
     if not args.reselect:
         args.output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
@@ -118,7 +123,7 @@ def main():
                   selection='Normalize full proposal pool, then minimize equal-scene regret within the native comfortable-first tier; held-out trials untouched', seed=seed)
     (args.output/'runtime.json').write_text(json.dumps(config, indent=2)+'\n')
     report = dict(schema='puppybot.native-frontier-training.v1', genuineGradientOptimization=True,
-        parameters=3746, epochs=args.epochs, seeds=args.seeds, selectedSeed=seed, selectedNetworkWeight=weight,
+        parameters=sum(p.size for p in Network().params.values()), epochs=args.epochs, seeds=args.seeds, selectedSeed=seed, selectedNetworkWeight=weight,
         validationSceneRegret=regret, baselineValidationSceneRegret=reports[0]['mixtures'][0]['meanSceneRegret'],
         sceneSplit=json.loads((args.data/'dataset-manifest.json').read_text())['splits'],
         checkpointSHA256=sha256(args.output/'checkpoint.npz'), runtimeSHA256=sha256(args.output/'runtime.json'),

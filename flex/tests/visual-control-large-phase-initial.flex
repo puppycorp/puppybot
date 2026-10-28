@@ -1,0 +1,18 @@
+// A new learned gate starts with cloned action heads, preserving its parent.
+import "../control/verify.flex";
+import "../control/actions.flex";
+fn gi_open(policy,log) {
+    let receipt=vc_json_file(vc_path(policy,"receipt.json"));let sha=vc_string(pj_string_field(receipt,"weightsSHA256"));vc_require(vc_json_int(receipt,"memoryWidth",0)==256 && pl_equal(vc_file_sha(vc_path(policy,"weights.bin")),sha) && pl_equal(vc_file_sha(vc_path(policy,"policy")),pj_string_field(receipt,"binarySHA256")),"large policy receipt/hash mismatch");
+    let args=vc_args();vc_add(args,vc_path(policy,"policy"));vc_add(args,vc_path(policy,"weights.bin"));vc_add(args,sha);vc_add(args,vc_path(policy,"kernels"));vc_add(args,"3");vc_add(args,"--raw");let process=vc_spawn(args,log,0,1);let magic=alloc(8);vc_io(1,load64(process+8),magic,8);vc_require(load64(magic)==load64("VCR25601"),"large raw policy handshake mismatch");return process;
+}
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_pixels_init();vc_require(argc==5,"large-phase-initial ORIGINAL GATED DATA OUTPUT");let original=vc_absolute(load64(argv+8));let gated=vc_absolute(load64(argv+16));let data=vd_map(vc_absolute(load64(argv+24)));let bytes=vc_size;vc_require(bytes>=32,"invalid parity dataset");let row_bytes=vd_row_bytes(data);let n=load64(data+8);let fit=load64(data+16);let length=load64(data+24);vc_require(row_bytes && n>=2 && n<=vd_episode_limit(data) && fit>=1 && fit<n && length>=1 && length<=512 && bytes==32+n*length*(21168+row_bytes),"invalid parity dataset");
+    let output=vc_absolute(load64(argv+32));vc_mkdir(output);let a=gi_open(original,vc_path(output,"original.log"));let b=gi_open(gated,vc_path(output,"gated.log"));let hidden_a=alloc(1024);let hidden_b=alloc(1024);let input=alloc((21168+7+256)*4);let response_a=alloc(263*4);let response_b=alloc(263*4);let action_a=alloc(8);let action_b=alloc(8);let checked=0;let maximum=0;let memory=0;let group=0;
+    while group<2 {let episode=0;if group {episode=fit;}let base=data+32+episode*length*(21168+row_bytes);pb_zero(hidden_a,1024);pb_zero(hidden_b,1024);let t=0;while t<length {let rgb=base+t*21168;let own=base+length*21168+t*row_bytes;
+        vc_policy_input_dimensions(rgb,own,hidden_a,input,0,21168,256);vc_io(0,load64(a+8),input,(21168+7+256)*4);vc_io(1,load64(a+8),response_a,263*4);
+        vc_policy_input_dimensions(rgb,own,hidden_b,input,0,21168,256);vc_io(0,load64(b+8),input,(21168+7+256)*4);vc_io(1,load64(b+8),response_b,263*4);
+        let i=0;while i<7 {maximum=pb_fmax(maximum,f64_magnitude(f64_sub(pb_read_float(response_a+i*4),pb_read_float(response_b+i*4))));i=i+1;}i=0;while i<256 {memory=pb_fmax(memory,f64_magnitude(f64_sub(pb_read_float(response_a+(7+i)*4),pb_read_float(response_b+(7+i)*4))));i=i+1;}
+        vc_require(ca_decode(response_a,action_a)==ca_decode(response_b,action_b),"cloned gate changed the action");vc_copy(hidden_a,response_a+28,1024);vc_copy(hidden_b,response_b+28,1024);checked=checked+1;t=t+1;
+    }group=group+1;}
+    vc_require(f64_lt(maximum,vc_number(1,100000)) && !memory,"cloned gate changed raw policy or memory");vc_finish(a,15000);vc_finish(b,15000);let text=alloc(1024);let builder=alloc(32);pl_builder(builder,text,1024);pl_text(builder,"{\"passed\":true,\"framesCompared\":");pl_int(builder,checked);pl_text(builder,",\"maximumLogitDifference\":");pl_float(builder,maximum);pl_text(builder,",\"maximumMemoryDifference\":");pl_float(builder,memory);pl_text(builder,",\"actionsIdentical\":true,\"actorInputsUnchanged\":true,\"pythonRequired\":false}\n");vc_write(vc_path(output,"result.json"),text,load64(builder+8));pl_write(1,text,load64(builder+8));return 0;
+}

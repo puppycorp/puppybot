@@ -1,0 +1,33 @@
+{
+  "scope": "Training-only uncalibrated phase readout and raw image changes; not causal evidence, promotion evidence or a task-event input",
+  "weightsSHA256": "30d9de1ea0e82ddbdc3cbf1dcfe4a457bc363cbc4380c75bd94b75a99dc439a2",
+  "dataSHA256": "74ed59242a4b7df9f9f5732458c23d743cf79f2e56a10b4394703845e9f1f833",
+  "imageTransition": {
+    "histories": 14,
+    "lastSearchFrameHeuristicMatches": 10,
+    "meanEventRGBDifference": 0.013420937157931957,
+    "meanPriorRGBDifference": 0.011465028052893057,
+    "eventBelowMedianPriorChange": 3,
+    "visibilityHeuristicNotSegmentation": true
+  },
+  "teacherApproachStudentReturn": {
+    "histories": 14,
+    "studentCommandsReplayed": 1230,
+    "searchFrames": 748,
+    "searchAboveHalf": 15,
+    "returnFrames": 1230,
+    "returnAboveHalf": 676,
+    "lastFiveSearchMean": 0.20381741658470504,
+    "firstFiveReturnMean": 0.4191982988881477
+  },
+  "autonomousApproach": {
+    "episodes": 1,
+    "searchFrames": 59,
+    "searchAboveHalf": 0,
+    "returnFrames": 241,
+    "returnAboveHalf": 188,
+    "returned": false,
+    "replayExact": true
+  },
+  "actorInputsUnchanged": true
+}

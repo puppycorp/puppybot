@@ -1,0 +1,139 @@
+{
+  "task": "simulator consumes a brick approached within 35 cm; robot must return and dock",
+  "scope": "adaptive eight-case development screens; no physical pickup or independent final-layout claim",
+  "runtimeInputs": [
+    "TCP RGB",
+    "own feedback",
+    "recurrent state"
+  ],
+  "teacherSimulatorStateTrainingOnly": true,
+  "dataset": {
+    "episodes": 222,
+    "fittingHistories": 174,
+    "validationHistories": 48,
+    "dataSHA256": "30a382877b404dcb7daa711a77e77afda2f794b8e2d3ee48bfd20157bccdbe66",
+    "priorHistoriesPreserved": 202,
+    "uniqueFittingCaseHashes": 115,
+    "uniqueValidationCaseHashes": 33,
+    "caseHashesInBothSplits": 0,
+    "environmentHashesInBothSplits": 0,
+    "targetSHA256": "265e498b430cbc641bc55247d6b68c229eebf6096dc4448c2be2f217b03cc829",
+    "fittingTargetCandidates": 4615,
+    "validationTargetCandidates": 1292,
+    "targetVisibilityHeuristicNotProvenSegmentation": true
+  },
+  "matchedDevelopmentComparison": {
+    "allEpisodeAuditsPassed": true,
+    "original": {
+      "approaches": 2,
+      "returns": 0
+    },
+    "expanded": {
+      "approaches": 0,
+      "returns": 0
+    },
+    "sharedTwoRoomStartView": true
+  },
+  "recoveryCollection": {
+    "episodes": 16,
+    "studentActions": 1920,
+    "postContactDecisions": 271,
+    "studentRepeatedPriorAction": 266,
+    "oracleReversedDriveDirection": 271
+  },
+  "contactContinuation": {
+    "initial": {
+      "episodes": 8,
+      "auditedEpisodes": 8,
+      "auditedApproaches": 0,
+      "physicalReturns": 0,
+      "openReturns": 0,
+      "hiddenReturns": 0
+    },
+    "continued": {
+      "episodes": 8,
+      "auditedEpisodes": 8,
+      "auditedApproaches": 1,
+      "physicalReturns": 0,
+      "openReturns": 0,
+      "hiddenReturns": 0
+    },
+    "allEpisodeAuditsPassed": true
+  },
+  "returnPilot": {
+    "teacherAssisted": true,
+    "episodes": [
+      {
+        "fit": true,
+        "teacherApproachActions": 31,
+        "studentReturnActions": 90,
+        "oracleDiffers": 87,
+        "validBoxVisionFrames": 0,
+        "studentReturnedAfterTeacherApproach": false
+      },
+      {
+        "fit": false,
+        "teacherApproachActions": 70,
+        "studentReturnActions": 90,
+        "oracleDiffers": 87,
+        "validBoxVisionFrames": 0,
+        "studentReturnedAfterTeacherApproach": false
+      }
+    ],
+    "auditedCohortWindows": {
+      "episodes": 12,
+      "studentReturnsAfterTeacherApproach": 1,
+      "studentReturnActions": 1050,
+      "oracleDiffers": 793
+    }
+  },
+  "returnContinuation": {
+    "selectedCheckpointUnchanged": true,
+    "initial": {
+      "episodes": 8,
+      "auditedEpisodes": 8,
+      "auditedApproaches": 1,
+      "physicalReturns": 0,
+      "openReturns": 0,
+      "hiddenReturns": 0
+    },
+    "selected": {
+      "episodes": 8,
+      "auditedEpisodes": 8,
+      "auditedApproaches": 1,
+      "physicalReturns": 0,
+      "openReturns": 0,
+      "hiddenReturns": 0
+    },
+    "postHocEpoch20": {
+      "episodes": 8,
+      "auditedEpisodes": 8,
+      "auditedApproaches": 1,
+      "physicalReturns": 0,
+      "openReturns": 0,
+      "hiddenReturns": 0
+    },
+    "allSelectedAuditsPassed": true,
+    "allPostHocAuditsPassed": true,
+    "motion": [
+      {
+        "candidate": "screen-contact-quick-v1",
+        "stop": 228,
+        "blocked": 1008,
+        "meanPathM": 8.750966804236688,
+        "meanMaxExcursionM": 2.4988296338554945,
+        "hiddenLeftStartRoom": 0
+      },
+      {
+        "candidate": "screen-return-epoch20-v1",
+        "stop": 13,
+        "blocked": 1256,
+        "meanPathM": 8.546151891590572,
+        "meanMaxExcursionM": 1.8393769915148268,
+        "hiddenLeftStartRoom": 0
+      }
+    ]
+  },
+  "promotionQualified": false,
+  "retainedPolicyOverwritten": false
+}

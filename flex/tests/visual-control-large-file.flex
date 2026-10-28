@@ -1,0 +1,6 @@
+// Sparse-file coverage for 64-bit 128x128 dataset offsets.
+import "../control/host.flex";
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_require(argc==3,"visual-control-large-file PATH write|highres|legacy");let path=vc_absolute(load64(argv+8));let mode=load64(argv+16);let data=0;if pl_equal(mode,"write") {let fd=syscall(2,path,0x80002,0,0,0,0);vc_require(fd>=0 && syscall(8,fd,0,2,0,0,0)==2147487744,"cannot open large writable fixture");data=syscall(9,0,2147487744,3,1,fd,0);vc_require(data>0,"cannot map large writable fixture");store8(data+2147487743,0x7d);vc_require(!syscall(26,data,2147487744,4,0,0,0) && !syscall(74,fd,0,0,0,0,0) && !syscall(11,data,2147487744,0,0,0,0) && !syscall(3,fd,0,0,0,0,0),"cannot persist large writable fixture");return 0;}if pl_equal(mode,"highres") {data=vc_map_highres(path);}else {vc_require(pl_equal(mode,"legacy"),"unknown large-file mode");data=vc_map(path);}
+    let size=vc_size;vc_require(size==2147487744 && load64(data)==load64("PVDAT128") && load8(data+2147487743)==0x7d && !load8(data+2147483648),"64-bit sparse file offsets differ");vc_require(!syscall(11,data,size,0,0,0,0),"cannot unmap large-file fixture");pl_print(1,"128x128 sparse-file offsets passed.\n");return 0;
+}

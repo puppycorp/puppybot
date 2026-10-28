@@ -1,0 +1,58 @@
+{
+  "schema": "puppybot.stochastic-results.v1",
+  "date": "2026-10-27",
+  "decoderContracts": {
+    "passed": true,
+    "runtime": "Flexscript",
+    "pythonRequired": false,
+    "uniformDistributionChecked": true,
+    "invalidParametersRejected": true,
+    "extremeLogitsStable": true,
+    "jointActionTablePreserved": true,
+    "episodeResetReplaysExactly": true,
+    "greedyTieBehaviorPreserved": true
+  },
+  "screens": [
+    {
+      "candidate": "greedy",
+      "episodes": 8,
+      "physicalReturns": 1,
+      "auditedApproaches": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditFailures": 0
+    },
+    {
+      "candidate": "half",
+      "episodes": 8,
+      "physicalReturns": 1,
+      "auditedApproaches": 2,
+      "openReturns": 0,
+      "hiddenReturns": 1,
+      "auditFailures": 0
+    },
+    {
+      "candidate": "one",
+      "episodes": 8,
+      "physicalReturns": 1,
+      "auditedApproaches": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditFailures": 0
+    }
+  ],
+  "rawParity": {
+    "variants": 3,
+    "framesEach": 708,
+    "maximumLogitError": 0,
+    "maximumMemoryError": 0
+  },
+  "greedyReplayCommands": 132,
+  "greedyReplayError": 0,
+  "originalJobExit": 1,
+  "originalExitReason": "Post-run relative hash paths were checked from runtime directory",
+  "correctDirectoryIntegrityRecheckExit": 0,
+  "all24NativeAuditsPassed": true,
+  "completionImprovementProven": false,
+  "retainedPolicyOverwritten": false
+}

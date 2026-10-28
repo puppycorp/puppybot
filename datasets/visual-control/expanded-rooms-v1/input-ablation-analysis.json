@@ -1,0 +1,64 @@
+{
+  "scope": "Offline counterfactuals on recorded first-30-action histories. They are not closed-loop driving tests.",
+  "policyWeightsSHA256": "9d8520e4c021baed200b7c873089e6af842881e78a3185a2bf5a395c6640c0da",
+  "sourceScoreSHA256": "df22e7c7e3e994c67363338c00f32b816bfa24c4f4db41a87faf91edf1ca5b07",
+  "trainingDataSHA256": "74ed59242a4b7df9f9f5732458c23d743cf79f2e56a10b4394703845e9f1f833",
+  "actualCommandsReplayedExactly": true,
+  "groups": [
+    {
+      "layoutId": 18,
+      "frames": 120,
+      "actualStops": 56,
+      "resetStops": 56,
+      "blackoutStops": 54,
+      "zeroFeedbackStops": 58,
+      "actualStopChangedByReset": 0,
+      "actualStopChangedByBlackout": 2,
+      "actualStopChangedByZeroFeedback": 0,
+      "actualPhaseReadoutAboveHalf": 0
+    },
+    {
+      "layoutId": 19,
+      "frames": 120,
+      "actualStops": 120,
+      "resetStops": 120,
+      "blackoutStops": 116,
+      "zeroFeedbackStops": 120,
+      "actualStopChangedByReset": 0,
+      "actualStopChangedByBlackout": 4,
+      "actualStopChangedByZeroFeedback": 0,
+      "actualPhaseReadoutAboveHalf": 0
+    }
+  ],
+  "hiddenStart": {
+    "caseIndices": [
+      16,
+      17,
+      18,
+      19
+    ],
+    "uniqueImageHashes": [
+      "d8aadafcdb38b182234e38545b4fb9f046aa0f780909240d9d515420e0d99ceb"
+    ],
+    "firstActions": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "exactRGBMatchesAcrossAllTeacherFrames": 0,
+    "nearestFittingFirstFrame": {
+      "split": "fit",
+      "episode": 152,
+      "teacherActionClass": 2,
+      "meanAbsoluteRGBDifference": 0.022493441821172914
+    }
+  },
+  "limitations": [
+    "Auxiliary phase head is uncalibrated and is not a direct actor input.",
+    "Reset and zero-feedback inputs may be out of distribution.",
+    "Four hidden cases share the same starting view and are not independent visual samples.",
+    "Raw-pixel proximity is not a learned feature or semantic distance.",
+    "This does not establish why the policy stops or predict closed-loop success."
+  ]
+}

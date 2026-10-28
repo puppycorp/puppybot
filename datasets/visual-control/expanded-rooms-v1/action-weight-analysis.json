@@ -1,0 +1,235 @@
+{
+  "scope": "training labels and actual loss weights; the stopping explanation is a hypothesis",
+  "fullCorpus": {
+    "passed": true,
+    "scope": "teacher labels and loss weights, not student performance",
+    "dataSHA256": "74ed59242a4b7df9f9f5732458c23d743cf79f2e56a10b4394703845e9f1f833",
+    "episodes": 236,
+    "fittingHistories": 181,
+    "validationHistories": 55,
+    "actionOrder": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "groups": [
+      {
+        "split": "fit",
+        "phase": "search",
+        "transitions": 6103,
+        "counts": [
+          5874,
+          5572,
+          3051,
+          847,
+          735,
+          975,
+          0
+        ],
+        "lossWeightMass": [
+          26440.0,
+          9870.0,
+          11010.0,
+          4900.0,
+          3353.0,
+          4202.0,
+          0.0
+        ]
+      },
+      {
+        "split": "fit",
+        "phase": "return",
+        "transitions": 2251,
+        "counts": [
+          1054,
+          1681,
+          1600,
+          1228,
+          5472,
+          1095,
+          552
+        ],
+        "lossWeightMass": [
+          4386.0,
+          3011.0,
+          7543.0,
+          2369.0,
+          6361.0,
+          2964.0,
+          9025.0
+        ]
+      },
+      {
+        "split": "validation",
+        "phase": "search",
+        "transitions": 1701,
+        "counts": [
+          1177,
+          2317,
+          1167,
+          351,
+          159,
+          139,
+          0
+        ],
+        "lossWeightMass": [
+          3998.0,
+          5040.0,
+          4597.0,
+          1779.0,
+          1034.0,
+          769.0,
+          0.0
+        ]
+      },
+      {
+        "split": "validation",
+        "phase": "return",
+        "transitions": 889,
+        "counts": [
+          380,
+          345,
+          284,
+          640,
+          1833,
+          593,
+          173
+        ],
+        "lossWeightMass": [
+          2256.0,
+          506.0,
+          1383.0,
+          1648.0,
+          2512.0,
+          1615.0,
+          2755.0
+        ]
+      }
+    ]
+  },
+  "pilotCorpus": {
+    "passed": true,
+    "scope": "teacher labels and loss weights, not student performance",
+    "dataSHA256": "58c22e4b3d38bdd393bacf5731aa1798de624b5c2cd6b5d6504d9c71a484306c",
+    "episodes": 16,
+    "fittingHistories": 11,
+    "validationHistories": 5,
+    "actionOrder": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "groups": [
+      {
+        "split": "fit",
+        "phase": "search",
+        "transitions": 905,
+        "counts": [
+          649,
+          362,
+          420,
+          32,
+          69,
+          83,
+          0
+        ],
+        "lossWeightMass": [
+          4240.0,
+          747.0,
+          2261.0,
+          60.0,
+          307.0,
+          335.0,
+          0.0
+        ]
+      },
+      {
+        "split": "fit",
+        "phase": "return",
+        "transitions": 92,
+        "counts": [
+          32,
+          106,
+          28,
+          66,
+          448,
+          76,
+          32
+        ],
+        "lossWeightMass": [
+          39.0,
+          162.0,
+          77.0,
+          171.0,
+          756.0,
+          125.0,
+          510.0
+        ]
+      },
+      {
+        "split": "validation",
+        "phase": "search",
+        "transitions": 335,
+        "counts": [
+          168,
+          249,
+          269,
+          14,
+          1,
+          25,
+          0
+        ],
+        "lossWeightMass": [
+          574.0,
+          683.0,
+          1592.0,
+          56.0,
+          8.0,
+          158.0,
+          0.0
+        ]
+      },
+      {
+        "split": "validation",
+        "phase": "return",
+        "transitions": 62,
+        "counts": [
+          44,
+          78,
+          43,
+          20,
+          131,
+          62,
+          16
+        ],
+        "lossWeightMass": [
+          65.0,
+          99.0,
+          239.0,
+          27.0,
+          159.0,
+          188.0,
+          255.0
+        ]
+      }
+    ]
+  },
+  "previousDevelopmentCandidate": {
+    "candidate": "continued-202",
+    "episodes": 32,
+    "actions": 9600,
+    "stops": 8051,
+    "hiddenActions": 4800,
+    "hiddenStops": 4800
+  },
+  "interpretation": "Search demonstrations contain no stop labels. Return stops are amplified by the loss; this may contribute to premature stopping but is not causal proof. Compare complete episode outcomes with the stop multiplier reduced from 5 to 1.",
+  "independentByteReaderAgreed": true
+}

@@ -6,6 +6,7 @@ import "../../build/flex/gym-flexdb.flex";
 import "monolith.flex";
 import "vision.flex";
 import "artifacts.flex";
+import "catalog.flex";
 
 global gm_db = 0;
 global gm_runs = 0;
@@ -114,6 +115,7 @@ fn gm_samples(row, b) {
     syscall(3, fd, 0, 0, 0, 0, 0); return pl_char(b, 93);
 }
 fn gm_request(method, path, body, size, b) {
+    if pl_equal(method, "GET") && pl_starts(path, "/api/gym/catalog/") { return gc_request(path, b); }
     if pl_equal(method, "GET") && pl_equal(path, "/api/gym/cases") { gg_cases(b); return 200; }
     if pl_equal(path, "/api/gym/runs") {
         if pl_equal(method, "GET") {
@@ -169,6 +171,8 @@ fn gm_serve(argc, argv) {
         if pl_equal(arg, "--data") { root = value; } else if pl_equal(arg, "--bind") { bind = value; }
         else if pl_equal(arg, "--firmware") { gm_firmware = value; }
         else if pl_equal(arg, "--simulator") { gm_simulator = value; }
+        else if pl_equal(arg, "--catalog-sim") { gc_sim_path = value; }
+        else if pl_equal(arg, "--catalog-datasets") { gc_dataset_path = value; }
         else if pl_equal(arg, "--model") { gv_manifest = value; }
         else if pl_equal(arg, "--vision") { gv_binary = value; }
         else if pl_equal(arg, "--backend") { if !pl_equal(value, "auto") && !pl_equal(value, "cpu") && !pl_equal(value, "sass") && !pl_equal(value, "cuda") && !pl_equal(value, "hip") { return 2; } gv_backend = value; }
@@ -179,11 +183,11 @@ fn gm_serve(argc, argv) {
     let address = alloc(16); let colon = ph_find(bind, pl_size(bind), ":", 1); if colon < 1 { return 2; }
     let port = pl_integer(bind + colon + 1, pl_size(bind + colon + 1)); if pl_bad_number || port < 0 || port > 65535 || !pl_sockaddr(address, bind, colon, port) { return 2; }
     if pb_u32(address + 4) != 0x0100007f { pl_print(2, "Monolith Gym binds only to 127.0.0.1.\n"); return 2; }
-    if pnet_init(address) < 0 { return 1; } gv_init(); ga_init(); if !gm_monolith_init(pn_port) { return 1; } let signal = pl_signals(); let data = alloc(128); let b = pn_builder + 32;
+    if pnet_init(address) < 0 { return 1; } gv_init(); ga_init(); gc_init(); if !gm_monolith_init(pn_port) { return 1; } let signal = pl_signals(); let data = alloc(128); let b = pn_builder + 32;
     pl_builder(b, pn_body, 65536); pl_text(b, "PuppyBotGym listening on port "); pl_uint(b, pn_port); pl_char(b, 10); pl_print(1, pn_body);
     let alive = 1; let mark = m_mark(); let last_check = pl_now(); let heartbeat = last_check;
     while alive {
-        let now = pl_now(); pnet_io(now); ga_poll(now); gv_poll(now); if !gm_poll_jobs() { alive = 0; }
+        let now = pl_now(); pnet_io(now); ga_poll(now); gv_poll(now); gc_poll(); if !gm_poll_jobs() { alive = 0; }
         gm_monolith_poll();
         if syscall(0, signal, data, 128, 0, 0, 0) > 0 { alive = 0; }
         i = 0;
@@ -214,5 +218,5 @@ fn gm_serve(argc, argv) {
     while remaining && pl_now() < deadline { gm_poll_jobs(); remaining = 0; i = 0; while i < 8 { if load64(gm_jobs + i * 32) { remaining = 1; } i = i + 1; } if remaining { syscall(7, 0, 0, 5, 0, 0, 0); } }
     i = 0; while i < 8 { let job = gm_jobs + i * 32; if load64(job) > 0 { syscall(62, load64(job), 9, 0, 0, 0, 0); gx_reap(load64(job), 1000); gm_state(flexdb_get(gm_runs, load64(job + 8)), "interrupted"); } i = i + 1; }
     i = 0; while i < 32 { ga_close(ga_jobs + i * 24); i = i + 1; }
-    gv_close(); gm_monolith_close(); close_flexdb(gm_db); return 0;
+    gc_close(); gv_close(); gm_monolith_close(); close_flexdb(gm_db); return 0;
 }

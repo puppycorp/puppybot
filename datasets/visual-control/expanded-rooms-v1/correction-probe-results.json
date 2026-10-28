@@ -1,0 +1,142 @@
+{
+  "exploratory": true,
+  "selection": "Six correction histories selected after inspecting development failures; epoch 20 fixed before the eight-case screen",
+  "promotionEvidence": false,
+  "teacherActionForFittingFrame": [
+    0.6,
+    1
+  ],
+  "firstDecision": {
+    "fittingInitial": {
+      "weightsSHA256": "c71a7588ad40b5e41cef15e6789f663844aa3711ca604fa89e4c10e5ba5f3560",
+      "rgbSHA256": "8732d037336f99f20a9adb935281eb43129c496800b3f14778dee1e03a353177",
+      "feedbackSHA256": "3addfb141cd7c9c4c6543a82191a3707ac29c7a041217782e61d4d91c691aee8",
+      "zeroRecurrentState": true,
+      "actionClass": 6,
+      "action": [
+        0.0,
+        0.0
+      ],
+      "probabilities": [
+        0.079275418297731409,
+        0.10190024095382401,
+        0.0046445472536539318,
+        0.002352859285698959,
+        0.0029241702249849909,
+        0.0026319191908344467,
+        0.80627084479327227
+      ],
+      "metric": "single-frame initial decision; not autonomous performance"
+    },
+    "fittingEpoch20": {
+      "weightsSHA256": "72b50c1853fe219396df2b54f0e1ab6c3147add7c349e5c32a01c2d73cc5ab8c",
+      "rgbSHA256": "8732d037336f99f20a9adb935281eb43129c496800b3f14778dee1e03a353177",
+      "feedbackSHA256": "3addfb141cd7c9c4c6543a82191a3707ac29c7a041217782e61d4d91c691aee8",
+      "zeroRecurrentState": true,
+      "actionClass": 0,
+      "action": [
+        -0.60000002384185791,
+        1.0
+      ],
+      "probabilities": [
+        0.61518917699544973,
+        0.12252173515868199,
+        0.033413505566771494,
+        0.005778793731909506,
+        0.0018855631878964426,
+        0.0021446510831388222,
+        0.21906657427615203
+      ],
+      "metric": "single-frame initial decision; not autonomous performance"
+    },
+    "hiddenInitial": {
+      "weightsSHA256": "c71a7588ad40b5e41cef15e6789f663844aa3711ca604fa89e4c10e5ba5f3560",
+      "rgbSHA256": "d8aadafcdb38b182234e38545b4fb9f046aa0f780909240d9d515420e0d99ceb",
+      "feedbackSHA256": "3addfb141cd7c9c4c6543a82191a3707ac29c7a041217782e61d4d91c691aee8",
+      "zeroRecurrentState": true,
+      "actionClass": 6,
+      "action": [
+        0.0,
+        0.0
+      ],
+      "probabilities": [
+        0.087783208282367006,
+        0.16911069690290975,
+        0.012282117104789516,
+        0.0044892293838417439,
+        0.0017567834949115994,
+        0.0010545292036339372,
+        0.7235234356275464
+      ],
+      "metric": "single-frame initial decision; not autonomous performance"
+    },
+    "hiddenEpoch20": {
+      "weightsSHA256": "72b50c1853fe219396df2b54f0e1ab6c3147add7c349e5c32a01c2d73cc5ab8c",
+      "rgbSHA256": "d8aadafcdb38b182234e38545b4fb9f046aa0f780909240d9d515420e0d99ceb",
+      "feedbackSHA256": "3addfb141cd7c9c4c6543a82191a3707ac29c7a041217782e61d4d91c691aee8",
+      "zeroRecurrentState": true,
+      "actionClass": 0,
+      "action": [
+        -0.60000002384185791,
+        1.0
+      ],
+      "probabilities": [
+        0.47739048725632655,
+        0.16177388474528909,
+        0.065091335676340636,
+        0.0060409190105632487,
+        0.0009355265102322062,
+        0.0012406614478049209,
+        0.28752718535344335
+      ],
+      "metric": "single-frame initial decision; not autonomous performance"
+    }
+  },
+  "subsetAudit": {
+    "passed": true,
+    "episodes": 8,
+    "studentRollinMaxAbsError": 0.0,
+    "taskEventHintAbsent": true
+  },
+  "inferenceParity": {
+    "passed": true,
+    "logitMaxAbsError": 0.0,
+    "memoryMaxAbsError": 0.0,
+    "resetBitIdentical": true
+  },
+  "screen": {
+    "exploratory": true,
+    "notPromotionEvidence": true,
+    "arms": [
+      {
+        "arm": "reference",
+        "episodes": 8,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 2400,
+        "forward": 358,
+        "reverse": 244,
+        "stop": 1798,
+        "blocked": 4,
+        "meanPathM": 4.4977684645511555,
+        "meanMaxExcursionM": 0.6138312560178759,
+        "hiddenLeftStartRoom": 0
+      },
+      {
+        "arm": "trained",
+        "episodes": 8,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 2400,
+        "forward": 436,
+        "reverse": 1140,
+        "stop": 824,
+        "blocked": 742,
+        "meanPathM": 6.281412447621742,
+        "meanMaxExcursionM": 2.0259179294297707,
+        "hiddenLeftStartRoom": 0
+      }
+    ]
+  },
+  "retainedPolicyOverwritten": false
+}

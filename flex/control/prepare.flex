@@ -34,5 +34,7 @@ fn main(argc,argv) {
     vc_import_source(vc_path(vp_source,"libs/render.flex"));vc_import_source(vc_path(vp_source,"libs/physics/physics.flex"));pl_text(vp_records,"}\n");vc_require(!load64(vp_records+24),"dependency receipt exceeded limit");
     vc_write(vc_path(vp_project,"build/flex/sim/dependencies.json"),vp_record_text,load64(vp_records+8));
     let out=alloc(8192);let b=alloc(32);pl_builder(b,out,8192);pl_text(b,"import ");pj_text(b,vc_path(vp_project,"build/flex/sim/library/libs/render.flex"));pl_text(b,";\nimport ");pj_text(b,vc_path(vp_project,"build/flex/sim/library/libs/physics/physics.flex"));pl_text(b,";\n");vc_write(vc_path(vp_project,"build/flex/sim/dependencies.flex"),out,load64(b+8));
+    let simulator=vc_text_file(vc_path(vp_project,"flex/sim/main.flex"));simulator=vc_replace(simulator,"import \"",vc_concat("import \"",vc_concat(vc_path(vp_project,"flex/sim"),"/")));
+    simulator=vc_replace(simulator,"fn main(argc, argv)","fn ps_sim_test_entry(argc, argv)");vc_save_text(vc_path(vp_project,"build/flex/control/sim-test-library.flex"),simulator);
     let model=vc_map(vc_path(vp_project,"build/flex/sim/puppybot.bin"));vc_require(load64(model)==load64("PBSIM002"),"shared simulator model asset must be prepared first");pl_print(1,"Prepared shared simulator dependencies without Python.\n");return 0;
 }

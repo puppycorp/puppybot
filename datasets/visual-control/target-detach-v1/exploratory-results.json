@@ -1,0 +1,53 @@
+{
+  "selection": "Exploratory epoch 1 selected after seeing the eight-case screens; qualification and reserved final tests unchanged",
+  "heatOnly": {
+    "candidate": "heatOnly-1",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 7,
+    "physicalReturns": 2,
+    "openReturns": 2,
+    "hiddenReturns": 0,
+    "successCases": [
+      5,
+      11
+    ],
+    "meanSuccessfulSeconds": 24.6
+  },
+  "attached": {
+    "candidate": "attached-1",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 7,
+    "physicalReturns": 4,
+    "openReturns": 4,
+    "hiddenReturns": 0,
+    "successCases": [
+      0,
+      5,
+      6,
+      11
+    ],
+    "meanSuccessfulSeconds": 25.849999999999998
+  },
+  "detached": {
+    "candidate": "detached-1",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 7,
+    "physicalReturns": 4,
+    "openReturns": 4,
+    "hiddenReturns": 0,
+    "successCases": [
+      0,
+      5,
+      6,
+      11
+    ],
+    "meanSuccessfulSeconds": 25.849999999999998
+  },
+  "retainedPolicyOverwritten": false
+}

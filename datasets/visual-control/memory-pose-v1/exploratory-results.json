@@ -1,0 +1,39 @@
+{
+  "selection": "Exploratory epoch 10 chosen after observing the eight-case screen; qualification and reserved final tests unchanged",
+  "dataSHA256": "05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetsSHA256": "ab0bc0582ad9d743593891b13db7b3478b8b6f32037c39a6e8059e17e69606d7",
+  "control": {
+    "candidate": "eventOnly-10",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 7,
+    "physicalReturns": 3,
+    "openReturns": 3,
+    "hiddenReturns": 0,
+    "successCases": [
+      5,
+      6,
+      12
+    ],
+    "meanSuccessfulSeconds": 25.23333333333333
+  },
+  "pose": {
+    "candidate": "eventPose-10",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 7,
+    "physicalReturns": 4,
+    "openReturns": 4,
+    "hiddenReturns": 0,
+    "successCases": [
+      0,
+      5,
+      6,
+      7
+    ],
+    "meanSuccessfulSeconds": 30.5
+  },
+  "retainedPolicyOverwritten": false
+}

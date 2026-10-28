@@ -1,0 +1,18 @@
+// Extra auxiliary parameters may be new; every original actor parameter must match.
+import "../../../flex/control/host.flex";
+fn ce_aux_count(value) {
+    let event=0;while event<=1 {let pose=0;while pose<=1 {let target=0;while target<=1 {let heat=0;while heat<=1 {let actor=0;while actor<=1 {if value==event*129+pose*516+target*258+heat*17+actor*51328 {return 1;}actor=actor+1;}heat=heat+1;}target=target+1;}pose=pose+1;}event=event+1;}return 0;
+}
+fn ce_record(data,bytes,name) {
+    vc_require(bytes>=32 && load64(data)==load64("PUPV0001") && load64(data+8)<=4096 && load64(data+16)==32+load64(data+8)*256 && load64(data+16)<=bytes,"invalid core comparison checkpoint");let found=0;let i=0;
+    while i<load64(data+8) {let row=data+32+i*256;vc_require(!load8(row+191),"unterminated core parameter name");if pl_equal(row,name) {vc_require(!found,"duplicate core parameter");found=row;}i=i+1;}
+    vc_require(found && load64(found+192)>=1 && load64(found+192)<=4 && load64(found+200)>=1 && load64(found+200)<=bytes/4 && load64(found+208)>=0 && load64(found+208)<=bytes-load64(data+16) && load64(found+200)*4<=bytes-load64(data+16)-load64(found+208),"invalid or missing core parameter");return found;
+}
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_require(argc==4,"core-match ORIGINAL CANDIDATE OUTPUT_JSON");let original=vc_map(load64(argv+8));let original_bytes=vc_size;let candidate=vc_map(load64(argv+16));let candidate_bytes=vc_size;let first=ce_record(original,original_bytes,"actor7.bias");let second=ce_record(candidate,candidate_bytes,"actor7.bias");let parameters=0;let i=0;
+    while i<load64(original+8) {first=ce_record(original,original_bytes,original+32+i*256);second=ce_record(candidate,candidate_bytes,first);vc_require(load64(first+192)==load64(second+192) && load64(first+200)==load64(second+200),"core parameter shape changed");let axis=0;while axis<4 {vc_require(load64(first+216+axis*8)==load64(second+216+axis*8),"core parameter dimension changed");axis=axis+1;}
+        let a=original+load64(original+16)+load64(first+208);let b=candidate+load64(candidate+16)+load64(second+208);let n=load64(first+200)*4;let j=0;while j<n {vc_require(load8(a+j)==load8(b+j),"original actor parameter was not preserved exactly");j=j+1;}parameters=parameters+n/4;i=i+1;
+    }
+    let extra=0;i=0;while i<load64(candidate+8) {let row=candidate+32+i*256;let found=0;let j=0;while j<load64(original+8) {if pl_equal(row,original+32+j*256) {found=1;}j=j+1;}if !found {vc_require(pl_equal(row,"critic.event.weight_T") || pl_equal(row,"critic.event.bias") || pl_equal(row,"critic.pose.weight_T") || pl_equal(row,"critic.pose.bias") || pl_equal(row,"critic.target.weight_T") || pl_equal(row,"critic.target.bias") || pl_equal(row,"critic.heat.weight") || pl_equal(row,"critic.heat.bias") || pl_equal(row,"visual.merge.weight_T") || pl_equal(row,"visual.merge.bias"),"unexpected new actor parameter");ce_record(candidate,candidate_bytes,row);extra=extra+load64(row+200);}i=i+1;}
+    vc_require(ce_aux_count(parameters-324184) && ce_aux_count(extra),"unexpected auxiliary parameter counts");let text=alloc(1024);let b=alloc(32);pl_builder(b,text,1024);pl_text(b,"{\"passed\":true,\"allOriginalParametersByteIdentical\":true,\"originalParameters\":");pl_int(b,parameters);pl_text(b,",\"extraTrainingParameters\":");pl_int(b,extra);pl_text(b,",\"originalSHA256\":");pj_text(b,vc_digest(original,original_bytes));pl_text(b,",\"candidateSHA256\":");pj_text(b,vc_digest(candidate,candidate_bytes));pl_text(b,"}\n");vc_require(!load64(b+24),"core comparison report overflow");vc_write(load64(argv+24),text,load64(b+8));return 0;
+}

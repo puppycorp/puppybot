@@ -1,0 +1,15 @@
+// Optional training-only target image coordinates. Visibility is a heuristic;
+// labels are masked unless the offline candidate checks agree.
+import "dataset.flex";
+global pt_target_data=0;
+fn pt_target_open_with_image_mode(directory,data,bytes,row_bytes,image_bytes,allow_empty) {
+    let n=load64(data+8);let fit=load64(data+16);let length=load64(data+24);let receipt=vc_json_file(vc_path(directory,"receipt.json"));
+    vc_require(pj_boolean(receipt,"passed") && pj_boolean(receipt,"projectionAndPixelsIndependentlyRechecked") && pj_boolean(receipt,"visibilityHeuristicNotProvenSegmentation") && pj_boolean(receipt,"actorInputsUnchanged") && vc_json_int(receipt,"episodes",0)==n && vc_json_int(receipt,"fittingHistories",0)==fit && vc_json_int(receipt,"validationHistories",0)==n-fit && vc_json_int(receipt,"sequenceLength",0)==length && pl_equal(pj_string_field(receipt,"sourceDataSHA256"),vc_digest(data,bytes)),"target-position receipt does not match demonstration data");
+    let expected=vc_string(pj_string_field(receipt,"targetsSHA256"));let expected_fit=vc_json_int(receipt,"fittingCandidates",0);let expected_val=vc_json_int(receipt,"validationCandidates",0);let declared_empty=0;if pj_get(receipt,"allowEmptyCandidateSplits") {declared_empty=pj_boolean(receipt,"allowEmptyCandidateSplits");}pt_target_data=vc_map(vc_path(directory,"targets.bin"));let target_bytes=vc_size;
+    vc_require(target_bytes==32+n*length*12 && load64(pt_target_data)==load64("PVVIS001") && load64(pt_target_data+8)==n && load64(pt_target_data+16)==fit && load64(pt_target_data+24)==length && pl_equal(vc_digest(pt_target_data,target_bytes),expected),"target-position hash or dimensions differ");
+    let count_fit=0;let count_val=0;let episode=0;while episode<n {let base=data+32+episode*length*(image_bytes+row_bytes);let t=0;while t<length {let source=base+length*image_bytes+t*row_bytes;let target=pt_target_data+32+(episode*length+t)*12;let mask=pb_u32(target+8);let valid=vd_valid_word(source,row_bytes);vc_require((mask==0 || mask==0x3f800000) && (!mask || (valid && !pb_u32(source+36))),"target-position mask includes padding or post-consumption frame");let i=0;while i<2 {let value=pb_read_float(target+i*4);vc_require(f64_is_finite(value) && f64_le(f64_magnitude(value),PB_ONE),"invalid normalized target-position value");if !mask {vc_require(!pb_u32(target+i*4),"masked target-position value is nonzero");}i=i+1;}if mask {if episode<fit {count_fit=count_fit+1;}else {count_val=count_val+1;}}t=t+1;}episode=episode+1;}
+    vc_require(count_fit==expected_fit && count_val==expected_val && ((count_fit>0 && count_val>0) || (allow_empty && declared_empty)),"target-position counts differ from receipt or split is empty");return 0;
+}
+fn pt_target_open_with_image(directory,data,bytes,row_bytes,image_bytes) {return pt_target_open_with_image_mode(directory,data,bytes,row_bytes,image_bytes,0);}
+fn pt_target_open(directory,data,bytes,row_bytes) {return pt_target_open_with_image(directory,data,bytes,row_bytes,21168);}
+fn pt_target_open_for_merge(directory,data,bytes,row_bytes) {return pt_target_open_with_image_mode(directory,data,bytes,row_bytes,21168,1);}

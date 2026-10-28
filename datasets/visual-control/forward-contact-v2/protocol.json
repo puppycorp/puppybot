@@ -1,0 +1,22 @@
+{
+  "purpose":"Teach early and prolonged forward-contact recovery using actual failed student histories",
+  "previousExperiment":"forward-contact-v1; ten audited trips added zero fitting forward-contact frames and were not admitted",
+  "fittingScenes":8,"validationScenes":2,
+  "fittingLayouts":[5],"validationLayouts":[6,7],"excludedFromFitting":[6,7,8,9,10,11],
+  "fittingInitialPose":[0,0.04,0.14],
+  "sourceGeometryAndObjectsUnchanged":true,
+  "student":"build/flex/sim/start-pose-v1/policy-pose20",
+  "studentSHA256":"c03fb6c357fd427e648d3d5fa7068c95f980a2a60f2f71a5b23c0b20e1c50934",
+  "studentWindowsByWorker":[60,8],"fittingScenesPerWorker":4,"validationScenesPerWorker":1,
+  "horizonActions":354,"teacherApproachSide":1,"teacherReturnViaHome":true,
+  "seedFormula":"9580000+worker*1000+episode",
+  "minimumNewFittingForwardContactFrames":200,
+  "acceptance":"All ten physically complete, pass native RGB/input/label/frozen-student replay/motion/proximity/docking audits, preserve roles and source hashes, and meet fitting-only coverage minimum",
+  "baseDataSHA256":"d709d3378a1241c34ec885e1cce131dfa9cc5984208032a031ed315a4ba70eff",
+  "intendedAggregate":{"histories":142,"fitting":112,"validation":30,"all132ExistingHistoriesRetained":true},
+  "studentInputs":"Actual TCP RGB84x84 plus own feedback7 and recurrent128; reserved event field zero",
+  "taskAcceptanceUnchanged":true,"finalLayoutsReserved":[10,11],
+  "training":{"arms":["baseline132","contact142"],"initialWeightsSHA256":"c03fb6c357fd427e648d3d5fa7068c95f980a2a60f2f71a5b23c0b20e1c50934","epochs":20,"batch":2,"learningRateMicros":100,"seed":131,"fixedEvaluatedEpochs":[10,20],"architectureUnchanged":true},
+  "evaluation":"Canonical eight-case screen; a return in both room types triggers paired full32 validation, then original qualification and reserved-final gates",
+  "teacherCompletionIsNotAutonomousPerformance":true,"pythonRequired":false
+}

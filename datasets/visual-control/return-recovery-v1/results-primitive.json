@@ -1,0 +1,222 @@
+{
+  "schema": "puppybot.visual-policy-evaluation.v1",
+  "date": "2026-10-27",
+  "task": "See and approach the first brick within0.35m, then dock0.30-0.65m from box within35 degrees with fresh markers and three stable stops; no manipulation",
+  "actorInputs": "TCP RGB84x84 plus own feedback7 plus recurrent128; event input zero",
+  "data": {
+    "format": "PVDATA03",
+    "episodes": 96,
+    "fittingEpisodes": 72,
+    "validationEpisodes": 24,
+    "validSupervisedFrames": 12992,
+    "dataSHA256": "a4dd1b61727f82e7ed044ebaf89268509cf47631a1392f7caa8249d826f3d6f8"
+  },
+  "training": {
+    "epochs": 80,
+    "batch": 2,
+    "learningRateMicros": 100,
+    "seed": 89,
+    "optimizerStepsPerModel": 2880,
+    "matchedDataAndEpisodeOrder": true,
+    "trainingAndInference": "Flexscript/Pup CUDA",
+    "pythonRequired": false,
+    "fixedOptimizerSnapshotsEvaluated": true
+  },
+  "models": [
+    {
+      "name": "direct-action",
+      "phaseGated": false,
+      "cameraEventAuxiliary": false,
+      "weightsSHA256": "a90445e2f138c326776e22deecceb0d5b04c18c3daaa1f1be76bef2fa107bc11",
+      "lastEpochLosses": {
+        "epoch": 80,
+        "trainingLoss": 0.64291576993900135,
+        "validationLoss": 2.1557942914890194,
+        "selected": false,
+        "optimizerSteps": 2880,
+        "gradientNorm": 17.98766113879573,
+        "elapsedMilliseconds": 2117243
+      },
+      "validation": {
+        "episodes": 32,
+        "completedRecordings": 32,
+        "auditedEpisodes": 31,
+        "auditFailures": 1,
+        "physicalReturns": 3,
+        "auditedApproaches": 5,
+        "rawApproaches": 6,
+        "successRate": 0.09375,
+        "meanWholeEpisodeSeconds": 61.92500000000003,
+        "perLayout": [
+          {
+            "layout": 6,
+            "episodes": 16,
+            "returns": 3
+          },
+          {
+            "layout": 7,
+            "episodes": 16,
+            "returns": 0
+          }
+        ],
+        "successes": [
+          {
+            "layoutId": 6,
+            "sceneId": 0,
+            "actionSeconds": 16.0,
+            "simulationSeconds": 21.899999999999999,
+            "pathM": 4.6194290455033711
+          },
+          {
+            "layoutId": 6,
+            "sceneId": 6,
+            "actionSeconds": 16.0,
+            "simulationSeconds": 21.899999999999999,
+            "pathM": 4.6194290455033702
+          },
+          {
+            "layoutId": 6,
+            "sceneId": 12,
+            "actionSeconds": 20.800000000000001,
+            "simulationSeconds": 26.699999999999999,
+            "pathM": 5.9992149375671442
+          }
+        ],
+        "rejectedCaseIndices": [
+          14
+        ]
+      }
+    },
+    {
+      "name": "phase-gated",
+      "phaseGated": true,
+      "cameraEventAuxiliary": true,
+      "weightsSHA256": "5c0fd8f71206950afd9285eb93c0f0544c09a930b46a244717352b2f3f10216f",
+      "lastEpochLosses": {
+        "epoch": 80,
+        "trainingLoss": 0.98283268844064098,
+        "validationLoss": 2.509541204563722,
+        "selected": false,
+        "optimizerSteps": 2880,
+        "gradientNorm": 4.9745995109025527,
+        "elapsedMilliseconds": 2422289
+      },
+      "validation": {
+        "episodes": 32,
+        "completedRecordings": 32,
+        "auditedEpisodes": 32,
+        "auditFailures": 0,
+        "physicalReturns": 3,
+        "auditedApproaches": 5,
+        "rawApproaches": 5,
+        "successRate": 0.09375,
+        "meanWholeEpisodeSeconds": 61.82500000000004,
+        "perLayout": [
+          {
+            "layout": 6,
+            "episodes": 16,
+            "returns": 3
+          },
+          {
+            "layout": 7,
+            "episodes": 16,
+            "returns": 0
+          }
+        ],
+        "successes": [
+          {
+            "layoutId": 6,
+            "sceneId": 0,
+            "actionSeconds": 16.600000000000001,
+            "simulationSeconds": 22.5,
+            "pathM": 4.7991435682550891
+          },
+          {
+            "layoutId": 6,
+            "sceneId": 6,
+            "actionSeconds": 16.800000000000001,
+            "simulationSeconds": 22.699999999999999,
+            "pathM": 4.7992149375671671
+          },
+          {
+            "layoutId": 6,
+            "sceneId": 12,
+            "actionSeconds": 16.199999999999999,
+            "simulationSeconds": 22.100000000000001,
+            "pathM": 4.6792149375671643
+          }
+        ],
+        "rejectedCaseIndices": []
+      }
+    }
+  ],
+  "priorBaseline": {
+    "physicalReturns": 0,
+    "episodes": 32,
+    "weightsSHA256": "1a7033fd0607ddbf2137fb082d5cf9a56b2e9d0fe485fc51bdb77725f91ce7f2",
+    "sameSceneBytesAndSeedsChecked": true,
+    "allNativeAuditsRechecked": true,
+    "rerunThisTurn": false
+  },
+  "integrity": {
+    "forwardLogitsAndRecurrentStateMaxError": 0,
+    "actorResetBitIdentical": true,
+    "frozenRuntimeHashesChecked": true,
+    "exactEpoch80WeightsChecked": true,
+    "rejectedAuditsCountAsFailures": true
+  },
+  "rejectedAudit": {
+    "model": "direct-action",
+    "layout": 6,
+    "scene": 14,
+    "caseIndex": 14,
+    "reason": "RGB consumption bbox does not contain the actual brick projection",
+    "originalRecordingAndRejectionRetained": true,
+    "acceptanceCheckRelaxed": false
+  },
+  "visualDependenceDiagnostic": {
+    "selection": "The three successful direct-action validation cases only; not an aggregate performance estimate",
+    "normalReturns": 3,
+    "zeroRGBReturns": 0,
+    "cases": 3
+  },
+  "teacherHistoryAmbiguity": {
+    "metric": "Exact full RGB and own-feedback histories sharing incompatible oracle classes; limited diagnostic, not a complete explanation for failures",
+    "splits": [
+      {
+        "fit": false,
+        "frames": 3299,
+        "groups": {
+          "all": 3156,
+          "ambiguous": 6,
+          "affectedFrames": 26,
+          "minimumErrors": 9
+        }
+      },
+      {
+        "fit": true,
+        "frames": 9693,
+        "groups": {
+          "all": 8942,
+          "ambiguous": 86,
+          "affectedFrames": 276,
+          "minimumErrors": 113
+        }
+      }
+    ]
+  },
+  "promotion": {
+    "qualified": false,
+    "requiredReturns": 24,
+    "requiredEpisodes": 32,
+    "requiredPerLayout": 8,
+    "retainedPolicyOverwritten": false,
+    "finalLayouts": [
+      10,
+      11
+    ],
+    "finalLayoutsEvaluated": false,
+    "finalSceneHashesChecked": true
+  },
+  "successfulVideo": "build/flex/sim/approach35-v2/screen-primitive-flat80/0/8900000/mission.mp4"
+}

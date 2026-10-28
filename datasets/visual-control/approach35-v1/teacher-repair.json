@@ -1,0 +1,12 @@
+{
+  "failedAttempt": "artifacts-pilot-arrival30",
+  "failure": "layout2 scene0 teacher stopped at approximately 0.3815m from brick and timed out after300 actions without consuming",
+  "cause": "0.30m standoff plus up to0.10m planner arrival tolerance can exceed0.35m acceptance",
+  "repair": "0.24m teacher goal standoff leaves1cm margin after arrival tolerance",
+  "acceptanceChanged": false,
+  "scenesChanged": false,
+  "casesDropped": 0,
+  "allFailedRecordsPreserved": true,
+  "trainingStarted": false,
+  "note": "Failed artifact root was relocated after its collector exited1; embedded original absolute paths retain their original spelling. The failed runtime binaries and raw traces are preserved there."
+}

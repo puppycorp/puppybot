@@ -1,0 +1,15 @@
+{
+  "purpose":"Prepare audited training-only spatial-memory supervision for return navigation",
+  "motivation":"Expanded model return failures comprise four trips never reaching docking range and three arriving with wrong heading; none were ready-pose stop failures",
+  "data":"build/flex/sim/late-search-v1/artifacts-v2/data172/data.bin",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetFormat":"PVPOSE01; original N, fitting count and T; each pre-action row is FP32 [local_dx/8,local_dy/8,sin(relative_yaw),cos(relative_yaw),valid_mask]",
+  "frame":"Relative to the episode's initial base pose, rotated into initial body axes; no absolute world coordinates or map supplied to the actor",
+  "alignment":"Label current RGB and own-feedback input using initial pose for action0 and the preceding recorded post-action pose thereafter",
+  "verification":"Match dataset pixels and feedback to recorded actor files, reconstruct pose independently from full per-tick physical trace, inverse-transform every target and check valid masks and padding",
+  "targetUse":"Potential auxiliary loss on recurrent memory only; never actor inputs, goals, controller, scans or fallback",
+  "trainingSupport":"Native training-only four-value memory head implemented and contract-tested; full-data task comparison pending",
+  "exportedActorArchitectureUnchanged":true,
+  "fittingValidationRolesPreserved":true,"reservedFinalLayoutsExcluded":[10,11],
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

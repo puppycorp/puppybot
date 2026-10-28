@@ -56,7 +56,7 @@ manifest = {str(p.relative_to(DB)): hashlib.sha256(p.read_bytes()).hexdigest()
 # Embed the app's stylesheet beside Monolith's bundled browser adapter.
 style = (ROOT/'flex/gym/ui.css').read_text()
 (OUT/'gym-style.flex').write_text('fn gm_styles() { return '+json.dumps(style, ensure_ascii=False)+'; }\n')
-camera = (ROOT/'flex/gym/camera.js').read_text()
+camera = (ROOT/'flex/gym/camera.js').read_text() + '\n' + (ROOT/'flex/gym/catalog.js').read_text()
 (OUT/'gym-camera.flex').write_text('fn gm_camera_js() { return '+json.dumps(camera, ensure_ascii=False)+'; }\n')
 
 # Keep Gym's native scene choices tied to the simulator's case catalog.
@@ -91,6 +91,7 @@ manifest.update({'monolith/'+str(p.relative_to(mono)): hashlib.sha256(p.read_byt
                  for p in sorted(mono.rglob('*')) if p.is_file()})
 manifest['gym/views.flex'] = hashlib.sha256((ROOT/'flex/gym/views.flex').read_bytes()).hexdigest()
 manifest['gym/ui.css'] = hashlib.sha256(style.encode()).hexdigest()
-manifest['gym/camera.js'] = hashlib.sha256(camera.encode()).hexdigest()
+manifest['gym/camera.js'] = hashlib.sha256((ROOT/'flex/gym/camera.js').read_bytes()).hexdigest()
+manifest['gym/catalog.js'] = hashlib.sha256((ROOT/'flex/gym/catalog.js').read_bytes()).hexdigest()
 manifest['sim/cases/catalog.json'] = hashlib.sha256((ROOT/'flex/sim/cases/catalog.json').read_bytes()).hexdigest()
 (OUT/'gym-dependencies.json').write_text(json.dumps(manifest, indent=2)+'\n')

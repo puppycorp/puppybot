@@ -146,8 +146,14 @@ view app_view() {
             span("connection", class: "connection", text: "Connecting…", data-mono-status: "");
         }
         nav("navigation", id: "site-navigation", class: "navigation-panel", popover: "auto", aria-label: "Primary") {
-            div("navigation-experiments", class: "navigation-group") { h2("navigation-experiments-label", text: "Experiments"); a("navigation-rollouts", id: "nav-rollouts", href: "/", text: "Simulation rollouts"); }
+            div("navigation-experiments", class: "navigation-group") { h2("navigation-experiments-label", text: "Experiments"); a("navigation-rollouts", id: "nav-rollouts", href: "/", text: "Simulation rollouts"); a("navigation-cases", id: "nav-cases", href: "/cases", text: "Case catalog"); }
             div("navigation-tools", class: "navigation-group") { h2("navigation-tools-label", text: "Tools"); a("navigation-live", id: "nav-live", href: "/live", text: "Live camera test"); }
+        }
+        main("catalog-workspace", id: "catalog-workspace") {
+            div("catalog-eyebrow", class: "eyebrow", text: "Experiment library");
+            h1("catalog-heading", text: "Cases and recordings.");
+            p("catalog-intro", class: "muted", text: "Browse Gym rollouts and saved exploration and training episodes. Teacher-assisted results are labeled separately.");
+            div("catalog-content", id: "catalog-content");
         }
         main("live-workspace", id: "live-workspace") {
             div("live-eyebrow", class: "eyebrow", text: "Vision workspace"); h1("live-title", text: "See what the model sees.");

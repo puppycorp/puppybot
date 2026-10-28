@@ -1,0 +1,15 @@
+// Physical fitting-pose variation; source walls, objects and split roles stay fixed.
+import "../../../flex/control/dataset.flex";
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_require(argc==3,"generate SOURCE_SCENES NEW_OUTPUT");let source_root=vc_absolute(load64(argv+8));let output=vc_absolute(load64(argv+16));vc_mkdir(output);let text=alloc(32768);let report=alloc(32);pl_builder(report,text,32768);pl_text(report,"{\"fittingScenes\":32,\"validationScenes\":4,\"recordingsCollected\":false,\"onlyFittingInitialPosesChanged\":true,\"records\":[");let worker=0;
+    while worker<4 {let catalog=vc_path(output,vc_int(worker));vc_mkdir(catalog);let episode=0;while episode<9 {let index=worker*8+episode;let fit=episode<8;let layout=index%6;let scene=(index*7+3)%16;if !fit {layout=6+worker%2;scene=(worker*5+2)%16;}
+            vc_require(fit==(layout<6),"pose variation changed a split role");let source=vc_path(vc_path(source_root,vc_int(layout)),vc_int(scene));let destination=vc_path(catalog,vc_int(episode));vc_mkdir(destination);let path=vc_path(source,"environment.bin");let original=vc_map(path);let bytes=vc_size;vc_require(bytes>=256 && load64(original)==load64("PBENV001"),"invalid source environment");let checksum=vc_digest(original,bytes);let data=alloc(bytes);vc_copy(data,original,bytes);
+            if fit {store64(data+96,vc_number((index/16)*8-4,100));store64(data+104,vc_number(((index/8)%2)*12-6,100));store64(data+112,vc_number((index%8)*8-28,100));}
+            let i=0;while i<bytes {if i<96 || i>=120 {vc_require(load8(data+i)==load8(original+i),"pose variation changed world geometry or other environment bytes");}i=i+1;}
+            vc_copy_file(vc_path(source,"case.json"),vc_path(destination,"case.json"));vc_copy_file(vc_path(source,"layout.json"),vc_path(destination,"layout.json"));vc_write(vc_path(destination,"environment.bin"),data,bytes);
+            vc_require(pl_equal(vc_file_sha(path),checksum),"pose generation changed a source environment");if !fit {vc_require(pl_equal(vc_digest(data,bytes),checksum),"validation pose was modified");}
+            let note=alloc(4096);let b=alloc(32);pl_builder(b,note,4096);pl_text(b,"{\"worker\":");pl_int(b,worker);pl_text(b,",\"episode\":");pl_int(b,episode);pl_text(b,",\"fit\":");pj_bool_text(b,fit);pl_text(b,",\"layout\":");pl_int(b,layout);pl_text(b,",\"scene\":");pl_int(b,scene);pl_text(b,",\"sourceScene\":");pj_text(b,source);pl_text(b,",\"sourceEnvironmentSHA256\":");pj_text(b,checksum);pl_text(b,",\"environmentSHA256\":");pj_text(b,vc_digest(data,bytes));pl_text(b,",\"initialPose\":[");i=0;while i<3 {if i {pl_char(b,44);}pl_float(b,load64(data+96+i*8));i=i+1;}pl_text(b,"]}");vc_require(!load64(b+24),"pose metadata overflow");vc_write(vc_path(destination,"pose-source.json"),note,load64(b+8));
+            if worker || episode {pl_char(report,44);}pl_append(report,note,load64(b+8));syscall(11,original,bytes,0,0,0,0);syscall(11,data,bytes,0,0,0,0);episode=episode+1;
+        }worker=worker+1;
+    }pl_text(report,"]}\n");vc_require(!load64(report+24),"pose catalog report overflow");vc_write(vc_path(output,"report.json"),text,load64(report+8));return 0;
+}

@@ -1,0 +1,32 @@
+{
+  "selection": "Exploratory epoch 20 chosen after observing the eight-case screen; qualification and reserved final tests unchanged",
+  "control": {
+    "candidate": "eventOnly-20",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 6,
+    "physicalReturns": 1,
+    "openReturns": 1,
+    "hiddenReturns": 0,
+    "successCases": [
+      7
+    ],
+    "meanSuccessfulSeconds": 26.3
+  },
+  "target": {
+    "candidate": "target-20",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "auditFailures": 0,
+    "auditedApproaches": 5,
+    "physicalReturns": 1,
+    "openReturns": 1,
+    "hiddenReturns": 0,
+    "successCases": [
+      0
+    ],
+    "meanSuccessfulSeconds": 60.3
+  },
+  "retainedPolicyOverwritten": false
+}

@@ -91,21 +91,36 @@ fn ps_vehicle_free(x, y, heading) {
     if !ps_solid_free(x, y, heading) { ps_vehicle_hit = ps_solid_hit; ps_vehicle_part = ps_solid_part + 5; return 0; }
     return 1;
 }
-fn ps_vehicle_path(x, y, turn) {
+fn ps_vehicle_sweep(from_x, from_y, from_heading, x, y, turn) {
     // Bound each sample's translation plus the arc of the outermost corner
     // to 1 mm. This covers forward, reverse and steering at maximum speed.
-    let dx = f64_sub(x, ps_x); let dy = f64_sub(y, ps_y);
+    let dx = f64_sub(x, from_x); let dy = f64_sub(y, from_y);
     let length = f64_add(f64_sqrt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy))), f64_mul(f64_magnitude(turn), ps_number(20, 100)));
     let count = f64_to_i64_nearest(f64_mul(length, f64_from_i64(1000))) + 1;
     ps_vehicle_hit = -1; ps_vehicle_part = -1; ps_vehicle_fault = 0;
     let i = 1;
     while i <= count {
         let t = ps_number(i, count);
-        if !ps_vehicle_free(f64_add(ps_x, f64_mul(dx, t)), f64_add(ps_y, f64_mul(dy, t)), f64_add(ps_heading, f64_mul(turn, t))) { return 0; }
+        if !ps_vehicle_free(f64_add(from_x, f64_mul(dx, t)), f64_add(from_y, f64_mul(dy, t)), f64_add(from_heading, f64_mul(turn, t))) { return 0; }
         i = i + 1;
     }
     return 1;
 }
+fn ps_vehicle_path(x, y, turn) { return ps_vehicle_sweep(ps_x, ps_y, ps_heading, x, y, turn); }
+fn ps_vehicle_primitive_ticks(x, y, heading, action, ticks) {
+    // Validate the teacher's executable first primitive at physics tick rate.
+    // The search lattice's four-tick endpoint samples can miss a narrow box
+    // rim between samples. Keep the same one-millimetre swept execution guard.
+    let distance = ps_number(load64(action + 8) * load64(action + 112), 10000);
+    let angle = pb_radians(f64_from_i64(load64(action) * 45 / 100));
+    let turn = pb_neg(f64_mul(f64_div(distance, ps_number(18, 100)), f64_div(f64_sin(angle), f64_cos(angle))));
+    let tick = 0; while tick < ticks {
+        let next_heading = pb_wrap_pi(f64_add(heading, turn)); let next_x = f64_add(x, f64_mul(distance, f64_cos(next_heading))); let next_y = f64_add(y, f64_mul(distance, f64_sin(next_heading)));
+        if !ps_vehicle_sweep(x, y, heading, next_x, next_y, turn) { return 0; }
+        x = next_x; y = next_y; heading = next_heading; tick = tick + 1;
+    } return 1;
+}
+fn ps_vehicle_primitive_free(x, y, heading, action) { return ps_vehicle_primitive_ticks(x, y, heading, action, 20); }
 fn ps_vehicle_plan(x, y, turn) {
     ps_vehicle_planning = 1; let clear = ps_vehicle_path(x, y, turn); ps_vehicle_planning = 0; return clear;
 }

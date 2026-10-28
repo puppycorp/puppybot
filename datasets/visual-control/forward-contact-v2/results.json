@@ -1,0 +1,346 @@
+{
+  "schema": "puppybot.forward-contact-results.v1",
+  "date": "2026-10-27",
+  "data": {
+    "passed": true,
+    "episodes": 142,
+    "fittingHistories": 112,
+    "validationHistories": 30,
+    "existingHistoriesRetained": 132,
+    "newAuditedHistories": 10,
+    "newFittingForwardContactFrames": 232,
+    "sourceAudits": [
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 896,
+        "physicalMotionIncrements": 10430,
+        "supervisedSteps": 896,
+        "studentRollinCommandsReplayed": 300,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "f0874d7037b0e1c90632b50395e02ff0cfe06205d69f12c20667b971e0c9dee5",
+        "worker": 0,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "window": 60,
+        "studentCommands": 300,
+        "fittingForwardContactFrames": 220
+      },
+      {
+        "passed": true,
+        "runtime": "Flexscript",
+        "pythonRequired": false,
+        "episodes": 5,
+        "datasetEpisodes": 5,
+        "firstEpisode": 0,
+        "commands": 587,
+        "physicalMotionIncrements": 7340,
+        "supervisedSteps": 587,
+        "studentRollinCommandsReplayed": 40,
+        "studentRollinMaxAbsError": 0.0,
+        "datasetInputsMatchActualRGBAndOwnFeedback": true,
+        "executedCommandsMatchRecordings": true,
+        "denseOracleLabels": true,
+        "labelsMatchExecutedCommands": false,
+        "preActionAlignmentChecked": true,
+        "zeroPaddingChecked": true,
+        "taskEventHintAbsent": true,
+        "dataSHA256": "599b24f260eef464c9bd35a5cd8950b6dc0bf89e103f4102074b1b6855c0e46c",
+        "worker": 1,
+        "fitTrajectories": 4,
+        "auditedEpisodes": 5,
+        "physicalCompletions": 5,
+        "window": 8,
+        "studentCommands": 40,
+        "fittingForwardContactFrames": 12
+      }
+    ],
+    "dataSHA256": "852a80123d19dc45e6ec78587c5ea19c30388d9381c7d634faebb22501f349f9",
+    "completeHistoriesAndOriginalRolesPreserved": true,
+    "independentJournalContactCountsMatched": true,
+    "studentInputsUnchanged": true,
+    "finalLayoutsExcludedFromFitting": [
+      10,
+      11
+    ],
+    "teacherSuccessIsNotAutonomousPerformance": true
+  },
+  "contactDirections": {
+    "dataSHA256": "852a80123d19dc45e6ec78587c5ea19c30388d9381c7d634faebb22501f349f9",
+    "classes": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "contactRows": [
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 231,
+        "oracleCounts": [
+          122,
+          44,
+          65,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 337,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          193,
+          120,
+          24,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 1013,
+        "oracleCounts": [
+          286,
+          98,
+          628,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 9,
+        "oracleCounts": [
+          3,
+          2,
+          4,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 217,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          108,
+          109,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 273,
+        "oracleCounts": [
+          202,
+          0,
+          71,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "screens": [
+    {
+      "candidate": "baseline132-10",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditedApproaches": 1
+    },
+    {
+      "candidate": "baseline132-20",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditedApproaches": 1
+    },
+    {
+      "candidate": "contact142-10",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditedApproaches": 1
+    },
+    {
+      "candidate": "contact142-20",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "auditedApproaches": 1
+    }
+  ],
+  "training": {
+    "epochs": 20,
+    "batch": 2,
+    "learningRate": 0.0001,
+    "seed": 131,
+    "initialWeightsIdentical": true,
+    "architectureUnchanged": true,
+    "completed": true
+  },
+  "nativeForwardParity": {
+    "checkpoints": 4,
+    "allPassed": true,
+    "maximumLogitError": 0,
+    "maximumMemoryError": 0,
+    "resetBitIdentical": true
+  },
+  "selection": {
+    "qualified": false,
+    "reason": "No checkpoint returned in both screen room types",
+    "retainedPolicyOverwritten": false
+  },
+  "interpretation": "All four fixed snapshots returned in 1/8 screen episodes, with 0/4 hidden-room returns. Treatment epoch20 clears the initial box and travels over 3.5m into hidden rooms but does not approach the brick within the episode horizon. No autonomous whole-episode improvement demonstrated.",
+  "full32Run": false,
+  "reservedFinalRun": false,
+  "retainedPolicyOverwritten": false,
+  "pythonRequired": false
+}

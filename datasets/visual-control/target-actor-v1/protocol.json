@@ -1,0 +1,15 @@
+{
+  "purpose":"Test a learned connection from the visual target heatmap into the recurrent driving policy",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetsSHA256":"9846229a1a28aa77c7e8653d1bbe14dbe6185c27d90a46b77d68b5e1bf0e5294",
+  "targetQuality":"heuristic projection, color pixels and detector component, not proven instance segmentation",
+  "labelsTrainingOnly":true,"actorInputs":["TCP RGB84x84","own feedback7","recurrent128"],"actorTaskEventInputZero":true,
+  "baseline":"matched target-heatmap-v1 heatmap-supervised model without an actor connection",
+  "treatment":"same actor and heatmap initialization, labels, data and shuffle; a 400-to-128 projection of the visual heatmap is added to recurrent features, initially zero",
+  "newActorParameters":51328,"trainingAndInferenceHeatmapParameters":17,
+  "epochs":40,"batch":2,"learningRateMicros":100,"seed":197,"checkpointEveryEpoch":1,
+  "fixedEvaluationEpochs":[1,5,10,20,40,"best-validation-loss"],
+  "evaluation":"Canonical eight-case screen; paired full32 if either matched checkpoint returns in both room types",
+  "qualification":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

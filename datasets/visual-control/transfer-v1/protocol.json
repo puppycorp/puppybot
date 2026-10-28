@@ -1,0 +1,13 @@
+{
+  "purpose":"Measure whether the first hidden-room return transfers across the complete development set",
+  "trigger":"late172 epoch20 reached3/8 bricks and returned1/8, including first hidden return, but lost open screen return",
+  "diagnosticExtensionToScreenPlan":true,
+  "arms":["previous142","late172"],"cases":32,"layouts":[6,7],
+  "previousPolicy":"build/flex/sim/forward-contact-v2/policy-contact142-20",
+  "newPolicy":"build/flex/sim/late-search-v1/policy-late172-20",
+  "reuse":"Eight already audited canonical screen cases per arm; remaining24 run once with same original policy binary, scenes, seeds and strict runtime",
+  "qualificationUnchanged":{"returns":24,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "reasonForBroaderDiagnostic":"First hidden success plus open regression leaves transfer unresolved; eight scenes are insufficient to claim overall improvement",
+  "noThresholdRelaxation":true,"reservedFinalLayoutsUntouched":[10,11],
+  "actorInputsUnchanged":true,"retainedPolicyOverwritten":false,"pythonRequired":false
+}

@@ -1,0 +1,424 @@
+{
+  "schema": "puppybot.start-pose-results.v1",
+  "date": "2026-10-27",
+  "data": {
+    "passed": true,
+    "episodes": 132,
+    "fittingHistories": 104,
+    "validationHistories": 28,
+    "existingHistoriesRetained": 96,
+    "newAuditedHistories": 36,
+    "sourceAudits": [
+      {
+        "worker": 0,
+        "episodes": 9,
+        "fitTrajectories": 8,
+        "auditedEpisodes": 9,
+        "physicalCompletions": 9,
+        "studentCommands": 0,
+        "dataSHA256": "ec24b82e3af6cf66d10316339ce2ec0b8d6246843a0b24ffe633e98d2618eb91",
+        "commands": 926,
+        "physicalMotionIncrements": 11906
+      },
+      {
+        "worker": 1,
+        "episodes": 9,
+        "fitTrajectories": 8,
+        "auditedEpisodes": 9,
+        "physicalCompletions": 9,
+        "studentCommands": 0,
+        "dataSHA256": "e715b0ee7d03784482285147693469d8259541e8689e443ed0c7541ea579155d",
+        "commands": 1041,
+        "physicalMotionIncrements": 13056
+      },
+      {
+        "worker": 2,
+        "episodes": 9,
+        "fitTrajectories": 8,
+        "auditedEpisodes": 9,
+        "physicalCompletions": 9,
+        "studentCommands": 0,
+        "dataSHA256": "20317cc7fd74e291201b6faf49899826a434346fb2a5063043b2915c9dec7763",
+        "commands": 898,
+        "physicalMotionIncrements": 11626
+      },
+      {
+        "worker": 3,
+        "episodes": 9,
+        "fitTrajectories": 8,
+        "auditedEpisodes": 9,
+        "physicalCompletions": 9,
+        "studentCommands": 0,
+        "dataSHA256": "3f6bbd2ce2959e6f988d355510b1ae010f49de7b83df9e1fdb620bee3c3c24a0",
+        "commands": 908,
+        "physicalMotionIncrements": 11726
+      }
+    ],
+    "dataSHA256": "d709d3378a1241c34ec885e1cce131dfa9cc5984208032a031ed315a4ba70eff",
+    "completeHistoriesAndOriginalRolesPreserved": true,
+    "studentInputsUnchanged": true,
+    "finalLayoutsExcludedFromData": [
+      10,
+      11
+    ],
+    "teacherSuccessIsNotNeuralSuccess": true
+  },
+  "dataBalance": {
+    "episodes": 132,
+    "fitEpisodes": 104,
+    "sequenceLength": 354,
+    "dataSHA256": "d709d3378a1241c34ec885e1cce131dfa9cc5984208032a031ed315a4ba70eff",
+    "classOrder": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "phaseOrder": [
+      "search",
+      "return"
+    ],
+    "splits": [
+      {
+        "fit": true,
+        "validFrames": 13082,
+        "contactFrames": 1341,
+        "oracleDisagreesWithExecuted": 2626,
+        "supervisedFrames": 13082,
+        "targetCounts": [
+          [
+            1403,
+            3230,
+            746,
+            208,
+            130,
+            241,
+            0
+          ],
+          [
+            605,
+            986,
+            1214,
+            767,
+            2790,
+            439,
+            323
+          ]
+        ],
+        "effectiveControlWeights": [
+          [
+            3776.0,
+            4917.0,
+            1621.0,
+            1216.0,
+            186.0,
+            997.0,
+            0.0
+          ],
+          [
+            3223.0,
+            1896.0,
+            6786.0,
+            1516.0,
+            3147.0,
+            838.0,
+            5255.0
+          ]
+        ]
+      },
+      {
+        "fit": false,
+        "validFrames": 3683,
+        "contactFrames": 495,
+        "oracleDisagreesWithExecuted": 886,
+        "supervisedFrames": 3683,
+        "targetCounts": [
+          [
+            237,
+            1095,
+            175,
+            119,
+            120,
+            22,
+            0
+          ],
+          [
+            276,
+            142,
+            163,
+            223,
+            806,
+            213,
+            92
+          ]
+        ],
+        "effectiveControlWeights": [
+          [
+            335.0,
+            2264.0,
+            273.0,
+            917.0,
+            890.0,
+            85.0,
+            0.0
+          ],
+          [
+            1991.0,
+            191.0,
+            947.0,
+            384.0,
+            1009.0,
+            633.0,
+            1440.0
+          ]
+        ]
+      }
+    ]
+  },
+  "training": {
+    "epochs": 20,
+    "optimizerSteps": 1040,
+    "batch": 2,
+    "seed": 107,
+    "learningRateMicros": 100,
+    "mirrorAugmentation": false,
+    "initialWeightsSHA256": "a90445e2f138c326776e22deecceb0d5b04c18c3daaa1f1be76bef2fa107bc11",
+    "trainingAndInference": "Flexscript/Pup CUDA",
+    "pythonRequired": false
+  },
+  "screens": [
+    {
+      "suite": "screen",
+      "candidate": "pose10",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 1,
+      "auditedApproaches": 1,
+      "openReturns": 1,
+      "hiddenReturns": 0,
+      "meanSimulationSeconds": 60.825
+    },
+    {
+      "suite": "screen",
+      "candidate": "pose20",
+      "episodes": 8,
+      "completedRecordings": 8,
+      "auditedEpisodes": 8,
+      "auditFailures": 0,
+      "physicalReturns": 2,
+      "auditedApproaches": 2,
+      "openReturns": 2,
+      "hiddenReturns": 0,
+      "meanSimulationSeconds": 58.69999999999999
+    }
+  ],
+  "forwardLogitAndMemoryMaxError": 0,
+  "selection": {
+    "qualified": false,
+    "reason": "No expanded-data checkpoint returned in both screen room types",
+    "retainedPolicyOverwritten": false
+  },
+  "collisionCoverage": {
+    "dataSHA256": "d709d3378a1241c34ec885e1cce131dfa9cc5984208032a031ed315a4ba70eff",
+    "classes": [
+      "forward-left",
+      "forward",
+      "forward-right",
+      "reverse-left",
+      "reverse",
+      "reverse-right",
+      "stop"
+    ],
+    "contactRows": [
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 231,
+        "oracleCounts": [
+          122,
+          44,
+          65,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 97,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          73,
+          0,
+          24,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 1013,
+        "oracleCounts": [
+          286,
+          98,
+          628,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": true,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": -1,
+        "frames": 9,
+        "oracleCounts": [
+          3,
+          2,
+          4,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": false,
+        "previousSpeed": 1,
+        "frames": 213,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          106,
+          107,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": -1,
+        "frames": 273,
+        "oracleCounts": [
+          202,
+          0,
+          71,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 0,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "fit": false,
+        "returning": true,
+        "previousSpeed": 1,
+        "frames": 0,
+        "oracleCounts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "fullValidationRun": false,
+  "finalLayoutsEvaluated": false,
+  "retainedPolicyOverwritten": false,
+  "reliableImprovementAcrossRoomTypesEstablished": false
+}

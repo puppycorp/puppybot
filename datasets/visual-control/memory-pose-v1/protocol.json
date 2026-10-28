@@ -1,0 +1,21 @@
+{
+  "purpose":"Test training-only relative-motion supervision for the recurrent memory used during return navigation",
+  "motivation":"Among nine brick approaches, four never return to docking range and three reach the box with an incorrect heading",
+  "data":"build/flex/sim/late-search-v1/artifacts-v2/data172/data.bin",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targets":"build/flex/sim/odometry-aux-v1/accepted",
+  "targetsSHA256":"ab0bc0582ad9d743593891b13db7b3478b8b6f32037c39a6e8059e17e69606d7",
+  "preActionTargets":["initial-body-relative forward displacement divided by eight metres","initial-body-relative lateral displacement divided by eight metres","sine of heading change","cosine of heading change"],
+  "privilegedLabelsTrainingOnly":true,"actorInputs":["TCP RGB84x84","own feedback7","recurrent128"],"actorTaskEventInputZero":true,
+  "initialPolicy":"build/flex/sim/forward-contact-v2/policy-contact142-20",
+  "initialWeightsSHA256":"c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7",
+  "arms":["eventOnly","eventPose"],"bothUseCameraEventAuxiliary":true,
+  "onlyDifference":"eventPose adds a training-only 128-to-4 GRU readout and mean squared error of weight1 on valid frames",
+  "matching":"All original core and camera-event parameters byte-identical at initialization; identical fit episode order and data in both arms",
+  "baseTrainingParameters":324313,"poseAdditionalTrainingParameters":516,"exportedActorParameters":324055,
+  "epochs":40,"batch":2,"learningRateMicros":100,"seed":197,"checkpointEveryEpoch":1,
+  "fixedEvaluationEpochs":[1,5,10,20,40,"best-validation-loss"],
+  "evaluation":"Canonical eight-case screen for matched snapshots, paired full32 if either arm returns in both room types; original qualification and reserved final gates unchanged",
+  "qualification":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

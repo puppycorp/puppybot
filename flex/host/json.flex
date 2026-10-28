@@ -3,6 +3,7 @@
 import "linux.flex";
 
 global pj_arena = 0;
+global pj_capacity = 131072;
 global pj_used = 0;
 global pj_source = 0;
 global pj_size = 0;
@@ -15,7 +16,7 @@ global pj_field = 0;
 fn pj_fail(message) { pj_error = 1; pj_message = message; return 0; }
 fn pj_take(size) {
     size = (size + 7) & -8;
-    if size < 0 || size > 131072 - pj_used { return pj_fail("JSON storage limit exceeded"); }
+    if size < 0 || size > pj_capacity - pj_used { return pj_fail("JSON storage limit exceeded"); }
     let out = pj_arena + pj_used; pj_used = pj_used + size; pb_zero(out, size); return out;
 }
 fn pj_node(kind, value, size) {
@@ -155,11 +156,11 @@ fn pj_parse_value() {
     return pj_number();
 }
 fn pj_parse(source, size) {
-    if !pj_arena { pj_arena = alloc(131072); }
+    if !pj_arena { pj_arena = alloc(pj_capacity); }
     pj_used = 0; pj_source = source; pj_size = size; pj_at = 0; pj_depth = 0; pj_error = 0; pj_field = ""; pj_message = "invalid JSON";
     if pj_arena <= 0 { return pj_fail("cannot allocate JSON workspace"); }
     let node = pj_parse_value(); pj_ws();
-    if pj_at != pj_size { pj_fail("trailing JSON input"); }
+    if !pj_error && pj_at != pj_size { pj_fail("trailing JSON input"); }
     if pj_error { return 0; } return node;
 }
 fn pj_get(object, name) {

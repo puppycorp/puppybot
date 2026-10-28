@@ -1,0 +1,98 @@
+{
+  "scope": "same 32 adaptive development cases on layouts 18/19; not independent generalization or physical pickup",
+  "task": "simulator consumes the brick within 35 cm, then requires return and docking",
+  "training": {
+    "method": "same initial weights and optimizer steps; differing training sets and shuffle orders",
+    "optimizerStepsPerArm": 2720,
+    "oldEpochs": 40,
+    "expandedEpochs": 34,
+    "oldSelectedEpoch": 24,
+    "expandedSelectedEpoch": 13,
+    "runtimeInputs": [
+      "TCP RGB",
+      "own feedback",
+      "recurrent state"
+    ],
+    "teacherLabelsTrainingOnly": true
+  },
+  "allEpisodeAuditsPassed": true,
+  "original": {
+    "candidate": "continued-172",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "approaches": 2,
+    "returns": 0,
+    "actions": 9600,
+    "stop": 7284,
+    "reverse": 896,
+    "blocked": 30,
+    "meanPathM": 4.2945340765882,
+    "meanMaxExcursionM": 1.0191865546385839,
+    "byLayout": [
+      {
+        "layoutId": 18,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 2,
+        "actions": 4800,
+        "stop": 2484,
+        "reverse": 896,
+        "blocked": 30,
+        "pathsUnderOneMeter": 8
+      },
+      {
+        "layoutId": 19,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 4800,
+        "reverse": 0,
+        "blocked": 0,
+        "pathsUnderOneMeter": 16
+      }
+    ],
+    "hiddenDistinctInitialRGBFrames": 1
+  },
+  "expanded": {
+    "candidate": "continued-202",
+    "episodes": 32,
+    "auditedEpisodes": 32,
+    "approaches": 0,
+    "returns": 0,
+    "actions": 9600,
+    "stop": 8051,
+    "reverse": 820,
+    "blocked": 321,
+    "meanPathM": 2.413155357324719,
+    "meanMaxExcursionM": 0.34561910800546247,
+    "byLayout": [
+      {
+        "layoutId": 18,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 3251,
+        "reverse": 820,
+        "blocked": 321,
+        "pathsUnderOneMeter": 8
+      },
+      {
+        "layoutId": 19,
+        "episodes": 16,
+        "returns": 0,
+        "approaches": 0,
+        "actions": 4800,
+        "stop": 4800,
+        "reverse": 0,
+        "blocked": 0,
+        "pathsUnderOneMeter": 16
+      }
+    ],
+    "hiddenDistinctInitialRGBFrames": 1
+  },
+  "additionalFourLayoutCheck": "skipped because neither candidate qualified",
+  "reservedFinalLayouts": "untouched",
+  "retainedPolicyOverwritten": false
+}

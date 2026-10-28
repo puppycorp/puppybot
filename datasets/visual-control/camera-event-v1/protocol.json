@@ -1,0 +1,20 @@
+{
+  "purpose":"Test direct visual-event supervision of the encoder without changing the flat navigation actor",
+  "motivation":"Longer corrections produced a first hidden return but no screen success-rate gain; phase readout often predicts return before actual consumption",
+  "data":"build/flex/sim/late-search-v1/artifacts-v2/data172/data.bin",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "histories":172,"fitting":136,"validation":36,"sequenceLength":354,
+  "initialPolicy":"build/flex/sim/forward-contact-v2/policy-contact142-20",
+  "initialWeightsSHA256":"c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7",
+  "arms":["plain","cameraEvent"],"epochs":40,"batch":2,"learningRateMicros":100,"seed":181,"fixedSnapshots":[10,20,40],
+  "samplingOrderIdenticalAcrossArms":true,"sequenceMirrorAugmentation":false,
+  "actorArchitecture":"Existing CNN128 -> GRU128 -> flat joint-seven actor, with phase training auxiliary",
+  "treatment":"Existing training-only 128-to-1 camera-event head reads current visual features before own feedback and recurrence; BCE weight1, first-consumption positive weight50",
+  "baseTrainingParameters":324184,"exportedActorParameters":324055,"treatmentAdditionalTrainingParameters":129,
+  "initialActorParametersMustBeByteIdentical":true,
+  "eventLabels":"Derived only from the audited dense pre-action phase transition; never supplied to actor or its recurrent input",
+  "qualificationUnchanged":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "evaluation":"Exact native forward parity, canonical screens at fixed snapshots and standard loss-selected outputs; paired full32 for promising room-type transfer, then original final gates",
+  "warmStartSelection":"Epoch0 participates; retain initial weights if no validation improvement",
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

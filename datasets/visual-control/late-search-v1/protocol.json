@@ -1,0 +1,21 @@
+{
+  "purpose":"Inspect and correct later search failures after clearing the initial box",
+  "student":"build/flex/sim/forward-contact-v2/policy-contact142-20",
+  "studentWeightsSHA256":"c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7",
+  "pilot":{"episodes":2,"fitting":1,"validation":1,"studentActions":120,"horizon":354,"seed":9610000},
+  "pilotSources":["build/flex/sim/forward-contact-v2/catalogs/0/0","build/flex/sim/forward-contact-v2/catalogs/1/4"],
+  "denseOracleLabels":true,"teacherApproachSide":1,"teacherReturnViaHome":true,
+  "admission":"Pilot must physically complete, pass independent native RGB/input/label/student-replay/motion/proximity/docking audits, and expose fitting student mistakes after action60 before planning a larger cohort",
+  "allPrevious142HistoriesMustBeRetained":true,"validationNeverUsedForFitting":true,
+  "finalLayoutsReserved":[10,11],"taskAcceptanceUnchanged":true,
+  "teacherCompletionIsNotAutonomousPerformance":true,"pythonRequired":false,
+  "collection":{"workers":6,"concurrentWorkers":3,"episodesPerWorker":5,"fittingPerWorker":4,"validationPerWorker":1,"studentActions":120,"horizon":512,"seedFormula":"9620000+worker*1000+episode"},
+  "fittingLayouts":[0,1,2,3,4,5],"validationLayouts":[6,7],
+  "fittingPoses":"Two original and two [0,0.04,0.14] starts in each fitting layout; geometry and objects unchanged",
+  "aggregate":{"histories":172,"fitting":136,"validation":36,"allPrevious142Retained":true},
+  "coverageGate":{"minimumFittingDisagreementsAfterAction60":300,"minimumFittingHistoriesWith20LaterDisagreements":8},
+  "newDataAcceptance":"Every predeclared trip physically completes and passes the unchanged native audit; reject and retain failures, repair the same scene without changing role or task acceptance",
+  "trainingPlan":{"arms":["baseline142","late172"],"initialWeights":"c38fa6cbc57c7a1da996f2c50fa3b2deb251c71c073698ce1269a3e833183ab7","epochs":20,"batch":2,"learningRateMicros":100,"seed":149,"fixedSnapshots":[10,20],"architectureUnchanged":true},
+  "evaluation":"Canonical screen, paired full32 only after a return in both room types; original qualification and reserved final gates unchanged",
+  "repair":{"worker":2,"episode":4,"layout":6,"scene":4,"seed":9622004,"reason":"Reported detection contained purple robot part, not projected brick; strict native audit rejected original trip","studentActions":120,"teacherApproachSide":0,"pairedFittingScene":"Same worker episode3 and seed9622003 is rerecorded only to satisfy the two-episode collector interface; its duplicate fitting history is not admitted","preserveOriginalFittingHistories":4,"originalRejectedArtifactsRetained":true,"resumedArtifacts":"artifacts-v2"}
+}

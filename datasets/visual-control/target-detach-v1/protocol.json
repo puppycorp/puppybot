@@ -1,0 +1,14 @@
+{
+  "purpose":"Test whether blocking the action gradient into the heatmap head preserves visual learning while retaining the learned actor connection",
+  "dataSHA256":"05032e0eb2a4a98a7f0146db66195792b2c22fe3bda3138039e9c721bc69b284",
+  "targetsSHA256":"9846229a1a28aa77c7e8653d1bbe14dbe6185c27d90a46b77d68b5e1bf0e5294",
+  "targetQuality":"heuristic projection, color pixels and detector component, not proven instance segmentation",
+  "labelsTrainingOnly":true,"actorInputs":["TCP RGB84x84","own feedback7","recurrent128"],"actorTaskEventInputZero":true,
+  "baseline":"matched target-actor-v1 model with a fully differentiable heatmap connection",
+  "treatment":"same model, initialization, data, shuffle, learning rates and losses, but action gradient is stopped at the heatmap-to-actor edge; label loss still trains the heatmap head and action loss still trains the shared encoder and actor",
+  "inferenceGraphUnchanged":true,"epochs":40,"batch":2,"learningRateMicros":100,"seed":197,"checkpointEveryEpoch":1,
+  "fixedEvaluationEpochs":[1,5,10,20,40,"best-validation-loss"],
+  "evaluation":"Canonical eight-case screen; paired full32 if either matched checkpoint returns in both room types",
+  "qualification":{"returns":24,"cases":32,"minimumPerRoomType":8,"reservedFinalTestsRequired":true},
+  "pythonRequired":false,"retainedPolicyOverwritten":false
+}

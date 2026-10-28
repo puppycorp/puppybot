@@ -1,0 +1,5 @@
+import "../../../flex/control/workflow.flex";
+fn main(argc,argv) {
+    vc_init(argc,argv);vc_require(argc==8,"publish WEIGHTS DATA INITIAL OUTPUT EPOCH ARM POSE_DIRECTORY_OR_NONE");vw_root=vc_absolute(".");vw_output=vc_absolute(load64(argv+32));vw_epochs=pl_integer(load64(argv+40),pl_size(load64(argv+40)));vc_require(!pl_bad_number && (vw_epochs==1 || vw_epochs==5 || vw_epochs==10 || vw_epochs==20 || vw_epochs==40),"invalid memory-pose epoch");let arm=load64(argv+48);vc_require(pl_equal(arm,"eventOnly") || pl_equal(arm,"eventPose"),"invalid memory-pose arm");let pose=load64(argv+56);if pl_equal(arm,"eventPose") {vc_require(!pl_equal(pose,"none"),"pose arm requires its training targets");vw_pose_targets=vc_absolute(pose);}else {vc_require(pl_equal(pose,"none"),"control arm cannot receive pose targets");}
+    vw_batch=2;vw_rate=100;vw_seed=197;vw_checkpoint_every=1;vc_mkdir(vw_output);return vw_publish(vw_output,vc_absolute(load64(argv+8)),vc_concat("Recurrent memory-pose supervision comparison: ",arm),vc_absolute(load64(argv+16)),vc_absolute(load64(argv+24)));
+}
