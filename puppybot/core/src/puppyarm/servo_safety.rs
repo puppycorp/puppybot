@@ -1,3 +1,5 @@
+use crate::stservo::STATUS_INPUT_VOLTAGE;
+
 use super::types::Joint;
 
 pub const TICK_WRAP: i32 = 4096;
@@ -24,9 +26,14 @@ pub const STALL_TRIP_FREE_SPIN_MS: u64 = 1250;
 pub const SPEED_ACCEL_LIMIT_PER_S: i32 = 4000;
 pub const SPEED_DECEL_LIMIT_PER_S: i32 = 6000;
 pub const LIMIT_SLOWDOWN_WINDOW_TICKS: i32 = 120;
+/// Input-voltage is diagnostic-only so an undervoltage warning does not make
+/// the gripper unusable. Every other reported or unknown status bit remains
+/// motion-blocking.
+pub const BLOCKING_SERVO_STATUS: u8 = !STATUS_INPUT_VOLTAGE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SafetyFault {
+    ServoStatus,
     OverTemperature,
     FeedbackUnavailable,
     FeedbackStale,
@@ -236,6 +243,11 @@ fn safety_fault_reason(
     requested_speed: i16,
     now_ms: u64,
 ) -> Option<SafetyFault> {
+    if joint.servo_status & BLOCKING_SERVO_STATUS != 0 {
+        joint.stall_since_ms = None;
+        return Some(SafetyFault::ServoStatus);
+    }
+
     if let Some(temp_c) = joint.temp_c
         && temp_c > MAX_TEMP_C
     {

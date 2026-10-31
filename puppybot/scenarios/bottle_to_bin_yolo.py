@@ -1473,20 +1473,22 @@ def move_named_joint_pose(
         while time.monotonic() < deadline:
             state = api.observation()
             joints = state.get("arm", {}).get("joints")
-            if isinstance(joints, list) and len(joints) == len(expected_angles_deg):
-                angles = [
-                    float(joint["angleDeg"])
-                    for joint in joints
-                    if isinstance(joint, dict) and isinstance(joint.get("angleDeg"), (float, int))
-                ]
-                angle_error = max(
-                    (abs(angle - target) for angle, target in zip(angles, expected_angles_deg, strict=True)),
-                    default=math.inf,
-                )
-                any_limit = any(isinstance(joint, dict) and joint.get("limitReached") for joint in joints)
-                stopped = all(isinstance(joint, dict) and joint.get("targetTick") is None for joint in joints)
-                if angle_error <= DRIVE_SCAN_ANGLE_TOLERANCE_DEG and not any_limit and stopped:
-                    return
+            if isinstance(joints, list):
+                joints = joints[:len(expected_angles_deg)]
+                if len(joints) == len(expected_angles_deg):
+                    angles = [
+                        float(joint["angleDeg"])
+                        for joint in joints
+                        if isinstance(joint, dict) and isinstance(joint.get("angleDeg"), (float, int))
+                    ]
+                    angle_error = max(
+                        (abs(angle - target) for angle, target in zip(angles, expected_angles_deg, strict=True)),
+                        default=math.inf,
+                    )
+                    any_limit = any(isinstance(joint, dict) and joint.get("limitReached") for joint in joints)
+                    stopped = all(isinstance(joint, dict) and joint.get("targetTick") is None for joint in joints)
+                    if angle_error <= DRIVE_SCAN_ANGLE_TOLERANCE_DEG and not any_limit and stopped:
+                        return
             time.sleep(0.20)
     raise RuntimeError(f"{label} did not settle safely")
 

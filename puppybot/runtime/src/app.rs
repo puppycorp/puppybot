@@ -7,18 +7,22 @@ use std::{
 };
 
 use puppybot_core::{
-    config::{CoordinateCalibration, PuppybotConfigV1},
+    config::{CoordinateCalibration, JointCalibration, PuppyArmConfig, PuppybotConfigV1},
     drive::DriveCommand,
     protocol::{self, ProtocolEvent, ProtocolOutput},
     puppyarm::{
         kinematics::{self, IkError},
         servo_safety::{TICK_WRAP, canonical_servo_tick, tick_within_joint_limits},
         types::{
-            ArmCommand, ArmMode, CartesianJointLimitError, ControllerError, JOINT_COUNT, Joint,
-            TcpFrame,
+            ACTUATOR_COUNT, ArmCommand, ArmMode, CartesianJointLimitError, ControllerError,
+            GRIPPER_INDEX, JOINT_COUNT, Joint, TcpFrame,
         },
     },
     robot::Puppybot,
+    stservo::{
+        STATUS_ANGLE_SENSOR, STATUS_INPUT_VOLTAGE, STATUS_OVERCURRENT, STATUS_OVERHEAT,
+        STATUS_OVERLOAD,
+    },
 };
 use tokio::time::{self, MissedTickBehavior};
 use wgui::{
@@ -56,6 +60,7 @@ const UP_ANGLES_DEG: [f64; JOINT_COUNT] = [0.0, 90.0, 0.0, 0.0];
 const DRIVE_SCAN_ANGLES_DEG: [f64; JOINT_COUNT] = [90.0, 12.0, 52.0, 61.5];
 const DRIVE_SCAN_MIN_LIMIT_MARGIN_TICKS: i32 = 60;
 const ARM_JOINT_LABELS: [&str; JOINT_COUNT] = ["Yaw", "Shoulder", "Elbow", "Wrist"];
+const GRIPPER_LABEL: &str = "Gripper";
 
 const SAVE_CALIBRATION_ID: u32 = 100;
 const DRIVE_FORWARD_ID: u32 = 110;
@@ -108,6 +113,8 @@ const FLIP_TCP_LEFT_AXIS_ID: u32 = 419;
 const MOVE_TOOL_TIP_UP_ID: u32 = 420;
 const MOVE_TOOL_TIP_DOWN_ID: u32 = 421;
 const MOVE_TOOL_TIP_STOP_ID: u32 = 422;
+const EDIT_GRIPPER_SPEED_ID: u32 = 423;
+const SET_GRIPPER_SPEED_ID: u32 = 424;
 
 const EDIT_COORDINATE_X_ID: u32 = 500;
 const EDIT_COORDINATE_Y_ID: u32 = 501;
@@ -439,6 +446,66 @@ fn angle_detail(joint: &Joint) -> String {
     }
 }
 
+fn actuator_label(index: usize) -> Option<&'static str> {
+    if index < JOINT_COUNT {
+        Some(ARM_JOINT_LABELS[index])
+    } else if index == GRIPPER_INDEX {
+        Some(GRIPPER_LABEL)
+    } else {
+        None
+    }
+}
+
+fn arm_calibration(config: &PuppyArmConfig, index: usize) -> Option<&JointCalibration> {
+    if index < JOINT_COUNT {
+        config.joints.get(index)
+    } else if index == GRIPPER_INDEX {
+        config.gripper.as_ref()
+    } else {
+        None
+    }
+}
+
+fn arm_calibration_mut(config: &mut PuppyArmConfig, index: usize) -> Option<&mut JointCalibration> {
+    if index < JOINT_COUNT {
+        config.joints.get_mut(index)
+    } else if index == GRIPPER_INDEX {
+        config.gripper.as_mut()
+    } else {
+        None
+    }
+}
+
+fn servo_status_errors(status: u8) -> Vec<String> {
+    let mut errors = Vec::new();
+    for (bit, label) in [
+        (STATUS_INPUT_VOLTAGE, "Input voltage"),
+        (STATUS_ANGLE_SENSOR, "Angle sensor"),
+        (STATUS_OVERHEAT, "Overheat"),
+        (STATUS_OVERCURRENT, "Overcurrent"),
+        (STATUS_OVERLOAD, "Overload"),
+    ] {
+        if status & bit != 0 {
+            errors.push(label.to_string());
+        }
+    }
+
+    let known = STATUS_INPUT_VOLTAGE
+        | STATUS_ANGLE_SENSOR
+        | STATUS_OVERHEAT
+        | STATUS_OVERCURRENT
+        | STATUS_OVERLOAD;
+    let unknown = status & !known;
+    if unknown != 0 {
+        errors.push(format!("Unknown status 0x{unknown:02x}"));
+    }
+    errors
+}
+
+fn servo_status_detail(status: u8) -> String {
+    servo_status_errors(status).join(", ")
+}
+
 fn opt_tick(value: Option<i32>) -> String {
     match value {
         Some(tick) => tick.to_string(),
@@ -602,7 +669,7 @@ fn angle_sign_label(sign: Option<i8>) -> String {
     }
 }
 
-fn feedback_tool_pitch_rad(joints: &[Joint; JOINT_COUNT]) -> Option<f64> {
+fn feedback_tool_pitch_rad(joints: &[Joint; ACTUATOR_COUNT]) -> Option<f64> {
     Some(kinematics::tool_pitch(
         joints[1].angle_rad?,
         joints[2].angle_rad?,
@@ -610,9 +677,9 @@ fn feedback_tool_pitch_rad(joints: &[Joint; JOINT_COUNT]) -> Option<f64> {
     ))
 }
 
-fn target_angle_inputs(joints: &[Joint; JOINT_COUNT]) -> Option<[String; JOINT_COUNT]> {
+fn target_angle_inputs(joints: &[Joint; ACTUATOR_COUNT]) -> Option<[String; JOINT_COUNT]> {
     let mut angles = [0.0; JOINT_COUNT];
-    for (index, joint) in joints.iter().enumerate() {
+    for (index, joint) in joints.iter().take(JOINT_COUNT).enumerate() {
         angles[index] = joint.target_angle_deg()?;
     }
     Some(std::array::from_fn(|index| format!("{:.1}", angles[index])))
@@ -757,6 +824,8 @@ pub struct App {
     goto_angle_error: String,
     arm_speed: String,
     arm_speed_error: String,
+    gripper_speed: String,
+    gripper_speed_error: String,
     coordinate_x: String,
     coordinate_y: String,
     coordinate_z: String,
@@ -846,7 +915,8 @@ impl App {
             }
             None
         };
-        let mut robot = Puppybot::new_with_config(&active_config, 0)
+        let controller_config = active_config;
+        let mut robot = Puppybot::new_with_config(&controller_config, 0)
             .map_err(|err| format!("invalid runtime config: {err}"))?;
         robot.handle_event(
             ProtocolEvent::Arm(ArmCommand::SetSpeed(DEFAULT_ARM_SPEED)),
@@ -855,7 +925,10 @@ impl App {
         let backend = if let Some(project_path) = simulation_project_path {
             RuntimeBackend::Simulated(SimulatedRuntimeBackend::new(project_path, &active_config)?)
         } else {
-            let servo_ids = active_config.arm.servo_ids();
+            let mut servo_ids = active_config.arm.servo_ids().to_vec();
+            if let Some(gripper) = active_config.arm.gripper {
+                servo_ids.push(gripper.servo_id);
+            }
             let servo = stservo::open_serial(options.servo_device.as_deref(), &servo_ids)
                 .ok_or_else(|| {
                     "STServo bus is required; automatic detection found no unambiguous supported device; pass --servo-device or set PUPPYBOT_STSERVO_PORT".to_string()
@@ -915,6 +988,8 @@ impl App {
             goto_angle_error: String::new(),
             arm_speed: DEFAULT_ARM_SPEED.to_string(),
             arm_speed_error: String::new(),
+            gripper_speed: active_config.arm.gripper_speed.to_string(),
+            gripper_speed_error: String::new(),
             coordinate_x,
             coordinate_y,
             coordinate_z,
@@ -1056,8 +1131,18 @@ impl App {
 
     fn sync_arm_calibration_from_robot(&mut self) {
         let mut changed = false;
-        for (index, joint) in self.robot.arm.joints.iter().enumerate() {
-            let config_joint = &mut self.active_config.arm.joints[index];
+        let actuator_count = self.robot.arm.actuator_count();
+        for (index, joint) in self
+            .robot
+            .arm
+            .joints
+            .iter()
+            .take(actuator_count)
+            .enumerate()
+        {
+            let Some(config_joint) = arm_calibration_mut(&mut self.active_config.arm, index) else {
+                continue;
+            };
             if config_joint.servo_id != joint.servo_id {
                 config_joint.servo_id = joint.servo_id;
                 changed = true;
@@ -1094,11 +1179,8 @@ impl App {
         tick: i32,
         angle_rad: f64,
     ) -> Result<(), ControllerError> {
-        if joint >= self.active_config.arm.joints.len() {
-            return Err(ControllerError::InvalidJoint);
-        }
-
-        let config_joint = &mut self.active_config.arm.joints[joint];
+        let config_joint = arm_calibration_mut(&mut self.active_config.arm, joint)
+            .ok_or(ControllerError::InvalidJoint)?;
         if config_joint.reference_tick != tick || config_joint.reference_angle_rad != angle_rad {
             config_joint.reference_tick = tick;
             config_joint.reference_angle_rad = angle_rad;
@@ -1128,11 +1210,12 @@ impl App {
         let joints = arm
             .joints
             .iter()
+            .take(self.robot.arm.actuator_count())
             .enumerate()
             .map(|(index, joint)| {
                 serde_json::json!({
                     "index": index,
-                    "name": ARM_JOINT_LABELS[index].to_ascii_lowercase(),
+                    "name": actuator_label(index).unwrap_or("unknown").to_ascii_lowercase(),
                     "servoId": joint.servo_id,
                     "tick": joint.tick,
                     "targetTick": joint.target_tick,
@@ -1140,6 +1223,8 @@ impl App {
                     "targetAngleDeg": joint.target_angle_deg(),
                     "online": joint.online,
                     "hasFeedback": joint.has_feedback,
+                    "servoStatus": joint.servo_status,
+                    "servoStatusErrors": servo_status_errors(joint.servo_status),
                     "limitReached": joint.limit_reached,
                 })
             })
@@ -1225,6 +1310,7 @@ impl App {
                 "absoluteCoordinateFrame": "Arm Base",
                 "tcpFrame": frame_label(self.tcp_frame),
                 "armSpeed": self.arm_speed.parse::<i16>().ok(),
+                "gripperSpeed": self.gripper_speed.parse::<i16>().ok(),
                 "lastCommand": self.last_command.as_str(),
             },
         });
@@ -1250,17 +1336,20 @@ impl App {
         let joints = arm
             .joints
             .iter()
+            .take(self.robot.arm.actuator_count())
             .enumerate()
             .map(|(index, joint)| {
                 serde_json::json!({
                     "index": index,
-                    "name": ARM_JOINT_LABELS[index].to_ascii_lowercase(),
+                    "name": actuator_label(index).unwrap_or("unknown").to_ascii_lowercase(),
                     "tick": joint.tick,
                     "targetTick": joint.target_tick,
                     "angleDeg": joint.angle_deg(),
                     "targetAngleDeg": joint.target_angle_deg(),
                     "online": joint.online,
                     "hasFeedback": joint.has_feedback,
+                    "servoStatus": joint.servo_status,
+                    "servoStatusErrors": servo_status_errors(joint.servo_status),
                     "limitReached": joint.limit_reached,
                 })
             })
@@ -1390,12 +1479,12 @@ impl App {
         let joint = segment
             .parse::<usize>()
             .map_err(|_| ApiError::bad_request("joint must be an integer"))?;
-        if joint < JOINT_COUNT {
+        if joint < ACTUATOR_COUNT {
             Ok(joint)
         } else {
             Err(ApiError::bad_request(format!(
                 "joint must be between 0 and {}",
-                JOINT_COUNT - 1
+                ACTUATOR_COUNT - 1
             )))
         }
     }
@@ -1877,6 +1966,7 @@ impl App {
                 Ok(())
             }
             ["api", "arm", "speed"] => self.api_arm_speed(&json),
+            ["api", "arm", "gripper-speed"] => self.api_gripper_speed(&json),
             ["api", "arm", "hold"] => self
                 .arm("arm hold", ArmCommand::Hold)
                 .map_err(|err| ApiError::bad_request(format!("arm hold rejected: {err:?}"))),
@@ -2070,6 +2160,18 @@ impl App {
         Ok(())
     }
 
+    fn api_gripper_speed(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
+        let speed = Self::json_i64(json, "speed")?;
+        if speed < 0 || speed > i64::from(i16::MAX) {
+            return Err(ApiError::bad_request(
+                "speed must be a non-negative i16 integer",
+            ));
+        }
+        self.gripper_speed = speed.to_string();
+        self.apply_gripper_speed();
+        Ok(())
+    }
+
     fn api_goto_angles(&mut self, json: &serde_json::Value) -> Result<(), ApiError> {
         let yaw = Self::json_f64(json, "yawDeg")?;
         let shoulder = Self::json_f64(json, "shoulderDeg")?;
@@ -2257,13 +2359,31 @@ impl App {
     fn render_status_cards(&self) -> Item {
         let arm = self.robot.arm_telemetry();
         let drive = self.robot.drive_output();
-        let feedback_count = arm.joints.iter().filter(|joint| joint.has_feedback).count();
-        let fault_count = arm
-            .joints
+        let actuator_count = self.robot.arm.actuator_count();
+        let feedback_count = arm.joints[..actuator_count]
+            .iter()
+            .filter(|joint| joint.has_feedback)
+            .count();
+        let fault_count = arm.joints[..actuator_count]
             .iter()
             .filter(|joint| joint.fault.is_some())
             .count();
-        let active_joint_count = arm.joints.iter().filter(|joint| joint.speed != 0).count();
+        let servo_error_details = arm.joints[..actuator_count]
+            .iter()
+            .filter(|joint| joint.servo_status != 0)
+            .map(|joint| {
+                format!(
+                    "servo {}: {}",
+                    joint.servo_id,
+                    servo_status_detail(joint.servo_status)
+                )
+            })
+            .collect::<Vec<_>>();
+        let servo_status_error_count = servo_error_details.len();
+        let active_joint_count = arm.joints[..actuator_count]
+            .iter()
+            .filter(|joint| joint.speed != 0)
+            .count();
         let uptime = self.now_ms() / 1000;
         let ws_url = local_url(self.ws_bind_addr, "ws", "/ws");
         let ui_clients = self.client_ids.len();
@@ -2278,9 +2398,21 @@ impl App {
             },
             UiMetric {
                 label: "Servo bus".to_string(),
-                value: self.backend.status_value().to_string(),
-                detail: self.backend.status_detail().to_string(),
-                accent: "#3fbf6f",
+                value: if servo_status_error_count == 0 {
+                    self.backend.status_value().to_string()
+                } else {
+                    format!("{servo_status_error_count} status error(s)")
+                },
+                detail: if servo_status_error_count == 0 {
+                    self.backend.status_detail().to_string()
+                } else {
+                    servo_error_details.join("; ")
+                },
+                accent: if servo_status_error_count == 0 {
+                    "#3fbf6f"
+                } else {
+                    "#d85b5b"
+                },
                 save_action: false,
             },
             UiMetric {
@@ -2297,7 +2429,7 @@ impl App {
             UiMetric {
                 label: "Arm".to_string(),
                 value: if fault_count == 0 {
-                    format!("{feedback_count}/{JOINT_COUNT} feedback")
+                    format!("{feedback_count}/{actuator_count} feedback")
                 } else {
                     format!("{fault_count} fault(s)")
                 },
@@ -2387,7 +2519,8 @@ impl App {
         let mut children = vec![
             label_text(&format!(
                 "{} (servo {})",
-                ARM_JOINT_LABELS[index], joint.servo_id
+                actuator_label(index).unwrap_or("Unknown"),
+                joint.servo_id
             ))
             .min_width(132),
             body_text(&angle_detail(joint))
@@ -2401,6 +2534,21 @@ impl App {
                     .width(86)
                     .inx(action_arg)
                     .on_click(OPEN_JOINT_CALIBRATION_ID),
+            );
+        }
+        if joint.servo_status != 0 {
+            children.push(
+                vstack(vec![
+                    text("SERVO ERROR").color("#ffb8b8").text_align("center"),
+                    text(&servo_status_detail(joint.servo_status))
+                        .color("#ffb8b8")
+                        .text_align("center"),
+                ])
+                .min_width(140)
+                .background_color("#7f2525")
+                .border("1px solid #d85b5b")
+                .padding(6)
+                .spacing(2),
             );
         }
         children.extend([
@@ -2526,6 +2674,27 @@ impl App {
             ])
             .spacing(8),
             error_text(&self.arm_speed_error),
+        ])
+    }
+
+    fn render_gripper_speed(&self) -> Item {
+        subpanel(vec![
+            title_text("Gripper Speed"),
+            hstack(vec![
+                field(
+                    "Speed",
+                    EDIT_GRIPPER_SPEED_ID,
+                    &self.gripper_speed,
+                    "speed",
+                    112,
+                ),
+                primary_button("Set Speed")
+                    .height(34)
+                    .width(104)
+                    .on_click(SET_GRIPPER_SPEED_ID),
+            ])
+            .spacing(8),
+            error_text(&self.gripper_speed_error),
         ])
     }
 
@@ -2788,10 +2957,10 @@ impl App {
 
     fn render_limit_modal(&self) -> Option<Item> {
         self.limit_editor_joint.map(|joint| {
-            let (title, detail) = if joint < JOINT_COUNT {
+            let (title, detail) = if joint < self.robot.arm.actuator_count() {
                 let telemetry_joint = &self.robot.arm.joints[joint];
                 (
-                    format!("{} Limits", ARM_JOINT_LABELS[joint]),
+                    format!("{} Limits", actuator_label(joint).unwrap_or("Actuator")),
                     match telemetry_joint.tick {
                         Some(tick) => {
                             format!("servo {} current tick {tick}", telemetry_joint.servo_id)
@@ -2866,10 +3035,13 @@ impl App {
             return None;
         }
         self.calibration_editor_joint.map(|joint| {
-            let (title, detail) = if joint < JOINT_COUNT {
+            let (title, detail) = if joint < self.robot.arm.actuator_count() {
                 let telemetry_joint = &self.robot.arm.joints[joint];
                 (
-                    format!("{} Calibration", ARM_JOINT_LABELS[joint]),
+                    format!(
+                        "{} Calibration",
+                        actuator_label(joint).unwrap_or("Actuator")
+                    ),
                     match telemetry_joint.tick {
                         Some(tick) => format!(
                             "servo {} current tick {tick}; set what angle this pose represents",
@@ -2886,7 +3058,7 @@ impl App {
             };
             let sign = self
                 .calibration_editor_joint
-                .and_then(|joint| self.active_config.arm.joints.get(joint))
+                .and_then(|joint| arm_calibration(&self.active_config.arm, joint))
                 .map(|joint| joint.angle_sign);
 
             modal(vec![
@@ -3037,9 +3209,13 @@ impl App {
         let arm = self.robot.arm_telemetry();
         let mut children = vec![title_text("Arm Jog")];
         children.push(self.render_arm_speed());
+        if self.robot.arm.has_gripper() {
+            children.push(self.render_gripper_speed());
+        }
         children.extend(
             arm.joints
                 .iter()
+                .take(self.robot.arm.actuator_count())
                 .enumerate()
                 .map(|(index, joint)| self.render_joint_row(index, joint)),
         );
@@ -3131,7 +3307,7 @@ impl App {
                     self.sync_joint_reference_calibration(joint, tick, angle_rad)?;
                 }
                 self.last_command = label.to_string();
-                log::info!("runtime App command: {label}");
+                log::info!("runtime App command: {label}: {event:?}");
                 self.mark_ui_dirty();
                 self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
                 Ok(())
@@ -3301,7 +3477,7 @@ impl App {
 
     fn joint_arg_to_index(joint_arg: u32) -> Option<usize> {
         let index = usize::try_from(joint_arg.checked_sub(1)?).ok()?;
-        (index < JOINT_COUNT).then_some(index)
+        (index < ACTUATOR_COUNT).then_some(index)
     }
 
     fn stop_drive(&mut self) {
@@ -3493,6 +3669,34 @@ impl App {
         let _ = self.arm("set arm speed", ArmCommand::SetSpeed(speed));
     }
 
+    fn parse_gripper_speed(&mut self) -> Option<i16> {
+        let trimmed = self.gripper_speed.trim();
+        let speed = match trimmed.parse::<i16>() {
+            Ok(value) if value >= 0 => value,
+            _ => {
+                self.gripper_speed_error = "speed must be a non-negative whole number".to_string();
+                return None;
+            }
+        };
+        self.gripper_speed_error.clear();
+        Some(speed)
+    }
+
+    fn apply_gripper_speed(&mut self) {
+        let Some(speed) = self.parse_gripper_speed() else {
+            self.mark_ui_dirty();
+            return;
+        };
+        if self
+            .arm("set gripper speed", ArmCommand::SetGripperSpeed(speed))
+            .is_ok()
+            && self.active_config.arm.gripper_speed != speed
+        {
+            self.active_config.arm.gripper_speed = speed;
+            self.calibration_dirty = true;
+        }
+    }
+
     fn nudge_limit_editor(&mut self, min_delta: i32, max_delta: i32) {
         let Some((_, min, max)) = self.parse_limit_editor() else {
             return;
@@ -3669,7 +3873,15 @@ impl App {
             last_refresh_ms: now_ms,
         });
         self.last_command = label.to_string();
-        log::info!("runtime App command: {label}");
+        let actuator = self.robot.arm.joints[joint];
+        log::info!(
+            "runtime App command: {label}: joint {joint} servo {} direction {direction} tick {:?} status 0x{:02x} limits {}..{}",
+            actuator.servo_id,
+            actuator.tick,
+            actuator.servo_status,
+            actuator.tick_min,
+            actuator.tick_max
+        );
         self.mark_ui_dirty();
         self.telemetry_seq = self.telemetry_seq.wrapping_add(1);
         Ok(())
@@ -3831,7 +4043,7 @@ impl App {
             self.mark_ui_dirty();
             return Err(err);
         }
-        if joint >= JOINT_COUNT {
+        if joint >= self.robot.arm.actuator_count() {
             return Err("invalid joint".to_string());
         }
         let arm_joint = &self.robot.arm.joints[joint];
@@ -3849,7 +4061,7 @@ impl App {
         self.arm(
             &format!(
                 "calibrate {} reference angle",
-                ARM_JOINT_LABELS[joint].to_lowercase()
+                actuator_label(joint).unwrap_or("actuator").to_lowercase()
             ),
             ArmCommand::SetJointReference {
                 joint,
@@ -3877,7 +4089,7 @@ impl App {
             self.mark_ui_dirty();
             return Err(err);
         }
-        if joint >= JOINT_COUNT {
+        if joint >= self.robot.arm.actuator_count() {
             self.calibration_editor_error = "invalid joint".to_string();
             self.mark_ui_dirty();
             return Err("invalid joint".to_string());
@@ -3885,7 +4097,8 @@ impl App {
 
         self.sync_arm_calibration_from_robot();
         let new_sign = {
-            let config_joint = &mut self.active_config.arm.joints[joint];
+            let config_joint = arm_calibration_mut(&mut self.active_config.arm, joint)
+                .ok_or_else(|| "invalid joint".to_string())?;
             config_joint.angle_sign = -config_joint.angle_sign;
             config_joint.angle_sign
         };
@@ -3896,7 +4109,7 @@ impl App {
                 self.calibration_editor_error.clear();
                 self.last_command = format!(
                     "flipped {} angle sign to {new_sign}",
-                    ARM_JOINT_LABELS[joint].to_lowercase()
+                    actuator_label(joint).unwrap_or("actuator").to_lowercase()
                 );
                 log::info!("runtime App command: {}", self.last_command);
                 self.mark_ui_dirty();
@@ -3915,11 +4128,11 @@ impl App {
     fn set_goto_angles_current(&mut self) {
         let joints = self.robot.arm.joints;
         let mut angles = [0.0; JOINT_COUNT];
-        for (index, joint) in joints.iter().enumerate() {
+        for (index, joint) in joints.iter().take(JOINT_COUNT).enumerate() {
             let Some(angle) = joint.angle_deg() else {
                 self.goto_angle_error = format!(
                     "current {} angle unavailable",
-                    ARM_JOINT_LABELS[index].to_lowercase()
+                    actuator_label(index).unwrap_or("joint").to_lowercase()
                 );
                 self.mark_ui_dirty();
                 return;
@@ -4135,6 +4348,7 @@ impl App {
             STOP_JOINT_ID => self.stop_joint(event_arg(inx)),
             SET_GOTO_ANGLES_CURRENT_ID => self.set_goto_angles_current(),
             SET_ARM_SPEED_ID => self.apply_arm_speed(),
+            SET_GRIPPER_SPEED_ID => self.apply_gripper_speed(),
             SET_TCP_FRAME_BASE_ID => self.set_tcp_frame(TcpFrame::Base),
             SET_TCP_FRAME_TOOL_ID => self.set_tcp_frame(TcpFrame::Tool),
             SET_COORDINATES_CURRENT_ID => self.set_coordinates_current(),
@@ -4340,6 +4554,11 @@ impl App {
             EDIT_ARM_SPEED_ID => {
                 self.arm_speed = value;
                 self.arm_speed_error.clear();
+                self.mark_ui_dirty();
+            }
+            EDIT_GRIPPER_SPEED_ID => {
+                self.gripper_speed = value;
+                self.gripper_speed_error.clear();
                 self.mark_ui_dirty();
             }
             EDIT_COORDINATE_X_ID => {
@@ -4643,6 +4862,30 @@ mod tests {
         assert_eq!(default_ws_bind(false), "0.0.0.0:8080");
     }
 
+    #[tokio::test]
+    async fn servo_status_errors_are_decoded_and_exposed_by_api() {
+        let status = STATUS_INPUT_VOLTAGE | STATUS_OVERHEAT | 0x10;
+        assert_eq!(
+            servo_status_errors(status),
+            vec![
+                "Input voltage".to_string(),
+                "Overheat".to_string(),
+                "Unknown status 0x10".to_string(),
+            ]
+        );
+
+        let mut app = test_app();
+        app.robot.arm.record_servo_status(0, status);
+        let state: serde_json::Value =
+            serde_json::from_str(&app.api_state_json().expect("runtime state json"))
+                .expect("valid runtime state json");
+        assert_eq!(state["arm"]["joints"][0]["servoStatus"], status);
+        assert_eq!(
+            state["arm"]["joints"][0]["servoStatusErrors"],
+            serde_json::json!(["Input voltage", "Overheat", "Unknown status 0x10"])
+        );
+    }
+
     #[test]
     fn limit_editor_reopens_with_updated_controller_limits() {
         let mut robot = Puppybot::new(0);
@@ -4805,7 +5048,8 @@ mod tests {
 
         assert_eq!(state["schema"], "puppybot.runtime.autonomy-observation.v1");
         let joints = state["arm"]["joints"].as_array().expect("arm joints");
-        assert_eq!(joints.len(), JOINT_COUNT);
+        assert_eq!(joints.len(), ACTUATOR_COUNT);
+        assert_eq!(joints[GRIPPER_INDEX]["name"], "gripper");
         assert!(joints.iter().all(|joint| {
             joint["angleDeg"].is_number()
                 && (joint["targetAngleDeg"].is_number() || joint["targetAngleDeg"].is_null())
@@ -4841,12 +5085,13 @@ mod tests {
         assert!(state["timeMs"].is_number());
         assert_eq!(
             state["arm"]["joints"].as_array().expect("joints").len(),
-            JOINT_COUNT
+            ACTUATOR_COUNT
         );
         for (index, joint) in state["arm"]["joints"]
             .as_array()
             .expect("joints")
             .iter()
+            .take(JOINT_COUNT)
             .enumerate()
         {
             assert_eq!(joint["name"], ARM_JOINT_LABELS[index].to_ascii_lowercase());
@@ -4858,6 +5103,11 @@ mod tests {
             assert!(joint.get("referenceTick").is_none());
             assert!(joint.get("urdfAngleDeg").is_none());
         }
+        let gripper = &state["arm"]["joints"][GRIPPER_INDEX];
+        assert_eq!(gripper["name"], "gripper");
+        assert_eq!(gripper["servoId"], 7);
+        assert_eq!(gripper["tick"], 2048);
+        assert!((gripper["angleDeg"].as_f64().expect("gripper angle")).abs() < 1.0e-9);
         assert!(state["arm"].get("currentTcpMm").is_some());
         assert!(state["arm"].get("targetTcpMm").is_some());
         assert_eq!(state["arm"]["frame"], "armBase");
@@ -4871,7 +5121,9 @@ mod tests {
         assert_eq!(state["sim"]["enabled"], true);
         assert_eq!(state["sim"]["manipulation"]["simulationOnly"], true);
         assert_eq!(state["sim"]["manipulation"]["action"], "Interact");
-        assert_eq!(state["sim"]["manipulation"]["ball"]["objectId"], "ball");
+        assert_eq!(state["sim"]["manipulation"]["gripper"]["servoId"], 7);
+        assert_eq!(state["sim"]["manipulation"]["gripper"]["grasp"], "open");
+        assert_eq!(state["sim"]["manipulation"]["ball"]["objectId"], "bottle");
         assert_eq!(
             state["sim"]["manipulation"]["binTrigger"]["source"],
             "RobotDreams physics trigger"
@@ -5058,7 +5310,7 @@ mod tests {
 
         assert_hold_event_contract(&rendered, &mut press_count);
 
-        assert_eq!(press_count, 41, "unexpected PuppyBot hold-control count");
+        assert_eq!(press_count, 44, "unexpected PuppyBot hold-control count");
     }
 
     #[tokio::test]
@@ -5069,7 +5321,12 @@ mod tests {
         assert!(app.handle_press_id(GOTO_ANGLES_ID, None));
         assert_eq!(app.telemetry_seq(), sequence_before.wrapping_add(1));
         let targets_after_press = app.robot.arm.joints.map(|joint| joint.target_tick);
-        assert!(targets_after_press.iter().all(Option::is_some));
+        assert!(
+            targets_after_press[..JOINT_COUNT]
+                .iter()
+                .all(Option::is_some)
+        );
+        assert_eq!(targets_after_press[GRIPPER_INDEX], None);
 
         app.robot.arm.joints[0].fault =
             Some(puppybot_core::puppyarm::servo_safety::SafetyFault::Stall);
@@ -5129,6 +5386,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         let target_tool_pitch = kinematics::tool_pitch(
@@ -5181,6 +5439,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         assert!(default_app.handle_release_id(GOTO_ANGLES_ID, None));
@@ -5211,6 +5470,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         assert!(
@@ -5249,6 +5509,7 @@ mod tests {
                 .arm
                 .joints
                 .iter()
+                .take(JOINT_COUNT)
                 .all(|joint| joint.target_tick.is_some())
         );
         // DRIVE_SCAN deliberately shares Default's release ID, so it has the
@@ -5469,6 +5730,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn api_command_gripper_speed_updates_state_and_config() {
+        let mut app = test_app();
+
+        let response =
+            app.handle_api_request(b"POST", b"/api/arm/gripper-speed", br#"{"speed":37}"#);
+
+        assert_eq!(response.status, "200 OK");
+        let body = response_json(response);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["state"]["ui"]["gripperSpeed"], 37);
+        assert_eq!(body["state"]["ui"]["lastCommand"], "set gripper speed");
+        assert_eq!(app.active_config.arm.gripper_speed, 37);
+        assert!(app.calibration_dirty);
+    }
+
+    #[tokio::test]
     async fn api_command_coordinate_jog_start_and_stop_updates_arm_state() {
         let mut app = test_app();
         for _ in 0..8 {
@@ -5548,6 +5825,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gripper_row_uses_the_same_jog_limits_and_status_controls() {
+        let mut app = test_app();
+        let config = PuppybotConfigV1::default();
+        app.active_config = config;
+        app.robot = Puppybot::new_with_config(&config, 0).expect("configured gripper");
+        let gripper = config.arm.gripper.expect("default gripper calibration");
+        app.robot.arm.record_feedback(
+            GRIPPER_INDEX,
+            u16::try_from(gripper.reference_tick).expect("gripper reference tick"),
+            0,
+        );
+
+        assert_eq!(app.robot.arm.actuator_count(), ACTUATOR_COUNT);
+        let _ = app.render_arm_panel();
+        assert!(app.handle_press_id(JOG_POSITIVE_ID, Some(5)));
+        let held = app.held_joint_jog.expect("gripper jog hold created");
+        assert_eq!(held.joint, GRIPPER_INDEX);
+        assert_eq!(held.direction, 1);
+
+        assert!(app.handle_release_id(JOG_STOP_ID, Some(5)));
+        assert!(app.held_joint_jog.is_none());
+        assert_eq!(app.robot.arm.joints[GRIPPER_INDEX].speed, 0);
+
+        assert!(app.handle_click_id(OPEN_LIMIT_EDITOR_ID, Some(5)));
+        assert_eq!(app.limit_editor_joint, Some(GRIPPER_INDEX));
+        assert_eq!(app.limit_editor_min, gripper.tick_min.to_string());
+        assert_eq!(app.limit_editor_max, gripper.tick_max.to_string());
+
+        app.robot
+            .arm
+            .record_servo_status(GRIPPER_INDEX, STATUS_INPUT_VOLTAGE);
+        let state: serde_json::Value =
+            serde_json::from_str(&app.api_state_json().expect("runtime state json"))
+                .expect("valid runtime state json");
+        assert_eq!(state["arm"]["joints"][GRIPPER_INDEX]["name"], "gripper");
+        assert_eq!(state["arm"]["joints"][GRIPPER_INDEX]["servoId"], 7);
+        assert_eq!(
+            state["arm"]["joints"][GRIPPER_INDEX]["servoStatusErrors"],
+            serde_json::json!(["Input voltage"])
+        );
+    }
+
+    #[tokio::test]
     async fn held_coordinate_jog_is_refreshed_server_side_and_stops_on_release() {
         let mut app = test_app();
         for joint in 0..JOINT_COUNT {
@@ -5593,7 +5913,8 @@ mod tests {
                     .expect("reference tick");
                 app.robot.arm.record_feedback(joint, tick, now_ms);
             }
-            let previous_target = app.robot.arm.joints.map(|joint| joint.reference_angle_rad);
+            let previous_target =
+                std::array::from_fn(|index| app.robot.arm.joints[index].reference_angle_rad);
             app.robot
                 .try_handle_event(
                     ProtocolEvent::Arm(ArmCommand::GotoAngles(previous_target)),
@@ -5605,6 +5926,7 @@ mod tests {
                     .arm
                     .joints
                     .iter()
+                    .take(JOINT_COUNT)
                     .all(|joint| joint.target_tick.is_some())
             );
 
