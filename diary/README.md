@@ -123,3 +123,4 @@ A new finding gets the next number and a line under Entries below.
 - [36. Teacher back and forth unlabelled](36-teacher-back-and-forth-unlabelled.md) (2 Nov)
 - [37. Brick heat map as an auxiliary target](37-brick-heat-map-as-an-auxiliary.md) (2 Nov)
 - [38. More epochs](38-more-epochs.md) (3 Nov)
+- [39. Ensemble of the more1 students](39-more1-ensemble.md) (3 Nov)
