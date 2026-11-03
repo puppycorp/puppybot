@@ -112,7 +112,7 @@ fn ps_agent_place(request) {
     ph_vset(body + 32, 0, 0, pb_f64_to_f32(f64_sin(half))); store64(body + 56, pb_f64_to_f32(f64_cos(half)));
     ph_vset(body + 64, 0, 0, 0); ph_vset(body + 88, 0, 0, 0); store64(body + 112, ph_rcp(mass));
     ph_vset(body + 120, ph_rcp(ph_box_inertia(mass, hx, hy, hz, 0)), ph_rcp(ph_box_inertia(mass, hx, hy, hz, 1)), ph_rcp(ph_box_inertia(mass, hx, hy, hz, 2))); ph_cache_body(body);
-    ps_seek_found = 0; ps_seek_consumed = -1; ps_seek_detection_step = -1; ps_seek_return_observations = 0; return 1;
+    ps_seek_found = 0; ps_seek_consumed = -1; ps_seek_detection_step = -1; ps_seek_return_observations = 0; ps_seek_delivered = 0; return 1;
 }
 fn ps_agent_read(data, size) {
     let offset = 0;
@@ -154,7 +154,7 @@ fn ps_agent_loop(video, capture) {
             ps_agent_oracle_queries = 0; ps_agent_oracle_label_ok = 0; ps_agent_oracle_steering = 0; ps_agent_oracle_speed = 0;
             ps_oracle_cache_reset();
             if ps_agent_primitive { store64(ps_agent_primitive + 72, 0); } ps_agent_primitive_continuations = 0;
-            let task = load64(request + 48); if task < 1 || task > 3 { return 1; } ps_agent_task = task;
+            let task = load64(request + 48); if task < 1 || task > 3 { return 1; } ps_agent_task = task; ps_seek_deliver = task == 3;
             if !ps_case_load(ps_case_index) || !ps_reset() || !ps_case_start() { return 1; }
             let ticks = 0;
             while ticks < 2500 && (!ps_camera_still() || !ps_pickup_settled() || ps_gripper_gap != ps_gripper_goal) {

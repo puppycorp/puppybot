@@ -1,0 +1,35 @@
+--- a/compiler/backends/rdna-word.flex
++++ b/compiler/backends/rdna-word.flex
+@@ -207,6 +207,14 @@
+     store8(rw_pending+to,2);store8(rw_pending+to+1,2);rw_lds_pending_count=rw_lds_pending_count+1;return 0;
+ }
+ fn rw_shared_store(address,value) {rw_wait();rw_shared=1;emit32(0xd9340000);emit32(address|(value<<8));return 0;}
++// 32-bit LDS words: the loaded word's upper half is zero, as for 32-bit global loads.
++fn rw_shared_load32(to,address) {
++    rw_ready_word(to);rw_ready(address);
++    if rw_zeros {store8(rw_zeros+to,0);}
++    rw_shared=1;emit32(0xd8d80000);emit32(address|(to<<24));
++    store8(rw_pending+to,2);rw_lds_pending_count=rw_lds_pending_count+1;rw_zero_high(to);return 0;
++}
++fn rw_shared_store32(address,value) {rw_wait();rw_shared=1;emit32(0xd8340000);emit32(address|(value<<8));return 0;}
+ fn rw_shuffle(to,source,lane) {
+     rw_ready_word(to);rw_ready_word(source);rw_ready(lane);
+     rw_vop(0x30000000,rw_temp,130,lane);emit32(0xdacc0000);emit32(rw_temp|(source<<8)|(to<<24));
+@@ -236,7 +244,7 @@
+ fn rw_intrinsic(kind,to,first) {
+     // Float arithmetic touches only its low word, and exposes zeroed upper
+     // words. Other primitives can write raw registers or change EXEC.
+-    if !((kind>=1 && kind<=14) || kind==17 || kind==18 || kind==28 || (kind>=30 && kind<=35) || (kind>=53 && kind<=65) || kind==69) {rw_forget_zeros();}
++    if !((kind>=1 && kind<=14) || kind==17 || kind==18 || kind==103 || kind==104 || kind==28 || (kind>=30 && kind<=35) || (kind>=53 && kind<=65) || kind==69) {rw_forget_zeros();}
+     if kind==98 {return rr_stage(to,first);}
+     if kind==97 {return rr_rope(to,first);}
+     if kind==96 {return rr_element(to,first);}
+@@ -299,6 +307,8 @@
+     if kind==16 || kind==52 {emit32(0xbfc10000);emit32(0xbfc60000);rw_imm(to,0);return 0;}
+     if kind==17 {return rw_shared_load(to,first);}
+     if kind==18 {rw_shared_store(first,first+2);rw_move(to,first+2);return 0;}
++    if kind==103 {return rw_shared_load32(to,first);}
++    if kind==104 {rw_shared_store32(first,first+2);rw_move(to,first+2);return 0;}
+     if kind==28 {return rw_shuffle(to,first,first+2);}
+     if kind==29 {rw_test(first,0);rw_mov32(to,106);rw_vop(0x36000000,to,to+256,first+2);rw_zero_high(to);return 0;}
+     if (kind>=30 && kind<=37) || (kind>=56 && kind<=58) || kind==62 {return rw_float(kind,to,first);}

@@ -13,7 +13,7 @@ fn pc_run_with_shape(argc, argv, side, memory) {
     vp_require((side == 84 && (memory == 128 || memory == 256)) || (side == 128 && memory == 128), "unsupported policy dimensions");
     let raw = argc == 6; if raw && !pl_equal(load64(argv + 40), "--raw") { return 2; }
     let fd = pl_integer(load64(argv + 32), pl_size(load64(argv + 32))); if pl_bad_number || fd < 3 { return 2; }
-    vp_init(load64(argv + 24), vp_backend_parse("cuda"), 0);
+    vp_init(load64(argv + 24), vp_backend_parse("gpu"), 0);
     vp_checkpoint_open(load64(argv + 8), load64(argv + 16)); pup_build_model(); vp_check(device_synchronize());
     vp_require(load64(vp_inputs) == 3 && load64(vp_outputs) == 2, "visual policy requires three inputs and two outputs");
     let input_size = 0; let output_size = 0; let i = 0;

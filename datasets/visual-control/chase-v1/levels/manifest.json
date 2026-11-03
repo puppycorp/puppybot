@@ -1,0 +1,90 @@
+{
+  "datasets": [
+    {
+      "name": "data-L0",
+      "dataSHA256": "73387fee6dda79b9869e7e179d492417c56264efe79bfbefab8428b58768081c",
+      "bytes": 815001632
+    },
+    {
+      "name": "data-L1",
+      "dataSHA256": "2cce1740d9417f15da4cd7ac16d58493ef3d4dd695537358bcebc1d7fb17e660",
+      "bytes": 815001632
+    },
+    {
+      "name": "data-L2",
+      "dataSHA256": "1a9477e293456f3ae96c6281e000a36ba63cc47c3f713fd7e0526321dfdc2f6e",
+      "bytes": 815001632
+    },
+    {
+      "name": "data-L3",
+      "dataSHA256": "b6b85803805faba00e23ea7e7dbc9ce4e050b4a214ab43456cedd035c62af1cd",
+      "bytes": 815001632
+    },
+    {
+      "name": "data-L4",
+      "dataSHA256": "620a4859e78dc38597be5c62d52932bb71ee84377c370a3cb9a4da5f91c93b1c",
+      "bytes": 815001632
+    },
+    {
+      "name": "dagger-L0",
+      "dataSHA256": "a9b2a58453d6f5d365c2bebcf85bdc411c26ffa40ec6e0833ec4e4690ce43852",
+      "bytes": 815001632
+    },
+    {
+      "name": "dagger-L1",
+      "dataSHA256": "8fed4aec2e5541291c4995506fb6a0d4c15c9e357af480348f893820bbc1efb0",
+      "bytes": 815001632
+    },
+    {
+      "name": "dagger-L2",
+      "dataSHA256": "5a5da1ee3089429a1e83a623d0a6abb88498f92c721028fb85ddc67e0f4f30f4",
+      "bytes": 815001632
+    },
+    {
+      "name": "dagger-L3",
+      "dataSHA256": "725be08e570a166778a909e7aa625a4e422688f4251b44cb2296be8aa139018f",
+      "bytes": 815001632
+    },
+    {
+      "name": "dagger-L4",
+      "dataSHA256": "2a34475e4562f0260934a566351eccc6a8057a5980d5c13b19211c5c7e850c87",
+      "bytes": 815001632
+    },
+    {
+      "name": "data-mix",
+      "dataSHA256": "5b90626c5cd061233198612f40af4e75805b189b9ce3abb04c30d43e51ab46e5",
+      "bytes": 4075008032
+    },
+    {
+      "name": "data-agg1",
+      "dataSHA256": "df2884b472fd2dcb205f85d7b29b889256ac782a4ed27da673a112bc8fa9c5c0",
+      "bytes": 6112512032
+    }
+  ],
+  "models": [
+    {
+      "name": "mix-s0",
+      "weightsSHA256": "eaf62ff40a48ece85a60a2f72507e631124c2a4fb16aa36b8a615592e0a18e7e"
+    },
+    {
+      "name": "mix-s1",
+      "weightsSHA256": "c2364b214566462921e129f6d85e18689eb16fb0669aa704b33441bdde837466"
+    },
+    {
+      "name": "mix-s2",
+      "weightsSHA256": "6cda4326285be0afc991d145408003095662083170e4c66260d387d69082df6c"
+    },
+    {
+      "name": "agg1-s0",
+      "weightsSHA256": "1406ba3c1a4e905a91243138096fdb3b4462920057f233a90ed68e95edf1a859"
+    },
+    {
+      "name": "agg1-s1",
+      "weightsSHA256": "316c70642b248ae5bb082c8d2a279b969793dc88cc7c903e9fbc817ccf859b9c"
+    },
+    {
+      "name": "agg1-s2",
+      "weightsSHA256": "9bfbfa67541c5eddca2d2091c12e5515d00909b49ca6cb43278f4b6b9c803737"
+    }
+  ]
+}

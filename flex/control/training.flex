@@ -41,6 +41,8 @@ global pt_event_aux=0;
 global pt_events=0;
 global pt_pose_aux=0;
 global pt_poses=0;
+global pt_map_aux=0;
+global pt_maps=0;
 global pt_target_aux=0;
 global pt_heat_aux=0;
 global pt_heat_actor=0;
@@ -97,8 +99,8 @@ fn pt_recurrence(ix,wh,bh,batch,width,length) {
 }
 fn pt_model(batch,length) {
     // The blocked convolution needs output channels in multiples of eight; heat maps have one.
-    vp_binary_kernel="binary-train";if !pt_heat_aux {vp_convolution_kernel="convolution-train";vp_convolution_block=8;}
-    pt_tensors=h_vec();pt_parameters=h_vec();pt_actions=h_vec();pt_phases=h_vec();pt_memories=h_vec();pt_events=h_vec();pt_poses=h_vec();pt_target_predictions=h_vec();if pt_heat_stop_gradient {pt_detached_heat=h_vec();}
+    vp_binary_kernel="binary-train";if !pt_heat_aux {vp_convolution_kernel="convolution-train";vp_convolution_block=8;}if vp_backend==1 {vp_matmul_kernel="matmul-train";if vp_convolution_kernel {vp_convolution_kernel="convolution-pairs";vp_convolution_pairs=1;}}
+    pt_tensors=h_vec();pt_parameters=h_vec();pt_actions=h_vec();pt_phases=h_vec();pt_memories=h_vec();pt_events=h_vec();pt_poses=h_vec();pt_maps=h_vec();pt_target_predictions=h_vec();if pt_heat_stop_gradient {pt_detached_heat=h_vec();}
     pt_images=vp_tensor(pup_shape(4,length*batch,3,pt_image_side,pt_image_side),0,0,0);
     pt_proprio=vp_tensor(pup_shape(3,length,batch,7,1),0,0,0);
     let zero=pup_scalar(0);let one=pup_scalar(0x3f800000);let two=pup_scalar(0x40000000);
@@ -118,8 +120,8 @@ fn pt_model(batch,length) {
     if pt_fused {
         let combined=pt_join(pup_reshape(encoded,pup_shape(2,length*batch,width,1,1)),pup_reshape(pt_proprio,pup_shape(2,length*batch,7,1,1)),1);
         let states=pt_recurrence(pt_binary(3,pt_matmul(combined,wi),bi),wh,bh,batch,width,length);
-        let actions=pt_dense(states,"actor7",width,7);let phases=pt_dense(states,"critic",width,1);let step=0;
-        while step<length {h_add(pt_memories,pt_view(states,step*batch,batch));h_add(pt_actions,pt_view(actions,step*batch,batch));h_add(pt_phases,pt_view(phases,step*batch,batch));step=step+1;}
+        let actions=pt_dense(states,"actor7",width,7);let phases=pt_dense(states,"critic",width,1);let maps=0;if pt_map_aux {maps=pt_dense(states,"critic.map",width,144);}let step=0;
+        while step<length {h_add(pt_memories,pt_view(states,step*batch,batch));h_add(pt_actions,pt_view(actions,step*batch,batch));h_add(pt_phases,pt_view(phases,step*batch,batch));if pt_map_aux {h_add(pt_maps,pt_view(maps,step*batch,batch));}step=step+1;}
     }
     let t=0;while !pt_fused && t<length {
         let features=pup_reshape(pt_slice(encoded,0,t,1),pup_shape(2,batch,width,1,1));
@@ -140,6 +142,7 @@ fn pt_model(batch,length) {
         h_add(pt_memories,hidden);
         // Training-only readout: its targets never enter recurrence or the actor.
         if pt_pose_aux {h_add(pt_poses,pt_dense(hidden,"critic.pose",width,4));}
+        if pt_map_aux {h_add(pt_maps,pt_dense(hidden,"critic.map",width,144));}
         let action=0;let phase=0;if pt_phase_gate {phase=pt_dense(hidden,"critic",width,1);let probability=pt_sigmoid(phase);let search=pt_dense(hidden,"actor_search",width,7);let returning=pt_dense(hidden,"actor_return",width,7);action=pt_binary(3,pt_binary(5,pt_binary(4,one,probability),search),pt_binary(5,probability,returning));}
         else {if pt_action_width==7 {action=pt_dense(hidden,"actor7",width,7);}else {action=pt_binary(4,pt_binary(5,two,pt_sigmoid(pt_binary(5,two,pt_dense(hidden,"actor",width,2)))),one);}phase=pt_dense(hidden,"critic",width,1);}
         h_add(pt_actions,action);h_add(pt_phases,phase);t=t+1;
@@ -191,10 +194,10 @@ fn pt_prepare(kernel_root) {
     pt_optimizer_host=alloc(load64(pt_tensors)*8);let i=0;
     while i<load64(pt_tensors) {store64(pt_optimizer_host+i*8,pt_gradient_count);pt_gradient_count=pt_gradient_count+load64(vp_at(pt_tensors,i)+8);i=i+1;}
     vp_require(pt_gradient_count<134217728,"training gradient arena exceeds 512 MiB");pt_gradient_arena=vp_buffer(pt_gradient_count*4);
-    let image=vp_map(vp_path(kernel_root,"gradients.ptx"));let module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);
+    let image=vp_map(vp_path(kernel_root,vp_suffix("gradients",vp_kernel_suffix())));let module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);
     pt_function=device_function(module,"flex_kernel");vp_require(pt_function,device_error());
-    if pt_fused {image=vp_map(vp_path(kernel_root,"recurrence-backward.ptx"));module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);pt_recurrence_function=device_function(module,"flex_kernel");vp_require(pt_recurrence_function,device_error());
-        image=vp_map(vp_path(kernel_root,"recurrence-registers-backward.ptx"));module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);pt_registers_function=device_function(module,"flex_kernel");vp_require(pt_registers_function,device_error());}
+    if pt_fused {image=vp_map(vp_path(kernel_root,vp_suffix("recurrence-backward",vp_kernel_suffix())));module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);pt_recurrence_function=device_function(module,"flex_kernel");vp_require(pt_recurrence_function,device_error());
+        image=vp_map(vp_path(kernel_root,vp_suffix("recurrence-registers-backward",vp_kernel_suffix())));module=device_module(image);vp_require(module,device_error());syscall(11,image,vp_bytes,0,0,0,0);pt_registers_function=device_function(module,"flex_kernel");vp_require(pt_registers_function,device_error());}
     let split=0;i=0;while i<load64(vp_nodes) {let t=vp_at(vp_nodes,i);if load64(t+24)==12 {split=pb_max(split,load64(pt_tensor_by_data(load64(t+48))+8)*pt_weight_parts(t));}i=i+1;}if split {pt_split=vp_buffer(split*4);}
     pl_print(1,"Native gradient buffers allocated.\n");pt_zero=pt_launch(0,pt_gradient_arena,pt_gradient_count,100,0,0,0);pt_backward=h_vec();i=load64(vp_nodes);
     while i {i=i-1;let t=vp_at(vp_nodes,i);let op=load64(t+24);

@@ -3,6 +3,8 @@ import "observation.flex";
 import "scene.flex";
 global ve_process=0;
 global ve_policy=0;
+// Raw policies answer with all seven action logits, so the caller can sample its action.
+global ve_policy_raw=0;
 global ve_sequence=0;
 global ve_state=0;
 global ve_json=0;
@@ -40,6 +42,8 @@ global ve_frame_checks=0;
 global ve_lean=0;
 // Wheel-only odometry skips the simulator's per-step visual feature matching.
 global ve_wheel_odometry=0;
+// Wrist pitch of the simulator's search pose (0 keeps its default of 75 degrees).
+global ve_camera_pitch=0;
 global ve_rooms=0;
 global ve_room_count=0;
 global ve_start_room=0;
@@ -53,7 +57,7 @@ global ve_oracle_duration=0;
 fn ve_open_buffers() {
     ve_rgb=alloc(640*480*3);ve_json=alloc(65537);ve_image=alloc(ve_image_bytes);ve_feedback=alloc(28);ve_previous=alloc(8);ve_request=alloc(64);
     // Data audits can replay histories from either supported memory width.
-    ve_policy_input=alloc((ve_image_bytes+7+256)*4);ve_policy_output=alloc((2+256)*4);ve_pose=alloc(24);ve_initial_pose=alloc(24);ve_arm=alloc(32);ve_rooms=alloc(64*32);vc_pixels_init();return 0;
+    ve_policy_input=alloc((ve_image_bytes+7+256)*4);ve_policy_output=alloc((7+256)*4);ve_pose=alloc(24);ve_initial_pose=alloc(24);ve_arm=alloc(32);ve_rooms=alloc(64*32);vc_pixels_init();return 0;
 }
 fn ve_policy_open(directory,output) {
     let root=vc_json_file(vc_path(directory,"receipt.json"));let weights=vc_string(pj_string_field(root,"weightsSHA256"));let binary=vc_string(pj_string_field(root,"binarySHA256"));
@@ -62,8 +66,8 @@ fn ve_policy_open(directory,output) {
     let kernels=pj_get(root,"kernels");let child=pj_value(kernels);
     while child {let name=load64(child+32);vc_require(!pl_starts(name,"/") && !pl_starts(name,"..") && pl_equal(vc_file_sha(vc_path(vc_path(directory,"kernels"),name)),pj_value(child)),"policy kernel hash mismatch");child=load64(child+24);}
     vc_require(pj_kind(kernels)==4 && pj_count(kernels)>=5,"policy kernel receipt is missing");
-    let args=vc_args();vc_add(args,vc_path(directory,"policy"));vc_add(args,vc_path(directory,"weights.bin"));vc_add(args,weights);vc_add(args,vc_path(directory,"kernels"));vc_add(args,"3");
-    ve_policy=vc_spawn(args,vc_path(output,"policy.log"),0,1);let marker=alloc(8);vc_io(1,load64(ve_policy+8),marker,8);let expected="VCPOL001";if ve_image_side==128 {expected="VCP12801";}if ve_memory_width==256 {expected="VCP25601";}vc_require(load64(marker)==load64(expected),"invalid policy handshake or dimensions");return weights;
+    let args=vc_args();vc_add(args,vc_path(directory,"policy"));vc_add(args,vc_path(directory,"weights.bin"));vc_add(args,weights);vc_add(args,vc_path(directory,"kernels"));vc_add(args,"3");if ve_policy_raw {vc_add(args,"--raw");}
+    ve_policy=vc_spawn(args,vc_path(output,"policy.log"),0,1);let marker=alloc(8);vc_io(1,load64(ve_policy+8),marker,8);let expected="VCPOL001";if ve_image_side==128 {expected="VCP12801";}if ve_memory_width==256 {expected="VCP25601";}if ve_policy_raw {expected="VCPRAW01";if ve_image_side==128 {expected="VCR12801";}if ve_memory_width==256 {expected="VCR25601";}}vc_require(load64(marker)==load64(expected),"invalid policy handshake or dimensions");return weights;
 }
 fn ve_receive() {
     let header=alloc(32);vc_io(1,load64(ve_process+8),header,32);ve_json_size=load64(header);
@@ -130,7 +134,7 @@ fn ve_open(binary,output,scene,template,seed,hidden) {
     ve_reference(scene,vc_path(world,"environment.bin"),hidden);let args=vc_args();vc_add(args,binary);vc_add(args,"--hidden");vc_add(args,"--case-file");vc_add(args,vc_path(world,"case.json"));vc_add(args,"--environment");vc_add(args,vc_path(world,"environment.bin"));
     vc_add(args,"--steps");vc_add(args,"1000000");vc_add(args,"--bind");vc_add(args,"127.0.0.1:0");vc_add(args,"--agent-fd");vc_add(args,"3");vc_add(args,"--observer-distance-mm");vc_add(args,"2500");vc_add(args,"--tcp-view");
     if ve_teacher_oracle {vc_add(args,"--oracle-labels");}
-    if ve_wheel_odometry {vc_add(args,"--no-visual-odometry");}
+    if ve_wheel_odometry {vc_add(args,"--no-visual-odometry");}if ve_camera_pitch {vc_add(args,"--camera-pitch");vc_add(args,vc_int(ve_camera_pitch));}
     if !ve_lean {vc_add(args,"--video");vc_add(args,vc_path(output,"mission.mp4"));vc_add(args,"--video-fps");vc_add(args,"5");vc_add(args,"--record");vc_add(args,vc_path(output,"trace.jsonl"));
         vc_add(args,"--capture");vc_add(args,vc_path(output,"outcome.png"));vc_add(args,"--search-output");vc_add(args,vc_path(output,"sensor"));}
     ve_process=vc_spawn(args,vc_path(output,"native.log"),0,1);ve_sequence=0;ve_steps=0;ve_found=0;ve_passed=0;ve_path=0;ve_excursion=0;ve_search_excursion=0;ve_left_room=0;ve_frame_checks=0;ve_oracle_step=-2;ve_oracle_duration=0;
@@ -153,8 +157,8 @@ fn ve_step(action) {
     ve_steps=ve_steps+1;ve_record(action);return ve_passed;
 }
 fn ve_action(hidden,blackout) {
-    vc_policy_input_dimensions(ve_image,ve_feedback,hidden,ve_policy_input,blackout,ve_image_bytes,ve_memory_width);vc_io(0,load64(ve_policy+8),ve_policy_input,(ve_image_bytes+7+ve_memory_width)*4);vc_io(1,load64(ve_policy+8),ve_policy_output,(2+ve_memory_width)*4);
-    vc_copy(hidden,ve_policy_output+8,ve_memory_width*4);return ve_policy_output;
+    vc_policy_input_dimensions(ve_image,ve_feedback,hidden,ve_policy_input,blackout,ve_image_bytes,ve_memory_width);vc_io(0,load64(ve_policy+8),ve_policy_input,(ve_image_bytes+7+ve_memory_width)*4);let width=2;if ve_policy_raw {width=7;}vc_io(1,load64(ve_policy+8),ve_policy_output,(width+ve_memory_width)*4);
+    vc_copy(hidden,ve_policy_output+width*4,ve_memory_width*4);return ve_policy_output;
 }
 fn ve_oracle_action(x,y,heading,action) {
     vc_require(ve_teacher_oracle,"oracle labels are unavailable to a student");ve_sequence=ve_sequence+1;pb_zero(ve_request,64);store64(ve_request,4);store64(ve_request+8,ve_sequence);store64(ve_request+16,x);store64(ve_request+24,y);store64(ve_request+32,heading);

@@ -8,9 +8,13 @@ global ps_seek_consumed = -1;
 global ps_seek_detection_step = -1;
 global ps_seek_detection = 0;
 global ps_seek_return_observations = 0;
+// Fetch game: a completed return counts a delivery and play continues until the next placement.
+global ps_seek_deliver = 0;
+global ps_seek_delivered = 0;
+global ps_seek_deliveries = 0;
 
 fn ps_seek_reset() {
-    ps_seek_found = 0; ps_seek_consumed = -1; ps_seek_detection_step = -1; ps_seek_return_observations = 0;
+    ps_seek_found = 0; ps_seek_consumed = -1; ps_seek_detection_step = -1; ps_seek_return_observations = 0; ps_seek_delivered = 0; ps_seek_deliveries = 0;
     if !ps_seek_detection { ps_seek_detection = alloc(128); } pb_zero(ps_seek_detection, 128); return 1;
 }
 fn ps_seek_detection_matches_body(detection, body) {
@@ -68,13 +72,14 @@ fn ps_seek_observe() {
     if !ps_seek_found {
         let i = 0; while i < ps_brick_count && !ps_seek_found { ps_seek_consume(ps_brick_records + i * 128); i = i + 1; }
     }
-    if ps_seek_found && dock && ps_dock_stable >= 3 && ps_total > ps_seek_detection_step {
+    if ps_seek_found && !ps_seek_delivered && dock && ps_dock_stable >= 3 && ps_total > ps_seek_detection_step {
         let dx = f64_sub(load64(ps_dock_frame + 96), ps_pose_x()); let dy = f64_sub(load64(ps_dock_frame + 104), ps_pose_y());
         let distance = f64_sqrt(f64_add(f64_mul(dx, dx), f64_mul(dy, dy)));
         let error = f64_magnitude(pb_wrap_pi(f64_sub(f64_atan2(dy, dx), ps_pose_heading())));
         let drive = pb_robot_drive(ps_robot);
         if f64_ge(distance, ps_number(30, 100)) && f64_le(distance, ps_number(65, 100)) && f64_le(error, pb_radians(f64_from_i64(35))) && !load64(drive + 48) && !load64(drive + 56) {
             ps_seek_return_observations = ps_seek_return_observations + 1;
+            if ps_seek_return_observations >= 3 && ps_seek_deliver { ps_seek_delivered = 1; ps_seek_deliveries = ps_seek_deliveries + 1; ps_seek_return_observations = 0; return 1; }
             if ps_seek_return_observations >= 3 {
                 ps_case_reason = "one RGB brick approached within 35 cm and stopped facing the freshly observed box";
                 ps_case_passed = 1; ps_case_phase(12); pr_stop(ps_app, ps_time); ps_discovery_finish(ps_case_reason, 0); return 1;
@@ -93,9 +98,9 @@ fn ps_seek_request(b) {
 }
 fn ps_seek_observation(b) {
     if !ps_seek_enabled { return 0; }
-    pl_text(b, ",\"findReturn\":{\"phase\":"); if ps_case_passed { pj_text(b, "docked"); } else if ps_seek_found { pj_text(b, "return"); } else { pj_text(b, "search"); }
+    pl_text(b, ",\"findReturn\":{\"phase\":"); if ps_case_passed { pj_text(b, "docked"); } else if ps_seek_delivered { pj_text(b, "delivered"); } else if ps_seek_found { pj_text(b, "return"); } else { pj_text(b, "search"); }
     pl_text(b, ",\"consumedIndex\":"); pl_int(b, ps_seek_consumed); pl_text(b, ",\"detectionStep\":"); pl_int(b, ps_seek_detection_step);
-    pl_text(b, ",\"maximumBrickDistanceM\":0.35");
+    pl_text(b, ",\"deliveries\":"); pl_int(b, ps_seek_deliveries); pl_text(b, ",\"maximumBrickDistanceM\":0.35");
     pl_text(b, ",\"detectionPixelBox\":["); let i = 0; while i < 4 { if i { pl_char(b, 44); } pl_int(b, load64(ps_seek_detection + i * 8)); i = i + 1; }
     pl_text(b, "],\"detectedPoint\":["); i = 0; while i < 3 { if i { pl_char(b, 44); } pl_float(b, load64(ps_seek_detection + 32 + i * 8)); i = i + 1; }
     pl_text(b, "],\"stableReturnObservations\":"); pl_int(b, ps_seek_return_observations); return pl_char(b, 125);

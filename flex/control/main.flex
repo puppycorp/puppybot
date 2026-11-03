@@ -7,9 +7,9 @@ fn vw_usage() {
     pl_print(1,"Visual control (native Flexscript)\n  flex/control.sh build\n");
     pl_print(1,"  flex/control.sh test [NEW_OUTPUT_DIRECTORY]\n");
     pl_print(1,"  flex/control.sh collect --output DIR [--episodes 64 --validation 8 --seed 101000 --horizon 300 --curriculum mixed|easy|hidden --scene DIR]\n");
-    pl_print(1,"  flex/control.sh train --data FILE --output DIR [--epochs 80 --batch 2 --learning-rate-micros 700 --from-scratch --categorical --phase-gated --balanced-phase --return-weight-milli WEIGHT --contact-weight-milli WEIGHT --drop-drive-feedback-milli RATE --event-aux --memory-pose DIR --target-position DIR|--target-heatmap DIR --heat-actor --heat-stop-gradient --heat-absence --phase-from-valid --mirror-augment --stop-weight-one --checkpoint-every 10 --large-model --focus-history INDEX --focus-copies COUNT --max-optimizer-steps COUNT --reversal-penalty-milli WEIGHT --phase-consistency-milli WEIGHT]\n");
-    pl_print(1,"  flex/control.sh collect --chase --scene-catalog DIR --output DIR [--episodes 128 --validation 8 --seed 101000 --horizon 300 --lean --wheel-odometry]\n");
-    pl_print(1,"  flex/control.sh run --chase (--policy DIR | --chase-forward) --scene-catalog DIR --output DIR [--episodes 16 --seed 110000 --horizon 300 --blackout --large-model --lean --wheel-odometry]\n");
+    pl_print(1,"  flex/control.sh train --data FILE --output DIR [--epochs 80 --batch 2 --learning-rate-micros 700 --from-scratch --categorical --phase-gated --balanced-phase --return-weight-milli WEIGHT --contact-weight-milli WEIGHT --drop-drive-feedback-milli RATE --carry-cue --search-cue --event-aux --memory-pose DIR --memory-map FILE --target-position DIR|--target-heatmap DIR --heat-actor --heat-stop-gradient --heat-absence --phase-from-valid --mirror-augment --stop-weight-one --transition-weight-one --checkpoint-every 10 --large-model --focus-history INDEX --focus-copies COUNT --max-optimizer-steps COUNT --reversal-penalty-milli WEIGHT --phase-consistency-milli WEIGHT]\n");
+    pl_print(1,"  flex/control.sh collect --chase|--fetch --scene-catalog DIR --output DIR [--episodes 128 --validation 8 --seed 101000 --horizon 300 --lean --wheel-odometry --camera-pitch 30..90 --far-bricks --level 1..5 --explore-teacher|--sweep-teacher --record-map --door-pass --door-early --action-noise PERCENT --policy DIR --self-imitate STEPS --sample-actions --straight-bias HUNDREDTHS --straight-after STEPS]\n");
+    pl_print(1,"  flex/control.sh run --chase|--fetch (--policy DIR | --chase-forward) --scene-catalog DIR --output DIR [--episodes 16 --seed 110000 --horizon 300 --blackout --hide-carry --search-cue --large-model --lean --wheel-odometry --camera-pitch 30..90 --level 1..5 --record-memory --straight-bias HUNDREDTHS --straight-after STEPS --ensemble DIR... --ensemble-until STEPS]\n");
     pl_print(1,"  flex/control.sh init --output DIR [--seed 7]\n");
     pl_print(1,"  flex/control.sh run --policy DIR --output DIR [--episodes 8 --seed 110000 --horizon 150 --blackout --hidden-target --scene DIR --image-128 --large-model]\n");
     pl_print(1,"  flex/control.sh verify --run EPISODE_DIR --policy POLICY_DIR --output DIR [--blackout --image-128 --large-model]\n");
@@ -34,13 +34,25 @@ fn main(argc,argv) {
         else if pl_equal(flag,"--heat-absence") {vc_require(!vw_heat_absence,"duplicate heat-absence option");vw_heat_absence=1;}
         else if pl_equal(flag,"--phase-from-valid") {vc_require(!vw_phase_from_valid,"duplicate phase supervision option");vw_phase_from_valid=1;}
         else if pl_equal(flag,"--mirror-augment") {vc_require(!vw_mirror_augment,"duplicate mirror augmentation option");vw_mirror_augment=1;}
-        else if pl_equal(flag,"--stop-weight-one") {vc_require(!vw_stop_weight_one,"duplicate stop weight option");vw_stop_weight_one=1;}
+        else if pl_equal(flag,"--stop-weight-one") {vc_require(!vw_stop_weight_one,"duplicate stop weight option");vw_stop_weight_one=1;}else if pl_equal(flag,"--transition-weight-one") {vc_require(!vw_transition_weight_one,"duplicate transition weight option");vw_transition_weight_one=1;}
         else if pl_equal(flag,"--blackout") {vw_blackout=1;}
         else if pl_equal(flag,"--image-128") {vc_require(ve_image_side==84,"duplicate image resolution option");ve_image_side=128;ve_image_bytes=49152;}
         else if pl_equal(flag,"--large-model") {vc_require(!vw_large_model,"duplicate large-model option");vw_large_model=1;ve_memory_width=256;}
         else if pl_equal(flag,"--hidden-target") {vw_hidden=1;}
         else if pl_equal(flag,"--chase") {vw_chase=1;}
         else if pl_equal(flag,"--chase-forward") {vw_chase=1;vw_chase_forward=1;}
+        else if pl_equal(flag,"--fetch") {vc_require(!vw_fetch,"duplicate fetch option");vw_chase=1;vw_fetch=1;}
+        else if pl_equal(flag,"--hide-carry") {vc_require(!vw_hide_carry,"duplicate hide-carry option");vw_hide_carry=1;}
+        else if pl_equal(flag,"--far-bricks") {vc_require(!vw_far_bricks,"duplicate far-bricks option");vw_far_bricks=1;}
+        else if pl_equal(flag,"--explore-teacher") {vc_require(!vw_explore,"one search teacher option at most");vw_explore=1;}
+        else if pl_equal(flag,"--door-early") {vc_require(!vw_door_early,"duplicate door-early option");vw_door_early=1;}
+        else if pl_equal(flag,"--door-pass") {vc_require(!vw_door_pass,"duplicate door-pass option");vw_door_pass=1;}
+        else if pl_equal(flag,"--sweep-teacher") {vc_require(!vw_explore,"one search teacher option at most");vw_explore=2;}
+        else if pl_equal(flag,"--record-memory") {vc_require(!vw_record_memory,"duplicate record-memory option");vw_record_memory=1;}
+        else if pl_equal(flag,"--record-map") {vc_require(!vw_record_map,"duplicate record-map option");vw_record_map=1;}
+        else if pl_equal(flag,"--carry-cue") {vc_require(!vw_carry_cue,"duplicate carry cue option");vw_carry_cue=1;}
+        else if pl_equal(flag,"--search-cue") {vc_require(!vw_search_cue,"duplicate search cue option");vw_search_cue=1;}
+        else if pl_equal(flag,"--sample-actions") {vc_require(!vw_sample_actions,"duplicate sample-actions option");vw_sample_actions=1;ve_policy_raw=1;}
         else if pl_equal(flag,"--lean") {vc_require(!ve_lean,"duplicate lean option");ve_lean=1;}
         else if pl_equal(flag,"--wheel-odometry") {vc_require(!ve_wheel_odometry,"duplicate wheel odometry option");ve_wheel_odometry=1;}
         else if pl_equal(flag,"--label-rollin") {vw_label_rollin=1;}
@@ -52,10 +64,12 @@ fn main(argc,argv) {
             i=i+1;vc_require(i<argc,"missing option value");let value=load64(argv+i*8);
             if pl_equal(flag,"--output") {vw_output=vc_absolute(value);}
             else if pl_equal(flag,"--policy") || pl_equal(flag,"--initial-policy") {vw_policy=vc_absolute(value);}
+            else if pl_equal(flag,"--ensemble") {if !vw_ensemble {vw_ensemble=alloc(8*8);}vc_require(vw_ensemble_count<8,"at most 8 ensemble members");store64(vw_ensemble+vw_ensemble_count*8,vc_absolute(value));vw_ensemble_count=vw_ensemble_count+1;ve_policy_raw=1;}
             else if pl_equal(flag,"--scene") {vw_scene=vc_absolute(value);}
             else if pl_equal(flag,"--scene-catalog") {vw_catalog=vc_absolute(value);}
             else if pl_equal(flag,"--data") {vw_data=vc_absolute(value);}
             else if pl_equal(flag,"--memory-pose") {vc_require(!vw_pose_targets,"duplicate memory-pose directory");vw_pose_targets=vc_absolute(value);}
+            else if pl_equal(flag,"--memory-map") {vc_require(!vw_map_targets,"duplicate memory-map file");vw_map_targets=vc_absolute(value);}
             else if pl_equal(flag,"--target-position") {vc_require(!vw_target_positions,"duplicate target-position directory");vw_target_positions=vc_absolute(value);}
             else if pl_equal(flag,"--target-heatmap") {vc_require(!vw_target_positions,"duplicate target-position directory");vw_target_positions=vc_absolute(value);vw_target_heatmap=1;}
             else if pl_equal(flag,"--run") {vw_run_input=vc_absolute(value);}
@@ -71,6 +85,13 @@ fn main(argc,argv) {
                 else if pl_equal(flag,"--audit-start") {vc_require(n<=1023,"audit start exceeds 1023");va_audit_start=n;}
                 else if pl_equal(flag,"--audit-count") {vc_require(n>=1 && n<=1024,"audit count must be in 1..1024");va_audit_count=n;}
                 else if pl_equal(flag,"--horizon") {vc_require(n>=1 && n<=1000,"horizon must be in 1..1000");vw_horizon=n;}
+                else if pl_equal(flag,"--level") {vc_require(n>=1 && n<=5 && !vw_level,"level must be in 1..5, once");vw_level=n;}
+                else if pl_equal(flag,"--camera-pitch") {vc_require(n>=30 && n<=90 && !ve_camera_pitch,"camera pitch must be 30..90 degrees, once");ve_camera_pitch=n;}
+                else if pl_equal(flag,"--straight-bias") {vc_require(n>=1 && n<=1000 && !vw_straight_bias,"straight bias must be 1..1000 hundredths, once");vw_straight_bias=n;ve_policy_raw=1;}
+                else if pl_equal(flag,"--straight-after") {vc_require(n>=1 && n<=1000 && !vw_straight_after,"straight-after must be 1..1000 steps, once");vw_straight_after=n;}
+                else if pl_equal(flag,"--ensemble-until") {vc_require(n>=1 && n<=1000 && !vw_ensemble_until,"ensemble-until must be 1..1000 steps, once");vw_ensemble_until=n;}
+                else if pl_equal(flag,"--action-noise") {vc_require(n>=1 && n<=50 && !vw_action_noise,"action noise must be 1..50 percent, once");vw_action_noise=n;}
+                else if pl_equal(flag,"--self-imitate") {vc_require(n>=1 && n<=1000 && !vw_self_keep,"self-imitate keeps cycles of 1..1000 steps, once");vw_self_keep=n;}
                 else if pl_equal(flag,"--epochs") {vc_require(n<=10000,"epoch limit exceeded");vw_epochs=n;}
                 else if pl_equal(flag,"--checkpoint-every") {vc_require(n>=1 && n<=10000 && !vw_checkpoint_every,"invalid or duplicate checkpoint interval");vw_checkpoint_every=n;}
                 else if pl_equal(flag,"--batch") {vc_require(n>=1 && n<=8,"batch must be in 1..8");vw_batch=n;}
@@ -93,9 +114,27 @@ fn main(argc,argv) {
     vc_require(!vw_mirror_augment || pl_equal(command,"train"),"mirror augmentation is training-only");
     vc_require(!vw_chase || pl_equal(command,"collect") || pl_equal(command,"run"),"the chase game is only valid for collect and run");
     vc_require(!vw_chase_forward || pl_equal(command,"run"),"the always-forward chase baseline is only valid for run");
+    vc_require(!vw_carry_cue || pl_equal(command,"train"),"carry cue training is training-only");
+    vc_require(!vw_hide_carry || (vw_fetch && pl_equal(command,"run")),"hide-carry is a fetch run ablation");
+    vc_require(!vw_search_cue || (pl_equal(command,"train") && vw_carry_cue) || (vw_fetch && pl_equal(command,"run") && !vw_hide_carry),"search cue is for train with --carry-cue or a fetch run without --hide-carry");
+    vc_require(!vw_far_bricks || (vw_fetch && pl_equal(command,"collect")),"far-bricks is a fetch collection option");
+    vc_require(!vw_explore || (vw_fetch && pl_equal(command,"collect")),"explore-teacher and sweep-teacher are fetch collection options");
+    vc_require(!vw_record_memory || (vw_fetch && pl_equal(command,"run") && !vw_chase_forward),"record-memory is a fetch policy run option");
+    vc_require(!vw_record_map || (vw_fetch && pl_equal(command,"collect") && vw_explore==1),"record-map is a fetch collection option with --explore-teacher");
+    vc_require(!vw_action_noise || (vw_fetch && pl_equal(command,"collect")),"action noise is a fetch collection option");
+    vc_require(!vw_self_keep || (vw_fetch && pl_equal(command,"collect") && vw_policy),"self-imitate is a fetch collection option with --policy");
+    vc_require(!vw_sample_actions || (vw_fetch && pl_equal(command,"collect") && vw_policy && !vw_self_keep && !vw_action_noise),"sample-actions is a fetch collection option with --policy, without self-imitation or noise");
+    vc_require(!vw_level || (vw_fetch && !vw_far_bricks && (pl_equal(command,"collect") || pl_equal(command,"run"))),"level is a fetch collect/run placement option, without far-bricks");
     vc_require(!ve_lean || pl_equal(command,"collect") || pl_equal(command,"run"),"lean recording is only valid for collect and run");
     vc_require(!ve_wheel_odometry || vw_chase,"wheel-only odometry is only valid for the chase game");
-    vc_require(!vw_stop_weight_one || pl_equal(command,"train"),"stop weight is training-only");
+    vc_require(!vw_straight_bias || (vw_chase && vw_policy && !vw_sample_actions && (pl_equal(command,"collect") || pl_equal(command,"run"))),"straight bias is a chase collect/run option with --policy, without sample-actions");
+    vc_require(!vw_door_pass || (vw_explore==2 && vw_level>=4),"door-pass is a sweep-teacher option for two-room levels 4 and 5");
+    vc_require(!vw_ensemble_count || (vw_chase && vw_policy && pl_equal(command,"run") && !vw_straight_bias && !vw_record_memory),"ensemble is a chase run option with --policy, without straight-bias or record-memory");
+    vc_require(!vw_door_early || vw_door_pass,"door-early needs --door-pass");
+    vc_require(!vw_straight_after || vw_straight_bias,"straight-after needs --straight-bias");
+    vc_require(!vw_ensemble_until || vw_ensemble_count,"ensemble-until needs --ensemble");
+    vc_require(!ve_camera_pitch || (vw_chase && (pl_equal(command,"collect") || pl_equal(command,"run"))),"camera pitch is a chase collect/run option");
+    vc_require(!vw_stop_weight_one || pl_equal(command,"train"),"stop weight is training-only");vc_require(!vw_transition_weight_one || pl_equal(command,"train"),"transition weight is training-only");
     vc_require((vw_focus_history<0 && !vw_focus_copies) || (pl_equal(command,"train") && vw_focus_history>=0 && vw_focus_copies>=1),"focus requires --focus-history and --focus-copies during training");
     vc_require(!vw_max_optimizer_steps || pl_equal(command,"train"),"max optimizer steps is only valid during training");
     vc_require(!vw_reversal_milli || pl_equal(command,"train"),"reversal penalty is only valid during training");
@@ -107,6 +146,7 @@ fn main(argc,argv) {
     vc_require(!vw_allow_incomplete || pl_equal(command,"correct") || pl_equal(command,"verify-data"),"incomplete-data opt-in is only valid for correction collection or data verification");
     vc_require(!vw_coverage_teacher || pl_equal(command,"correct"),"coverage teacher is only valid for correction collection");
     vc_require(!vw_pose_targets || pl_equal(command,"train"),"memory-pose supervision is training-only");
+    vc_require(!vw_map_targets || pl_equal(command,"train"),"memory-map supervision is training-only");
     vc_require(!vw_target_positions || pl_equal(command,"train"),"target-position supervision is training-only");
     vc_require(!vw_heat_actor || (pl_equal(command,"train") && vw_target_heatmap && vw_target_positions),"heat-actor requires target-heatmap training");
     vc_require(!vw_heat_stop_gradient || vw_heat_actor,"heat-stop-gradient requires a heat actor");

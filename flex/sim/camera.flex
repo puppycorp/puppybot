@@ -2,6 +2,8 @@
 // camera mount or a virtual front-camera calibration.
 global ps_camera_drive_mode = 0;
 global ps_camera_drive_point = 0;
+// Wrist pitch of the compact search pose; --camera-pitch lowers it to look further ahead.
+global ps_camera_pitch = 75;
 
 fn ps_camera_compact_point(point, angle, radial) {
     let frame = ps_asset + 64 + ps_groups * 256 + 24; let c = f64_cos(ps_pose_heading()); let s = f64_sin(ps_pose_heading());
@@ -14,7 +16,7 @@ fn ps_camera_compact_point(point, angle, radial) {
 fn ps_camera_compact_target() {
     if !ps_pickup_targets { ps_pickup_targets = alloc(32); } if !ps_camera_drive_point { ps_camera_drive_point = alloc(24); }
     ps_camera_compact_point(ps_camera_drive_point, ps_pose_heading(), ps_number(16, 1000));
-    if !ps_arm_target(ps_camera_drive_point, 370, 75) { return 0; } ps_camera_drive_mode = 1; ps_pickup_stable = 0; return 1;
+    if !ps_arm_target(ps_camera_drive_point, 370, ps_camera_pitch) { return 0; } ps_camera_drive_mode = 1; ps_pickup_stable = 0; return 1;
 }
 fn ps_camera_drive_solve(raised) {
     if !ps_pickup_targets { ps_pickup_targets = alloc(32); }

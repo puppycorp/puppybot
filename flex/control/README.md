@@ -307,7 +307,9 @@ actor input. The checkpoint receipt records the weights.
 `train --stop-weight-one` is an experimental alternative that removes the
 fivefold stopped-target multiplier while keeping the eightfold speed-transition
 multiplier. It changes training only; compare complete episodes before deciding
-whether it helps.
+whether it helps. `train --transition-weight-one` likewise removes the eightfold
+speed-transition multiplier: in rocking-in-place teacher loops every frame is a
+transition, so the multiplier gives them extra weight.
 `train --focus-history INDEX --focus-copies COUNT` optionally repeats one
 zero-based fitting history `COUNT` times per epoch. It randomly omits other
 fitting histories to keep the number of optimizer updates unchanged; validation
@@ -653,6 +655,24 @@ results: no video, trace, sensor PNGs, actor files or frame digests, which
 simulator with `--no-visual-odometry`, skipping per-step visual feature
 matching. Together they make a game about 2.4 times faster for one process, with
 byte-identical training data and identical test scores in the chase game.
+
+Fetch options (chase collect and run unless noted; results in
+`datasets/visual-control/chase-v1/diary`):
+
+| Option | Effect |
+|---|---|
+| `--level 1..5` | Brick placement: in view, just off view, same room out of view, doorway drill, other room (4 and 5 swapped on 2 Nov 2026) |
+| `--explore-teacher`, `--sweep-teacher` | Search teacher; the sweep teacher decides from its view and a short memory |
+| `--camera-pitch 30..90` | Wrist pitch of the compact search pose (default 75; 82 is the highest with an arm solution) |
+| `--action-noise PERCENT` | Collect: replace that share of executed teacher steps, labels stay the teacher's |
+| `--self-imitate STEPS` | Collect with `--policy`: label the student's own actions on bricks reached within STEPS, skipping noisy steps |
+| `--sample-actions` | Collect with `--policy`: sample from the policy's output and store discounted returns in the row weights |
+| `--straight-bias HUNDREDTHS`, `--straight-after STEPS` | With `--policy`: raise the straight-ahead class, optionally only after that long without the brick |
+| `--ensemble DIR`, `--ensemble-until STEPS` | Run with `--policy`: drive the most likely class of the mean of several policies, each with its own memory; optionally the main policy alone after that long without the brick |
+| `--door-pass`, `--door-early` | Sweep teacher, levels 4–5: steer at the doorway centre instead of the grid route; also take a doorway in view during the first circle |
+| `--search-cue` | Train with `--carry-cue`, and run: the carry-cue input is 1 while carrying, otherwise minus the steps since the last pickup, delivery or start over 200, down to -1 |
+| `--record-map` | Collect with `--explore-teacher`: also write `map.bin` (`PVMAP001`), the teacher's 12x12 coverage map around the robot for each step (40 cm cells, row 0 farthest ahead; 1 seen, 0 not yet, 2 no floor for a brick). The chase aggregator merges these maps beside `data.bin` |
+| `--memory-map FILE` | Train only: a training-only `critic.map` readout of GRU memory learns that map (binary cross-entropy on unmasked cells, logged as `mapTrainingLoss` and `mapValidationLoss`); the exported actor is unchanged and checkpoint selection still uses the action loss |
 
 ## Native tests and limits
 

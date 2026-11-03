@@ -21,7 +21,7 @@ if [[ ! -s build/flex/sim/puppybot.bin ]]; then
     exit 1
 fi
 
-mkdir -p build/flex/control/kernels build/flex/control/compiler-source build/flex/sim
+mkdir -p build/flex/control/kernels build/flex/control/kernels-rdna build/flex/control/compiler-source build/flex/sim
 exec 9>build/flex/control/build.lock
 flock 9
 compile_native() {
@@ -34,18 +34,35 @@ compile_kernel() {
     "$compiler" --target ptx "$input" -o "$output.tmp.$$"
     mv -f "$output.tmp.$$" "$output"
 }
+# The direct RDNA encoder lacks correctly rounded FP32 divide/sqrt. Staged
+# copies use the exact integer-corrected operations.
+compile_rdna_kernel() {
+    local input="$1" output="$2"
+    local staged="build/flex/control/kernels-rdna/$(basename "$input")"
+    sed -e "s#^import \".*ml/kernels/ops.flex\";#import \"$project_dir/flex/ml/kernels/ops-rdna.flex\";#" \
+        -e '/^fn gpu_f32_sqrt(value) /d' -e 's/gpu_f32_sqrt(/vk_sqrt_exact(/g' \
+        "$input" > "$staged"
+    if grep -q 'gpu_f32_sqrt\|ml/kernels/ops.flex' "$staged"; then
+        echo "RDNA staging left an unsupported operation in $input." >&2
+        exit 1
+    fi
+    "$compiler" --target rdna-gfx1201 "$staged" -o "$output.tmp.$$"
+    mv -f "$output.tmp.$$" "$output"
+}
 stage="$project_dir/build/flex/control/compiler-source"
 for directory in compiler vm lib; do
     mkdir -p "$stage/$directory"
     cp -a "$dependency/$directory/." "$stage/$directory/"
 done
-patch_file="$project_dir/flex/compiler/gpu-inference.patch"
-if patch --batch --dry-run --forward -p1 -d "$stage" -i "$patch_file" >/dev/null 2>&1; then
-    patch --batch --forward -p1 -d "$stage" -i "$patch_file" >/dev/null
-elif ! patch --batch --dry-run --reverse -p1 -d "$stage" -i "$patch_file" >/dev/null 2>&1; then
-    echo 'GPU compiler patch does not match the selected dependency.' >&2
-    exit 1
-fi
+# rdna.patch adds the direct RDNA encoder's 32-bit shared-memory loads and stores.
+for patch_file in "$project_dir/flex/compiler/gpu-inference.patch" "$project_dir/flex/compiler/rdna.patch"; do
+    if patch --batch --dry-run --forward -p1 -d "$stage" -i "$patch_file" >/dev/null 2>&1; then
+        patch --batch --forward -p1 -d "$stage" -i "$patch_file" >/dev/null
+    elif ! patch --batch --dry-run --reverse -p1 -d "$stage" -i "$patch_file" >/dev/null 2>&1; then
+        echo "GPU compiler patch $(basename "$patch_file") does not match the selected dependency." >&2
+        exit 1
+    fi
+done
 compiler="$project_dir/build/flex/control/compiler"
 "$bootstrap" "$stage/compiler/main.flex" -o "$compiler.tmp"
 mv -f "$compiler.tmp" "$compiler"
@@ -54,6 +71,16 @@ mv -f "$compiler.tmp" "$compiler"
 printf 'import "%s/lib/device.flex";\n' "$dependency" > build/flex/pup-device.flex
 printf 'import "%s/libs/ml/pup/parser.flex";\n' "$dependency" > build/flex/pup-parser.flex
 printf 'import "%s/libs/ml/pup/gpu/kernels/ops-body.flex";\n' "$dependency" > build/flex/pup-kernel-ops.flex
+sed -e '/^lowering vk_div "f32.div";$/d' \
+    -e 's/^fn vk_div(a,b) {return vk_pack_f32(f64_div(vk_unpack_f32(a),vk_unpack_f32(b)));}$/fn vk_div(a,b) {return vk_div_exact(a,b);}/' \
+    -e 's/^fn vk_quotient(a,b) {$/fn vk_quotient_f64(a,b) {/' \
+    -e 's/^fn gpu_f32_from_i64(value) {return \(.*\)}$/fn gpu_f32_from_i64(value) {if value>=0 \&\& value<0x1000000 {return vr_index_f32(value);}return \1}/' \
+    "$dependency/libs/ml/pup/gpu/kernels/ops-body.flex" > build/flex/pup-kernel-ops-rdna.flex
+if grep -q 'f32\.div\|f64_div' build/flex/pup-kernel-ops-rdna.flex || ! grep -q '^fn vk_quotient_f64(a,b) {$' build/flex/pup-kernel-ops-rdna.flex \
+    || ! grep -q '^fn gpu_f32_from_i64(value) {if value>=0' build/flex/pup-kernel-ops-rdna.flex; then
+    echo 'Kernel operations no longer match the RDNA divide and index adapters.' >&2
+    exit 1
+fi
 printf 'import "%s/libs/ml/pup/gpu/kernels/pack.flex";\n' "$dependency" > build/flex/pup-kernel-pack.flex
 compile_native flex/control/prepare.flex build/flex/control/prepare
 build/flex/control/prepare "$project_dir" "$dependency"
@@ -68,6 +95,8 @@ build/flex/control/compile-pup flex/control/model-categorical-heat.pup "build/fl
 mv -f "build/flex/pixel-control-categorical-heat-model.flex.tmp.$$" build/flex/pixel-control-categorical-heat-model.flex
 build/flex/control/compile-pup flex/control/model-categorical-heat-128.pup "build/flex/pixel-control-categorical-heat-128-model.flex.tmp.$$"
 mv -f "build/flex/pixel-control-categorical-heat-128-model.flex.tmp.$$" build/flex/pixel-control-categorical-heat-128-model.flex
+build/flex/control/compile-pup flex/control/model-categorical-large.pup "build/flex/pixel-control-categorical-large-model.flex.tmp.$$"
+mv -f "build/flex/pixel-control-categorical-large-model.flex.tmp.$$" build/flex/pixel-control-categorical-large-model.flex
 build/flex/control/compile-pup flex/control/model-categorical-heat-large.pup "build/flex/pixel-control-categorical-heat-large-model.flex.tmp.$$"
 mv -f "build/flex/pixel-control-categorical-heat-large-model.flex.tmp.$$" build/flex/pixel-control-categorical-heat-large-model.flex
 build/flex/control/compile-pup flex/control/model-categorical-heat-phase-large.pup "build/flex/pixel-control-categorical-heat-phase-large-model.flex.tmp.$$"
@@ -76,6 +105,7 @@ for operation in activation binary convolution join matmul; do
     source="$project_dir/build/flex/control/kernels/$operation.flex"
     printf 'import "%s/flex/ml/kernels/ops.flex";\nfn gpu_launch_word(index) {return 0;}\nfn kernel(index,input,output,count) {if index<count {gpu_store_u32(output+index*4,vk_%s(index,input,gpu_launch_word(0),gpu_launch_word(1),gpu_launch_word(2),gpu_launch_word(3)));}return 0;}\nfn main() {return 78;}\n' "$project_dir" "$operation" > "$source"
     compile_kernel "$source" "build/flex/control/kernels/$operation.ptx"
+    compile_rdna_kernel "$source" "build/flex/control/kernels/$operation.hip"
 done
 compile_kernel flex/control/gradients.flex build/flex/control/kernels/gradients.ptx
 compile_kernel flex/control/recurrence.flex build/flex/control/kernels/recurrence.ptx
@@ -84,12 +114,19 @@ compile_kernel flex/control/recurrence-registers.flex build/flex/control/kernels
 compile_kernel flex/control/recurrence-registers-backward.flex build/flex/control/kernels/recurrence-registers-backward.ptx
 compile_kernel flex/control/convolution-train.flex build/flex/control/kernels/convolution-train.ptx
 compile_kernel flex/control/binary-train.flex build/flex/control/kernels/binary-train.ptx
+for kernel in gradients recurrence recurrence-backward convolution-train binary-train matmul-train convolution-pairs; do
+    compile_rdna_kernel "flex/control/$kernel.flex" "build/flex/control/kernels/$kernel.hip"
+done
+# One weight per register exceeds RDNA's 256 VGPRs; these keep two per 64-bit local.
+compile_rdna_kernel flex/control/recurrence-registers-rdna.flex build/flex/control/kernels/recurrence-registers.hip
+compile_rdna_kernel flex/control/recurrence-registers-backward-rdna.flex build/flex/control/kernels/recurrence-registers-backward.hip
 compile_native flex/control/train.flex build/flex/control/trainer
 compile_native flex/control/infer.flex build/flex/control/policy
 compile_native flex/control/infer-categorical.flex build/flex/control/policy-categorical
 compile_native flex/control/infer-categorical-phase.flex build/flex/control/policy-categorical-phase
 compile_native flex/control/infer-categorical-heat.flex build/flex/control/policy-categorical-heat
 compile_native flex/control/infer-categorical-heat-128.flex build/flex/control/policy-categorical-heat-128
+compile_native flex/control/infer-categorical-large.flex build/flex/control/policy-categorical-large
 compile_native flex/control/infer-categorical-heat-large.flex build/flex/control/policy-categorical-heat-large
 compile_native flex/control/infer-categorical-heat-phase-large.flex build/flex/control/policy-categorical-heat-phase-large
 compile_native flex/sim/main.flex build/flex/control/simulator

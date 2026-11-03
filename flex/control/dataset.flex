@@ -7,6 +7,8 @@ fn vd_map(path) {let data=vc_map_bounded(path,8589934592);vc_require(vc_size<=VC
 fn vd_file_sha(path) {let data=vd_map(path);let bytes=vc_size;let checksum=vc_digest(data,bytes);syscall(11,data,bytes,0,0,0,0);return checksum;}
 fn vd_copy_file(source,target) {let data=vd_map(source);let bytes=vc_size;vc_write(target,data,bytes);syscall(11,data,bytes,0,0,0,0);return 0;}
 fn vd_valid_word(row,bytes) {if bytes>=48 {return pb_u32(row+44);}return pb_u32(row+40);}
+// Search cue: 1 while carrying, otherwise minus the steps since the last pickup, delivery or start over 200, down to -1.
+fn vd_search_cue(carry,steps) {if carry {return 0x3f800000;}return pb_f64_to_f32(f64_div(f64_from_i64(0-pb_min(steps,200)),f64_from_i64(200)));}
 fn vd_pack(path,output) {
     let data=vc_map(path);let bytes=vc_size;vc_require(bytes>=32,"invalid demonstration dataset");let row_bytes=vd_row_bytes(data);vc_require(row_bytes,"invalid demonstration dataset");let episodes=load64(data+8);let fit=load64(data+16);let length=load64(data+24);
     vc_require(episodes>=2 && episodes<=256 && fit>=1 && fit<episodes && length>=1 && length<=512 && bytes==32+episodes*length*(21168+row_bytes),"invalid demonstration dimensions");let longest=0;let valid=0;let supervised=0;let episode=0;

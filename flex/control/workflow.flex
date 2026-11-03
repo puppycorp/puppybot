@@ -16,6 +16,7 @@ global vw_rate=700;
 global vw_random=0;
 global vw_blackout=0;
 global vw_stop_weight_one=0;
+global vw_transition_weight_one=0;
 global vw_hidden=0;
 global vw_curriculum=0;
 global vw_catalog=0;
@@ -29,6 +30,8 @@ global vw_phase_from_valid=0;
 global vw_checkpoint_every=0;
 global vw_mirror_augment=0;
 global vw_pose_targets=0;
+// --memory-map FILE: coverage maps beside the training data (map-supervision.flex).
+global vw_map_targets=0;
 global vw_target_positions=0;
 global vw_target_heatmap=0;
 global vw_heat_actor=0;
@@ -44,6 +47,10 @@ global vw_balanced_phase=0;
 global vw_return_weight_milli=0;
 global vw_contact_weight_milli=0;
 global vw_feedback_drop_milli=0;
+// Fetch data carries a 0/1 carrying bit in the task-event feedback slot.
+global vw_carry_cue=0;
+// --search-cue: that slot also counts the search time while not carrying (vd_search_cue).
+global vw_search_cue=0;
 fn vw_binary(name) {return vc_path(vc_path(vw_root,"build/flex/control"),name);}
 fn vw_template() {return vc_path(vw_root,"flex/sim/cases/find-return-house.json");}
 fn vw_result(path,seed,success,checksum) {
@@ -92,11 +99,16 @@ fn vw_publish(output,weights,method,data,initial) {
     let target=vc_path(output,"weights.bin");if !pl_equal(target,weights) {vc_copy_file(weights,target);}
     vw_check_image_shape(target,ve_image_side);
     let mode=vw_actor_mode(target);let categorical=mode!=2;let memory=vw_memory_width(target);let heat_actor=vw_has_heat_actor(target);vc_require(!heat_actor || ((mode==7 || (mode==14 && memory==256)) && vw_has_heat_aux(target)),"heat actor requires a categorical policy and heatmap head");vc_require(ve_image_side==84 || (ve_image_side==128 && heat_actor),"unsupported policy image size or architecture");let binary="policy";let graph="flex/control/model.pup";let factory="build/flex/pixel-control-model.flex";if categorical {binary="policy-categorical";graph="flex/control/model-categorical.pup";factory="build/flex/pixel-control-categorical-model.flex";}if mode==14 {binary="policy-categorical-phase";graph="flex/control/model-categorical-phase.pup";factory="build/flex/pixel-control-categorical-phase-model.flex";}if heat_actor {binary="policy-categorical-heat";graph="flex/control/model-categorical-heat.pup";factory="build/flex/pixel-control-categorical-heat-model.flex";if ve_image_side==128 {binary="policy-categorical-heat-128";graph="flex/control/model-categorical-heat-128.pup";factory="build/flex/pixel-control-categorical-heat-128-model.flex";}}
-    if memory==256 {vc_require(ve_image_side==84 && heat_actor && (mode==7 || mode==14),"unsupported large policy architecture");binary="policy-categorical-heat-large";graph="flex/control/model-categorical-heat-large.pup";factory="build/flex/pixel-control-categorical-heat-large-model.flex";if mode==14 {binary="policy-categorical-heat-phase-large";graph="flex/control/model-categorical-heat-phase-large.pup";factory="build/flex/pixel-control-categorical-heat-phase-large-model.flex";}}
+    if memory==256 {vc_require(ve_image_side==84 && (mode==7 || (mode==14 && heat_actor)),"unsupported large policy architecture");binary="policy-categorical-heat-large";graph="flex/control/model-categorical-heat-large.pup";factory="build/flex/pixel-control-categorical-heat-large-model.flex";if !heat_actor {binary="policy-categorical-large";graph="flex/control/model-categorical-large.pup";factory="build/flex/pixel-control-categorical-large-model.flex";}if mode==14 {binary="policy-categorical-heat-phase-large";graph="flex/control/model-categorical-heat-phase-large.pup";factory="build/flex/pixel-control-categorical-heat-phase-large-model.flex";}}
     vc_copy_file(vw_binary(binary),vc_path(output,"policy"));vc_require(!syscall(90,vc_path(output,"policy"),448,0,0,0,0),"cannot mark policy executable");
     vc_copy_file(vc_path(vw_root,graph),vc_path(output,"model.pup"));vc_copy_file(vc_path(vw_root,factory),vc_path(output,"factory.flex"));
     let kernels=vc_path(output,"kernels");vc_mkdir(kernels);let names=vc_args();vc_add(names,"activation.ptx");vc_add(names,"binary.ptx");vc_add(names,"convolution.ptx");vc_add(names,"join.ptx");vc_add(names,"matmul.ptx");vc_add(names,"gradients.ptx");vc_add(names,"recurrence.ptx");vc_add(names,"recurrence-backward.ptx");vc_add(names,"recurrence-registers.ptx");vc_add(names,"recurrence-registers-backward.ptx");vc_add(names,"convolution-train.ptx");vc_add(names,"binary-train.ptx");
-    let out=alloc(16384);let b=alloc(32);pl_builder(b,out,16384);pl_text(b,"{\"schema\":\"puppybot.visual-control-pup.v2\",\"trainingRuntime\":\"Flexscript/Pup CUDA\",\"inferenceRuntime\":\"Flexscript/Pup CUDA\",\"orchestrationRuntime\":\"Flexscript\",\"pythonRequired\":false,\"taskFeedback\":false,\"method\":");pj_text(b,method);
+    // RDNA builds of the same kernels.
+    let rdna=vc_args();vc_add(rdna,"activation");vc_add(rdna,"binary");vc_add(rdna,"convolution");vc_add(rdna,"join");vc_add(rdna,"matmul");vc_add(rdna,"gradients");vc_add(rdna,"recurrence");vc_add(rdna,"recurrence-backward");vc_add(rdna,"recurrence-registers");vc_add(rdna,"recurrence-registers-backward");vc_add(rdna,"convolution-train");vc_add(rdna,"binary-train");vc_add(rdna,"matmul-train");vc_add(rdna,"convolution-pairs");
+    let r=0;while r<load64(rdna) {vc_add(names,vc_concat(load64(rdna+8+r*8),".hip"));r=r+1;}
+    // The trainer records which GPU backend it ran on.
+    let runtime="Flexscript/Pup CUDA";let marker=vc_path(output,"backend.txt");let fd=syscall(2,marker,0x80000,0,0,0,0);if fd>=0 {syscall(3,fd,0,0,0,0,0);if pl_equal(vc_text_file(marker),"hip") {runtime="Flexscript/Pup HIP (RDNA)";}}
+    let out=alloc(16384);let b=alloc(32);pl_builder(b,out,16384);pl_text(b,"{\"schema\":\"puppybot.visual-control-pup.v2\",\"trainingRuntime\":");pj_text(b,runtime);pl_text(b,",\"inferenceRuntime\":\"Flexscript/Pup CUDA or HIP (RDNA)\",\"orchestrationRuntime\":\"Flexscript\",\"pythonRequired\":false,\"taskFeedback\":false,\"method\":");pj_text(b,method);
     pl_text(b,",\"weightsSHA256\":");pj_text(b,vc_file_sha(target));pl_text(b,",\"checkpointSHA256\":");pj_text(b,vc_file_sha(target));pl_text(b,",\"binarySHA256\":");pj_text(b,vc_file_sha(vc_path(output,"policy")));
     pl_text(b,",\"graphSHA256\":");pj_text(b,vc_file_sha(vc_path(output,"model.pup")));pl_text(b,",\"dataSHA256\":");if data {if ve_image_side==128 {pj_text(b,vc_highres_file_sha(data));}else {pj_text(b,vd_file_sha(data));}}else {pl_text(b,"null");}
     pl_text(b,",\"initialWeightsSHA256\":");if initial {pj_text(b,vc_file_sha(initial));}else {pl_text(b,"null");}pl_text(b,",\"fromScratch\":");pj_bool_text(b,vw_random);
@@ -113,9 +125,9 @@ fn vw_publish(output,weights,method,data,initial) {
     pl_text(b,",\"heatmapActorFeatures\":");pj_bool_text(b,heat_actor);
     pl_text(b,",\"heatmapActorGradientDetached\":");pj_bool_text(b,vw_heat_stop_gradient);
     pl_text(b,",\"heatmapAbsenceSupervision\":");pj_bool_text(b,vw_heat_absence);
-    pl_text(b,",\"stopLossWeight\":");if vw_stop_weight_one {pl_int(b,1);}else {pl_int(b,5);}pl_text(b,",\"speedTransitionLossWeight\":8,\"epochs\":");pl_int(b,vw_epochs);pl_text(b,",\"batch\":");pl_int(b,vw_batch);pl_text(b,",\"learningRateMicros\":");pl_int(b,vw_rate);pl_text(b,",\"seed\":");pl_int(b,vw_seed);
+    pl_text(b,",\"stopLossWeight\":");if vw_stop_weight_one {pl_int(b,1);}else {pl_int(b,5);}pl_text(b,",\"speedTransitionLossWeight\":");if vw_transition_weight_one {pl_int(b,1);}else {pl_int(b,8);}pl_text(b,",\"epochs\":");pl_int(b,vw_epochs);pl_text(b,",\"batch\":");pl_int(b,vw_batch);pl_text(b,",\"learningRateMicros\":");pl_int(b,vw_rate);pl_text(b,",\"seed\":");pl_int(b,vw_seed);
     pl_text(b,",\"checkpointEveryEpochs\":");pl_int(b,vw_checkpoint_every);pl_text(b,",\"phaseSupervisionFromValidFrames\":");pj_bool_text(b,vw_phase_from_valid);
-    pl_text(b,",\"sequenceMirrorAugmentation\":");pj_bool_text(b,vw_mirror_augment);pl_text(b,",\"focusHistory\":");if vw_focus_history>=0 {pl_int(b,vw_focus_history);}else {pl_text(b,"null");}pl_text(b,",\"focusCopiesPerEpoch\":");pl_int(b,vw_focus_copies);if vw_max_optimizer_steps {pl_text(b,",\"maxOptimizerSteps\":");pl_int(b,vw_max_optimizer_steps);}if vw_reversal_milli {pl_text(b,",\"reversalPenaltyMilli\":");pl_int(b,vw_reversal_milli);}if vw_phase_consistency_milli {pl_text(b,",\"phaseConsistencyMilli\":");pl_int(b,vw_phase_consistency_milli);}pl_text(b,",\"memoryWidth\":");pl_int(b,memory);
+    pl_text(b,",\"sequenceMirrorAugmentation\":");pj_bool_text(b,vw_mirror_augment);if vw_carry_cue {pl_text(b,",\"carryCue\":true");}if vw_search_cue {pl_text(b,",\"searchCue\":true");}if vw_map_targets {pl_text(b,",\"memoryMapTargetsSHA256\":");pj_text(b,vc_file_sha(vw_map_targets));}pl_text(b,",\"focusHistory\":");if vw_focus_history>=0 {pl_int(b,vw_focus_history);}else {pl_text(b,"null");}pl_text(b,",\"focusCopiesPerEpoch\":");pl_int(b,vw_focus_copies);if vw_max_optimizer_steps {pl_text(b,",\"maxOptimizerSteps\":");pl_int(b,vw_max_optimizer_steps);}if vw_reversal_milli {pl_text(b,",\"reversalPenaltyMilli\":");pl_int(b,vw_reversal_milli);}if vw_phase_consistency_milli {pl_text(b,",\"phaseConsistencyMilli\":");pl_int(b,vw_phase_consistency_milli);}pl_text(b,",\"memoryWidth\":");pl_int(b,memory);
     pl_text(b,",\"preprocessing\":");if ve_image_side==128 {pj_text(b,"Native exact-area uint8 RGB 128x128 NCHW, FP32 normalized by 255");}else {pj_text(b,"Native exact-area uint8 RGB 84x84 NCHW, FP32 normalized by 255");}pl_text(b,",\"imageSide\":");pl_int(b,ve_image_side);pl_text(b,",\"kernels\":{");let i=0;
     while i<load64(names) {let name=load64(names+8+i*8);let path=vc_path(kernels,name);vc_copy_file(vc_path(vw_binary("kernels"),name),path);if i {pl_char(b,44);}pj_text(b,name);pl_char(b,58);pj_text(b,vc_file_sha(path));i=i+1;}
     pl_text(b,"}}\n");vc_require(!load64(b+24),"policy receipt exceeded limit");vc_write(vc_path(output,"receipt.json"),out,load64(b+8));return 0;
@@ -137,13 +149,16 @@ fn vw_train(initialize) {
     vc_add(args,vc_int(vw_epochs));vc_add(args,vc_int(vw_batch));vc_add(args,vc_int(vw_rate));vc_add(args,vc_int(vw_seed));if vw_random {vc_add(args,"--random");}if vw_phase_gate {vc_add(args,"--phase-gated");}else if vw_categorical {vc_add(args,"--categorical");}
     if vw_event_aux {vc_add(args,"--event-aux");}
     if vw_pose_targets {vc_add(args,"--memory-pose");vc_add(args,vw_pose_targets);}
+    if vw_map_targets {vc_add(args,"--memory-map");vc_add(args,vw_map_targets);}
     if vw_target_positions {if vw_target_heatmap {vc_add(args,"--target-heatmap");}else {vc_add(args,"--target-position");}vc_add(args,vw_target_positions);}
     if vw_heat_actor {vc_add(args,"--heat-actor");}
     if vw_heat_stop_gradient {vc_add(args,"--heat-stop-gradient");}
     if vw_heat_absence {vc_add(args,"--heat-absence");}
     if vw_phase_from_valid {vc_add(args,"--phase-from-valid");}
     if vw_mirror_augment {vc_add(args,"--mirror-augment");}
-    if vw_stop_weight_one {vc_add(args,"--stop-weight-one");}
+    if vw_carry_cue {vc_add(args,"--carry-cue");}
+    if vw_search_cue {vc_add(args,"--search-cue");}
+    if vw_stop_weight_one {vc_add(args,"--stop-weight-one");}if vw_transition_weight_one {vc_add(args,"--transition-weight-one");}
     if vw_large_model {vc_add(args,"--large-model");}
     if vw_focus_copies {vc_add(args,"--focus-history");vc_add(args,vc_int(vw_focus_history));vc_add(args,"--focus-copies");vc_add(args,vc_int(vw_focus_copies));}
     if vw_max_optimizer_steps {vc_add(args,"--max-optimizer-steps");vc_add(args,vc_int(vw_max_optimizer_steps));}

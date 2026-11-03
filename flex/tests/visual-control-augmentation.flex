@@ -41,7 +41,7 @@ fn am_fixture(output,mirror) {
     }let name="original.bin";if mirror {name="mirrored-fit.bin";}vc_write(vc_path(output,name),data,bytes);return 0;
 }
 fn main(argc,argv) {
-    vc_init(argc,argv);vc_require(argc==3,"visual-control-augmentation KERNELS OUTPUT");let output=vc_absolute(load64(argv+16));vc_mkdir(output);am_feedback();am_fixture(output,0);am_fixture(output,1);vp_init(load64(argv+8),2,0);
-    let image=vp_map(vc_path(load64(argv+8),"gradients.ptx"));let module=device_module(image);vc_require(module,device_error());pt_function=device_function(module,"flex_kernel");vc_require(pt_function,device_error());am_pixels(84);am_pixels(128);
-    vc_save_text(vc_path(output,"result.json"),"{\"passed\":true,\"runtime\":\"Flexscript/Pup CUDA\",\"pythonRequired\":false,\"independentPixelScatterChecked\":true,\"completeHistoriesMirroredConsistently\":true,\"feedbackAndTargetInvolutionChecked\":true,\"paddingUnchanged\":true,\"inactiveBatchRandomnessExcluded\":true,\"disabledNormalizationBitIdentical\":true}\n");pl_print(1,"Native recurrent sequence mirror contracts passed.\n");return 0;
+    vc_init(argc,argv);vc_require(argc==3,"visual-control-augmentation KERNELS OUTPUT");let output=vc_absolute(load64(argv+16));vc_mkdir(output);am_feedback();am_fixture(output,0);am_fixture(output,1);vp_init(load64(argv+8),vp_backend_parse("gpu"),0);
+    let image=vp_map(vc_path(load64(argv+8),vp_suffix("gradients",vp_kernel_suffix())));let module=device_module(image);vc_require(module,device_error());pt_function=device_function(module,"flex_kernel");vc_require(pt_function,device_error());am_pixels(84);am_pixels(128);
+    vc_save_text(vc_path(output,"result.json"),vc_concat(vc_concat("{\"passed\":true,\"runtime\":\"Flexscript/Pup ",vp_backend_name()),"\",\"pythonRequired\":false,\"independentPixelScatterChecked\":true,\"completeHistoriesMirroredConsistently\":true,\"feedbackAndTargetInvolutionChecked\":true,\"paddingUnchanged\":true,\"inactiveBatchRandomnessExcluded\":true,\"disabledNormalizationBitIdentical\":true}\n"));pl_print(1,"Native recurrent sequence mirror contracts passed.\n");return 0;
 }
