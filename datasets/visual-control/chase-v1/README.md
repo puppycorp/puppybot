@@ -811,7 +811,7 @@ result. The run takes about 2.5 hours and 70 GB, 29 GB of which are the
 training-set copies inside each model directory.
 
 The later experiments each have a script in `levels/runs` (numbered as in
-[diary](diary/README.md), one dated file per experiment and its verdict), using
+[diary](../../../diary/README.md), one dated file per experiment and its verdict), using
 the tools beside them: `rl.sh` and `awr.py` (RL), `keep.py` (self-imitation
 shards), `probe.py` (memory probes), `soup.py` (weight averaging),
 `l5split.py` and `l5cross.py` (doorway drill by brick room), `confusion.py`

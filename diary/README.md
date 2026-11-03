@@ -1,12 +1,12 @@
-# Fetch experiment diary
+# Fetch experiment diary (chase-v1)
 
 One file per experiment or finding, numbered in order (`NN-name.md`), newest
 last: what was tried, the result, the verdict and where the data and scripts
 are. Scores are deliveries per minute on the 32 test games, mean of three
 seeds unless noted; one seed varies by about 0.3, so differences below about
 0.4 are noise. Full tables and method details are in
-[README.md](../README.md). Run scripts are in [levels/runs](../levels/runs),
-analysis tools in [levels](../levels); data is under
+[README.md](../datasets/visual-control/chase-v1/README.md). Run scripts are in [levels/runs](../datasets/visual-control/chase-v1/levels/runs),
+analysis tools in [levels](../datasets/visual-control/chase-v1/levels); data is under
 `build/flex/sim/levels-v1` (`pitch82/` from [entry 9](09-camera-pitch-82.md) on).
 A new finding gets the next number and a line under Entries below.
 

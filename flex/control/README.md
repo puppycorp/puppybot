@@ -657,7 +657,7 @@ matching. Together they make a game about 2.4 times faster for one process, with
 byte-identical training data and identical test scores in the chase game.
 
 Fetch options (chase collect and run unless noted; results in
-`datasets/visual-control/chase-v1/diary`):
+`diary`):
 
 | Option | Effect |
 |---|---|
