@@ -1,0 +1,228 @@
+{
+  "coarseFloorVotes": 20,
+  "detailFloorVotes": 0,
+  "inputSHA256": {
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/evidence.npz": "f952c93e3e18ab211027742f25ae1f6b1d7af5fc35d4659cb7e9d4545c6a04ce",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/input-23385.json": "7c6eb7ccb9203019c9cc7a686858e8f313f2a830d24f3313dce781ce852dff2a",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/input-23791.json": "9bf7048cbac93eaad67aa07ff05a601cbcda034c4505dfc844acfa852085cd84",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/input-25461.json": "479744d0d4ab0c111a5b375084c45fcd1f07b9b121e755adbbde966023fca78b",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/input-25865.json": "19403294aa3569f3f566b9a146b8d66cbfbd9aa2c10957f2453e8b6d6b7fb2e2",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-31037.bin": "19359c2f2ca09c6c53f6ef32abc23817e182aa8844ad84e3cb63a7daf0cc4af2",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-66.bin": "dbc5adcd7122d935c11fef1a7351333b485080f6b242c12651ef93fcdbcc4366",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-67.bin": "eb644371d2cbd23e4ba15958183c734782cea3e6c180d2ea1b9caf7e5a412e95",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-68.bin": "6cf1ad254df23ae9d0c24c7902e6595c39d02787e81c688c5d9f444cc632348d",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-69.bin": "dcdc5166924c93b8706aabbbec672be20a294f3d940d6005e56070d021e5ac6c",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-74.bin": "20e832bdd48bd6a941c0ac70821c086c204df0f9242ec20b64f0ba371a0481d3",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-75.bin": "e50af4489b53ab845a9bf8702e7d863e158dafb83f0434af07a7906c78bac19e",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-76.bin": "a767f615b656e5e22c9765aa1f9a6857ab96c912f9cb8313830def72bbf658a1",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-77.bin": "ba80792b38f7162342dae3a5ec778eb528dbb55100b85a9c6ee89c9f9e5a1cd6",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/completion.json": "74fcef05724a494af051b10ea8663a19965461e844800a7abf13e652415d82f3",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/trial/candidate-search/run/trace.jsonl": "13f65c4114e8e3242b4ea3324890a981329c25f18cc273b2b75014ec02afc9ac",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/trial/inputs.json": "ce2129c20f4c7b1bd44629e64622f0320673bfa42d97e5f3a1e13fbc2a71765b",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/trial/worker-inputs.json": "944099f123602a17a742bc8c6e0a8cccf182b8e3c8abb1f02968cb7f8b2336be",
+    "/home/teppo/Work/my/puppybot/build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/worker-result.json": "7c4c7cdc4cc51515524f44cc987b623b4cdfe83753094454225e7de911bcc5e3",
+    "/home/teppo/Work/my/puppybot/flex/vision/discovery.py": "754d1b7f1f91637e6efaf267173e5cbff662179c8c5d61d8aa7c9e974d2fed24"
+  },
+  "limits": [
+    "Retained map inputs and RGB are outside the original supervised inventory.",
+    "Point-level rectified-pixel checks do not classify every staging candidate.",
+    "Projection inside the image does not prove unoccluded or safe physical floor.",
+    "Matching worker file and runtime versions do not attest original runtime execution."
+  ],
+  "pointM": [
+    -1.372581894399577,
+    -0.004958655217040253,
+    0.0
+  ],
+  "rows": [
+    {
+      "cameraDownAngleDeg": 61.031841537333285,
+      "cameraYawDeg": -109.2567996965224,
+      "disparity": 21.1875,
+      "firstValid": true,
+      "floor": false,
+      "frameId": 23385,
+      "groundMatch": false,
+      "insideHomography": true,
+      "originalImageProjections": [
+        {
+          "inFrame": true,
+          "pixel": [
+            203.29851172056712,
+            369.8392299559386
+          ]
+        },
+        {
+          "inFrame": true,
+          "pixel": [
+            198.77094289082754,
+            354.4815721367235
+          ]
+        }
+      ],
+      "otherSelfMasked": true,
+      "otherValid": true,
+      "photoError": 0.0,
+      "rectifiedPixel": [
+        79,
+        230
+      ],
+      "returnedPoints": 3513,
+      "rgb": [
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-66.bin",
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-67.bin"
+      ],
+      "selfMasked": true,
+      "stereoValid": false,
+      "textured": false,
+      "triangulatedZ": -0.004631071938049736,
+      "workerMetrics": {
+        "baselineM": 0.046829477895872426,
+        "consistentPixels": 13979,
+        "verifiedFloorPixels": 3513
+      }
+    },
+    {
+      "cameraDownAngleDeg": 50.924498485786565,
+      "cameraYawDeg": -109.25650543140993,
+      "disparity": 19.6875,
+      "firstValid": true,
+      "floor": false,
+      "frameId": 23791,
+      "groundMatch": false,
+      "insideHomography": true,
+      "originalImageProjections": [
+        {
+          "inFrame": true,
+          "pixel": [
+            208.98878752194574,
+            301.35807227907935
+          ]
+        },
+        {
+          "inFrame": true,
+          "pixel": [
+            204.33612754563143,
+            283.1004740038239
+          ]
+        }
+      ],
+      "otherSelfMasked": true,
+      "otherValid": true,
+      "photoError": 0.0,
+      "rectifiedPixel": [
+        79,
+        179
+      ],
+      "returnedPoints": 3629,
+      "rgb": [
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-68.bin",
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-69.bin"
+      ],
+      "selfMasked": true,
+      "stereoValid": false,
+      "textured": false,
+      "triangulatedZ": -0.00928234420901175,
+      "workerMetrics": {
+        "baselineM": 0.044598206241955464,
+        "consistentPixels": 14228,
+        "verifiedFloorPixels": 3629
+      }
+    },
+    {
+      "cameraDownAngleDeg": 61.031841537333285,
+      "cameraYawDeg": -154.2564944094302,
+      "disparity": 21.5,
+      "firstValid": true,
+      "floor": false,
+      "frameId": 25461,
+      "groundMatch": true,
+      "insideHomography": true,
+      "originalImageProjections": [
+        {
+          "inFrame": true,
+          "pixel": [
+            453.0479370684862,
+            342.1169761260398
+          ]
+        },
+        {
+          "inFrame": true,
+          "pixel": [
+            458.2890228884444,
+            324.3425128010293
+          ]
+        }
+      ],
+      "otherSelfMasked": false,
+      "otherValid": true,
+      "photoError": 0.0,
+      "rectifiedPixel": [
+        249,
+        203
+      ],
+      "returnedPoints": 3010,
+      "rgb": [
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-74.bin",
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-75.bin"
+      ],
+      "selfMasked": false,
+      "stereoValid": false,
+      "textured": false,
+      "triangulatedZ": 0.001994293117782875,
+      "workerMetrics": {
+        "baselineM": 0.04696807426326953,
+        "consistentPixels": 13554,
+        "verifiedFloorPixels": 3010
+      }
+    },
+    {
+      "cameraDownAngleDeg": 50.924498485786565,
+      "cameraYawDeg": -154.25675348692266,
+      "disparity": 20.0,
+      "firstValid": true,
+      "floor": false,
+      "frameId": 25865,
+      "groundMatch": true,
+      "insideHomography": true,
+      "originalImageProjections": [
+        {
+          "inFrame": true,
+          "pixel": [
+            447.72503813767867,
+            275.87888519496823
+          ]
+        },
+        {
+          "inFrame": true,
+          "pixel": [
+            453.74758052655693,
+            256.08474514100607
+          ]
+        }
+      ],
+      "otherSelfMasked": false,
+      "otherValid": true,
+      "photoError": 0.0,
+      "rectifiedPixel": [
+        249,
+        152
+      ],
+      "returnedPoints": 4169,
+      "rgb": [
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-76.bin",
+        "build/flex/sim/discovery-2701217/episode-1/dock-1/rgb-77.bin"
+      ],
+      "selfMasked": false,
+      "stereoValid": true,
+      "textured": false,
+      "triangulatedZ": 0.002205113217060184,
+      "workerMetrics": {
+        "baselineM": 0.0442831796509691,
+        "consistentPixels": 14421,
+        "verifiedFloorPixels": 4169
+      }
+    }
+  ],
+  "schema": "puppybot.dock-camera-point-audit.v1"
+}

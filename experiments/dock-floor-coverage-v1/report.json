@@ -1,0 +1,246 @@
+{
+  "boxM": [
+    -1.372581894399577,
+    -0.4049586552170403
+  ],
+  "innerRadiusM": 0.08,
+  "inputSHA256": {
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-21179.bin": "a4b1e72c69746e886be00747dd57726509a8ae0dafdd6ed9a7dff92a425a55b9",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-23385.bin": "7823e2b9e7ab15b7cf441a4e5e3623828a072447bab62c12777edb1434b45ceb",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-23791.bin": "7f040a249b31eb23e81519a6d28c8c184ff89422812bd946862cffde3a69486a",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-24361.bin": "7ab9a0c270941ccbae36793065df9d0d0bcfcf8a82bcdb0d02531494661c9bfd",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-24765.bin": "ed35dae606205d7257f519ea5cb3e910a64bba91f3d5afd081e9f3596611bb62",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-25461.bin": "b7a026a69e7487362790c27ae13abbbed22c1e7859fb2ad2202212fd0d51e1c5",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-25865.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-26689.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-27093.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-28045.bin": "8e4d607b6fd396bb3e929b4f899393c0219a2a950c3266b1e3e0e89f802ff2db",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-28449.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-29529.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-29933.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-30633.bin": "4d1b553dc120cdccf3e347de52351c7bd705435ab05bae4682688d909ce59db6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-31037.bin": "65693112e9cbf58a2f499cec311a1352521f710eea7e4272c7bc166a006a21fc",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-21179.bin": "ded24d5040e3956013b4780f477ba1d29feef4add925a5580a3de775c3ff53c6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-23385.bin": "4398dcca85c017d7885efc5a5db7bca116c51aa8e54ad2234d2cecc7ed5d562c",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-23791.bin": "c43ba5b9358b6c0f612301b18b810a70ec317a3d021d0635989fdd3a8cf32bf2",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-24361.bin": "c3c8f190701a9cde18d633d05e317a50420ec3214d02dab6e5dca7e4c12ffdfb",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-24765.bin": "68a302ad5b59c11455b255816c9f95511ce3a07a2bf1ee47073a84b1ae927ac4",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-25461.bin": "c2efee7540d29e059f9fa91b7ddbc04e3e310e75f1a20adcf8378297736fae2f",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-25865.bin": "93502c11ce58212d7592a688b8959c705039fd0e25af1e5c59f3a1ef23148102",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-26689.bin": "3f6b579aaf8c70c1c7171eb523ad9e3a1dd8af0f4886b8a1908c9d94542ce6dd",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-27093.bin": "a5ed740016daeadc2575686eabdd0b1f4d6a7739972bc859fadc0101ef783c38",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-28045.bin": "1cbce1d4b8f2a8c3ba70d0245dd0e04ed5a0f1d32bb1a8a45ddd0e149762bdec",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-28449.bin": "61e9dd7ce455ea7ddf0955a5cce28ce0f66b379c71b7399adf608bf233fc0057",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-29529.bin": "295238ba86c69c0066f373de63b1d889f4fcf8817c28224e5465c6e80821c3ea",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-29933.bin": "5f842ccc63ffb8e49cf80a88a8c73a9cc0df543937fd0bffc2754706c3911758",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-30633.bin": "2077ab373964ca1349ce4d96829cc84f8beea4fd1425d6da17369a08d5d11e0a",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-31037.bin": "19359c2f2ca09c6c53f6ef32abc23817e182aa8844ad84e3cb63a7daf0cc4af2",
+    "experiments/dock-stage-cause-v1/report.json": "a8cf08b34334df956e78a337a7abcd7a35e01ceb64f40e6e12dc2b681c8dea89",
+    "experiments/dock-stage-cause-v1/waypoint-report.json": "dce414cf3a2b02d7bf1fbf036aa1d320509dc6592bce46a65b9fb4cd7990253f"
+  },
+  "limits": [
+    "Radial coverage is an area summary, not a per-candidate collision test.",
+    "Masks describe local map evidence, not verified physical floor.",
+    "Stored maps are outside the original supervised trial inventory.",
+    "The planned endpoint was not driven and does not guarantee a useful camera view."
+  ],
+  "outerRadiusM": 0.6,
+  "resolutionM": 0.02,
+  "rows": [
+    {
+      "clearByQuadrant": {
+        "eastNorth": 60,
+        "eastSouth": 0,
+        "westNorth": 0,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 60,
+      "frame": 21179,
+      "ringCells": 2777,
+      "tick": 22865
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 117,
+        "eastSouth": 0,
+        "westNorth": 0,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 117,
+      "frame": 23385,
+      "ringCells": 2777,
+      "tick": 23386
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 279,
+        "eastSouth": 0,
+        "westNorth": 5,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 284,
+      "frame": 23791,
+      "ringCells": 2777,
+      "tick": 23792
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 279,
+        "eastSouth": 0,
+        "westNorth": 5,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 284,
+      "frame": 24361,
+      "ringCells": 2777,
+      "tick": 24362
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 279,
+        "eastSouth": 0,
+        "westNorth": 5,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 284,
+      "frame": 24765,
+      "ringCells": 2777,
+      "tick": 24766
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 299,
+        "eastSouth": 0,
+        "westNorth": 10,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 309,
+      "frame": 25461,
+      "ringCells": 2777,
+      "tick": 25462
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 68,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 407,
+      "frame": 25865,
+      "ringCells": 2777,
+      "tick": 25866
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 68,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 407,
+      "frame": 26689,
+      "ringCells": 2777,
+      "tick": 26690
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 68,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 407,
+      "frame": 27093,
+      "ringCells": 2777,
+      "tick": 27094
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 85,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 424,
+      "frame": 28045,
+      "ringCells": 2777,
+      "tick": 28046
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 91,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 430,
+      "frame": 28449,
+      "ringCells": 2777,
+      "tick": 28450
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 91,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 430,
+      "frame": 29529,
+      "ringCells": 2777,
+      "tick": 29530
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 91,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 430,
+      "frame": 29933,
+      "ringCells": 2777,
+      "tick": 29934
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 91,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 430,
+      "frame": 30633,
+      "ringCells": 2777,
+      "tick": 30634
+    },
+    {
+      "clearByQuadrant": {
+        "eastNorth": 339,
+        "eastSouth": 0,
+        "westNorth": 91,
+        "westSouth": 0
+      },
+      "effectiveClearCells": 430,
+      "frame": 31037,
+      "ringCells": 2777,
+      "tick": 31038
+    }
+  ],
+  "schema": "puppybot.dock-floor-coverage.v1",
+  "secondWaypoint": {
+    "boxDistanceAfterM": 0.6600111222955068,
+    "boxDistanceBeforeM": 0.8926188874849905,
+    "displacementM": 0.23884207178437356,
+    "pathPrimitives": 2,
+    "plannedEndpointM": [
+      -1.1919477998876644,
+      0.22985313220789091
+    ],
+    "startM": [
+      -1.0682935993433482,
+      0.43419396009600014
+    ]
+  }
+}

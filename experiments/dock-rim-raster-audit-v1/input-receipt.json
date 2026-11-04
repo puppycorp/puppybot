@@ -1,0 +1,25 @@
+{
+  "archiveBuildSHA256": "4320bff97b1c96975443822236b1c17195988b541c6899e9d2953d6737af880a",
+  "cameraSHA256": {
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-49.sensor.camera.json": "a6a8041388a97440077a2b3bbc3124f88893e7436b8abdc9ea2a525e1b4e35e0",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-50.sensor.camera.json": "b34c7122184c7f131d6c0881c8c76cd17fec3b0f36b91a12efb8835e09428ff0",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-51.sensor.camera.json": "566dec35d9c537c5eecb97bc24320eaa6b681ebcc9b0e0bba0f1e1e4eedde3fe",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-52.sensor.camera.json": "35c0b938d47be61dc240ce00048d31faef14aec01961f2b9b50ad01e7bf4a045",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-53.sensor.camera.json": "93baabe46bce668673bab67679d20a8cac8c3c95d221bc607875cf28ced75d33",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-54.sensor.camera.json": "3051b6e811e38c9a930c6a7d9851873f1d08051f8ca8e40aed40b8a197a98318",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-55.sensor.camera.json": "8e8c54b262f8e7763911abe5c56f79bda518b234696c2ec94889b86f21a36776",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-56.sensor.camera.json": "f65bd3ea8fbfc42201ccd7836b9b1e26cae2140f5ad46e2f1d644ccd169f6554",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-57.sensor.camera.json": "ab8fa01349f8bf3806476aec0a827bd8fdd1e1911ca9d19cec32bc4955a98c6c",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-58.sensor.camera.json": "32c510fa6ceff5e355b43d5d15708971824f3fd60835a0402f2bfd4529236425",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-59.sensor.camera.json": "0f21acf7898826118aa35ddc11df7fe6670be02bfb4b6799bf523f9cd4c094c3",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-60.sensor.camera.json": "a7d21b03e1d6f26020168afd7594a3d55e037d6be8b4cbd15b7c9fffcd2fb342",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-61.sensor.camera.json": "9f5d12593e65b3fad4f66d91c517dbdb2b4c93b7c9a008a4e00b397baa178343",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-62.sensor.camera.json": "76b7e1e6c2fe1355ece0fd58fbd7d8776adc80c5f5b0bc0e2a6e085c7504baa2",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-63.sensor.camera.json": "e2eb33ee6e5e89aac84d4edf65d2a32a4c605a2683c3b9488f315d9a26cc0b70",
+    "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-49.sensor.camera.json": "7cacf2c357e7ff37eb012591020e35202fda98bfcc60f3974e5d68c9c4382143",
+    "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-50.sensor.camera.json": "62828db6de8095d9e3a16d69cfdef066c75ff85155d42c726cbd49fac2c47afd",
+    "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-51.sensor.camera.json": "3120771d9ce858e52c502c0acd15bc3b76b6eb96fdbe3b960059a544e69beca5"
+  },
+  "compilerSHA256": "1d02770273ed36b1e4ed2c40b4d43926f631f4761dc3a67503369d83444c6a34",
+  "schema": "puppybot.rim-audit-inputs.v1"
+}

@@ -43,6 +43,8 @@ workdir
 models/robotdreams-bottle-yolo11n.onnx
 examples/*/target/
 build
+artifacts/
+tests/reference/rust-core/target/
 tests/robotdreams/target/
 .env
 .venv/

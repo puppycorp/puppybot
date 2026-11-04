@@ -22,7 +22,7 @@ fn main(argc, argv) {
         if sim_equal(arg, "--discover") || sim_equal(arg, "--case") || sim_equal(arg, "--case-file") || sim_equal(arg, "--demo") || sim_equal(arg, "--pickup") || sim_equal(arg, "--pickup-release") || sim_equal(arg, "--vision-pickup") || sim_equal(arg, "--vision-pickup-release") || sim_equal(arg, "--stock-landmarks") || sim_equal(arg, "--stock-pickup") || sim_equal(arg, "--landmark-output") { selected = 1; }
         i = i + 1;
     }
-    let args = alloc((argc + 7) * 8); store64(args, "/bin/bash"); store64(args + 8, "flex/scripts/run-sim.sh");
+    let args = alloc((argc + 7) * 8); store64(args, "/bin/bash"); store64(args + 8, "src/scripts/run-sim.sh");
     store64(args + 16, "--bind"); store64(args + 24, "127.0.0.1:0"); let count = 4;
     if !selected { store64(args + count * 8, "--case"); store64(args + (count + 1) * 8, "house-blocks-into-box"); count = count + 2; }
     i = 1; while i < argc { store64(args + count * 8, load64(argv + i * 8)); count = count + 1; i = i + 1; } store64(args + count * 8, 0);

@@ -1,220 +1,105 @@
 # PuppyBot
 
-Run the Flexscript PC controller directly from the repository root:
+PuppyBot's controller, Linux runtime, simulator, visual-control training and
+classic ESP32 serial firmware are implemented in Flexscript. The maintained
+source is in [`src/`](src/README.md), organized by purpose.
+
+## Run
+
+From the repository root:
 
 ```sh
 flexscript run puppybot.flex
 ```
 
-It defaults to a fake servo bus. For physical serial control and explicit
-output enable, see the [Flexscript instructions](flex/README.md).
-Open **http://127.0.0.1:8081/** for the Monolith robot dashboard: drive and arm
-controls, targets, live feedback, temperatures, enable/disable, and stop.
-The source entry point builds and executes the native controller automatically,
-so a long-running session does not exhaust the source VM's instruction budget.
-The default calibration is [puppybot.json](puppybot.json), beside the launcher;
-it is loaded automatically when running from the repository root.
+Open **http://127.0.0.1:8081/** for the robot dashboard. The default is a fake
+servo bus. The launcher compiles and executes the native runtime; configuration
+comes from [`puppybot.json`](puppybot.json). See the
+[controller instructions](src/README.md) for physical serial control and output enable.
 
-For a separate virtual serial simulator, start `flexscript run simulator.flex`
-in another terminal. It prints the `/dev/pts/N` device and the exact Puppybot
-connection command, including `--virtual-bus` for vehicle outputs. The 3D scene
-shows the motion commanded by the separate Puppybot controller. See the
-[serial simulator](flex/simulator/README.md) for details; `--servo-only` retains
-the lightweight non-rendering model.
+Run a separate 3D simulator with `flexscript run simulator.flex`. It prints the
+private serial device and the controller connection command. For the lightweight
+servo model use `flexscript run simulator.flex --servo-only`.
 
-PuppyBot is PuppyCorp's four-wheel service robot with a four-joint PuppyArm.
-The active control stack is Rust and shares protocol, arm control, safety, and
-STServo behavior between the bare-metal ESP32 firmware, the OS runtime, and
-RobotDreams simulation.
-
-## Flexscript port
-
-The `flexscript` branch adds a shared Flexscript controller, native Linux
-HTTP/WebSocket and serial runtime, Monolith dashboard, CLI, classic ESP32 serial
-firmware, and independently verified fake-servo executable under
-[`flex/`](flex/README.md). Simulation and wireless integration remain in progress;
-the Rust stack below is the reference implementation.
-
-Run the native [3D simulation](flex/sim/README.md) from this repository:
+For autonomous simulation and visual-control experiments:
 
 ```sh
-flexscript run sim.flex --case house-blocks-into-box --drift 10
-flexscript run sim.flex --case house-blocks-into-box --drift 10 --breadcrumbs
-flexscript run sim.flex --case house-blocks-into-box --drift 10 --video build/flex/sim/house.mp4
-flexscript run sim.flex --case ball-into-bin
-flexscript run sim.flex --discover
-flexscript run sim.flex --case discover-house-blocks-into-box
 flexscript run sim.flex --list-cases
+flexscript run sim.flex --case house-blocks-into-box --drift 10
+./src/control.sh build
 ```
 
-The house case uses one TCP camera, with forward driving and downward inspection poses. `--drift 0` disables the added
-odometry error; `--drift 50` increases it. The source entry point builds the
-native simulator automatically.
-TCP image-based odometry is enabled by default for house collection. It uses
-floor features and confidence-gated floor-line directions referenced to the
-supplied wall map. `--no-visual-odometry` selects wheel-only integration;
-`--breadcrumbs` additionally tries reverse visual checkpoints. See the simulation
-README for assumptions and validation.
+See [simulation](src/sim/README.md), [visual control](src/control/README.md),
+[Gym](src/gym/README.md) and [exploration](src/exploration/README.md).
+Python remains in experiment orchestration, data preparation and independent
+verification; the repository is not exclusively Flexscript.
 
-`--discover` starts a separate camera-based mapping experiment with an unknown
-grid and a local origin. It scans with the wrist camera, estimates free floor
-and obstacles from translated RGB views, then drives toward observed frontiers.
-It requires Python with NumPy and OpenCV; see the simulation README for setup,
-recording commands and current limits.
+## Build and verify
 
-`discover-house-blocks-into-box` combines that mapper with the six-brick house
-task. It learns the box and brick targets from wrist RGB and plans over observed
-free space, without a supplied floorplan, coverage route or starting world pose.
-A cold-start trial in the original apartment completed all six deliveries,
-with independent grasp, release, containment, camera and motion audits.
-This remains an experimental collector; completion on generated layouts is
-not established by that original-scene result.
+Install Flexscript and keep the sibling `../flexscript` Git checkout available.
+The native build snapshots a pinned compiler/library revision from that checkout
+into `build/native-toolchain`; it never changes the sibling checkout. Set
+`FLEXSCRIPT_SOURCE` to use another checkout containing that revision. To supply
+an already verified matching toolchain instead, set `FLEXSCRIPT_COMPILER` and
+`FLEXSCRIPT_ROOT` (and `FLEXSCRIPT_SOURCE` for firmware link tooling).
 
-[Map benchmarks and generated layouts](flex/sim/README.md#map-benchmarks-and-generated-layouts)
-compare learned maps with an offline reference and run the same controller on
-seeded room layouts. Generate a world with `flex/scripts/generate-layout.py`,
-then select its `case.json` using `flexscript run sim.flex --case-file FILE
---environment ENVIRONMENT_BIN`.
+```sh
+./src/scripts/build-runtime.sh
+./src/scripts/test-runtime.sh
+```
 
-[`PuppyBotGym`](flex/gym/README.md) uses Monolith to manage simulation rollouts separately from
-the robot-control UI. Its first backend runs the native firmware in an isolated
-process against a deterministic servo plant, with seeded cases and recorded results.
-Gym also launches the native house discovery/pickup scenes, keeps their maps
-and recordings, and provides pause/resume/stop and video playback in the same UI.
-Its Live camera view tests [native Pup YOLO detection](flex/vision/README.md) with
-camera frames, labels and boxes, separately from firmware rollouts and robot controls.
+These commands build and test the native controller, HTTP/WebSocket runtime,
+CLI, serial simulator and simulated firmware without the GPU training toolchain.
+The tests use loopback sockets and private PTYs, not a physical robot.
+
+The broader `./src/scripts/build.sh` and `./src/scripts/test.sh` include Gym,
+vision, controller differential tests and additional tooling. They require a
+compatible Flexscript source checkout and GPU libraries; set `FLEXSCRIPT_ROOT`
+and follow [the detailed build instructions](src/README.md).
+
+For classic ESP32 serial firmware:
+
+```sh
+python3 src/scripts/prepare-esp32-tools.py
+./src/scripts/build-esp32.sh
+```
+
+See [firmware wiring, verification and flashing](src/firmware/README.md).
+The Flexscript target is serial-only: Wi-Fi/WebSocket/mDNS, Android wireless
+control, persistent calibration and physical hardware qualification are still
+separate work. Replacing the source layout does not establish those capabilities.
 
 ## Repository layout
 
-- `puppybot/core/` contains the reusable robot controller, v1 wire protocol,
-  kinematics, safety logic, drive state, and STServo packet implementation.
-- `puppybot/esp32/` contains the classic ESP32 bare-metal Rust firmware.
-- `puppybot/runtime/` contains the OS runtime, HTTP/WebSocket API, and WGUI
-  dashboard.
-- `puppybot/cli/` contains the command-line client.
-- `android/` contains the direct robot controller app.
-- `robotdreams/`, `models/`, and `tests/robotdreams/` contain the simulation
-  project, owned model assets, and integration tests.
-- `python/` contains STServo discovery, configuration, and service utilities.
-- `design/` contains the editable electronics sources.
+| Path | Purpose |
+| --- | --- |
+| `src/core/`, `src/transport/` | Shared controller, kinematics, safety and protocol |
+| `src/runtime/`, `src/host/`, `src/cli/` | Linux service, dashboard, serial adapter and CLI |
+| `src/firmware/`, `src/platform/` | ESP32 and simulated firmware adapters |
+| `src/sim/`, `src/simulator/`, `src/gym/` | 3D simulation, serial plant and rollout UI |
+| `src/control/`, `src/ml/`, `src/vision/`, `src/exploration/` | Learning, inference and navigation |
+| `src/scripts/`, `src/tests/` | Build tools and verification |
+| `tests/reference/rust-core/` | Original Rust controller used only as a test oracle |
+| `datasets/`, `experiments/`, `diary/` | Dataset recipes, experiment programs and research notes |
+| `build/flex/sim/` | Local generated datasets and experiment artifacts |
+| `models/`, `robotdreams/` | Owned assets and retained historical scene/calibration evidence |
+| `android/`, `python/`, `design/` | Android client, servo service utilities and electronics |
 
-The old ESP-IDF C firmware and Bun mothership server have been retired. Use Git
-history when servicing those historical implementations.
+The Rust runtime, CLI, ESP32 firmware and collision tools are retired from the
+maintained source tree; earlier versions remain in Git history. The native
+build workflow packages Flexscript runtime binaries and the Flexscript ESP32
+ROM image. The Android client remains a separate application.
 
-## Rust runtime
+`flex` is a compatibility symlink to `src`; `puppybot/core` points to the Rust
+test reference. New development uses the canonical paths. Existing experiments,
+receipts and `build/flex` output paths are not renamed by this migration.
+Source changes still require fresh provenance checks before an old run can be
+repeated; a compatibility path does not guarantee identical source hashes.
 
-From `puppybot/`:
+## Dataset storage
 
-```sh
-./scripts/run-runtime.sh --sim --headless
-```
-
-Plain `--sim` automatically loads the simulation-only
-`runtime/puppybot.sim.json` profile, independent of the launch directory. It
-keeps the calibrated simulated joint limits enabled without changing the
-physical runtime profile at `runtime/puppybot.json`. An explicit `--config`
-overrides this simulation default.
-
-The command and read API defaults to `http://127.0.0.1:8080` in this example,
-with the Android-compatible WebSocket endpoint at `/ws`. The WGUI dashboard
-defaults to `http://127.0.0.1:8081/`. See
-[`puppybot/README.md`](puppybot/README.md) for hardware serial-bus, CLI,
-simulation, calibration, and API examples.
-
-For a deterministic simulation validation image without opening the UI or a
-window, run a finite number of controller/RobotDreams updates and render the
-settled scene through PGE's real offscreen WGPU renderer:
-
-```sh
-cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
-  --sim --screenshot workdir/screenshots/validation.png --frames 120 \
-  --robotdreams-project robotdreams/project.json
-```
-
-`--screenshot` requires `--sim`; `--frames` requires `--screenshot` and must be
-positive. If omitted, `--frames` defaults to 120. The process saves the PNG,
-prints the controller/model TCP delta, and exits without opening a preview
-window or entering the long-running runtime server loop.
-
-Screenshot captures accept an optional orbit camera. The target uses
-RobotDreams world meters; angles use degrees:
-
-```sh
-cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
-  --sim --screenshot workdir/screenshots/rear-high.png --frames 120 \
-  --camera-target 0,0,0.22 --camera-radius 0.68 \
-  --camera-azimuth -140 --camera-elevation 48 \
-  --robotdreams-project robotdreams/project.json
-```
-
-The close validation view remains the default: target `[0, 0, 0.22]` m,
-radius `0.6031221` m, azimuth `-28.78213` degrees, and elevation `31.537512`
-degrees. Camera flags require `--screenshot`; the radius must be positive, all
-values must be finite, and elevation must be strictly between -90 and 90
-degrees. Azimuth is normalized to `[-180, 180)`.
-
-To capture the same automatic-calibration validation scene as a finite video,
-use the `record` subcommand:
-
-```sh
-cargo run --manifest-path puppybot/Cargo.toml -p puppybot-runtime -- \
-  record --sim --out workdir/recordings/validation.mp4 --frames 150 \
-  --robotdreams-project robotdreams/project.json
-```
-
-Recording settles the controller and RobotDreams model for 120 simulation
-ticks, renders exactly the requested number of frames at 50 fps with one PGE
-WGPU renderer, encodes an H.264 MP4 through `gst-launch-1.0`/OpenH264, removes
-its temporary raw frames, prints the final controller/model TCP delta, and
-exits without starting the runtime UI, HTTP, or WebSocket servers.
-
-## ESP32 Rust firmware
-
-Install the Rust ESP32 toolchain, build, and flash from `puppybot/`:
-
-```sh
-./scripts/install.sh
-WIFI_SSID="your-network" WIFI_PASSWORD="your-password" ./scripts/build.sh
-./scripts/flash.sh
-```
-
-When networking is configured, the firmware serves `ws://puppybot.local/ws`
-and advertises `PuppyBot._ws._tcp.local`. It executes PuppyArm and steering
-commands through the STServo bus. Physical rear DC motor actuation is not yet
-wired into the bare-metal Rust entry point.
-
-The Android app's Network mode is supported. Its historical Bluetooth mode and
-permissions remain in the app, but the Rust firmware does not expose a BLE
-service.
-
-## Protocol
-
-The supported binary contract remains protocol v1 over WebSocket `/ws`, with
-local discovery through `_ws._tcp`. Command and telemetry layouts are defined
-in [`docs/puppybot-protocol.md`](docs/puppybot-protocol.md). Command IDs are
-stable; retired IDs remain reserved and are not renumbered.
-
-## Service tools
-
-Use the Python tools with a USB serial adapter for STServo service work:
-
-```sh
-python3 python/servobus.py scan --port /dev/ttyUSB0
-python3 python/servobus.py assign-id --port /dev/ttyUSB0 \
-  --family sms_sts --old-id 1 --new-id 2
-```
-
-Install their dependency with:
-
-```sh
-python3 -m pip install -r python/STServo_Python/requirements.txt
-```
-
-## Verification
-
-```sh
-cargo fmt --manifest-path puppybot/Cargo.toml --all --check
-cargo test --locked --manifest-path puppybot/Cargo.toml --workspace
-cargo test --locked --manifest-path tests/robotdreams/Cargo.toml
-cd android && ./gradlew testDebugUnitTest assembleDebug
-```
+Actual data lives primarily under `build/flex/sim/`; `datasets/` contains recipes
+and documentation. Follow [the storage rules](AGENTS.md#experiment-storage):
+budget every run, preserve required evidence, review retention when it finishes,
+and verify physical space recovered after cleanup. Git-ignored data is not
+necessarily disposable.

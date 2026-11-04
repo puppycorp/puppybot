@@ -1,7 +1,7 @@
 # Missing PuppyArm Safety Tests
 
 This lists safety cases present in `workdir/controller/tests/test_roboband_controller.py`
-that are not fully mirrored by the Rust `puppybot/core/src/puppyarm/tests.rs`
+that are not fully mirrored by the Rust `tests/reference/rust-core/src/puppyarm/tests.rs`
 suite after the `ServoSafety` container removal.
 
 ## Retargeting Changes Direction

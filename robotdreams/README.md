@@ -1,3 +1,9 @@
+# Historical RobotDreams scenes
+
+The Rust RobotDreams runtime has been retired. These scene, calibration and
+collision assets remain as reference data. Use the [native simulator](../src/sim/README.md)
+for current development. The documentation below describes the historical setup.
+
 # PuppyBot RobotDreams
 
 This directory owns PuppyBot-specific RobotDreams project manifests.

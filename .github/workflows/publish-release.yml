@@ -1,4 +1,4 @@
-name: Mobile Firmware Release
+name: PuppyBot Release
 
 on:
     # Automatic releases are paused; start releases manually when needed.
@@ -33,6 +33,12 @@ jobs:
                   name: ${{ needs.esp32.outputs.artifact_name }}
                   path: downloads/esp32
 
+            - name: Download native runtime artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: puppybot-runtime-flexscript
+                  path: downloads/runtime
+
             - name: Prepare release files
               run: |
                   mkdir -p dist
@@ -40,6 +46,7 @@ jobs:
                   ESP32_ARTIFACT="downloads/esp32/${{ needs.esp32.outputs.artifact_file }}"
                   cp "$ANDROID_ARTIFACT" dist/puppybot.apk
                   cp "$ESP32_ARTIFACT" dist/puppybot-firmware.zip
+                  cp downloads/runtime/puppybot-runtime-flexscript.zip dist/puppybot-runtime.zip
 
             - name: Create/Update GitHub Release
               uses: softprops/action-gh-release@v2
@@ -50,3 +57,4 @@ jobs:
                   files: |
                       dist/puppybot.apk
                       dist/puppybot-firmware.zip
+                      dist/puppybot-runtime.zip

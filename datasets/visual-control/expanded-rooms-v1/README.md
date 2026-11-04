@@ -467,7 +467,8 @@ After `flex/control.sh build`, use `build/flex/control/diverse-generator OUTPUT
 FIRST END fit`, `... validation`, `... development`, or `... wide-development
 --wide-heading`; the end ID is exclusive. `--wide-heading` samples the initial
 heading across approximately −180° to 180°; the default narrow-heading
-generation remains byte-identical. Geometry and determinism tests
+generation remains byte-identical. `--no-obstacle` leaves out the obstacle box (and
+lists no obstacles); without it the output is unchanged. Geometry and determinism tests
 cover the physical simulator records, scene links and disjoint role ranges.
 Two teacher episodes in one open room and two in one two-room layout passed
 independent trace and camera audits; these repeated-scene smoke tests do not

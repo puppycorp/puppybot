@@ -1,74 +1,99 @@
-name: Rust Build
+name: Flexscript Build
 
 on:
-    # Automatic runs are paused; start builds manually when needed.
+    # Automatic runs remain paused; start builds manually when needed.
     workflow_dispatch:
     workflow_call:
         outputs:
             artifact_name:
-                description: ESP32 firmware artifact name
-                value: ${{ jobs.esp32.outputs.artifact_name }}
+                description: Flexscript ESP32 firmware artifact name
+                value: ${{ jobs.native.outputs.artifact_name }}
             artifact_file:
-                description: ESP32 firmware artifact filename
-                value: ${{ jobs.esp32.outputs.artifact_file }}
+                description: Flexscript ESP32 firmware artifact filename
+                value: ${{ jobs.native.outputs.artifact_file }}
+
+permissions:
+    contents: read
 
 jobs:
-    esp32:
-        runs-on: ubuntu-latest
+    native:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        defaults:
+            run:
+                working-directory: puppybot
+        env:
+            FLEXSCRIPT_COMPILER: ${{ github.workspace }}/flexscript/build/flex
+            FLEXSCRIPT_SOURCE: ${{ github.workspace }}/flexscript
+            FLEXSCRIPT_ROOT: ${{ github.workspace }}/flexscript
+            FLEXSCRIPT_LIB: ${{ github.workspace }}/flexscript/libs
         outputs:
             artifact_name: ${{ steps.package.outputs.artifact_name }}
             artifact_file: ${{ steps.package.outputs.artifact_file }}
 
         steps:
-            - name: Checkout
+            - name: Checkout PuppyBot
               uses: actions/checkout@v4
+              with:
+                  path: puppybot
+                  persist-credentials: false
 
-            - name: Install ESP32 Rust toolchain
-              working-directory: puppybot
-              run: ./scripts/install.sh
+            - name: Checkout pinned Flexscript compiler source
+              uses: actions/checkout@v4
+              with:
+                  repository: J45k4/flexscript
+                  ref: d98c05f3a7de693442c5ea532ce515524f9e206c
+                  path: flexscript
+                  persist-credentials: false
 
-            - name: Build ESP32 Rust firmware
-              working-directory: puppybot
-              run: ./scripts/build.sh release
+            - name: Bootstrap the native compiler from a verified release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  mkdir -p build/seed ../flexscript/build
+                  gh release download 0.0.5 --repo J45k4/flexscript --dir build/seed \
+                    --pattern flexscript-0.0.5-linux-x86_64 \
+                    --pattern flexscript-core-0.0.5-linux-x86_64 --pattern SHA256SUMS
+                  (cd build/seed && sha256sum --check --ignore-missing SHA256SUMS)
+                  chmod +x build/seed/flexscript-0.0.5-linux-x86_64 build/seed/flexscript-core-0.0.5-linux-x86_64
+                  test "$(build/seed/flexscript-0.0.5-linux-x86_64 --version)" = 'flexscript 0.0.5'
+                  build/seed/flexscript-0.0.5-linux-x86_64 ../flexscript/compiler/main.flex -o "$FLEXSCRIPT_COMPILER"
 
-            - name: Package firmware artifact
+            - name: Build and exercise the native runtime
+              run: ./src/scripts/test-runtime.sh
+
+            - name: Check the preserved controller reference
+              run: |
+                  cargo test --locked --manifest-path src/tests/core-reference/Cargo.toml \
+                    --target-dir build/flex/core-reference --lib
+                  cargo fetch --locked --manifest-path src/tests/oracle/Cargo.toml
+                  python3 src/tests/differential.py --compiler "$FLEXSCRIPT_COMPILER" --lowering-mode hardware
+                  python3 src/tests/differential.py --compiler "$FLEXSCRIPT_COMPILER" --lowering-mode reference
+
+            - name: Build and inspect Flexscript ESP32 firmware
+              run: |
+                  python3 src/scripts/prepare-esp32-tools.py
+                  ./src/scripts/build-esp32.sh
+
+            - name: Package native artifacts
               id: package
               run: |
-                  mkdir -p artifacts/esp32
-                  cp puppybot/esp32/target/xtensa-esp32-none-elf/release/puppybot artifacts/esp32/
-                  (cd artifacts/esp32 && zip -r ../puppybot-esp32-rust.zip .)
-                  echo "artifact_name=puppybot-esp32-rust" >> "$GITHUB_OUTPUT"
-                  echo "artifact_file=puppybot-esp32-rust.zip" >> "$GITHUB_OUTPUT"
+                  python3 src/scripts/package-native.py
+                  echo "artifact_name=puppybot-esp32-flexscript" >> "$GITHUB_OUTPUT"
+                  echo "artifact_file=puppybot-esp32-flexscript.zip" >> "$GITHUB_OUTPUT"
 
-            - name: Upload firmware artifact
+            - name: Upload ESP32 firmware artifact
               uses: actions/upload-artifact@v4
               with:
                   name: ${{ steps.package.outputs.artifact_name }}
-                  path: artifacts/puppybot-esp32-rust.zip
+                  path: puppybot/artifacts/puppybot-esp32-flexscript.zip
                   if-no-files-found: error
                   retention-days: 14
-
-    runtime:
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-
-            - name: Build runtime
-              working-directory: puppybot
-              run: cargo build --locked -p puppybot-runtime --release
-
-            - name: Package runtime artifact
-              run: |
-                  mkdir -p artifacts/runtime
-                  cp puppybot/target/release/puppybot-runtime artifacts/runtime/
-                  (cd artifacts/runtime && zip -r ../puppybot-runtime.zip .)
 
             - name: Upload runtime artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: puppybot-runtime
-                  path: artifacts/puppybot-runtime.zip
+                  name: puppybot-runtime-flexscript
+                  path: puppybot/artifacts/puppybot-runtime-flexscript.zip
                   if-no-files-found: error
                   retention-days: 14

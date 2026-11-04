@@ -1,7 +1,7 @@
 # Puppybot WebSocket Protocol
 
 The supported transport is WebSocket at `/ws`, advertised on local networks as
-`_ws._tcp`. The current Rust firmware and runtime do not expose this protocol
+`_ws._tcp`. The Linux Flexscript runtime does not expose this protocol
 over Bluetooth; the Bluetooth mode retained in the Android app is unsupported.
 
 Binary client commands use this frame:
@@ -30,11 +30,11 @@ Binary server messages use this frame:
 | `0x03` | `STOP_MOTOR` | legacy motor id |
 | `0x04` | `STOP_ALL_MOTORS` | empty |
 | `0x06` | reserved | retired; do not reuse |
-| `0x07` | `SMARTBUS_SCAN` | retired; unhandled by the current Rust stack |
-| `0x08` | `SMARTBUS_SET_ID` | retired; unhandled by the current Rust stack |
+| `0x07` | `SMARTBUS_SCAN` | retired; unhandled by the current controller |
+| `0x08` | `SMARTBUS_SET_ID` | retired; unhandled by the current controller |
 | `0x09` | `SET_MOTOR_POLL` | `count:u8`, `servo_ids:[u8;count]`; legacy telemetry subscription |
-| `0x0A` | `SET_BOT_ID` | retired; unhandled by the current Rust stack |
-| `0x0B` | `ARM_MOVE` | retired; unhandled by the current Rust stack |
+| `0x0A` | `SET_BOT_ID` | retired; unhandled by the current controller |
+| `0x0B` | `ARM_MOVE` | retired; unhandled by the current controller |
 | `0x0C` | `ARM_SET_SPEED` | `speed:u16le` |
 | `0x0D` | `ARM_JOG` | `joint:u8`, `direction:i8`, `speed:u16le` |
 | `0x0E` | `ARM_STOP_JOINT` | `joint:u8` |

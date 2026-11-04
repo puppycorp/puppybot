@@ -1,0 +1,270 @@
+{
+  "inputSHA256": {
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/evidence.npz": "f952c93e3e18ab211027742f25ae1f6b1d7af5fc35d4659cb7e9d4545c6a04ce",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-21179.json": "9cb43421332e97fa6370c7f0b365eecdb673925ea6d6dafafe476ab865073e11",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-23385.json": "3dbc14464a95bc2f06c7480619600c0204e1e1ce55ddbf053af0c48a5b100ddf",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-23791.json": "e3edb5b5bb719238b9f79a68fcfed13fccfb17acf6544746cfe2a18b0b35d356",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-24361.json": "21aa94b27fd144b524d76b7b7e64e96fb5d9b5f6f964f1e3c872f194f07bfcf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-24765.json": "2f56e090ce730dab658647b937b303fce3b8c5971b2777a0460d1f812091d577",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-25461.json": "75b75a432b91cbe8ecda0a047a6311bcadc8888dbb7f2749970f923c01ee3023",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-25865.json": "cda008a2a558724b496f4685ce5d400de7fc2c802c1396f3dc1b4567fe486bc6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-26689.json": "1014d9da15b4c93e85bcafc06341579a289038ca70aa85054140fe15d0c4fa67",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-27093.json": "ee58440009817e703e915b8107d3234b0ed7e944d1a132a7641c3228d25d9d4f",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-28045.json": "72537250e6d39186267711f020fbfbe88115f8cf3ada3470f08e1605fc1ed6cb",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-28449.json": "4d2ef424350bcb93f06080394af95c7205ff5336c67885e696b72ba76dd17f77",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-29529.json": "43c942b6ca0e3136c501cb87bc9c39e2645ff2c3a7860d27b4a22c721a18ddb6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-29933.json": "7e5e72c807e0d9fad62eaa8bf1716bb19337b2197c7fcfd57b2e1aa8a941f2fe",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-30633.json": "fb56fe0f413666aadcd1b2265c948a2a23ec24386d7f42c9db4f3c5035f9396b",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observation-31037.json": "4d51f9173e2624924db95cfba43a9fabc3d9f55d88ea45c574d16582c7994254",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-21179.bin": "a4b1e72c69746e886be00747dd57726509a8ae0dafdd6ed9a7dff92a425a55b9",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-23385.bin": "7823e2b9e7ab15b7cf441a4e5e3623828a072447bab62c12777edb1434b45ceb",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-23791.bin": "7f040a249b31eb23e81519a6d28c8c184ff89422812bd946862cffde3a69486a",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-24361.bin": "7ab9a0c270941ccbae36793065df9d0d0bcfcf8a82bcdb0d02531494661c9bfd",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-24765.bin": "ed35dae606205d7257f519ea5cb3e910a64bba91f3d5afd081e9f3596611bb62",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-25461.bin": "b7a026a69e7487362790c27ae13abbbed22c1e7859fb2ad2202212fd0d51e1c5",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-25865.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-26689.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-27093.bin": "a14f2a31ac1d0344e2bb881091154cc08e5d4a17fa888e7ee9739ea86ca38cf6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-28045.bin": "8e4d607b6fd396bb3e929b4f899393c0219a2a950c3266b1e3e0e89f802ff2db",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-28449.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-29529.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-29933.bin": "4094a8e72f3433ffbf8583bafc19bd1d076db6c5966354fc780c19a0db47d647",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-30633.bin": "4d1b553dc120cdccf3e347de52351c7bd705435ab05bae4682688d909ce59db6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-31037.bin": "65693112e9cbf58a2f499cec311a1352521f710eea7e4272c7bc166a006a21fc",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-21179.bin": "ded24d5040e3956013b4780f477ba1d29feef4add925a5580a3de775c3ff53c6",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-23385.bin": "4398dcca85c017d7885efc5a5db7bca116c51aa8e54ad2234d2cecc7ed5d562c",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-23791.bin": "c43ba5b9358b6c0f612301b18b810a70ec317a3d021d0635989fdd3a8cf32bf2",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-24361.bin": "c3c8f190701a9cde18d633d05e317a50420ec3214d02dab6e5dca7e4c12ffdfb",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-24765.bin": "68a302ad5b59c11455b255816c9f95511ce3a07a2bf1ee47073a84b1ae927ac4",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-25461.bin": "c2efee7540d29e059f9fa91b7ddbc04e3e310e75f1a20adcf8378297736fae2f",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-25865.bin": "93502c11ce58212d7592a688b8959c705039fd0e25af1e5c59f3a1ef23148102",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-26689.bin": "3f6b579aaf8c70c1c7171eb523ad9e3a1dd8af0f4886b8a1908c9d94542ce6dd",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-27093.bin": "a5ed740016daeadc2575686eabdd0b1f4d6a7739972bc859fadc0101ef783c38",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-28045.bin": "1cbce1d4b8f2a8c3ba70d0245dd0e04ed5a0f1d32bb1a8a45ddd0e149762bdec",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-28449.bin": "61e9dd7ce455ea7ddf0955a5cce28ce0f66b379c71b7399adf608bf233fc0057",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-29529.bin": "295238ba86c69c0066f373de63b1d889f4fcf8817c28224e5465c6e80821c3ea",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-29933.bin": "5f842ccc63ffb8e49cf80a88a8c73a9cc0df543937fd0bffc2754706c3911758",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-30633.bin": "2077ab373964ca1349ce4d96829cc84f8beea4fd1425d6da17369a08d5d11e0a",
+    "build/flex/sim/discovery-2701217/episode-1/dock-1/observed-detail-31037.bin": "19359c2f2ca09c6c53f6ef32abc23817e182aa8844ad84e3cb63a7daf0cc4af2",
+    "build/flex/sim/levels-v2/pitch82/dock-short-waypoint-monitored-v1/trial/candidate-search/run/trace.jsonl": "13f65c4114e8e3242b4ea3324890a981329c25f18cc273b2b75014ec02afc9ac"
+  },
+  "limits": [
+    "Saved maps lie outside the trial inventory.",
+    "Historical occupied counts are worker metadata, not independently reconstructed raw evidence.",
+    "Unknown is a mapper evidence classification, not proof of empty or occupied physical floor.",
+    "Box margin, drop clearance and route planning were not reached."
+  ],
+  "rows": [
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 952,
+      "frame": 21179,
+      "freeCells": 81,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 22865,
+      "valid": true
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1116,
+      "frame": 23385,
+      "freeCells": 87,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 23386,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1189,
+      "frame": 23791,
+      "freeCells": 94,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 23792,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1216,
+      "frame": 24361,
+      "freeCells": 96,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 24362,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1255,
+      "frame": 24765,
+      "freeCells": 98,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 24766,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1295,
+      "frame": 25461,
+      "freeCells": 99,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 25462,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1372,
+      "frame": 25865,
+      "freeCells": 105,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 25866,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1382,
+      "frame": 26689,
+      "freeCells": 105,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 26690,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1387,
+      "frame": 27093,
+      "freeCells": 105,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 27094,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1395,
+      "frame": 28045,
+      "freeCells": 106,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 28046,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1432,
+      "frame": 28449,
+      "freeCells": 108,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 28450,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1446,
+      "frame": 29529,
+      "freeCells": 108,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 29530,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1471,
+      "frame": 29933,
+      "freeCells": 108,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 29934,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1500,
+      "frame": 30633,
+      "freeCells": 109,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 30634,
+      "valid": false
+    },
+    {
+      "boxPositionM": [
+        -1.372581894399577,
+        -0.4049586552170403,
+        0.0
+      ],
+      "detailFreeCells": 1520,
+      "frame": 31037,
+      "freeCells": 110,
+      "occupiedCells": 0,
+      "stableObservations": 3,
+      "tick": 31038,
+      "valid": false
+    }
+  ],
+  "schema": "puppybot.dock-stage-cause-audit.v1"
+}

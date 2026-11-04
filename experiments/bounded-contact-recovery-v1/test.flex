@@ -1,0 +1,38 @@
+import "../../flex/control/host.flex";
+import "../../flex/control/progress-guard.flex";
+import "recovery.flex";
+fn main(argc,argv) {
+    vc_init(argc,argv);let s=alloc(104);
+    vc_require(!rr_start(s,0,600,5,30) && !rr_start(s,1,0,5,30),"invalid recovery accepted");
+    vc_require(rr_start(s,10,600,5,30)==1,"recovery did not request zero");
+    vc_require(rr_zero_before(s,11,1,0,0)==2,"zero echo did not enable replanning");
+    vc_require(rr_propose(s,12,1,1,1,-250,500)==3,"bounded cleared opposite proposal rejected");
+    vc_require(rr_after_action(s,13,1,0)==1,"corrective action did not request zero");
+    vc_require(rr_zero_after(s,14,1,0,0)==5 && load64(s+16)==1 && load64(s+64)==9,"completion incorrectly counted as task progress");
+    vc_require(rr_observe(s,15,1,0,0)==5,"observation ended too soon");
+    vc_require(rr_observe(s,16,1,0,1)==1 && rr_reason(s)==5,"repeated stall did not stop");
+    vc_require(rr_observe(s,17,1,1,0)==1,"terminal stop was reset");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,0,1,-250,0)==1 && rr_reason(s)==2,"stale clearance accepted");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,1,0,-250,0)==1 && rr_reason(s)==2,"unsafe clearance accepted");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,1,1,250,0)==1 && rr_reason(s)==2,"blocked direction accepted");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,1,1,-251,0)==1 && rr_reason(s)==2,"excess speed accepted");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,1,1,-250,501)==1 && rr_reason(s)==2,"excess steering accepted");
+    rr_start(s,10,600,5,30);
+    vc_require(rr_zero_before(s,11,1,1,0)==1 && rr_reason(s)==4,"nonzero echo accepted");
+    rr_start(s,10,600,5,30);
+    vc_require(rr_zero_before(s,11,0,0,0)==1 && rr_reason(s)==1,"stale zero echo accepted");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);rr_propose(s,12,1,1,1,-250,0);
+    rr_after_action(s,13,1,1);vc_require(rr_zero_after(s,14,1,0,0)==1 && rr_reason(s)==3,"recovery contact did not stop");
+    rr_start(s,10,600,5,30);rr_zero_before(s,11,1,0,0);rr_propose(s,12,1,1,1,-250,0);
+    rr_after_action(s,13,1,0);vc_require(rr_zero_after(s,15,1,0,0)==1 && rr_reason(s)==5,"late zero bypassed timeout");
+    rr_start(s,10, -600,5,30);rr_zero_before(s,11,1,0,0);
+    vc_require(rr_propose(s,12,1,1,1,200,0)==3,"opposite proposal for reverse contact rejected");
+    rr_after_action(s,13,1,0);rr_zero_after(s,14,1,0,0);
+    vc_require(rr_observe(s,15,1,1,0)==5 && !load64(s+16),"verified task progress did not reset budget");
+    pl_print(1,"Bounded contact-recovery contract checks passed.\n");return 0;
+}

@@ -1,0 +1,352 @@
+{
+  "scope": "one saved map and pose; failed-command constraints reconstructed from adjacent saved trace rows, exact in-memory insertion timing unproven; not clearance or a driven route",
+  "pose": [
+    -1.0227391024329355,
+    0.6720691171698062,
+    -2.279371460535368
+  ],
+  "cachedSearchCentre": [
+    -1.3061736994652526,
+    -0.29138150011118535
+  ],
+  "rememberedBox": [
+    -1.2724903597250987,
+    -0.43911433039069275,
+    0.0
+  ],
+  "reconstructedContacts": [
+    {
+      "pose": [
+        -1.027002841721301,
+        0.6795848179548803,
+        -1.8224587110862167
+      ],
+      "direction": -1,
+      "steeringDegrees": -27
+    },
+    {
+      "pose": [
+        -1.0095571719311351,
+        0.6704166136096621,
+        -2.1661224160032644
+      ],
+      "direction": -1,
+      "steeringDegrees": 0
+    }
+  ],
+  "mapFrameId": 21179,
+  "sourceHashes": {
+    "build/flex/sim/levels-v2/pitch82/dock-floor-refresh-monitored-v2/trial/candidate-search/run/trace.jsonl": "b5a4f564ae09e2e02c06147632164a2ba008081bf56e3c67ccf22c5c69b34fdb",
+    "build/flex/sim/levels-v2/pitch82/physical-hybrid-hidden-v1/inputs/case.json": "46f65deda343dc2461f3a103f867fe6fcfa9b1081006780ec1e389edbfcaacc1",
+    "build/flex/sim/discovery-2413926/episode-1/dock-1/safe.bin": "d0ecffd1800c5e122863125a1f3949496761d111ffb1a69c4f45863daf4a255b",
+    "build/flex/sim/discovery-2413926/episode-1/dock-1/observed.bin": "a4b1e72c69746e886be00747dd57726509a8ae0dafdd6ed9a7dff92a425a55b9",
+    "build/flex/sim/discovery-2413926/episode-1/dock-1/observed-detail.bin": "ded24d5040e3956013b4780f477ba1d29feef4add925a5580a3de775c3ff53c6",
+    "build/flex/sim/discovery-2413926/episode-1/dock-1/map.json": "9cb43421332e97fa6370c7f0b365eecdb673925ea6d6dafafe476ab865073e11",
+    "build/flex/sim/levels-v2/pitch82/dock-floor-refresh-build-v2/build.json": "c96f6f4cbf9f2e119248d023c17a054ea895c475d41162a772a29f513c19c518",
+    "build/flex/sim/levels-v2/pitch82/dock-floor-refresh-build-v2/source/sim/navigation.flex": "948da5366bfc8c48f5cf805d363310899b63b14a0a1f0804884ab70467a4bb5a",
+    "build/flex/control/compiler": "1d02770273ed36b1e4ed2c40b4d43926f631f4761dc3a67503369d83444c6a34",
+    "experiments/dock-short-waypoint-v1/transform.py": "0b21a9b0040cdf29fac655f44c6380ee17907fbd9b8604f31ae404d9d075a854"
+  },
+  "rows": [
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 20,
+      "offsetIndex": -1,
+      "goal": [
+        -1.141554098585989,
+        0.5111871831649284
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 1,
+      "endpoint": [
+        -1.1008294078865655,
+        0.5809543313545569,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 20,
+      "offsetIndex": 0,
+      "goal": [
+        -1.0791846052667151,
+        0.4801996167018012
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 20,
+      "offsetIndex": 1,
+      "goal": [
+        -1.009970836529886,
+        0.47247710484008143
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 30,
+      "offsetIndex": -1,
+      "goal": [
+        -1.200961596662516,
+        0.43074621616248954
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 2,
+      "endpoint": [
+        -1.1789197133401954,
+        0.48983954553930753,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 30,
+      "offsetIndex": 0,
+      "goal": [
+        -1.1074073566836051,
+        0.3842648664677987
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 30,
+      "offsetIndex": 1,
+      "goal": [
+        -1.0035867035783612,
+        0.37268109867521904
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 40,
+      "offsetIndex": -1,
+      "goal": [
+        -1.260369094739043,
+        0.3503052491600506
+      ],
+      "goalClear": false,
+      "planned": false,
+      "pathCount": 0,
+      "endpoint": null
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 40,
+      "offsetIndex": 0,
+      "goal": [
+        -1.135630108100495,
+        0.28833011623379623
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 5,
+      "endpoint": [
+        -1.1463165051557938,
+        0.3457875856267446,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": false,
+      "distanceCm": 40,
+      "offsetIndex": 1,
+      "goal": [
+        -0.9972025706268365,
+        0.2728850925103566
+      ],
+      "goalClear": false,
+      "planned": false,
+      "pathCount": 0,
+      "endpoint": null
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 20,
+      "offsetIndex": -1,
+      "goal": [
+        -1.141554098585989,
+        0.5111871831649284
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 1,
+      "endpoint": [
+        -1.1008294078865655,
+        0.5809543313545569,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 20,
+      "offsetIndex": 0,
+      "goal": [
+        -1.0791846052667151,
+        0.4801996167018012
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 20,
+      "offsetIndex": 1,
+      "goal": [
+        -1.009970836529886,
+        0.47247710484008143
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 30,
+      "offsetIndex": -1,
+      "goal": [
+        -1.200961596662516,
+        0.43074621616248954
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 2,
+      "endpoint": [
+        -1.1789197133401954,
+        0.48983954553930753,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 30,
+      "offsetIndex": 0,
+      "goal": [
+        -1.1074073566836051,
+        0.3842648664677987
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 30,
+      "offsetIndex": 1,
+      "goal": [
+        -1.0035867035783612,
+        0.37268109867521904
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 4,
+      "endpoint": [
+        -1.0682261997021638,
+        0.436902371441994,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 40,
+      "offsetIndex": -1,
+      "goal": [
+        -1.260369094739043,
+        0.3503052491600506
+      ],
+      "goalClear": false,
+      "planned": false,
+      "pathCount": 0,
+      "endpoint": null
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 40,
+      "offsetIndex": 0,
+      "goal": [
+        -1.135630108100495,
+        0.28833011623379623
+      ],
+      "goalClear": true,
+      "planned": true,
+      "pathCount": 5,
+      "endpoint": [
+        -1.1463165051557938,
+        0.3457875856267446,
+        -2.279371460535368
+      ]
+    },
+    {
+      "reconstructedContacts": true,
+      "distanceCm": 40,
+      "offsetIndex": 1,
+      "goal": [
+        -0.9972025706268365,
+        0.2728850925103566
+      ],
+      "goalClear": false,
+      "planned": false,
+      "pathCount": 0,
+      "endpoint": null
+    },
+    {
+      "candidate": true,
+      "result": 1,
+      "attemptedPlans": 1,
+      "pathCount": 4,
+      "goal": [
+        -1.0682261997021638,
+        0.436902371441994
+      ]
+    }
+  ]
+}

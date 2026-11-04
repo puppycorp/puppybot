@@ -1,0 +1,565 @@
+{
+  "schema": "puppybot.saved-floor-resolution.v1",
+  "snapshots": 32,
+  "nativeClear": 32,
+  "nativeClearWithMarkedFine": 32,
+  "lastSnapshotEvidence": {
+    "evidenceSHA256": "b17524a52e4a9c778ab61e151a0500b1f57e71cdd21826cfafeee3c5d1543597",
+    "unknownFineCells": 3,
+    "confirmedOccupiedFineCells": 0
+  },
+  "codeInputs": {
+    "experiments/saved-floor-resolution-v1/audit.py": "df567445882c92d1c893d84b24c8bcf1acd9d7b8535e790e4dbc2ee28d0f4007",
+    "flex/sim/navigation.flex": "9d535cd86f8ebff3d15f37daee976ebce2d7234bc9a23ca795313bca063ceb2f",
+    "build/flex/control/compiler": "1d02770273ed36b1e4ed2c40b4d43926f631f4761dc3a67503369d83444c6a34",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-build-v1/source/sim/navigation.flex": "7025f74b24a2517b551fdd23d6e7ce6c935daba4ec1dc429b6bb63c69def33a7",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-build-v1/source/sim/main.flex": "6b421547c77d584f08e180fd599f9bb59c21a198eb196e8d0d81bc990fc66e9e",
+    "build/flex/sim/levels-v2/pitch82/dock-clearance-build-v1/build/flex/sim/library/lib/f64.flex": "ddab8e9c89d82b3182d3f45d6944f39f31777435644896d6a9bc4847c1ff6343"
+  },
+  "records": [
+    {
+      "frame": 501,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-501.json": "ede023565450d753139784250cb399068f5a81864acd2d08756fcb49a9aca1a4",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-501.bin": "99d4b41ae2e9a576746b000baaf0bd3573db1dbc42e89e3ae97d56ca6d48bb31",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-501.bin": "178825bf5d171ec651b8d367b46f58f5175f89472eba2c5d5a722b9cc62a7f8c"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 1115,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-1115.json": "4db28136e5209452eb4dc349242574dfa6ff0ae694c2831750ab20dad727192c",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-1115.bin": "99d4b41ae2e9a576746b000baaf0bd3573db1dbc42e89e3ae97d56ca6d48bb31",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-1115.bin": "dbb006d312e4d0566fd2d54d4835242e093b12e485f359b3042fef8835a47cb0"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 1885,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-1885.json": "af1e5069eec58491c7bb41bc923bdc69b5ac6c63cca22ea46f2604be478c8cef",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-1885.bin": "99d4b41ae2e9a576746b000baaf0bd3573db1dbc42e89e3ae97d56ca6d48bb31",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-1885.bin": "dbb006d312e4d0566fd2d54d4835242e093b12e485f359b3042fef8835a47cb0"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 2491,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-2491.json": "ddf2715c098c297cda2c8b19b208df72edb0ea3cca64f659c1d4c82ec91cfecd",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-2491.bin": "99d4b41ae2e9a576746b000baaf0bd3573db1dbc42e89e3ae97d56ca6d48bb31",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-2491.bin": "2905cd4569d583c5f9af2487496e2141e4cb4c2beaef5825d804b18b28a0515b"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 3389,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-3389.json": "a0ccc5b272f823af32d44cb3f82e65a8f50c3ffa395f60dcc978fbee365de488",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-3389.bin": "c7cfed1f89284e4f4c43c509034006fb173e57819f3285a3f9f988f4b94e1fea",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-3389.bin": "e2c3436dbe3b81ec8967569e83e09c6211eb304d0ee4e1987d321a0bd84efacf"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 3999,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-3999.json": "b97773054938def861a0cfdb7f117b774dbbd8f9e4dbd3df98bf4a1a974962b1",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-3999.bin": "c7cfed1f89284e4f4c43c509034006fb173e57819f3285a3f9f988f4b94e1fea",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-3999.bin": "09d7530ada56493b2de3489b838ad1b3e170e42c7ffbf3eb0a9844f2604adac5"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 5021,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-5021.json": "0314477de68cf65e87e7bbd3f00251ebdb76cdfc3fa7a05799e05603a935c3a1",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-5021.bin": "c7cfed1f89284e4f4c43c509034006fb173e57819f3285a3f9f988f4b94e1fea",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-5021.bin": "95b0965b2f77c6d9f736ebcef47e4cd3aeaf97877c015a5fe7a50b72fe9209f9"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 5631,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-5631.json": "73712b3bf9b6a2fbd94cf7c760dea9428152d0f133777ee04637b5a21ed36f6a",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-5631.bin": "c7cfed1f89284e4f4c43c509034006fb173e57819f3285a3f9f988f4b94e1fea",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-5631.bin": "ef62bb97ebc1eba52e1fcfacb32066753befa372de5f09039c9f3240867c2bf5"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 6785,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-6785.json": "c1070c7c3ea43d62be41f03e15ce7de259ae8c7fc3f04fc65b4f11b698027066",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-6785.bin": "c7cfed1f89284e4f4c43c509034006fb173e57819f3285a3f9f988f4b94e1fea",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-6785.bin": "9d89d992f0ee42a1e41503c118271143f5542f769938c214c1f39fe6a2254738"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 7403,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-7403.json": "8887c9b671b3ec7cfb0c177d256ef1f823bb1dfe98920a12464693199a3afd52",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-7403.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-7403.bin": "618eae1a8832e562250304b46891b5c1f1ee7278456df6db45b05543292b943c"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 8433,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-8433.json": "1dd6cf97971d2970e91ade64bd9cfc0fb70daaa5796145d5defedcc6318bd250",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-8433.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-8433.bin": "2c7a9f8db506c1a5744184baa7b45de775bcd71afb42adfe24a5204100a44ff7"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 9047,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-9047.json": "650bab140c8130bb8b0b8f9ed3b901dd6319201b314bfbdfe776becc7bbae4ae",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-9047.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-9047.bin": "06753184db5acd3bb29f6181e873d6c308e7f17f1015e66a7bece6e18cfade08"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 9941,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-9941.json": "15f881dac4a34df5be19e8159d040a376af12d89ca39eea52a09e1cd3d598872",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-9941.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-9941.bin": "d104573eee49a1490e5dc690b84ab73f7e4f2ab991212542475cfc174b082b56"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 10551,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-10551.json": "52405c178c5fa61cc091fb7d0b392aac801e9a594cd13d84ac276a3fb19c00eb",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-10551.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-10551.bin": "eb58957b9ee867e6fb6c172f22b895ca2c78bda032c1d43cbae7073184676ebc"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 11325,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-11325.json": "17a07b26594d1052c31d9411cb5635b78823495476293ea267a1117219bc2c69",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-11325.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-11325.bin": "8813278a708d7b97e712b6bbfa6cee25ff4d7f8fedf764a799094dc1098ab776"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 11935,
+      "pose": [
+        -7.533e-06,
+        -0.003110749,
+        -0.010073791
+      ],
+      "fineCells": 208,
+      "fineMarked": 16,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-11935.json": "4f143ef45fe97f01b8d17031d015d53ff585b59ab168cc07c65a4442cb513fb6",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-11935.bin": "752ad0b92bfd52e56e53261e56204c65f47f76d096505f516a20183f7561acbc",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-11935.bin": "bf3cb2f3370d5ed0bd43a62ee14c830d3d613e2e83df2ea7b2d624dbb84eb4fe"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 13525,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-13525.json": "3fe48b641535293207b55c1cb6ba3b0466d5777a54c4c775cc0989073951d878",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-13525.bin": "b3713004be46734f07e2edb12d38d99ceff77792ad5c5ba297977de527dec607",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-13525.bin": "9b9cd6dd4c69828d25d8ab885736b631e93ffbb3df19db6edf2377a6f724724f"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 14105,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-14105.json": "12ed8a616385b89cb1111dff62e4b91c2e013b2d5558e49fcdc75bc82b0b5d09",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-14105.bin": "66d81e6a9bda5edf79936ff68191d32ec07a7f57c9136f41ee81d04b94d28b7e",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-14105.bin": "6881c51ed9feb9c8281fbd92b15656bb12a6c10455afd0c7219277b3c400cabb"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 14833,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-14833.json": "4f13e96031f960a05af5d38d34e91d242a71d0b3977869eaec1dbe9ec605f7b0",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-14833.bin": "66d81e6a9bda5edf79936ff68191d32ec07a7f57c9136f41ee81d04b94d28b7e",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-14833.bin": "6881c51ed9feb9c8281fbd92b15656bb12a6c10455afd0c7219277b3c400cabb"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 15393,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-15393.json": "60c3916664982f63332d3a8c4a8510f795413c75637b832bbeac5742db85dc7a",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-15393.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-15393.bin": "5502b84dee6d0ada4da0c8daa844ca4f3effa9e902363dbe8f5bd004bd0cd686"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 16245,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-16245.json": "9b391f02a7f3955ffb7f47c79209c9e7bcd37ffe6e285c3dc9608c56f97c7a02",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-16245.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-16245.bin": "182f68b56f17f07bf2eb7aac91cc8d52a67f5f03efbfa61d2b4e6680cd305d88"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 16817,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-16817.json": "3142589b3cd875603b22500324fe75da9fc720a29a1b1a343e807ecd64da6103",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-16817.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-16817.bin": "3a30bfa2215066989c8ea71bbd68935da76df4e291ffe977718881bf41de731b"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 17813,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-17813.json": "f51cc815d511e16b562300d6ee4ed354c219a05e2bc04b787f8245f5ffd7b90f",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-17813.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-17813.bin": "ccda73c861e92b4d3cda84e4f72fcd0569842662aa8a3fa6d47eb5ecffcb054d"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 18389,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-18389.json": "1ffc417ca1e176ae7e2ecb2d52ea13c2c0593ef574ac8d5538be022bef2a1d5a",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-18389.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-18389.bin": "ccda73c861e92b4d3cda84e4f72fcd0569842662aa8a3fa6d47eb5ecffcb054d"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 19513,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-19513.json": "677d9db71f0193411de1efd9d62a6c453785a1d39512f56baa7d814c09c13167",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-19513.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-19513.bin": "fcf824f003c5b5cfbddde7f5b1443af5512c69a451eea9b168fd9fd839ab101d"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 20085,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-20085.json": "3ee15ebe7bf27e3ea77e8343714e2c2314f1cf012c0775e8d82ad145862fb173",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-20085.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-20085.bin": "39508089695376496bf19fef4744ee71e4c91f7ba5c6e1bb8410efdb947b7c3a"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 21077,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-21077.json": "4c6fc1e28889db69dbbdc3df3ed3e99ccfb108db5de689af31f7f16adee8669d",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-21077.bin": "7e40540d6a93bee83cb347fa623a6d2096399520a969dd4a78af713616de32cf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-21077.bin": "2b45cee4787ffb291121ac171c7af6bc5feaea3cdb205424db3a7b5e5f2f0e55"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 21645,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-21645.json": "fa4592114bcc8da799c1f8f40f608af96b7ba11fc3e977a4d00c5b941375e697",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-21645.bin": "5e47912336965448324962be67d4f403c862d7b50f7a16698789ab04eac4d722",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-21645.bin": "2bcf51d7d98b07abc6ecee582a369b27fa2ca8166a45d58cfb6c12c6eabc853f"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 22497,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-22497.json": "3ce24534de6970e60305a40d30dab3ba1ef41b4b103243235621fdf3c7f3e3a1",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-22497.bin": "5e47912336965448324962be67d4f403c862d7b50f7a16698789ab04eac4d722",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-22497.bin": "3506a341eee32ad3aeb52d7af06775ad0d4708880b10e64b6f4bfa7ac2d1134c"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 23069,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-23069.json": "9f10031dea8d252504bbb70f951f9e65de3a4825569c73240e91df75e0e3d2bf",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-23069.bin": "5e47912336965448324962be67d4f403c862d7b50f7a16698789ab04eac4d722",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-23069.bin": "08e3cff6abef7e9c1f02e0e520c2908d150ec4cc2ead966fcad344bb16b6a39a"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 23805,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-23805.json": "c0edff21a45c82a9e8238f00ae9ff7198b0d56d39bcf3f87f3e51c4fb4314d99",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-23805.bin": "5e47912336965448324962be67d4f403c862d7b50f7a16698789ab04eac4d722",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-23805.bin": "9fcc207e5cac2a6fb927a647cb38f1ebe5c21f9463e4bb73cb1cd647a1fd69eb"
+      },
+      "nativeGuardClear": true
+    },
+    {
+      "frame": 24381,
+      "pose": [
+        0.35832116,
+        0.059598967,
+        -1.047077717
+      ],
+      "fineCells": 218,
+      "fineMarked": 3,
+      "fineCellsInBlockedCoarse": 0,
+      "inputs": {
+        "build/flex/sim/held-map-replay-v4/map/episode-0/input-24381.json": "36f161df0233387cd50311fb76db1e7f30fb7f1a858baa562ed70199e7993b59",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-24381.bin": "5e47912336965448324962be67d4f403c862d7b50f7a16698789ab04eac4d722",
+        "build/flex/sim/held-map-replay-v4/map/episode-0/observed-detail-24381.bin": "40e2fdb34143867752c36b642eb5d033bc182d1dfe08539cbc03340045433f66"
+      },
+      "nativeGuardClear": true
+    }
+  ]
+}

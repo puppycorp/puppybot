@@ -1,0 +1,9109 @@
+{
+  "schema": "puppybot.dock-aim-kinematics.v1",
+  "frame": 11477,
+  "inputSHA256": {
+    "experiments/dock-survey-aim-kinematics-v1/audit.py": "5eb739c36233c8c5ad4e1d49db635dcf8d77db1831a4211797502701b0b2b675",
+    "build/flex/control/compiler": "1d02770273ed36b1e4ed2c40b4d43926f631f4761dc3a67503369d83444c6a34",
+    "build/flex/sim/puppybot.bin": "434b38e71a5a525e4559f5ead02089506006173b92b5b357d567cd67b16631dd",
+    "build/flex/sim/levels-v2/pitch82/observed-footprint-matched-monitored-v2/trial/candidate-search/run/trace.jsonl": "f5fa1940a1334baa4367e86dfdab87a92f1db78ba1efba58cfae884482d36a66",
+    "build/flex/sim/levels-v2/pitch82/observed-footprint-matched-monitored-v2/trial/candidate-search/diagnostic/survey-60.rgb": "b4ff20857fe85aa8798764d2b50ede86dc43471b7b77b639c777a3090fb96ca2",
+    "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-60.rgb": "b4ff20857fe85aa8798764d2b50ede86dc43471b7b77b639c777a3090fb96ca2",
+    "experiments/dock-marker-blue-support-v1/barrier-inputs.json": "2b6846e2b3e9e2c5fd7c938f164ff81cf4f82887341f0fa17956e576a0b1a97a",
+    "flex/sim/agent.flex": "08de01fe26e597a5bd7792a0d0e6968bd8d74f41ba51514c32c44ec61a0d7e2b",
+    "flex/sim/arm-proxy.flex": "b17d1e9b77d8ea76a6f2f78be06053cfede271ab314d6496e9f952edfb4d6fb5",
+    "flex/sim/breadcrumb-features.flex": "1de461a8f652614e281ca58acddff8ba7ebd312dc969ef775a92767e385307fe",
+    "flex/sim/breadcrumbs.flex": "5c4bee614f5a2f40c7b121cf891c5ee3d891b4cad71a989aa1bcbb4168a9043a",
+    "flex/sim/brick-vision.flex": "95aaa08ac73c3b9978d73b33c320184aa396e41f66cf543c48c0148d8f6b134f",
+    "flex/sim/camera.flex": "54ff227df86eff784880ec875bfde70312d986b79f622b2f91c190abbf25f55c",
+    "flex/sim/case.flex": "3b8d625bf594311063e5248035df4922f48fddf9ceb15c21184a5684fd6550f7",
+    "flex/sim/catalog.flex": "a164fe518b52baaeb13d104b8b699ab0551689964ed0d1e644209c08ee1d4d65",
+    "flex/sim/collect.flex": "cdd3a7556622674bc479ec2b5f9fd5c79bcdec6e1b9376272b6e4fece8dbe262",
+    "flex/sim/container.flex": "36a4e28a9f6a33bd0ea1ebff6d537fb8f8cf78d1d020698ebdf7b4258cddad2a",
+    "flex/sim/discovery.flex": "35f2d53a9f1243453e9e9df32f46320f7621c9d1612efb122e5549a644a1b687",
+    "flex/sim/dock-search.flex": "5fc9effec5a96c4023aeebbde356478e378ba4923f15d2b91f6b9f47158cf1c2",
+    "flex/sim/dock-vision.flex": "a0741851afb349988170af8c740b7c4e7f07b3c7e6ad81a2566557db29d71cbd",
+    "flex/sim/environment.flex": "e3312388f55a30b5f55be7be4b4b8e82008ccba113f4c3457a87426d5e6212df",
+    "flex/sim/floor-memory.flex": "6def57ea0d279c221b84bc6dd6762d693c157477554166775f587d17a44e7414",
+    "flex/sim/grasp.flex": "bea81c0c239b06e42a0d4cc6d0c57852eff3f7ae5e8429e6608fc79bc378ffca",
+    "flex/sim/gripper.flex": "767fb424250d6f6fdd20769cfc43337832405103b6469928bc2bbab25176b727",
+    "flex/sim/ground-heading.flex": "3530e0c13d4841ec984f6d710cc50e5c9496c6f4514b82cc3fd402687da31656",
+    "flex/sim/gym.flex": "2a864f91d3ad1122ea79e4d464230997fd27bc50d048eaadc1d7b41b987e1930",
+    "flex/sim/house.flex": "70216a787dbf90b48e8229b202f530b6d6845953b8add91faf61375259f2d917",
+    "flex/sim/landmarks.flex": "dd490b49a245ff1545a2d4f28ecd9f3b67ecee274f54c41a5047e6d35484ecfd",
+    "flex/sim/layout.flex": "8a3c8c78995a5cb1b4b7fe8e78ddf57117d2625a77c1ff0a60bb449735700659",
+    "flex/sim/live.flex": "deb580681e93964e42b37bbf805d96800d37cb6cf5329c93533cc3f7435a98eb",
+    "flex/sim/localization.flex": "b3720347b0a2ef3edeaba30114b5595ff1bcfc22f320fb6d382dd952eba65ba9",
+    "flex/sim/main.flex": "c8799b45c142ecc939f800d03d5d794716bade796335d642d37c35654fedc8fd",
+    "flex/sim/model.flex": "a6f21574dfd9604f07fa07685fdc3010953b4bec21efa38009fe71bdc0f27811",
+    "flex/sim/navigation.flex": "9d535cd86f8ebff3d15f37daee976ebce2d7234bc9a23ca795313bca063ceb2f",
+    "flex/sim/oracle-cache.flex": "46ac459c387662cf9bdfbf64a894e6fccb8b4305b4a6101f3a74fcdad938245e",
+    "flex/sim/physical-agent-gate.flex": "2400c80abec34c09c6617890f1495deb2fb2845b96d7e348a872340427d75196",
+    "flex/sim/pickup.flex": "cb1a173f5016bfb3be13c57289d5380235b557339fcf739db8f5db5c4d4bb6a9",
+    "flex/sim/preview.flex": "0b8b46fa41925cc726a406354eb8526a0fa22d6331710518c234de83586d50c4",
+    "flex/sim/render.flex": "3378ad0b60c282953786a1de3da74436c51dda0ed28be0d2c0b7dfedf0c305d5",
+    "flex/sim/seek-projection.flex": "cea49c1e4c4f17a5ecdb22ceee5b53c4fbb77f66b7e4df70b6537f1e58a4d32d",
+    "flex/sim/seek.flex": "6f0e13955175efcc7abf80820bed230282a4f4a1f05e5c14c6ea2dfbc4e73c6f",
+    "flex/sim/serial.flex": "1e576d245257910bde52b5d46b473cf349e367c1f22e91c63d5245530a4712b8",
+    "flex/sim/solid.flex": "c01fd9340762a4f924fe8bd4a8a705f95d936d07539e386ab5af292cf1d0ebd0",
+    "flex/sim/stock-route.flex": "64347e70a5a12f036752fc22689c51e8c924c7c46dca0c3d2dacbc914c060408",
+    "flex/sim/vehicle.flex": "c1948b60814648c62bba17e079bff436951f69fdebb0dfd8daf313f5b10cd094",
+    "flex/sim/video.flex": "68ba77dbe22fdc4ba52644901a8599dc66f255ced0ce0f7353669cce9f8a15e9",
+    "flex/sim/vision.flex": "527ef9452de0ee21e7f6aa3d2fff6abef7f81dda488b771621e9658923a410a1",
+    "flex/sim/world.flex": "290774d03c57c58e7df4f7eb6c4cc89d152f9f7c6cce1d4d257f4462d16ef81e"
+  },
+  "estimatedBoxForCommand": [
+    -1.2724903597250987,
+    -0.43911433039069275,
+    0.0
+  ],
+  "offlineTarget": [
+    -1.366619883754643,
+    -0.40133213072795915,
+    0.099
+  ],
+  "offlineTargetRelative": [
+    1.0388040004089278,
+    0.437413396554468
+  ],
+  "offlineTargetTruthErrorM": 0.0037023865888985235,
+  "savedCamera": [
+    -0.993,
+    0.663,
+    0.456,
+    -0.027431,
+    -0.793125,
+    -0.608446,
+    0.999402,
+    -0.034565,
+    0.0,
+    -0.02103,
+    -0.608082,
+    0.793598
+  ],
+  "reconstructedCamera": [
+    -0.993,
+    0.663,
+    0.456,
+    -0.027431,
+    -0.793125,
+    -0.608446,
+    0.999402,
+    -0.034565,
+    0.0,
+    -0.02103,
+    -0.608082,
+    0.793598
+  ],
+  "validIKCandidates": 273,
+  "candidates": [
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 264,
+      "ticks": [
+        1231,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.999,
+        0.624,
+        0.426,
+        -0.240257,
+        -0.573694,
+        -0.783045,
+        0.922381,
+        -0.386282,
+        0.0,
+        -0.302476,
+        -0.722265,
+        0.621971
+      ],
+      "estimatedPixel": [
+        345.3985873830554,
+        529.0006536236981
+      ],
+      "depthM": 0.9326058568170852
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 264,
+      "ticks": [
+        1345,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.996,
+        0.634,
+        0.426,
+        -0.136778,
+        -0.606746,
+        -0.783045,
+        0.97552,
+        -0.21991,
+        0.0,
+        -0.172199,
+        -0.763876,
+        0.621971
+      ],
+      "estimatedPixel": [
+        260.47955876193134,
+        529.5834853139979
+      ],
+      "depthM": 0.9349319904508588
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 264,
+      "ticks": [
+        1459,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.994,
+        0.644,
+        0.426,
+        -0.02913,
+        -0.621291,
+        -0.783045,
+        0.998903,
+        -0.046833,
+        0.0,
+        -0.036672,
+        -0.782185,
+        0.621973
+      ],
+      "estimatedPixel": [
+        173.3613312317106,
+        524.8454621279363
+      ],
+      "depthM": 0.9163655770458773
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 264,
+      "ticks": [
+        1572,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.993,
+        0.655,
+        0.426,
+        0.078462,
+        -0.617005,
+        -0.783045,
+        0.992011,
+        0.126151,
+        -1e-06,
+        0.098782,
+        -0.776789,
+        0.621973
+      ],
+      "estimatedPixel": [
+        81.5670862390539,
+        514.5665630136767
+      ],
+      "depthM": 0.8785029580006477
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 264,
+      "ticks": [
+        1686,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.995,
+        0.665,
+        0.426,
+        0.184617,
+        -0.593942,
+        -0.783045,
+        0.954932,
+        0.296824,
+        0.0,
+        0.232426,
+        -0.747754,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -20.026256141259353,
+        497.0741952148226
+      ],
+      "depthM": 0.8207878053096944
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -0.999,
+        0.675,
+        0.426,
+        0.285137,
+        -0.552764,
+        -0.783045,
+        0.888726,
+        0.458439,
+        0.0,
+        0.358978,
+        -0.695912,
+        0.621973
+      ],
+      "estimatedPixel": [
+        -136.8912822321157,
+        470.45495699418814
+      ],
+      "depthM": 0.746191338115562
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        123,
+        2763,
+        2937
+      ],
+      "camera": [
+        -1.004,
+        0.685,
+        0.426,
+        0.37696,
+        -0.494722,
+        -0.783045,
+        0.79541,
+        0.606072,
+        0.0,
+        0.474581,
+        -0.622841,
+        0.621971
+      ],
+      "estimatedPixel": [
+        -279.2564905800157,
+        430.59153261288924
+      ],
+      "depthM": 0.6567949279978471
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -1.0,
+        0.623,
+        0.446,
+        -0.239789,
+        -0.572586,
+        -0.783995,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.30284,
+        -0.723142,
+        0.620768
+      ],
+      "estimatedPixel": [
+        345.26032968543484,
+        519.4885571073607
+      ],
+      "depthM": 0.9464759177106413
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -0.996,
+        0.633,
+        0.446,
+        -0.13651,
+        -0.605577,
+        -0.783995,
+        0.975521,
+        -0.219905,
+        1e-06,
+        -0.172405,
+        -0.764803,
+        0.620772
+      ],
+      "estimatedPixel": [
+        261.26343853487685,
+        520.1407436202703
+      ],
+      "depthM": 0.9490073340611916
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 107,
+      "ticks": [
+        1459,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -0.994,
+        0.644,
+        0.446,
+        -0.029068,
+        -0.620087,
+        -0.783995,
+        0.998903,
+        -0.046826,
+        1e-06,
+        -0.036711,
+        -0.783134,
+        0.620767
+      ],
+      "estimatedPixel": [
+        175.674468261465,
+        515.4279923162238
+      ],
+      "depthM": 0.9310744447276881
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 107,
+      "ticks": [
+        1572,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -0.993,
+        0.654,
+        0.446,
+        0.07831,
+        -0.615808,
+        -0.783995,
+        0.992011,
+        0.126151,
+        0.0,
+        0.098901,
+        -0.777731,
+        0.620767
+      ],
+      "estimatedPixel": [
+        85.40972393777449,
+        504.69171861213727
+      ],
+      "depthM": 0.8926700606624969
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -0.995,
+        0.665,
+        0.446,
+        0.184259,
+        -0.592793,
+        -0.783995,
+        0.954933,
+        0.296824,
+        0.0,
+        0.232708,
+        -0.748662,
+        0.62077
+      ],
+      "estimatedPixel": [
+        -13.964550108567039,
+        486.94041362617423
+      ],
+      "depthM": 0.8356861796098723
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -0.998,
+        0.675,
+        0.446,
+        0.284586,
+        -0.551691,
+        -0.783995,
+        0.888725,
+        0.45844,
+        0.0,
+        0.359414,
+        -0.696755,
+        0.620767
+      ],
+      "estimatedPixel": [
+        -128.51870707698367,
+        459.63166703576303
+      ],
+      "depthM": 0.7609449562952397
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        205,
+        2921,
+        2860
+      ],
+      "camera": [
+        -1.003,
+        0.684,
+        0.446,
+        0.376231,
+        -0.493766,
+        -0.783995,
+        0.79541,
+        0.606072,
+        0.0,
+        0.475157,
+        -0.623597,
+        0.620769
+      ],
+      "estimatedPixel": [
+        -266.5640088892603,
+        418.7697916731264
+      ],
+      "depthM": 0.6711412973761284
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -0.997,
+        0.63,
+        0.443,
+        -0.265748,
+        -0.634577,
+        -0.72574,
+        0.922383,
+        -0.386277,
+        1e-06,
+        -0.280337,
+        -0.669409,
+        0.687975
+      ],
+      "estimatedPixel": [
+        343.8251211045012,
+        471.1401161027487
+      ],
+      "depthM": 1.0023399543889848
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 132,
+      "ticks": [
+        1345,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -0.994,
+        0.641,
+        0.443,
+        -0.151289,
+        -0.671131,
+        -0.72574,
+        0.975521,
+        -0.219906,
+        0.0,
+        -0.159594,
+        -0.707974,
+        0.687971
+      ],
+      "estimatedPixel": [
+        264.4885765860965,
+        471.80839101048446
+      ],
+      "depthM": 1.0055692548209423
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 132,
+      "ticks": [
+        1459,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -0.993,
+        0.651,
+        0.443,
+        -0.03222,
+        -0.687217,
+        -0.72574,
+        0.998903,
+        -0.046832,
+        0.0,
+        -0.033987,
+        -0.724943,
+        0.687972
+      ],
+      "estimatedPixel": [
+        183.27779476263547,
+        467.4642993305781
+      ],
+      "depthM": 0.9848731225370504
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 132,
+      "ticks": [
+        1572,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -0.994,
+        0.662,
+        0.443,
+        0.086794,
+        -0.682477,
+        -0.72574,
+        0.99201,
+        0.126157,
+        0.0,
+        0.091557,
+        -0.719941,
+        0.687973
+      ],
+      "estimatedPixel": [
+        97.92317085624623,
+        458.0955333719148
+      ],
+      "depthM": 0.9430131123922249
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -0.997,
+        0.672,
+        0.443,
+        0.204205,
+        -0.656972,
+        -0.72574,
+        0.954933,
+        0.296821,
+        -1e-06,
+        0.215415,
+        -0.693032,
+        0.687976
+      ],
+      "estimatedPixel": [
+        2.5318078732968274,
+        442.12850012604054
+      ],
+      "depthM": 0.879325488226492
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -1.002,
+        0.682,
+        0.443,
+        0.315396,
+        -0.611418,
+        -0.72574,
+        0.888724,
+        0.458442,
+        0.0,
+        0.332709,
+        -0.644982,
+        0.687972
+      ],
+      "estimatedPixel": [
+        -108.0362734627301,
+        417.72273351218547
+      ],
+      "depthM": 0.7970236718487479
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        188,
+        2895,
+        2927
+      ],
+      "camera": [
+        -1.008,
+        0.69,
+        0.443,
+        0.416962,
+        -0.547225,
+        -0.72574,
+        0.795411,
+        0.60607,
+        0.0,
+        0.439849,
+        -0.577261,
+        0.687976
+      ],
+      "estimatedPixel": [
+        -244.33274420489226,
+        380.4350049430278
+      ],
+      "depthM": 0.6973279212675039
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -0.994,
+        0.637,
+        0.44,
+        -0.289217,
+        -0.690609,
+        -0.662889,
+        0.922381,
+        -0.386279,
+        0.0,
+        -0.25606,
+        -0.611436,
+        0.748723
+      ],
+      "estimatedPixel": [
+        342.7005728109725,
+        427.8801392217576
+      ],
+      "depthM": 1.0508946683897717
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 158,
+      "ticks": [
+        1345,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -0.992,
+        0.648,
+        0.44,
+        -0.16465,
+        -0.730391,
+        -0.662889,
+        0.97552,
+        -0.219908,
+        0.0,
+        -0.145774,
+        -0.646661,
+        0.748718
+      ],
+      "estimatedPixel": [
+        266.88541182432414,
+        428.4385758720627
+      ],
+      "depthM": 1.054149057154727
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 158,
+      "ticks": [
+        1459,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -0.993,
+        0.659,
+        0.44,
+        -0.035061,
+        -0.747901,
+        -0.662889,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.031041,
+        -0.662161,
+        0.748722
+      ],
+      "estimatedPixel": [
+        189.6912955395475,
+        424.612171899961
+      ],
+      "depthM": 1.032168096647893
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 158,
+      "ticks": [
+        1572,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -0.995,
+        0.669,
+        0.44,
+        0.094451,
+        -0.742741,
+        -0.662889,
+        0.992011,
+        0.126149,
+        -1e-06,
+        0.083623,
+        -0.657593,
+        0.748722
+      ],
+      "estimatedPixel": [
+        107.6384345567244,
+        416.009225419813
+      ],
+      "depthM": 0.9859248364685054
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -0.999,
+        0.679,
+        0.44,
+        0.222238,
+        -0.714979,
+        -0.662889,
+        0.954933,
+        0.296823,
+        0.0,
+        0.19676,
+        -0.633014,
+        0.748722
+      ],
+      "estimatedPixel": [
+        15.41815860971127,
+        401.5221411923626
+      ],
+      "depthM": 0.9167608277698812
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -1.005,
+        0.688,
+        0.44,
+        0.343247,
+        -0.665407,
+        -0.662889,
+        0.888724,
+        0.458442,
+        0.0,
+        0.303896,
+        -0.589125,
+        0.748722
+      ],
+      "estimatedPixel": [
+        -92.67873008100133,
+        379.0437134786973
+      ],
+      "depthM": 0.826769433872169
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 360,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        172,
+        2869,
+        2994
+      ],
+      "camera": [
+        -1.012,
+        0.696,
+        0.44,
+        0.453778,
+        -0.595538,
+        -0.662889,
+        0.79541,
+        0.606072,
+        0.0,
+        0.401758,
+        -0.527268,
+        0.748719
+      ],
+      "estimatedPixel": [
+        -227.86900564747452,
+        344.58608463504817
+      ],
+      "depthM": 0.718629429859053
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.999,
+        0.624,
+        0.466,
+        -0.240257,
+        -0.573694,
+        -0.783045,
+        0.922381,
+        -0.386282,
+        0.0,
+        -0.302476,
+        -0.722265,
+        0.621971
+      ],
+      "estimatedPixel": [
+        344.57328740471326,
+        508.8809265220692
+      ],
+      "depthM": 0.9639276568170851
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 207,
+      "ticks": [
+        1345,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.996,
+        0.634,
+        0.466,
+        -0.136778,
+        -0.606746,
+        -0.783045,
+        0.97552,
+        -0.21991,
+        0.0,
+        -0.172199,
+        -0.763876,
+        0.621971
+      ],
+      "estimatedPixel": [
+        262.4089559604672,
+        509.493301005948
+      ],
+      "depthM": 0.9662537904508588
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 207,
+      "ticks": [
+        1459,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.994,
+        0.644,
+        0.466,
+        -0.02913,
+        -0.621291,
+        -0.783045,
+        0.998903,
+        -0.046833,
+        0.0,
+        -0.036672,
+        -0.782185,
+        0.621973
+      ],
+      "estimatedPixel": [
+        178.20785252836842,
+        504.5182455311419
+      ],
+      "depthM": 0.9476873770458774
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 207,
+      "ticks": [
+        1572,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.993,
+        0.655,
+        0.466,
+        0.078462,
+        -0.617005,
+        -0.783045,
+        0.992011,
+        0.126151,
+        -1e-06,
+        0.098782,
+        -0.776789,
+        0.621973
+      ],
+      "estimatedPixel": [
+        89.77544130991234,
+        493.74728678447445
+      ],
+      "depthM": 0.9098247580006477
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.995,
+        0.665,
+        0.466,
+        0.184617,
+        -0.593942,
+        -0.783045,
+        0.954932,
+        0.296824,
+        0.0,
+        0.232426,
+        -0.747754,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -7.527588923754422,
+        475.4877892302478
+      ],
+      "depthM": 0.8521096053096945
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -0.999,
+        0.675,
+        0.466,
+        0.285137,
+        -0.552764,
+        -0.783045,
+        0.888726,
+        0.458439,
+        0.0,
+        0.358978,
+        -0.695912,
+        0.621973
+      ],
+      "estimatedPixel": [
+        -118.48560307085779,
+        447.8698234514655
+      ],
+      "depthM": 0.777513138115562
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        309,
+        3126,
+        2760
+      ],
+      "camera": [
+        -1.004,
+        0.685,
+        0.466,
+        0.37696,
+        -0.494722,
+        -0.783045,
+        0.79541,
+        0.606072,
+        0.0,
+        0.474581,
+        -0.622841,
+        0.621971
+      ],
+      "estimatedPixel": [
+        -251.97944413869175,
+        406.8868180917694
+      ],
+      "depthM": 0.6881167279978472
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -0.997,
+        0.63,
+        0.463,
+        -0.265322,
+        -0.633552,
+        -0.726792,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.280744,
+        -0.670379,
+        0.686865
+      ],
+      "estimatedPixel": [
+        343.505395371561,
+        463.0339058346284
+      ],
+      "depthM": 1.0160231088845093
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1345,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -0.994,
+        0.64,
+        0.463,
+        -0.151048,
+        -0.670044,
+        -0.726792,
+        0.97552,
+        -0.219911,
+        0.0,
+        -0.159829,
+        -0.709,
+        0.686858
+      ],
+      "estimatedPixel": [
+        265.10986152035656,
+        463.5815161439997
+      ],
+      "depthM": 1.018574122402856
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1459,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -0.993,
+        0.651,
+        0.463,
+        -0.032165,
+        -0.68611,
+        -0.726792,
+        0.998903,
+        -0.046828,
+        0.0,
+        -0.034034,
+        -0.725994,
+        0.686863
+      ],
+      "estimatedPixel": [
+        185.15346704122612,
+        459.2487989448187
+      ],
+      "depthM": 0.9985853697747281
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1572,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -0.994,
+        0.662,
+        0.463,
+        0.086649,
+        -0.681376,
+        -0.726792,
+        0.992011,
+        0.126151,
+        0.0,
+        0.091685,
+        -0.720985,
+        0.686863
+      ],
+      "estimatedPixel": [
+        101.12442842441303,
+        449.61337001436436
+      ],
+      "depthM": 0.9567941415994378
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -0.997,
+        0.672,
+        0.463,
+        0.203874,
+        -0.655905,
+        -0.726792,
+        0.954933,
+        0.296821,
+        0.0,
+        0.215727,
+        -0.694037,
+        0.686859
+      ],
+      "estimatedPixel": [
+        7.463146462661314,
+        433.22261473191463
+      ],
+      "depthM": 0.8932003150245279
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -1.002,
+        0.681,
+        0.463,
+        0.314887,
+        -0.610434,
+        -0.726792,
+        0.888726,
+        0.45844,
+        0.0,
+        0.33319,
+        -0.645918,
+        0.686865
+      ],
+      "estimatedPixel": [
+        -100.71942041747747,
+        408.03060728426374
+      ],
+      "depthM": 0.8104305585529428
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        288,
+        3089,
+        2832
+      ],
+      "camera": [
+        -1.008,
+        0.69,
+        0.463,
+        0.416288,
+        -0.546338,
+        -0.726792,
+        0.795411,
+        0.606071,
+        0.0,
+        0.440487,
+        -0.578098,
+        0.686863
+      ],
+      "estimatedPixel": [
+        -233.09317496586652,
+        370.23558877856726
+      ],
+      "depthM": 0.7114993474691989
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -0.994,
+        0.637,
+        0.46,
+        -0.288827,
+        -0.689672,
+        -0.664036,
+        0.92238,
+        -0.386282,
+        0.0,
+        -0.256505,
+        -0.612493,
+        0.747708
+      ],
+      "estimatedPixel": [
+        342.4339643405951,
+        420.4459583010986
+      ],
+      "depthM": 1.0634482764286153
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -0.993,
+        0.647,
+        0.46,
+        -0.16443,
+        -0.7294,
+        -0.664031,
+        0.975519,
+        -0.219912,
+        0.0,
+        -0.146028,
+        -0.647774,
+        0.747703
+      ],
+      "estimatedPixel": [
+        267.76267808979395,
+        420.86364089755483
+      ],
+      "depthM": 1.0658029646387495
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 63,
+      "ticks": [
+        1459,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -0.993,
+        0.658,
+        0.46,
+        -0.035013,
+        -0.746888,
+        -0.664036,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.031094,
+        -0.663307,
+        0.747708
+      ],
+      "estimatedPixel": [
+        191.1495943217255,
+        416.9306972472573
+      ],
+      "depthM": 1.0440010054450453
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 105,
+      "ticks": [
+        1572,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -0.995,
+        0.668,
+        0.46,
+        0.094328,
+        -0.741735,
+        -0.664036,
+        0.99201,
+        0.126155,
+        0.0,
+        0.083771,
+        -0.65873,
+        0.747708
+      ],
+      "estimatedPixel": [
+        110.22074324118262,
+        408.0341246307839
+      ],
+      "depthM": 0.997823903590695
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -0.999,
+        0.678,
+        0.46,
+        0.221935,
+        -0.714009,
+        -0.664031,
+        0.954933,
+        0.296821,
+        0.0,
+        0.197098,
+        -0.634105,
+        0.747705
+      ],
+      "estimatedPixel": [
+        19.493617127048083,
+        393.0822015244087
+      ],
+      "depthM": 0.9287803274278527
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -1.005,
+        0.688,
+        0.46,
+        0.342779,
+        -0.664506,
+        -0.664031,
+        0.888725,
+        0.458439,
+        0.0,
+        0.304417,
+        -0.59014,
+        0.747706
+      ],
+      "estimatedPixel": [
+        -86.35765662097685,
+        370.136443426437
+      ],
+      "depthM": 0.8396272257279803
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        268,
+        3054,
+        2904
+      ],
+      "camera": [
+        -1.012,
+        0.696,
+        0.46,
+        0.453166,
+        -0.594733,
+        -0.664031,
+        0.795408,
+        0.606074,
+        0.0,
+        0.402451,
+        -0.528175,
+        0.747707
+      ],
+      "estimatedPixel": [
+        -218.13227344007316,
+        334.852651265995
+      ],
+      "depthM": 0.7316331468626747
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -0.991,
+        0.643,
+        0.455,
+        -0.309766,
+        -0.739674,
+        -0.597433,
+        0.922381,
+        -0.386281,
+        0.0,
+        -0.230777,
+        -0.55106,
+        0.801917
+      ],
+      "estimatedPixel": [
+        341.4887108740787,
+        382.1579448180023
+      ],
+      "depthM": 1.1015057413752134
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": -30,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -0.991,
+        0.654,
+        0.455,
+        -0.176347,
+        -0.782288,
+        -0.597437,
+        0.975521,
+        -0.219906,
+        0.0,
+        -0.131379,
+        -0.582812,
+        0.801918
+      ],
+      "estimatedPixel": [
+        269.43528807755473,
+        382.6133961623338
+      ],
+      "depthM": 1.1045006735233935
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": -20,
+      "maxTravelTicks": 8,
+      "ticks": [
+        1459,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -0.993,
+        0.665,
+        0.455,
+        -0.037552,
+        -0.801038,
+        -0.597433,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.027975,
+        -0.596777,
+        0.801917
+      ],
+      "estimatedPixel": [
+        195.67297959913458,
+        378.9624168541409
+      ],
+      "depthM": 1.0808888792088174
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": -10,
+      "maxTravelTicks": 105,
+      "ticks": [
+        1572,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -0.996,
+        0.675,
+        0.455,
+        0.101166,
+        -0.795512,
+        -0.597437,
+        0.992011,
+        0.126154,
+        0.0,
+        0.075369,
+        -0.592664,
+        0.801919
+      ],
+      "estimatedPixel": [
+        117.09968196792605,
+        370.7765629988162
+      ],
+      "depthM": 1.031428566819738
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -1.001,
+        0.685,
+        0.455,
+        0.238028,
+        -0.765783,
+        -0.597437,
+        0.954933,
+        0.296821,
+        0.0,
+        0.177331,
+        -0.570512,
+        0.801923
+      ],
+      "estimatedPixel": [
+        28.45084093957547,
+        356.9711765246608
+      ],
+      "depthM": 0.9575544803748985
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -1.008,
+        0.693,
+        0.455,
+        0.367631,
+        -0.712688,
+        -0.597437,
+        0.888726,
+        0.458437,
+        0.0,
+        0.273887,
+        -0.530957,
+        0.80192
+      ],
+      "estimatedPixel": [
+        -76.19718034912302,
+        335.30133237452054
+      ],
+      "depthM": 0.8607651630996446
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 380,
+      "pitchDeg": 80,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        249,
+        3020,
+        2975
+      ],
+      "camera": [
+        -1.016,
+        0.701,
+        0.455,
+        0.486019,
+        -0.637852,
+        -0.597437,
+        0.79541,
+        0.606072,
+        0.0,
+        0.362089,
+        -0.475207,
+        0.801916
+      ],
+      "estimatedPixel": [
+        -208.10515303288742,
+        302.1238434481616
+      ],
+      "depthM": 0.7454044009665424
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1231,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -0.997,
+        0.63,
+        0.483,
+        -0.265748,
+        -0.634577,
+        -0.72574,
+        0.922383,
+        -0.386277,
+        1e-06,
+        -0.280337,
+        -0.669409,
+        0.687975
+      ],
+      "estimatedPixel": [
+        343.15450758836477,
+        453.54279631592544
+      ],
+      "depthM": 1.031369554388985
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1345,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -0.994,
+        0.641,
+        0.483,
+        -0.151289,
+        -0.671131,
+        -0.72574,
+        0.975521,
+        -0.219906,
+        0.0,
+        -0.159594,
+        -0.707974,
+        0.687971
+      ],
+      "estimatedPixel": [
+        266.0461603874193,
+        454.2473111534765
+      ],
+      "depthM": 1.0345988548209422
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1459,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -0.993,
+        0.651,
+        0.483,
+        -0.03222,
+        -0.687217,
+        -0.72574,
+        0.998903,
+        -0.046832,
+        0.0,
+        -0.033987,
+        -0.724943,
+        0.687972
+      ],
+      "estimatedPixel": [
+        187.19236254210367,
+        449.66911830158267
+      ],
+      "depthM": 1.0139027225370505
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1572,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -0.994,
+        0.662,
+        0.483,
+        0.086794,
+        -0.682477,
+        -0.72574,
+        0.99201,
+        0.126157,
+        0.0,
+        0.091557,
+        -0.719941,
+        0.687973
+      ],
+      "estimatedPixel": [
+        104.55539126911856,
+        439.8137980467046
+      ],
+      "depthM": 0.9720427123922248
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1686,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -0.997,
+        0.672,
+        0.483,
+        0.204205,
+        -0.656972,
+        -0.72574,
+        0.954933,
+        0.296821,
+        -1e-06,
+        0.215415,
+        -0.693032,
+        0.687976
+      ],
+      "estimatedPixel": [
+        12.677610299355308,
+        423.07520135353116
+      ],
+      "depthM": 0.908355088226492
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 413,
+      "ticks": [
+        1800,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -1.002,
+        0.682,
+        0.483,
+        0.315396,
+        -0.611418,
+        -0.72574,
+        0.888724,
+        0.458442,
+        0.0,
+        0.332709,
+        -0.644982,
+        0.687972
+      ],
+      "estimatedPixel": [
+        -92.99399685954654,
+        397.6288663247726
+      ],
+      "depthM": 0.8260532718487479
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        467,
+        3440,
+        2661
+      ],
+      "camera": [
+        -1.008,
+        0.69,
+        0.483,
+        0.416962,
+        -0.547225,
+        -0.72574,
+        0.795411,
+        0.60607,
+        0.0,
+        0.439849,
+        -0.577261,
+        0.687976
+      ],
+      "estimatedPixel": [
+        -221.7786253976925,
+        359.0733160426806
+      ],
+      "depthM": 0.726357521267504
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 321,
+      "ticks": [
+        1231,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -0.994,
+        0.637,
+        0.48,
+        -0.288827,
+        -0.689672,
+        -0.664036,
+        0.92238,
+        -0.386282,
+        0.0,
+        -0.256505,
+        -0.612493,
+        0.747708
+      ],
+      "estimatedPixel": [
+        342.15725664545016,
+        412.4469348294408
+      ],
+      "depthM": 1.0767289964286153
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 321,
+      "ticks": [
+        1345,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -0.992,
+        0.647,
+        0.48,
+        -0.16443,
+        -0.7294,
+        -0.664031,
+        0.975519,
+        -0.219912,
+        0.0,
+        -0.146028,
+        -0.647774,
+        0.747703
+      ],
+      "estimatedPixel": [
+        268.0377008117728,
+        412.9068927074776
+      ],
+      "depthM": 1.0792480146387493
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 321,
+      "ticks": [
+        1459,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -0.993,
+        0.658,
+        0.48,
+        -0.035013,
+        -0.746888,
+        -0.664036,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.031094,
+        -0.663307,
+        0.747708
+      ],
+      "estimatedPixel": [
+        192.76810915889365,
+        408.8286984033274
+      ],
+      "depthM": 1.057281725445045
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 321,
+      "ticks": [
+        1572,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -0.995,
+        0.669,
+        0.48,
+        0.094328,
+        -0.741735,
+        -0.664036,
+        0.99201,
+        0.126155,
+        0.0,
+        0.083771,
+        -0.65873,
+        0.747708
+      ],
+      "estimatedPixel": [
+        113.07609623896462,
+        399.83253335251777
+      ],
+      "depthM": 1.011846358590695
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 321,
+      "ticks": [
+        1686,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -0.999,
+        0.679,
+        0.48,
+        0.221935,
+        -0.714009,
+        -0.664031,
+        0.954933,
+        0.296821,
+        0.0,
+        0.197098,
+        -0.634105,
+        0.747705
+      ],
+      "estimatedPixel": [
+        23.823483047051752,
+        384.49580520577075
+      ],
+      "depthM": 0.9427749564278527
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -1.005,
+        0.688,
+        0.48,
+        0.342779,
+        -0.664506,
+        -0.664031,
+        0.888725,
+        0.458439,
+        0.0,
+        0.304417,
+        -0.59014,
+        0.747706
+      ],
+      "estimatedPixel": [
+        -80.03026539259923,
+        360.82171577664514
+      ],
+      "depthM": 0.8529078457279804
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        418,
+        3348,
+        2760
+      ],
+      "camera": [
+        -1.012,
+        0.696,
+        0.48,
+        0.453166,
+        -0.594733,
+        -0.664031,
+        0.795408,
+        0.606074,
+        0.0,
+        0.402451,
+        -0.528175,
+        0.747707
+      ],
+      "estimatedPixel": [
+        -208.538236450539,
+        324.8165607761974
+      ],
+      "depthM": 0.7449137668626747
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -40,
+      "maxTravelTicks": 255,
+      "ticks": [
+        1231,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -0.991,
+        0.643,
+        0.475,
+        -0.31047,
+        -0.741365,
+        -0.594974,
+        0.922382,
+        -0.386277,
+        0.0,
+        -0.229824,
+        -0.548793,
+        0.803749
+      ],
+      "estimatedPixel": [
+        341.2353225650135,
+        373.237737057791
+      ],
+      "depthM": 1.1145602194064377
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -30,
+      "maxTravelTicks": 255,
+      "ticks": [
+        1345,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -0.991,
+        0.654,
+        0.475,
+        -0.176751,
+        -0.784072,
+        -0.59497,
+        0.97552,
+        -0.219908,
+        0.0,
+        -0.130838,
+        -0.580405,
+        0.803746
+      ],
+      "estimatedPixel": [
+        270.0269242618638,
+        373.70552119124534
+      ],
+      "depthM": 1.1175562844776492
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -20,
+      "maxTravelTicks": 255,
+      "ticks": [
+        1459,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -0.993,
+        0.665,
+        0.475,
+        -0.037641,
+        -0.802867,
+        -0.594974,
+        0.998903,
+        -0.046831,
+        0.0,
+        -0.027863,
+        -0.594321,
+        0.803749
+      ],
+      "estimatedPixel": [
+        197.1529873905779,
+        369.9423808049211
+      ],
+      "depthM": 1.0938965288455729
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -10,
+      "maxTravelTicks": 255,
+      "ticks": [
+        1572,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -0.996,
+        0.676,
+        0.475,
+        0.101393,
+        -0.797329,
+        -0.594974,
+        0.992011,
+        0.126149,
+        0.0,
+        0.075055,
+        -0.59022,
+        0.803749
+      ],
+      "estimatedPixel": [
+        119.7097331113263,
+        361.64520240200204
+      ],
+      "depthM": 1.0451201125876586
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 0,
+      "maxTravelTicks": 255,
+      "ticks": [
+        1686,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -1.001,
+        0.686,
+        0.475,
+        0.238571,
+        -0.767523,
+        -0.594974,
+        0.954933,
+        0.296824,
+        0.0,
+        0.176602,
+        -0.56816,
+        0.803746
+      ],
+      "estimatedPixel": [
+        32.370244355629836,
+        347.4513199399649
+      ],
+      "depthM": 0.9710363416854864
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -1.008,
+        0.694,
+        0.475,
+        0.36847,
+        -0.714312,
+        -0.594974,
+        0.888726,
+        0.458439,
+        0.0,
+        0.272759,
+        -0.528768,
+        0.803748
+      ],
+      "estimatedPixel": [
+        -70.42634707694816,
+        325.2097513862878
+      ],
+      "depthM": 0.8739784403974765
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        382,
+        3282,
+        2848
+      ],
+      "camera": [
+        -1.017,
+        0.701,
+        0.475,
+        0.487133,
+        -0.63931,
+        -0.594974,
+        0.795409,
+        0.606074,
+        0.0,
+        0.360598,
+        -0.473247,
+        0.803751
+      ],
+      "estimatedPixel": [
+        -198.80497779143298,
+        291.2083782217618
+      ],
+      "depthM": 0.7581307956626411
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -40,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -0.989,
+        0.649,
+        0.47,
+        -0.329046,
+        -0.785715,
+        -0.523819,
+        0.922381,
+        -0.386279,
+        0.0,
+        -0.20234,
+        -0.48316,
+        0.851832
+      ],
+      "estimatedPixel": [
+        340.8642707528902,
+        337.3427901830659
+      ],
+      "depthM": 1.1438528713648488
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -30,
+      "maxTravelTicks": 199,
+      "ticks": [
+        1345,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -0.99,
+        0.66,
+        0.47,
+        -0.187327,
+        -0.83098,
+        -0.523819,
+        0.97552,
+        -0.21991,
+        0.0,
+        -0.115193,
+        -0.510995,
+        0.851832
+      ],
+      "estimatedPixel": [
+        271.4281151081841,
+        337.75429679439446
+      ],
+      "depthM": 1.1468336959564256
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -20,
+      "maxTravelTicks": 199,
+      "ticks": [
+        1459,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -0.992,
+        0.671,
+        0.47,
+        -0.039891,
+        -0.850898,
+        -0.523819,
+        0.998903,
+        -0.046828,
+        0.0,
+        -0.024529,
+        -0.523244,
+        0.851832
+      ],
+      "estimatedPixel": [
+        199.93352981465023,
+        334.2209143369072
+      ],
+      "depthM": 1.1217260761550156
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -10,
+      "maxTravelTicks": 199,
+      "ticks": [
+        1572,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -0.997,
+        0.682,
+        0.47,
+        0.107462,
+        -0.845029,
+        -0.523819,
+        0.992011,
+        0.126152,
+        0.0,
+        0.06608,
+        -0.519634,
+        0.851834
+      ],
+      "estimatedPixel": [
+        124.46867163908419,
+        326.4282606926772
+      ],
+      "depthM": 1.0700638241488751
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 0,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -1.003,
+        0.691,
+        0.47,
+        0.252848,
+        -0.813442,
+        -0.523819,
+        0.954932,
+        0.296827,
+        0.0,
+        0.155483,
+        -0.500211,
+        0.851833
+      ],
+      "estimatedPixel": [
+        38.32630150392379,
+        312.9199779958234
+      ],
+      "depthM": 0.9909451217160185
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -1.011,
+        0.7,
+        0.47,
+        0.390514,
+        -0.757045,
+        -0.523819,
+        0.888725,
+        0.45844,
+        0.0,
+        0.240139,
+        -0.465531,
+        0.851832
+      ],
+      "estimatedPixel": [
+        -63.774000622166284,
+        292.01942116647774
+      ],
+      "depthM": 0.8892202886223871
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 4,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 20,
+      "maxTravelTicks": 447,
+      "ticks": [
+        1914,
+        353,
+        3226,
+        2931
+      ],
+      "camera": [
+        -1.02,
+        0.706,
+        0.47,
+        0.516271,
+        -0.677558,
+        -0.523819,
+        0.795411,
+        0.606069,
+        0.0,
+        0.31747,
+        -0.416651,
+        0.851832
+      ],
+      "estimatedPixel": [
+        -194.04443159285063,
+        259.1648355011244
+      ],
+      "depthM": 0.7656687988258811
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -1.017,
+        0.596,
+        0.426,
+        -0.336408,
+        -0.523145,
+        -0.783045,
+        0.841106,
+        -0.54087,
+        0.0,
+        -0.423525,
+        -0.658623,
+        0.621973
+      ],
+      "estimatedPixel": [
+        433.9064419573268,
+        519.2668481056272
+      ],
+      "depthM": 0.89541995838381
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 257,
+      "ticks": [
+        1231,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -1.008,
+        0.603,
+        0.426,
+        -0.240257,
+        -0.573694,
+        -0.783045,
+        0.922381,
+        -0.386282,
+        0.0,
+        -0.302476,
+        -0.722265,
+        0.621971
+      ],
+      "estimatedPixel": [
+        345.87734345391027,
+        525.3747614349332
+      ],
+      "depthM": 0.918395969817085
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 257,
+      "ticks": [
+        1345,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -1.0,
+        0.612,
+        0.426,
+        -0.136778,
+        -0.606746,
+        -0.783045,
+        0.97552,
+        -0.21991,
+        0.0,
+        -0.172199,
+        -0.763876,
+        0.621971
+      ],
+      "estimatedPixel": [
+        259.1591650977087,
+        526.0567693133114
+      ],
+      "depthM": 0.9210364664508589
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 257,
+      "ticks": [
+        1459,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -0.995,
+        0.622,
+        0.426,
+        -0.02913,
+        -0.621291,
+        -0.783045,
+        0.998903,
+        -0.046833,
+        0.0,
+        -0.036672,
+        -0.782185,
+        0.621973
+      ],
+      "estimatedPixel": [
+        171.12169267771057,
+        521.2263846436061
+      ],
+      "depthM": 0.9026680450458772
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 257,
+      "ticks": [
+        1572,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -0.991,
+        0.633,
+        0.426,
+        0.078462,
+        -0.617005,
+        -0.783045,
+        0.992011,
+        0.126151,
+        -1e-06,
+        0.098782,
+        -0.776789,
+        0.621973
+      ],
+      "estimatedPixel": [
+        78.16157191287826,
+        510.6164387993309
+      ],
+      "depthM": 0.8647719240006476
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 257,
+      "ticks": [
+        1686,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -0.989,
+        0.644,
+        0.426,
+        0.184617,
+        -0.593942,
+        -0.783045,
+        0.954932,
+        0.296824,
+        0.0,
+        0.232426,
+        -0.747754,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -25.487470187681595,
+        492.5944782240763
+      ],
+      "depthM": 0.8072073213096945
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 340,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        185,
+        2770,
+        2992
+      ],
+      "camera": [
+        -0.988,
+        0.656,
+        0.426,
+        0.285137,
+        -0.552764,
+        -0.783045,
+        0.888726,
+        0.458439,
+        0.0,
+        0.358978,
+        -0.695912,
+        0.621973
+      ],
+      "estimatedPixel": [
+        -146.002619301476,
+        465.00182189211057
+      ],
+      "depthM": 0.7325523151155621
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -1.017,
+        0.596,
+        0.446,
+        -0.337055,
+        -0.524156,
+        -0.782089,
+        0.841107,
+        -0.540869,
+        0.0,
+        -0.423007,
+        -0.65782,
+        0.623173
+      ],
+      "estimatedPixel": [
+        431.83703071296856,
+        507.8873017899624
+      ],
+      "depthM": 0.9119836332327653
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -1.008,
+        0.604,
+        0.446,
+        -0.240718,
+        -0.574801,
+        -0.782089,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.302104,
+        -0.721384,
+        0.62317
+      ],
+      "estimatedPixel": [
+        345.572259767027,
+        514.2903050097509
+      ],
+      "depthM": 0.9355770582522118
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -1.0,
+        0.613,
+        0.446,
+        -0.13704,
+        -0.607916,
+        -0.782089,
+        0.97552,
+        -0.219908,
+        0.0,
+        -0.171987,
+        -0.762943,
+        0.62317
+      ],
+      "estimatedPixel": [
+        260.3722400814796,
+        514.9962095115043
+      ],
+      "depthM": 0.9382552034533542
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 97,
+      "ticks": [
+        1459,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -0.995,
+        0.622,
+        0.446,
+        -0.029185,
+        -0.622488,
+        -0.782089,
+        0.998903,
+        -0.046832,
+        0.0,
+        -0.036626,
+        -0.781231,
+        0.623171
+      ],
+      "estimatedPixel": [
+        173.80560166257203,
+        509.89322950656157
+      ],
+      "depthM": 0.919242580699965
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 105,
+      "ticks": [
+        1572,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -0.991,
+        0.633,
+        0.446,
+        0.078613,
+        -0.618195,
+        -0.782089,
+        0.992011,
+        0.12615,
+        -1e-06,
+        0.098661,
+        -0.77584,
+        0.623173
+      ],
+      "estimatedPixel": [
+        82.69088511573514,
+        499.04310857618566
+      ],
+      "depthM": 0.881275228633767
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -0.989,
+        0.645,
+        0.446,
+        0.184974,
+        -0.595084,
+        -0.782089,
+        0.954931,
+        0.296826,
+        0.0,
+        0.232144,
+        -0.746841,
+        0.623169
+      ],
+      "estimatedPixel": [
+        -18.518952577912046,
+        480.8550632029309
+      ],
+      "depthM": 0.8241905323044855
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        262,
+        2930,
+        2910
+      ],
+      "camera": [
+        -0.989,
+        0.656,
+        0.446,
+        0.285687,
+        -0.55383,
+        -0.782089,
+        0.888725,
+        0.458439,
+        0.0,
+        0.35854,
+        -0.695062,
+        0.623172
+      ],
+      "estimatedPixel": [
+        -135.22367732638884,
+        452.69392526230814
+      ],
+      "depthM": 0.749086045230853
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -1.013,
+        0.602,
+        0.443,
+        -0.371504,
+        -0.577725,
+        -0.726792,
+        0.841107,
+        -0.540869,
+        0.0,
+        -0.393099,
+        -0.611309,
+        0.686863
+      ],
+      "estimatedPixel": [
+        426.0769882237663,
+        463.22477122717936
+      ],
+      "depthM": 0.9610377045191951
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -1.005,
+        0.61,
+        0.443,
+        -0.265322,
+        -0.633552,
+        -0.726792,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.280744,
+        -0.670379,
+        0.686865
+      ],
+      "estimatedPixel": [
+        344.0581030128281,
+        468.85628073128504
+      ],
+      "depthM": 0.9866936528845094
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 125,
+      "ticks": [
+        1345,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -0.999,
+        0.619,
+        0.443,
+        -0.151048,
+        -0.670044,
+        -0.726792,
+        0.97552,
+        -0.219911,
+        0.0,
+        -0.159829,
+        -0.709,
+        0.686858
+      ],
+      "estimatedPixel": [
+        263.58963629484344,
+        469.39805633740093
+      ],
+      "depthM": 0.9892121184028559
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 125,
+      "ticks": [
+        1459,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -0.994,
+        0.629,
+        0.443,
+        -0.032165,
+        -0.68611,
+        -0.726792,
+        0.998903,
+        -0.046828,
+        0.0,
+        -0.034034,
+        -0.725994,
+        0.686863
+      ],
+      "estimatedPixel": [
+        181.0118665526096,
+        464.98753617907363
+      ],
+      "depthM": 0.9689229447747282
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 125,
+      "ticks": [
+        1572,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -0.992,
+        0.64,
+        0.443,
+        0.086649,
+        -0.681376,
+        -0.726792,
+        0.992011,
+        0.126151,
+        0.0,
+        0.091685,
+        -0.720985,
+        0.686863
+      ],
+      "estimatedPixel": [
+        94.46757032853279,
+        455.2935524168962
+      ],
+      "depthM": 0.9270947315994379
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -0.991,
+        0.651,
+        0.443,
+        0.203874,
+        -0.655905,
+        -0.726792,
+        0.954933,
+        0.296821,
+        0.0,
+        0.215727,
+        -0.694037,
+        0.686859
+      ],
+      "estimatedPixel": [
+        -2.9816382329335056,
+        438.80372481707985
+      ],
+      "depthM": 0.863667226024528
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 360,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        246,
+        2902,
+        2977
+      ],
+      "camera": [
+        -0.992,
+        0.662,
+        0.443,
+        0.314887,
+        -0.610434,
+        -0.726792,
+        0.888726,
+        0.45844,
+        0.0,
+        0.33319,
+        -0.645918,
+        0.686865
+      ],
+      "estimatedPixel": [
+        -116.58510853222333,
+        413.33602971026846
+      ],
+      "depthM": 0.7811476025529428
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -1.017,
+        0.596,
+        0.466,
+        -0.336408,
+        -0.523145,
+        -0.783045,
+        0.841106,
+        -0.54087,
+        0.0,
+        -0.423525,
+        -0.658623,
+        0.621973
+      ],
+      "estimatedPixel": [
+        430.05665882041393,
+        498.66875357294305
+      ],
+      "depthM": 0.9267417583838101
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -1.008,
+        0.603,
+        0.466,
+        -0.240257,
+        -0.573694,
+        -0.783045,
+        0.922381,
+        -0.386282,
+        0.0,
+        -0.302476,
+        -0.722265,
+        0.621971
+      ],
+      "estimatedPixel": [
+        345.023905725404,
+        505.073580869861
+      ],
+      "depthM": 0.9497177698170851
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 162,
+      "ticks": [
+        1345,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -1.0,
+        0.612,
+        0.466,
+        -0.136778,
+        -0.606746,
+        -0.783045,
+        0.97552,
+        -0.21991,
+        0.0,
+        -0.172199,
+        -0.763876,
+        0.621971
+      ],
+      "estimatedPixel": [
+        261.16013944714587,
+        505.78944521351553
+      ],
+      "depthM": 0.9523582664508589
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 162,
+      "ticks": [
+        1459,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -0.995,
+        0.622,
+        0.466,
+        -0.02913,
+        -0.621291,
+        -0.783045,
+        0.998903,
+        -0.046833,
+        0.0,
+        -0.036672,
+        -0.782185,
+        0.621973
+      ],
+      "estimatedPixel": [
+        176.1143985310148,
+        500.7224244991892
+      ],
+      "depthM": 0.9339898450458771
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 162,
+      "ticks": [
+        1572,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -0.991,
+        0.633,
+        0.466,
+        0.078462,
+        -0.617005,
+        -0.783045,
+        0.992011,
+        0.126151,
+        -1e-06,
+        0.098782,
+        -0.776789,
+        0.621973
+      ],
+      "estimatedPixel": [
+        86.6147407072435,
+        489.61621588475543
+      ],
+      "depthM": 0.8960937240006476
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -0.989,
+        0.644,
+        0.466,
+        0.184617,
+        -0.593942,
+        -0.783045,
+        0.954932,
+        0.296824,
+        0.0,
+        0.232426,
+        -0.747754,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -12.58238535673047,
+        470.8257994506787
+      ],
+      "depthM": 0.8385291213096946
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        365,
+        3137,
+        2805
+      ],
+      "camera": [
+        -0.988,
+        0.656,
+        0.466,
+        0.285137,
+        -0.552764,
+        -0.783045,
+        0.888726,
+        0.458439,
+        0.0,
+        0.358978,
+        -0.695912,
+        0.621973
+      ],
+      "estimatedPixel": [
+        -126.8947053763801,
+        442.23702897084456
+      ],
+      "depthM": 0.763874115115562
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -1.013,
+        0.602,
+        0.463,
+        -0.372103,
+        -0.578661,
+        -0.72574,
+        0.841108,
+        -0.540867,
+        0.0,
+        -0.392528,
+        -0.610425,
+        0.687974
+      ],
+      "estimatedPixel": [
+        424.4132596081113,
+        453.2411646735969
+      ],
+      "depthM": 0.9763415537039255
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -1.005,
+        0.61,
+        0.463,
+        -0.265748,
+        -0.634577,
+        -0.72574,
+        0.922383,
+        -0.386277,
+        1e-06,
+        -0.280337,
+        -0.669409,
+        0.687975
+      ],
+      "estimatedPixel": [
+        343.68857601587536,
+        459.0174332273234
+      ],
+      "depthM": 1.0020372303889848
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -0.999,
+        0.619,
+        0.463,
+        -0.151289,
+        -0.671131,
+        -0.72574,
+        0.975521,
+        -0.219906,
+        0.0,
+        -0.159594,
+        -0.707974,
+        0.687971
+      ],
+      "estimatedPixel": [
+        264.44937347100336,
+        459.5715670998279
+      ],
+      "depthM": 1.0045627278209421
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 89,
+      "ticks": [
+        1459,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -0.994,
+        0.63,
+        0.463,
+        -0.03222,
+        -0.687217,
+        -0.72574,
+        0.998903,
+        -0.046832,
+        0.0,
+        -0.033987,
+        -0.724943,
+        0.687972
+      ],
+      "estimatedPixel": [
+        183.29139025026151,
+        455.2056464150721
+      ],
+      "depthM": 0.9849241455370504
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 105,
+      "ticks": [
+        1572,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -0.992,
+        0.64,
+        0.463,
+        0.086794,
+        -0.682477,
+        -0.72574,
+        0.99201,
+        0.126157,
+        0.0,
+        0.091557,
+        -0.719941,
+        0.687973
+      ],
+      "estimatedPixel": [
+        98.11362512211116,
+        445.11401106004695
+      ],
+      "depthM": 0.942339830392225
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -0.991,
+        0.651,
+        0.463,
+        0.204205,
+        -0.656972,
+        -0.72574,
+        0.954933,
+        0.296821,
+        -1e-06,
+        0.215415,
+        -0.693032,
+        0.687976
+      ],
+      "estimatedPixel": [
+        2.586953024630759,
+        428.24121506847996
+      ],
+      "depthM": 0.878818646226492
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        343,
+        3099,
+        2878
+      ],
+      "camera": [
+        -0.992,
+        0.662,
+        0.463,
+        0.315396,
+        -0.611418,
+        -0.72574,
+        0.888724,
+        0.458442,
+        0.0,
+        0.332709,
+        -0.644982,
+        0.687972
+      ],
+      "estimatedPixel": [
+        -108.3556468577354,
+        402.25988728289053
+      ],
+      "depthM": 0.796156151848748
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -1.009,
+        0.608,
+        0.46,
+        -0.404963,
+        -0.629754,
+        -0.662889,
+        0.841106,
+        -0.540871,
+        0.0,
+        -0.358537,
+        -0.557559,
+        0.748722
+      ],
+      "estimatedPixel": [
+        419.9213018839246,
+        411.49094204344533
+      ],
+      "depthM": 1.0197566966393867
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -1.002,
+        0.617,
+        0.46,
+        -0.289217,
+        -0.690609,
+        -0.662889,
+        0.922381,
+        -0.386279,
+        0.0,
+        -0.25606,
+        -0.611436,
+        0.748723
+      ],
+      "estimatedPixel": [
+        342.6252480641534,
+        416.7918490697583
+      ],
+      "depthM": 1.0480265323897717
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 122,
+      "ticks": [
+        1345,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -0.997,
+        0.626,
+        0.46,
+        -0.16465,
+        -0.730391,
+        -0.662889,
+        0.97552,
+        -0.219908,
+        0.0,
+        -0.145774,
+        -0.646661,
+        0.748718
+      ],
+      "estimatedPixel": [
+        266.7173505868759,
+        417.2471366453855
+      ],
+      "depthM": 1.0505149851547269
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 65,
+      "ticks": [
+        1459,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -0.994,
+        0.637,
+        0.46,
+        -0.035061,
+        -0.747901,
+        -0.662889,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.031041,
+        -0.662161,
+        0.748722
+      ],
+      "estimatedPixel": [
+        189.26945409107228,
+        413.2443473352028
+      ],
+      "depthM": 1.028936993647893
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 105,
+      "ticks": [
+        1572,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -0.992,
+        0.647,
+        0.46,
+        0.094451,
+        -0.742741,
+        -0.662889,
+        0.992011,
+        0.126149,
+        -1e-06,
+        0.083623,
+        -0.657593,
+        0.748722
+      ],
+      "estimatedPixel": [
+        106.82603906985224,
+        404.05019092924834
+      ],
+      "depthM": 0.9825589614685053
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -0.993,
+        0.658,
+        0.46,
+        0.222238,
+        -0.714979,
+        -0.662889,
+        0.954933,
+        0.296823,
+        0.0,
+        0.19676,
+        -0.633014,
+        0.748722
+      ],
+      "estimatedPixel": [
+        14.61716646243599,
+        388.6703648752292
+      ],
+      "depthM": 0.913670620769881
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        322,
+        3062,
+        2951
+      ],
+      "camera": [
+        -0.995,
+        0.669,
+        0.46,
+        0.343247,
+        -0.665407,
+        -0.662889,
+        0.888724,
+        0.458442,
+        0.0,
+        0.303896,
+        -0.589125,
+        0.748722
+      ],
+      "estimatedPixel": [
+        -94.1790630816314,
+        364.7840422702626
+      ],
+      "depthM": 0.8239520108721692
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1117,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -1.013,
+        0.602,
+        0.483,
+        -0.371504,
+        -0.577725,
+        -0.726792,
+        0.841107,
+        -0.540869,
+        0.0,
+        -0.393099,
+        -0.611309,
+        0.686863
+      ],
+      "estimatedPixel": [
+        422.9623462405448,
+        445.13539225658
+      ],
+      "depthM": 0.9901093845191951
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1231,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -1.005,
+        0.61,
+        0.483,
+        -0.265322,
+        -0.633552,
+        -0.726792,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.280744,
+        -0.670379,
+        0.686865
+      ],
+      "estimatedPixel": [
+        343.3695488265872,
+        451.06258961840956
+      ],
+      "depthM": 1.0157653328845093
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1345,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -0.999,
+        0.619,
+        0.483,
+        -0.151048,
+        -0.670044,
+        -0.726792,
+        0.97552,
+        -0.219911,
+        0.0,
+        -0.159829,
+        -0.709,
+        0.686858
+      ],
+      "estimatedPixel": [
+        265.20013431601603,
+        451.6330201676092
+      ],
+      "depthM": 1.0182837984028559
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1459,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -0.994,
+        0.629,
+        0.483,
+        -0.032165,
+        -0.68611,
+        -0.726792,
+        0.998903,
+        -0.046828,
+        0.0,
+        -0.034034,
+        -0.725994,
+        0.686863
+      ],
+      "estimatedPixel": [
+        185.0606043304227,
+        446.98973341378746
+      ],
+      "depthM": 0.9979946247747282
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1572,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -0.992,
+        0.64,
+        0.483,
+        0.086649,
+        -0.681376,
+        -0.726792,
+        0.992011,
+        0.126151,
+        0.0,
+        0.091685,
+        -0.720985,
+        0.686863
+      ],
+      "estimatedPixel": [
+        101.3247518248622,
+        436.80316224090393
+      ],
+      "depthM": 0.9561664115994378
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1686,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -0.991,
+        0.651,
+        0.483,
+        0.203874,
+        -0.655905,
+        -0.726792,
+        0.954933,
+        0.296821,
+        0.0,
+        0.215727,
+        -0.694037,
+        0.686859
+      ],
+      "estimatedPixel": [
+        7.536127677366835,
+        419.53668447014104
+      ],
+      "depthM": 0.8927389060245279
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 444,
+      "ticks": [
+        1800,
+        530,
+        3471,
+        2692
+      ],
+      "camera": [
+        -0.992,
+        0.662,
+        0.483,
+        0.314887,
+        -0.610434,
+        -0.726792,
+        0.888726,
+        0.45844,
+        0.0,
+        0.33319,
+        -0.645918,
+        0.686865
+      ],
+      "estimatedPixel": [
+        -100.91988944730889,
+        393.02035966913263
+      ],
+      "depthM": 0.8102192825529427
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -1.009,
+        0.608,
+        0.48,
+        -0.404412,
+        -0.628901,
+        -0.664031,
+        0.841107,
+        -0.540869,
+        0.0,
+        -0.359153,
+        -0.558521,
+        0.747706
+      ],
+      "estimatedPixel": [
+        418.6974631653512,
+        403.99823291356006
+      ],
+      "depthM": 1.0323915697759272
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1231,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -1.002,
+        0.617,
+        0.48,
+        -0.288827,
+        -0.689672,
+        -0.664036,
+        0.92238,
+        -0.386282,
+        0.0,
+        -0.256505,
+        -0.612493,
+        0.747708
+      ],
+      "estimatedPixel": [
+        342.3578391165306,
+        409.4599281780094
+      ],
+      "depthM": 1.0606249404286152
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1345,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -0.997,
+        0.626,
+        0.48,
+        -0.16443,
+        -0.7294,
+        -0.664031,
+        0.975519,
+        -0.219912,
+        0.0,
+        -0.146028,
+        -0.647774,
+        0.747703
+      ],
+      "estimatedPixel": [
+        267.35028300978087,
+        409.9272896624185
+      ],
+      "depthM": 1.0631084646387494
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1459,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -0.994,
+        0.637,
+        0.48,
+        -0.035013,
+        -0.746888,
+        -0.664036,
+        0.998903,
+        -0.046827,
+        0.0,
+        -0.031094,
+        -0.663307,
+        0.747708
+      ],
+      "estimatedPixel": [
+        190.85407631742993,
+        405.8050104624573
+      ],
+      "depthM": 1.0415620644450452
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1572,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -0.992,
+        0.647,
+        0.48,
+        0.094328,
+        -0.741735,
+        -0.664036,
+        0.99201,
+        0.126155,
+        0.0,
+        0.083771,
+        -0.65873,
+        0.747708
+      ],
+      "estimatedPixel": [
+        109.54071445206728,
+        396.34062881371676
+      ],
+      "depthM": 0.9952452045906949
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1686,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -0.993,
+        0.658,
+        0.48,
+        0.221935,
+        -0.714009,
+        -0.664031,
+        0.954933,
+        0.296821,
+        0.0,
+        0.197098,
+        -0.634105,
+        0.747705
+      ],
+      "estimatedPixel": [
+        18.830270240526147,
+        380.5365741590099
+      ],
+      "depthM": 0.9264491574278527
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 338,
+      "ticks": [
+        1800,
+        474,
+        3365,
+        2799
+      ],
+      "camera": [
+        -0.995,
+        0.668,
+        0.48,
+        0.342779,
+        -0.664506,
+        -0.664031,
+        0.888725,
+        0.458439,
+        0.0,
+        0.304417,
+        -0.59014,
+        0.747706
+      ],
+      "estimatedPixel": [
+        -87.88809751546728,
+        355.8564758607896
+      ],
+      "depthM": 0.8361899357279805
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -1.005,
+        0.614,
+        0.475,
+        -0.43472,
+        -0.676037,
+        -0.594974,
+        0.841107,
+        -0.540868,
+        0.0,
+        -0.321802,
+        -0.500436,
+        0.803745
+      ],
+      "estimatedPixel": [
+        415.4211109342626,
+        365.51618978306016
+      ],
+      "depthM": 1.0673157075267556
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -30,
+      "maxTravelTicks": 267,
+      "ticks": [
+        1231,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -1.0,
+        0.623,
+        0.475,
+        -0.31047,
+        -0.741365,
+        -0.594974,
+        0.922382,
+        -0.386277,
+        0.0,
+        -0.229824,
+        -0.548793,
+        0.803749
+      ],
+      "estimatedPixel": [
+        341.7946931198096,
+        370.4348898625791
+      ],
+      "depthM": 1.0969386894064375
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -20,
+      "maxTravelTicks": 267,
+      "ticks": [
+        1345,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -0.996,
+        0.633,
+        0.475,
+        -0.176751,
+        -0.784072,
+        -0.59497,
+        0.97552,
+        -0.219908,
+        0.0,
+        -0.130838,
+        -0.580405,
+        0.803746
+      ],
+      "estimatedPixel": [
+        269.33695338974485,
+        370.96156862803866
+      ],
+      "depthM": 1.1002070174776493
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -10,
+      "maxTravelTicks": 267,
+      "ticks": [
+        1459,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -0.994,
+        0.644,
+        0.475,
+        -0.037641,
+        -0.802867,
+        -0.594974,
+        0.998903,
+        -0.046831,
+        0.0,
+        -0.027863,
+        -0.594321,
+        0.803749
+      ],
+      "estimatedPixel": [
+        195.2315116203282,
+        367.15316381713905
+      ],
+      "depthM": 1.076998680845573
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 0,
+      "maxTravelTicks": 267,
+      "ticks": [
+        1572,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -0.993,
+        0.654,
+        0.475,
+        0.101393,
+        -0.797329,
+        -0.594974,
+        0.992011,
+        0.126149,
+        0.0,
+        0.075055,
+        -0.59022,
+        0.803749
+      ],
+      "estimatedPixel": [
+        116.14913179892031,
+        358.412875916973
+      ],
+      "depthM": 1.0272746955876584
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 10,
+      "maxTravelTicks": 267,
+      "ticks": [
+        1686,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -0.995,
+        0.665,
+        0.475,
+        0.238571,
+        -0.767523,
+        -0.594974,
+        0.954933,
+        0.296824,
+        0.0,
+        0.176602,
+        -0.56816,
+        0.803746
+      ],
+      "estimatedPixel": [
+        27.29587429236682,
+        343.7653343550945
+      ],
+      "depthM": 0.9534869326854865
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        436,
+        3294,
+        2890
+      ],
+      "camera": [
+        -0.998,
+        0.675,
+        0.475,
+        0.36847,
+        -0.714312,
+        -0.594974,
+        0.888726,
+        0.458439,
+        0.0,
+        0.272759,
+        -0.528768,
+        0.803748
+      ],
+      "estimatedPixel": [
+        -78.37640273066637,
+        320.7279052461074
+      ],
+      "depthM": 0.8567218123974766
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -40,
+      "maxTravelTicks": 350,
+      "ticks": [
+        1117,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -1.002,
+        0.62,
+        0.47,
+        -0.461161,
+        -0.71716,
+        -0.522512,
+        0.841109,
+        -0.540865,
+        0.0,
+        -0.282608,
+        -0.439489,
+        0.852635
+      ],
+      "estimatedPixel": [
+        413.32735081616994,
+        329.47731937386874
+      ],
+      "depthM": 1.0944589730850383
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -30,
+      "maxTravelTicks": 236,
+      "ticks": [
+        1231,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -0.997,
+        0.629,
+        0.47,
+        -0.329356,
+        -0.786458,
+        -0.522512,
+        0.922382,
+        -0.386279,
+        0.0,
+        -0.201835,
+        -0.481955,
+        0.852638
+      ],
+      "estimatedPixel": [
+        341.06885306752,
+        334.09174125061594
+      ],
+      "depthM": 1.1259014253019435
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -20,
+      "maxTravelTicks": 209,
+      "ticks": [
+        1345,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -0.994,
+        0.639,
+        0.47,
+        -0.1875,
+        -0.831764,
+        -0.522512,
+        0.975521,
+        -0.219905,
+        0.0,
+        -0.114903,
+        -0.509721,
+        0.852635
+      ],
+      "estimatedPixel": [
+        270.39645585867584,
+        334.5378034247732
+      ],
+      "depthM": 1.1290289945868057
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -10,
+      "maxTravelTicks": 209,
+      "ticks": [
+        1459,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -0.993,
+        0.65,
+        0.47,
+        -0.039932,
+        -0.851703,
+        -0.522512,
+        0.998903,
+        -0.046833,
+        0.0,
+        -0.02447,
+        -0.521938,
+        0.852638
+      ],
+      "estimatedPixel": [
+        198.03497645431707,
+        330.93324867001286
+      ],
+      "depthM": 1.1041940709354854
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 0,
+      "maxTravelTicks": 209,
+      "ticks": [
+        1572,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -0.994,
+        0.661,
+        0.47,
+        0.107565,
+        -0.84582,
+        -0.522512,
+        0.99201,
+        0.126155,
+        0.0,
+        0.065917,
+        -0.518337,
+        0.852631
+      ],
+      "estimatedPixel": [
+        121.04012342648224,
+        322.8601087927982
+      ],
+      "depthM": 1.0523128570162543
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 10,
+      "maxTravelTicks": 219,
+      "ticks": [
+        1686,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -0.997,
+        0.671,
+        0.47,
+        0.253082,
+        -0.814206,
+        -0.522512,
+        0.954933,
+        0.296824,
+        0.0,
+        0.155094,
+        -0.498963,
+        0.852632
+      ],
+      "estimatedPixel": [
+        33.34092747803277,
+        308.92641409480535
+      ],
+      "depthM": 0.9734070674110962
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 6,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1800,
+        406,
+        3236,
+        2975
+      ],
+      "camera": [
+        -1.001,
+        0.68,
+        0.47,
+        0.390879,
+        -0.75776,
+        -0.522512,
+        0.888727,
+        0.458437,
+        0.0,
+        0.239538,
+        -0.46437,
+        0.852635
+      ],
+      "estimatedPixel": [
+        -71.96846733185555,
+        286.9176168182725
+      ],
+      "depthM": 0.8703290528382873
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -1.034,
+        0.577,
+        0.446,
+        -0.378536,
+        -0.493518,
+        -0.783045,
+        0.793472,
+        -0.608606,
+        0.0,
+        -0.476565,
+        -0.621324,
+        0.621971
+      ],
+      "estimatedPixel": [
+        476.5104495352606,
+        499.9356972774959
+      ],
+      "depthM": 0.8804497318095484
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 290,
+      "ticks": [
+        1177,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -1.022,
+        0.581,
+        0.446,
+        -0.286898,
+        -0.551849,
+        -0.783045,
+        0.887258,
+        -0.461273,
+        0.0,
+        -0.361197,
+        -0.694762,
+        0.62197
+      ],
+      "estimatedPixel": [
+        387.11502653778786,
+        509.24028814442585
+      ],
+      "depthM": 0.9126863744195332
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 176,
+      "ticks": [
+        1291,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -1.01,
+        0.588,
+        0.446,
+        -0.186509,
+        -0.59335,
+        -0.783045,
+        0.95398,
+        -0.299868,
+        1e-06,
+        -0.23481,
+        -0.747009,
+        0.621972
+      ],
+      "estimatedPixel": [
+        300.4387417685374,
+        512.6895557597545
+      ],
+      "depthM": 0.9252496526666293
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 74,
+      "ticks": [
+        1404,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -1.0,
+        0.596,
+        0.446,
+        -0.081379,
+        -0.616626,
+        -0.783045,
+        0.991404,
+        -0.130839,
+        0.0,
+        -0.102452,
+        -0.776313,
+        0.621973
+      ],
+      "estimatedPixel": [
+        214.3329061955646,
+        510.3051587624759
+      ],
+      "depthM": 0.9165326969623276
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 74,
+      "ticks": [
+        1518,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -0.991,
+        0.607,
+        0.446,
+        0.027142,
+        -0.62138,
+        -0.783045,
+        0.999047,
+        0.04364,
+        -1e-06,
+        0.034172,
+        -0.782298,
+        0.621972
+      ],
+      "estimatedPixel": [
+        123.75023851191588,
+        502.1980857865413
+      ],
+      "depthM": 0.8880789595068708
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 165,
+      "ticks": [
+        1632,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -0.985,
+        0.618,
+        0.446,
+        0.134838,
+        -0.60718,
+        -0.783045,
+        0.976218,
+        0.216791,
+        -1e-06,
+        0.169757,
+        -0.764422,
+        0.621971
+      ],
+      "estimatedPixel": [
+        25.9930638978679,
+        486.9814693578212
+      ],
+      "depthM": 0.8391778362496937
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 279,
+      "ticks": [
+        1746,
+        325,
+        2953,
+        2949
+      ],
+      "camera": [
+        -0.98,
+        0.631,
+        0.446,
+        0.23842,
+        -0.574457,
+        -0.783045,
+        0.923611,
+        0.383332,
+        0.0,
+        0.300166,
+        -0.723228,
+        0.621968
+      ],
+      "estimatedPixel": [
+        -85.06179980574183,
+        463.15616254327233
+      ],
+      "depthM": 0.7725691211368092
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -1.034,
+        0.576,
+        0.466,
+        -0.377807,
+        -0.492562,
+        -0.783995,
+        0.79347,
+        -0.608609,
+        0.0,
+        -0.477146,
+        -0.622076,
+        0.620769
+      ],
+      "estimatedPixel": [
+        473.7212604094974,
+        490.3386836660714
+      ],
+      "depthM": 0.8947889543973154
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 290,
+      "ticks": [
+        1177,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -1.022,
+        0.581,
+        0.466,
+        -0.286348,
+        -0.550782,
+        -0.783995,
+        0.887256,
+        -0.461276,
+        -1e-06,
+        -0.361637,
+        -0.695604,
+        0.62077
+      ],
+      "estimatedPixel": [
+        386.0478628964325,
+        500.0126922825762
+      ],
+      "depthM": 0.9274582350999814
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 176,
+      "ticks": [
+        1291,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -1.01,
+        0.588,
+        0.466,
+        -0.186151,
+        -0.592201,
+        -0.783995,
+        0.95398,
+        -0.299871,
+        0.0,
+        -0.235097,
+        -0.747915,
+        0.620769
+      ],
+      "estimatedPixel": [
+        300.74705354100576,
+        503.5478565882587
+      ],
+      "depthM": 0.9399947901300386
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 171,
+      "ticks": [
+        1404,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -1.0,
+        0.596,
+        0.466,
+        -0.081221,
+        -0.615436,
+        -0.783995,
+        0.991404,
+        -0.130838,
+        0.0,
+        -0.102576,
+        -0.777255,
+        0.620772
+      ],
+      "estimatedPixel": [
+        216.00770807793202,
+        501.1036632472227
+      ],
+      "depthM": 0.931297495785128
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 171,
+      "ticks": [
+        1518,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -0.991,
+        0.607,
+        0.466,
+        0.027094,
+        -0.620176,
+        -0.783995,
+        0.999047,
+        0.043644,
+        0.0,
+        0.034216,
+        -0.783247,
+        0.620767
+      ],
+      "estimatedPixel": [
+        126.96804610670526,
+        492.80569387758703
+      ],
+      "depthM": 0.9028925073758944
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 171,
+      "ticks": [
+        1632,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -0.985,
+        0.618,
+        0.466,
+        0.134577,
+        -0.606003,
+        -0.783995,
+        0.976218,
+        0.216792,
+        0.0,
+        0.169963,
+        -0.76535,
+        0.620766
+      ],
+      "estimatedPixel": [
+        31.12473959506184,
+        477.25302394752885
+      ],
+      "depthM": 0.8540872351214868
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 279,
+      "ticks": [
+        1746,
+        428,
+        3168,
+        2836
+      ],
+      "camera": [
+        -0.98,
+        0.631,
+        0.466,
+        0.237966,
+        -0.57335,
+        -0.783995,
+        0.923609,
+        0.383337,
+        1e-06,
+        0.300533,
+        -0.724105,
+        0.620772
+      ],
+      "estimatedPixel": [
+        -77.32819195929437,
+        452.9634504202359
+      ],
+      "depthM": 0.787611404895318
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -1.029,
+        0.583,
+        0.463,
+        -0.418707,
+        -0.545887,
+        -0.725735,
+        0.79347,
+        -0.608608,
+        0.0,
+        -0.441688,
+        -0.575848,
+        0.687973
+      ],
+      "estimatedPixel": [
+        466.0117522867498,
+        445.2420236621678
+      ],
+      "depthM": 0.9428654625139488
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 290,
+      "ticks": [
+        1177,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -1.018,
+        0.588,
+        0.463,
+        -0.317343,
+        -0.610413,
+        -0.72574,
+        0.887259,
+        -0.461272,
+        0.0,
+        -0.334763,
+        -0.643919,
+        0.687975
+      ],
+      "estimatedPixel": [
+        382.45139242950415,
+        453.7842031466067
+      ],
+      "depthM": 0.9787026336843955
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 176,
+      "ticks": [
+        1291,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -1.008,
+        0.595,
+        0.463,
+        -0.206302,
+        -0.656314,
+        -0.725735,
+        0.95398,
+        -0.299869,
+        0.0,
+        -0.217625,
+        -0.692336,
+        0.687974
+      ],
+      "estimatedPixel": [
+        301.8367084236106,
+        456.8087838530866
+      ],
+      "depthM": 0.9920582653049401
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 147,
+      "ticks": [
+        1404,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -0.999,
+        0.604,
+        0.463,
+        -0.090014,
+        -0.682064,
+        -0.72574,
+        0.991404,
+        -0.130838,
+        0.0,
+        -0.094954,
+        -0.719501,
+        0.687978
+      ],
+      "estimatedPixel": [
+        221.49684633504074,
+        454.756223407888
+      ],
+      "depthM": 0.9829611506291253
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 147,
+      "ticks": [
+        1518,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -0.992,
+        0.614,
+        0.463,
+        0.030025,
+        -0.687321,
+        -0.72574,
+        0.999047,
+        0.043642,
+        0.0,
+        0.031672,
+        -0.725048,
+        0.687976
+      ],
+      "estimatedPixel": [
+        136.99460269979906,
+        447.18420749003525
+      ],
+      "depthM": 0.9507804934143383
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 165,
+      "ticks": [
+        1632,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -0.986,
+        0.626,
+        0.463,
+        0.149149,
+        -0.671613,
+        -0.72574,
+        0.976218,
+        0.216794,
+        0.0,
+        0.157336,
+        -0.70848,
+        0.687975
+      ],
+      "estimatedPixel": [
+        44.70586484778465,
+        433.41694090586134
+      ],
+      "depthM": 0.8973698992724756
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 279,
+      "ticks": [
+        1746,
+        404,
+        3126,
+        2912
+      ],
+      "camera": [
+        -0.983,
+        0.638,
+        0.463,
+        0.263726,
+        -0.635423,
+        -0.72574,
+        0.92361,
+        0.383334,
+        0.0,
+        0.2782,
+        -0.6703,
+        0.687978
+      ],
+      "estimatedPixel": [
+        -60.00620408317991,
+        411.40179532853057
+      ],
+      "depthM": 0.8234143630404749
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -1.025,
+        0.588,
+        0.46,
+        -0.455061,
+        -0.593286,
+        -0.664036,
+        0.793472,
+        -0.608607,
+        0.0,
+        -0.404136,
+        -0.526893,
+        0.747709
+      ],
+      "estimatedPixel": [
+        460.118012761411,
+        404.8198002402134
+      ],
+      "depthM": 0.9821317844323396
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 290,
+      "ticks": [
+        1177,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -1.015,
+        0.594,
+        0.46,
+        -0.344901,
+        -0.66341,
+        -0.664036,
+        0.887257,
+        -0.461276,
+        0.0,
+        -0.306303,
+        -0.58917,
+        0.747709
+      ],
+      "estimatedPixel": [
+        379.89134739774784,
+        412.6579153315362
+      ],
+      "depthM": 1.0213043343730956
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 176,
+      "ticks": [
+        1291,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -1.006,
+        0.602,
+        0.46,
+        -0.224214,
+        -0.713298,
+        -0.664036,
+        0.95398,
+        -0.299868,
+        0.0,
+        -0.199123,
+        -0.633477,
+        0.747706
+      ],
+      "estimatedPixel": [
+        302.6875272173856,
+        415.4931664704985
+      ],
+      "depthM": 1.0362478248001552
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 126,
+      "ticks": [
+        1404,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -0.998,
+        0.611,
+        0.46,
+        -0.09783,
+        -0.74128,
+        -0.664036,
+        0.991404,
+        -0.130839,
+        0.0,
+        -0.086881,
+        -0.658327,
+        0.747707
+      ],
+      "estimatedPixel": [
+        225.61713847139112,
+        413.5963297875206
+      ],
+      "depthM": 1.0262006410937383
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 126,
+      "ticks": [
+        1518,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -0.992,
+        0.621,
+        0.46,
+        0.032632,
+        -0.746993,
+        -0.664031,
+        0.999047,
+        0.043642,
+        0.0,
+        0.028979,
+        -0.663398,
+        0.747705
+      ],
+      "estimatedPixel": [
+        144.32303550609262,
+        406.68340117082676
+      ],
+      "depthM": 0.9911655402821888
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 165,
+      "ticks": [
+        1632,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -0.988,
+        0.633,
+        0.46,
+        0.162098,
+        -0.729923,
+        -0.664031,
+        0.976218,
+        0.216793,
+        0.0,
+        0.143957,
+        -0.648239,
+        0.747705
+      ],
+      "estimatedPixel": [
+        55.50520632729388,
+        394.13477316346837
+      ],
+      "depthM": 0.933324476940484
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 380,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 279,
+      "ticks": [
+        1746,
+        383,
+        3087,
+        2986
+      ],
+      "camera": [
+        -0.986,
+        0.644,
+        0.46,
+        0.286623,
+        -0.690589,
+        -0.664031,
+        0.923609,
+        0.383335,
+        0.0,
+        0.254546,
+        -0.613305,
+        0.747706
+      ],
+      "estimatedPixel": [
+        -46.80514251718017,
+        373.7506250999452
+      ],
+      "depthM": 0.8525156488858836
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -1.025,
+        0.588,
+        0.48,
+        -0.455677,
+        -0.594094,
+        -0.662889,
+        0.793474,
+        -0.608604,
+        0.0,
+        -0.403436,
+        -0.525985,
+        0.748724
+      ],
+      "estimatedPixel": [
+        458.16753515606456,
+        395.64972995327753
+      ],
+      "depthM": 0.9959853156423606
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -30,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1177,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -1.015,
+        0.594,
+        0.48,
+        -0.345366,
+        -0.664313,
+        -0.662889,
+        0.887259,
+        -0.461272,
+        0.0,
+        -0.305772,
+        -0.588154,
+        0.748725
+      ],
+      "estimatedPixel": [
+        379.0849446248825,
+        403.697208435791
+      ],
+      "depthM": 1.0352103355330888
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -20,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1291,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -1.006,
+        0.602,
+        0.48,
+        -0.224522,
+        -0.714264,
+        -0.662889,
+        0.953979,
+        -0.299873,
+        0.0,
+        -0.198782,
+        -0.632382,
+        0.74872
+      ],
+      "estimatedPixel": [
+        302.9191980794833,
+        406.6105314993367
+      ],
+      "depthM": 1.050171827562635
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": -10,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1404,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -0.998,
+        0.611,
+        0.48,
+        -0.09796,
+        -0.742287,
+        -0.662889,
+        0.991404,
+        -0.130836,
+        0.0,
+        -0.086729,
+        -0.65719,
+        0.748722
+      ],
+      "estimatedPixel": [
+        226.87825537958864,
+        404.66099706612135
+      ],
+      "depthM": 1.0401116931342695
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 0,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1518,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -0.992,
+        0.622,
+        0.48,
+        0.032674,
+        -0.748011,
+        -0.662889,
+        0.999047,
+        0.04364,
+        0.0,
+        0.028928,
+        -0.662257,
+        0.748724
+      ],
+      "estimatedPixel": [
+        146.85921402841305,
+        397.7192331958355
+      ],
+      "depthM": 1.0057840693561522
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 10,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1632,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -0.988,
+        0.633,
+        0.48,
+        0.162318,
+        -0.730914,
+        -0.662889,
+        0.976218,
+        0.216793,
+        0.0,
+        0.143709,
+        -0.647124,
+        0.74872
+      ],
+      "estimatedPixel": [
+        59.35549597783381,
+        384.6928789135007
+      ],
+      "depthM": 0.9471117217076093
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 75,
+      "turnDeg": 20,
+      "maxTravelTicks": 400,
+      "ticks": [
+        1746,
+        550,
+        3427,
+        2814
+      ],
+      "camera": [
+        -0.986,
+        0.645,
+        0.48,
+        0.287008,
+        -0.691524,
+        -0.662889,
+        0.923611,
+        0.383332,
+        0.0,
+        0.254106,
+        -0.612251,
+        0.748718
+      ],
+      "estimatedPixel": [
+        -40.908324388470874,
+        364.02361911498065
+      ],
+      "depthM": 0.8668835377728688
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -40,
+      "maxTravelTicks": 404,
+      "ticks": [
+        1063,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -1.021,
+        0.593,
+        0.475,
+        -0.488613,
+        -0.637026,
+        -0.596206,
+        0.793471,
+        -0.608609,
+        0.0,
+        -0.362856,
+        -0.473072,
+        0.802835
+      ],
+      "estimatedPixel": [
+        454.0144719773368,
+        359.03640021463406
+      ],
+      "depthM": 1.0264632441701163
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -30,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1177,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -1.012,
+        0.6,
+        0.475,
+        -0.370328,
+        -0.712323,
+        -0.596206,
+        0.887257,
+        -0.461274,
+        0.0,
+        -0.275014,
+        -0.528987,
+        0.802836
+      ],
+      "estimatedPixel": [
+        377.2718325318092,
+        366.5432806238197
+      ],
+      "depthM": 1.0687710356676217
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -20,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1291,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -1.004,
+        0.608,
+        0.475,
+        -0.240746,
+        -0.765886,
+        -0.596206,
+        0.95398,
+        -0.29987,
+        0.0,
+        -0.178784,
+        -0.568768,
+        0.802832
+      ],
+      "estimatedPixel": [
+        303.4169852666347,
+        369.1883804135992
+      ],
+      "depthM": 1.084506090809109
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -10,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1404,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -0.997,
+        0.618,
+        0.475,
+        -0.10504,
+        -0.795932,
+        -0.596206,
+        0.991404,
+        -0.130836,
+        0.0,
+        -0.078005,
+        -0.591081,
+        0.802833
+      ],
+      "estimatedPixel": [
+        229.81396862701456,
+        367.48573010655196
+      ],
+      "depthM": 1.0743173900641536
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 0,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1518,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -0.992,
+        0.628,
+        0.475,
+        0.035041,
+        -0.802069,
+        -0.596206,
+        0.999047,
+        0.043645,
+        0.0,
+        0.026021,
+        -0.595637,
+        0.802833
+      ],
+      "estimatedPixel": [
+        151.90603574342046,
+        360.8992137581478
+      ],
+      "depthM": 1.0366417934141972
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 10,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1632,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -0.989,
+        0.639,
+        0.475,
+        0.174049,
+        -0.78374,
+        -0.596206,
+        0.976218,
+        0.216792,
+        0.0,
+        0.129252,
+        -0.582027,
+        0.802833
+      ],
+      "estimatedPixel": [
+        66.36044807674469,
+        348.7801955772158
+      ],
+      "depthM": 0.9737989969891188
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 8,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 20,
+      "maxTravelTicks": 310,
+      "ticks": [
+        1746,
+        504,
+        3337,
+        2914
+      ],
+      "camera": [
+        -0.988,
+        0.651,
+        0.475,
+        0.307752,
+        -0.741509,
+        -0.596206,
+        0.923611,
+        0.383331,
+        0.0,
+        0.228544,
+        -0.550662,
+        0.802836
+      ],
+      "estimatedPixel": [
+        -32.55088452557902,
+        329.4529234947553
+      ],
+      "depthM": 0.8879661754586994
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 436,
+      "ticks": [
+        1031,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -1.051,
+        0.56,
+        0.446,
+        -0.403071,
+        -0.475265,
+        -0.782089,
+        0.762655,
+        -0.646806,
+        0.0,
+        -0.505859,
+        -0.596464,
+        0.623171
+      ],
+      "estimatedPixel": [
+        505.17421734620314,
+        491.1282100232759
+      ],
+      "depthM": 0.8554896202752913
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 322,
+      "ticks": [
+        1145,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -1.035,
+        0.562,
+        0.446,
+        -0.31424,
+        -0.538143,
+        -0.782089,
+        0.863554,
+        -0.504256,
+        -1e-06,
+        -0.394372,
+        -0.675376,
+        0.623172
+      ],
+      "estimatedPixel": [
+        412.7141945903725,
+        502.78355291335123
+      ],
+      "depthM": 0.8940035580973952
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 208,
+      "ticks": [
+        1259,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -1.02,
+        0.567,
+        0.446,
+        -0.215819,
+        -0.584606,
+        -0.782089,
+        0.938115,
+        -0.346321,
+        -1e-06,
+        -0.270853,
+        -0.733689,
+        0.62317
+      ],
+      "estimatedPixel": [
+        324.6408059115015,
+        507.97293734961227
+      ],
+      "depthM": 0.9122848133083925
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1372,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -1.006,
+        0.574,
+        0.446,
+        -0.111755,
+        -0.613069,
+        -0.782089,
+        0.983789,
+        -0.179331,
+        0.0,
+        -0.140252,
+        -0.76941,
+        0.623171
+      ],
+      "estimatedPixel": [
+        237.8028508015177,
+        507.2326835063076
+      ],
+      "depthM": 0.9096318521622593
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1486,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -0.994,
+        0.584,
+        0.446,
+        -0.003385,
+        -0.623162,
+        -0.782089,
+        0.999985,
+        -0.00543,
+        0.0,
+        -0.004246,
+        -0.782077,
+        0.623171
+      ],
+      "estimatedPixel": [
+        147.81738528125757,
+        500.642189321312
+      ],
+      "depthM": 0.8866677425552059
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 135,
+      "ticks": [
+        1600,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -0.983,
+        0.595,
+        0.446,
+        0.105088,
+        -0.614246,
+        -0.782089,
+        0.985679,
+        0.168634,
+        0.0,
+        0.131886,
+        -0.770888,
+        0.62317
+      ],
+      "estimatedPixel": [
+        50.71228096071309,
+        487.14127296629533
+      ],
+      "depthM": 0.843064062627118
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 247,
+      "ticks": [
+        1714,
+        392,
+        2991,
+        2979
+      ],
+      "camera": [
+        -0.975,
+        0.608,
+        0.446,
+        0.210356,
+        -0.586594,
+        -0.782089,
+        0.941306,
+        0.337555,
+        1e-06,
+        0.263997,
+        -0.736185,
+        0.623171
+      ],
+      "estimatedPixel": [
+        -57.515024692553254,
+        465.35125465669876
+      ],
+      "depthM": 0.7810734626251448
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 436,
+      "ticks": [
+        1031,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -1.051,
+        0.56,
+        0.466,
+        -0.402293,
+        -0.47435,
+        -0.783045,
+        0.762655,
+        -0.646805,
+        1e-06,
+        -0.506477,
+        -0.597192,
+        0.62197
+      ],
+      "estimatedPixel": [
+        502.01043243492006,
+        481.52369438099095
+      ],
+      "depthM": 0.8703570811061141
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 322,
+      "ticks": [
+        1145,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -1.035,
+        0.562,
+        0.466,
+        -0.313635,
+        -0.537105,
+        -0.783045,
+        0.863553,
+        -0.504258,
+        -1e-06,
+        -0.394856,
+        -0.676201,
+        0.621971
+      ],
+      "estimatedPixel": [
+        411.20616887979395,
+        493.4439925918456
+      ],
+      "depthM": 0.9087956213160281
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 244,
+      "ticks": [
+        1259,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -1.02,
+        0.567,
+        0.466,
+        -0.215399,
+        -0.583484,
+        -0.783045,
+        0.938118,
+        -0.346316,
+        0.0,
+        -0.271181,
+        -0.734588,
+        0.621972
+      ],
+      "estimatedPixel": [
+        324.56412126512316,
+        498.7560464321557
+      ],
+      "depthM": 0.9270453963065388
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 244,
+      "ticks": [
+        1372,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -1.006,
+        0.574,
+        0.466,
+        -0.111534,
+        -0.611888,
+        -0.78304,
+        0.98379,
+        -0.179325,
+        1e-06,
+        -0.140419,
+        -0.770346,
+        0.62197
+      ],
+      "estimatedPixel": [
+        239.1122876654028,
+        497.9970378408779
+      ],
+      "depthM": 0.9243910849215597
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 244,
+      "ticks": [
+        1486,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -0.994,
+        0.583,
+        0.466,
+        -0.003378,
+        -0.621965,
+        -0.783045,
+        0.999985,
+        -0.00543,
+        0.0,
+        -0.004251,
+        -0.783033,
+        0.621974
+      ],
+      "estimatedPixel": [
+        150.52678038856988,
+        491.0628161003002
+      ],
+      "depthM": 0.9008563586555381
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 244,
+      "ticks": [
+        1600,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -0.983,
+        0.595,
+        0.466,
+        0.104882,
+        -0.613062,
+        -0.783045,
+        0.98568,
+        0.168629,
+        -1e-06,
+        0.132044,
+        -0.771831,
+        0.621969
+      ],
+      "estimatedPixel": [
+        55.388856994813466,
+        477.45222305184313
+      ],
+      "depthM": 0.8579560630803895
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 247,
+      "ticks": [
+        1714,
+        501,
+        3223,
+        2855
+      ],
+      "camera": [
+        -0.974,
+        0.608,
+        0.466,
+        0.20995,
+        -0.585466,
+        -0.783045,
+        0.941306,
+        0.337555,
+        0.0,
+        0.26432,
+        -0.737084,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -50.98478718498677,
+        455.1496721032506
+      ],
+      "depthM": 0.7958766156544881
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 436,
+      "ticks": [
+        1031,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -1.046,
+        0.566,
+        0.463,
+        -0.444985,
+        -0.524686,
+        -0.72574,
+        0.762654,
+        -0.646806,
+        0.0,
+        -0.469412,
+        -0.553488,
+        0.687972
+      ],
+      "estimatedPixel": [
+        493.27784366586286,
+        437.97860947946214
+      ],
+      "depthM": 0.9143860253156898
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 322,
+      "ticks": [
+        1145,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -1.032,
+        0.569,
+        0.463,
+        -0.346914,
+        -0.594107,
+        -0.72574,
+        0.863556,
+        -0.504252,
+        0.0,
+        -0.365955,
+        -0.626717,
+        0.687976
+      ],
+      "estimatedPixel": [
+        407.0410207553306,
+        448.6233370515496
+      ],
+      "depthM": 0.956734793543254
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 218,
+      "ticks": [
+        1259,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -1.018,
+        0.574,
+        0.463,
+        -0.238262,
+        -0.645399,
+        -0.72574,
+        0.938115,
+        -0.346321,
+        -1e-06,
+        -0.251338,
+        -0.680827,
+        0.687973
+      ],
+      "estimatedPixel": [
+        324.56793463504255,
+        453.3263689634772
+      ],
+      "depthM": 0.9767106125828429
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 218,
+      "ticks": [
+        1372,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -1.005,
+        0.581,
+        0.463,
+        -0.123376,
+        -0.676821,
+        -0.72574,
+        0.983789,
+        -0.179331,
+        0.0,
+        -0.130147,
+        -0.713975,
+        0.687974
+      ],
+      "estimatedPixel": [
+        243.32310605482974,
+        452.61848926786956
+      ],
+      "depthM": 0.9736475898295408
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 218,
+      "ticks": [
+        1486,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -0.994,
+        0.591,
+        0.463,
+        -0.003735,
+        -0.687967,
+        -0.72574,
+        0.999985,
+        -0.005429,
+        0.0,
+        -0.00394,
+        -0.725729,
+        0.687976
+      ],
+      "estimatedPixel": [
+        159.01616361179305,
+        446.56721477890136
+      ],
+      "depthM": 0.9482528542463454
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 218,
+      "ticks": [
+        1600,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -0.984,
+        0.602,
+        0.463,
+        0.116014,
+        -0.678122,
+        -0.72574,
+        0.985679,
+        0.168631,
+        0.0,
+        0.122382,
+        -0.715346,
+        0.687974
+      ],
+      "estimatedPixel": [
+        67.70476233390539,
+        434.1771321551803
+      ],
+      "depthM": 0.900161687959594
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 247,
+      "ticks": [
+        1714,
+        475,
+        3175,
+        2934
+      ],
+      "camera": [
+        -0.977,
+        0.615,
+        0.463,
+        0.232228,
+        -0.647594,
+        -0.72574,
+        0.941306,
+        0.337553,
+        0.0,
+        0.244975,
+        -0.683143,
+        0.687973
+      ],
+      "estimatedPixel": [
+        -34.70616586078728,
+        414.11599708157235
+      ],
+      "depthM": 0.8318593035020688
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -40,
+      "maxTravelTicks": 436,
+      "ticks": [
+        1031,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -1.037,
+        0.576,
+        0.475,
+        -0.51987,
+        -0.61298,
+        -0.594974,
+        0.762652,
+        -0.646808,
+        0.0,
+        -0.384833,
+        -0.453758,
+        0.803746
+      ],
+      "estimatedPixel": [
+        479.2100038188146,
+        352.1075333455966
+      ],
+      "depthM": 0.9941547624611506
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -30,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1145,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -1.024,
+        0.581,
+        0.475,
+        -0.405293,
+        -0.694084,
+        -0.594974,
+        0.863556,
+        -0.504251,
+        0.0,
+        -0.300016,
+        -0.513793,
+        0.803749
+      ],
+      "estimatedPixel": [
+        399.39383512047266,
+        361.515285954266
+      ],
+      "depthM": 1.0443926791707554
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -20,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1259,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -1.013,
+        0.587,
+        0.475,
+        -0.278353,
+        -0.754011,
+        -0.594974,
+        0.938117,
+        -0.346318,
+        0.0,
+        -0.20605,
+        -0.558155,
+        0.803749
+      ],
+      "estimatedPixel": [
+        324.10506015068825,
+        365.5215933935445
+      ],
+      "depthM": 1.0673546777250753
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": -10,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1372,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -1.002,
+        0.595,
+        0.475,
+        -0.144133,
+        -0.790717,
+        -0.594974,
+        0.98379,
+        -0.179326,
+        0.0,
+        -0.106694,
+        -0.585329,
+        0.803746
+      ],
+      "estimatedPixel": [
+        249.66538890268225,
+        364.9624310247159
+      ],
+      "depthM": 1.0640807351180277
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 0,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1486,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -0.994,
+        0.605,
+        0.475,
+        -0.004362,
+        -0.803735,
+        -0.59497,
+        0.999985,
+        -0.005426,
+        0.0,
+        -0.003228,
+        -0.594961,
+        0.803746
+      ],
+      "estimatedPixel": [
+        172.4181248616038,
+        359.67316371510935
+      ],
+      "depthM": 1.034158443023574
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 10,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1600,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -0.987,
+        0.616,
+        0.475,
+        0.13554,
+        -0.792237,
+        -0.594974,
+        0.985679,
+        0.168634,
+        0.0,
+        0.100332,
+        -0.586453,
+        0.803748
+      ],
+      "estimatedPixel": [
+        88.09015486500445,
+        348.92213433349735
+      ],
+      "depthM": 0.9782247002074219
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 10,
+      "heightMm": 400,
+      "pitchDeg": 80,
+      "turnDeg": 20,
+      "maxTravelTicks": 405,
+      "ticks": [
+        1714,
+        596,
+        3432,
+        2912
+      ],
+      "camera": [
+        -0.982,
+        0.628,
+        0.475,
+        0.271308,
+        -0.756577,
+        -0.594974,
+        0.941307,
+        0.337552,
+        0.0,
+        0.200834,
+        -0.560053,
+        0.803751
+      ],
+      "estimatedPixel": [
+        -8.386115800364223,
+        331.19175348779356
+      ],
+      "depthM": 0.8981287880480626
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 457,
+      "ticks": [
+        1010,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -1.067,
+        0.545,
+        0.446,
+        -0.417365,
+        -0.461144,
+        -0.78304,
+        0.741424,
+        -0.671036,
+        0.0,
+        -0.525448,
+        -0.580564,
+        0.62197
+      ],
+      "estimatedPixel": [
+        525.9985664236324,
+        484.98519889967923
+      ],
+      "depthM": 0.8331611168756706
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 343,
+      "ticks": [
+        1124,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -1.049,
+        0.544,
+        0.446,
+        -0.330767,
+        -0.526729,
+        -0.783045,
+        0.846867,
+        -0.531804,
+        1e-06,
+        -0.416426,
+        -0.663134,
+        0.621972
+      ],
+      "estimatedPixel": [
+        431.08585253681815,
+        498.2060466887449
+      ],
+      "depthM": 0.8747086389760792
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 229,
+      "ticks": [
+        1238,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -1.031,
+        0.547,
+        0.446,
+        -0.234079,
+        -0.576239,
+        -0.783045,
+        0.926476,
+        -0.376353,
+        0.0,
+        -0.294701,
+        -0.725472,
+        0.621967
+      ],
+      "estimatedPixel": [
+        341.3068870878162,
+        504.72519785264143
+      ],
+      "depthM": 0.8967441404479515
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 210,
+      "ticks": [
+        1351,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -1.013,
+        0.553,
+        0.446,
+        -0.131185,
+        -0.607978,
+        -0.783045,
+        0.977504,
+        -0.210919,
+        0.0,
+        -0.165159,
+        -0.765429,
+        0.62197
+      ],
+      "estimatedPixel": [
+        253.18984433610154,
+        505.1772987971007
+      ],
+      "depthM": 0.8983191796260761
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 210,
+      "ticks": [
+        1465,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -0.997,
+        0.561,
+        0.446,
+        -0.023406,
+        -0.621532,
+        -0.783045,
+        0.999292,
+        -0.037631,
+        0.0,
+        -0.029466,
+        -0.78249,
+        0.621972
+      ],
+      "estimatedPixel": [
+        162.3591088329215,
+        499.3472874884411
+      ],
+      "depthM": 0.878488151874771
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 210,
+      "ticks": [
+        1579,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -0.982,
+        0.573,
+        0.446,
+        0.085087,
+        -0.616124,
+        -0.783045,
+        0.990599,
+        0.1368,
+        0.0,
+        0.10712,
+        -0.775683,
+        0.621971
+      ],
+      "estimatedPixel": [
+        65.27877979345334,
+        487.02239048688955
+      ],
+      "depthM": 0.8392998726636017
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 226,
+      "ticks": [
+        1693,
+        467,
+        3046,
+        2998
+      ],
+      "camera": [
+        -0.97,
+        0.586,
+        0.446,
+        0.190981,
+        -0.591926,
+        -0.783045,
+        0.951691,
+        0.307058,
+        -1e-06,
+        0.24044,
+        -0.745216,
+        0.621972
+      ],
+      "estimatedPixel": [
+        -42.548086201960075,
+        466.16427442612155
+      ],
+      "depthM": 0.7803973117939325
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 457,
+      "ticks": [
+        1010,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -1.068,
+        0.545,
+        0.466,
+        -0.416556,
+        -0.460252,
+        -0.783995,
+        0.741425,
+        -0.671036,
+        0.0,
+        -0.526088,
+        -0.581273,
+        0.620766
+      ],
+      "estimatedPixel": [
+        522.836260141294,
+        475.0737305818652
+      ],
+      "depthM": 0.8476693251291036
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 343,
+      "ticks": [
+        1124,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -1.049,
+        0.544,
+        0.466,
+        -0.330127,
+        -0.525711,
+        -0.783995,
+        0.846868,
+        -0.531803,
+        1e-06,
+        -0.416931,
+        -0.663939,
+        0.62077
+      ],
+      "estimatedPixel": [
+        429.2315681902032,
+        488.7210770200179
+      ],
+      "depthM": 0.8895525641413953
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1238,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -1.031,
+        0.547,
+        0.466,
+        -0.233631,
+        -0.575132,
+        -0.783995,
+        0.926476,
+        -0.376353,
+        0.0,
+        -0.295058,
+        -0.726352,
+        0.620773
+      ],
+      "estimatedPixel": [
+        340.9607286218849,
+        495.38676147323235
+      ],
+      "depthM": 0.9115535290713137
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1351,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -1.013,
+        0.552,
+        0.466,
+        -0.130931,
+        -0.606805,
+        -0.784,
+        0.977504,
+        -0.210918,
+        1e-06,
+        -0.16536,
+        -0.766363,
+        0.62077
+      ],
+      "estimatedPixel": [
+        254.13247690363534,
+        495.6753466205123
+      ],
+      "depthM": 0.9125145085862585
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1465,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -0.997,
+        0.561,
+        0.466,
+        -0.023365,
+        -0.620328,
+        -0.783995,
+        0.999292,
+        -0.037637,
+        0.0,
+        -0.029507,
+        -0.783439,
+        0.620768
+      ],
+      "estimatedPixel": [
+        164.97979399937552,
+        489.8893779115743
+      ],
+      "depthM": 0.8933238995741406
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1579,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -0.982,
+        0.572,
+        0.466,
+        0.084922,
+        -0.614934,
+        -0.783995,
+        0.990599,
+        0.136799,
+        0.0,
+        0.107249,
+        -0.776624,
+        0.62077
+      ],
+      "estimatedPixel": [
+        69.6127073167603,
+        477.08544403904955
+      ],
+      "depthM": 0.8535984957088549
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 333,
+      "ticks": [
+        1693,
+        590,
+        3312,
+        2854
+      ],
+      "camera": [
+        -0.97,
+        0.586,
+        0.466,
+        0.190616,
+        -0.590777,
+        -0.783995,
+        0.951689,
+        0.307063,
+        0.0,
+        0.240735,
+        -0.746119,
+        0.620767
+      ],
+      "estimatedPixel": [
+        -35.7044333388958,
+        456.02855471919224
+      ],
+      "depthM": 0.7954171834332964
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 457,
+      "ticks": [
+        1010,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -1.063,
+        0.55,
+        0.463,
+        -0.460906,
+        -0.509253,
+        -0.726792,
+        0.741424,
+        -0.671036,
+        0.0,
+        -0.487703,
+        -0.538861,
+        0.686856
+      ],
+      "estimatedPixel": [
+        513.2501557845985,
+        432.04814424075687
+      ],
+      "depthM": 0.8889612557114228
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 343,
+      "ticks": [
+        1124,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -1.045,
+        0.55,
+        0.463,
+        -0.365278,
+        -0.581682,
+        -0.726792,
+        0.846866,
+        -0.531805,
+        0.0,
+        -0.386511,
+        -0.615495,
+        0.686863
+      ],
+      "estimatedPixel": [
+        423.7909877387975,
+        444.34817367750634
+      ],
+      "depthM": 0.9354057323642293
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 301,
+      "ticks": [
+        1238,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -1.028,
+        0.554,
+        0.463,
+        -0.258503,
+        -0.636359,
+        -0.726792,
+        0.926475,
+        -0.376354,
+        0.0,
+        -0.273531,
+        -0.673354,
+        0.686859
+      ],
+      "estimatedPixel": [
+        339.84030727264224,
+        450.38901876428247
+      ],
+      "depthM": 0.9600207431881398
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 301,
+      "ticks": [
+        1351,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -1.012,
+        0.56,
+        0.463,
+        -0.144876,
+        -0.671407,
+        -0.726792,
+        0.977502,
+        -0.210923,
+        -1e-06,
+        -0.153296,
+        -0.71044,
+        0.686859
+      ],
+      "estimatedPixel": [
+        257.78962090237076,
+        450.7117141669338
+      ],
+      "depthM": 0.9613733201745045
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 301,
+      "ticks": [
+        1465,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -0.996,
+        0.568,
+        0.463,
+        -0.025849,
+        -0.686378,
+        -0.726792,
+        0.999292,
+        -0.037633,
+        0.0,
+        -0.027351,
+        -0.726277,
+        0.686864
+      ],
+      "estimatedPixel": [
+        172.26550916990132,
+        445.36452377541457
+      ],
+      "depthM": 0.939460690599969
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 301,
+      "ticks": [
+        1579,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -0.983,
+        0.58,
+        0.463,
+        0.093963,
+        -0.680406,
+        -0.726792,
+        0.990599,
+        0.136799,
+        0.0,
+        0.099424,
+        -0.719959,
+        0.686863
+      ],
+      "estimatedPixel": [
+        81.46969213879993,
+        434.0491687630546
+      ],
+      "depthM": 0.8962104826028501
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 301,
+      "ticks": [
+        1693,
+        558,
+        3251,
+        2940
+      ],
+      "camera": [
+        -0.972,
+        0.593,
+        0.463,
+        0.210906,
+        -0.653676,
+        -0.726792,
+        0.95169,
+        0.307058,
+        0.0,
+        0.223167,
+        -0.69168,
+        0.686857
+      ],
+      "estimatedPixel": [
+        -20.47309988294535,
+        414.8574678916423
+      ],
+      "depthM": 0.8312956366825726
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -40,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1010,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -1.049,
+        0.565,
+        0.47,
+        -0.571609,
+        -0.63157,
+        -0.523819,
+        0.741425,
+        -0.671035,
+        0.0,
+        -0.3515,
+        -0.388372,
+        0.851831
+      ],
+      "estimatedPixel": [
+        494.06316188381226,
+        312.04046981899
+      ],
+      "depthM": 0.9861976169369648
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -30,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1124,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -1.034,
+        0.568,
+        0.47,
+        -0.453008,
+        -0.721392,
+        -0.523819,
+        0.846868,
+        -0.531803,
+        0.0,
+        -0.278568,
+        -0.443605,
+        0.851834
+      ],
+      "estimatedPixel": [
+        413.0708021189556,
+        322.25095193248177
+      ],
+      "depthM": 1.0442847617500273
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -20,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1238,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -1.02,
+        0.572,
+        0.47,
+        -0.320591,
+        -0.789203,
+        -0.523819,
+        0.926476,
+        -0.376353,
+        0.0,
+        -0.19714,
+        -0.485305,
+        0.851833
+      ],
+      "estimatedPixel": [
+        337.4937516675281,
+        326.987959319625
+      ],
+      "depthM": 1.0736167017196823
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": -10,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1351,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -1.007,
+        0.579,
+        0.47,
+        -0.17967,
+        -0.832672,
+        -0.523819,
+        0.977504,
+        -0.21092,
+        0.0,
+        -0.110483,
+        -0.512035,
+        0.851836
+      ],
+      "estimatedPixel": [
+        264.0361249775404,
+        327.24266396210385
+      ],
+      "depthM": 1.0752448694717078
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 0,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1465,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -0.996,
+        0.589,
+        0.47,
+        -0.032061,
+        -0.851228,
+        -0.523819,
+        0.999292,
+        -0.037637,
+        0.0,
+        -0.019714,
+        -0.523448,
+        0.851832
+      ],
+      "estimatedPixel": [
+        188.03446302153694,
+        323.06735328481545
+      ],
+      "depthM": 1.0492177320683567
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 10,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1579,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -0.986,
+        0.6,
+        0.47,
+        0.11653,
+        -0.843825,
+        -0.523819,
+        0.990599,
+        0.136799,
+        0.0,
+        0.071657,
+        -0.518894,
+        0.851833
+      ],
+      "estimatedPixel": [
+        105.23630682444309,
+        313.6519365605361
+      ],
+      "depthM": 0.9949322991575917
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 12,
+      "heightMm": 400,
+      "pitchDeg": 85,
+      "turnDeg": 20,
+      "maxTravelTicks": 470,
+      "ticks": [
+        1693,
+        673,
+        3497,
+        2980
+      ],
+      "camera": [
+        -0.978,
+        0.612,
+        0.47,
+        0.261565,
+        -0.810683,
+        -0.523819,
+        0.951691,
+        0.30706,
+        0.0,
+        0.160843,
+        -0.498513,
+        0.851835
+      ],
+      "estimatedPixel": [
+        10.33804779147431,
+        297.5769804775155
+      ],
+      "depthM": 0.914178620840651
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 491,
+      "ticks": [
+        995,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -1.084,
+        0.53,
+        0.466,
+        -0.427042,
+        -0.450551,
+        -0.783995,
+        0.725789,
+        -0.687918,
+        0.0,
+        -0.539324,
+        -0.569014,
+        0.620774
+      ],
+      "estimatedPixel": [
+        538.6612955681745,
+        468.1912121222227
+      ],
+      "depthM": 0.828029348229963
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1109,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -1.063,
+        0.527,
+        0.466,
+        -0.34214,
+        -0.517978,
+        -0.783995,
+        0.834406,
+        -0.551149,
+        0.0,
+        -0.432098,
+        -0.65417,
+        0.620774
+      ],
+      "estimatedPixel": [
+        443.07264924618875,
+        483.3067343422837
+      ],
+      "depthM": 0.8724622924380205
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1223,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -1.041,
+        0.527,
+        0.466,
+        -0.2468,
+        -0.5696,
+        -0.783995,
+        0.917571,
+        -0.39757,
+        0.0,
+        -0.311692,
+        -0.719371,
+        0.620768
+      ],
+      "estimatedPixel": [
+        352.5825125249466,
+        490.9755515910007
+      ],
+      "depthM": 0.8968671339732914
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1336,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -1.02,
+        0.532,
+        0.466,
+        -0.144863,
+        -0.60363,
+        -0.783995,
+        0.972391,
+        -0.233358,
+        -1e-06,
+        -0.18295,
+        -0.762349,
+        0.620769
+      ],
+      "estimatedPixel": [
+        265.00218206581684,
+        492.330686843232
+      ],
+      "depthM": 0.9013258352916668
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1450,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -1.0,
+        0.539,
+        0.466,
+        -0.037627,
+        -0.619626,
+        -0.783995,
+        0.998161,
+        -0.060614,
+        0.0,
+        -0.047521,
+        -0.782553,
+        0.620767
+      ],
+      "estimatedPixel": [
+        174.74887543678443,
+        487.04357484116656
+      ],
+      "depthM": 0.8841752082004783
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1564,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -0.981,
+        0.55,
+        0.466,
+        0.070749,
+        -0.616723,
+        -0.783995,
+        0.993485,
+        0.11397,
+        0.0,
+        0.089351,
+        -0.778887,
+        0.620768
+      ],
+      "estimatedPixel": [
+        78.80893428084394,
+        474.896427512242
+      ],
+      "depthM": 0.847152349503182
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 491,
+      "ticks": [
+        1678,
+        737,
+        3518,
+        2795
+      ],
+      "camera": [
+        -0.965,
+        0.565,
+        0.466,
+        0.176973,
+        -0.595009,
+        -0.783995,
+        0.958503,
+        0.285085,
+        0.0,
+        0.223505,
+        -0.751461,
+        0.62077
+      ],
+      "estimatedPixel": [
+        -26.80499048402862,
+        454.54704964445995
+      ],
+      "depthM": 0.7916266040846018
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -40,
+      "maxTravelTicks": 472,
+      "ticks": [
+        995,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -1.079,
+        0.536,
+        0.463,
+        -0.47327,
+        -0.499325,
+        -0.72574,
+        0.725789,
+        -0.687917,
+        0.0,
+        -0.499248,
+        -0.526734,
+        0.687975
+      ],
+      "estimatedPixel": [
+        528.7523854202195,
+        425.2181087013065
+      ],
+      "depthM": 0.8683245885602981
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -30,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1109,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -1.058,
+        0.534,
+        0.463,
+        -0.379176,
+        -0.574051,
+        -0.72574,
+        0.834408,
+        -0.551148,
+        0.0,
+        -0.39999,
+        -0.605563,
+        0.687974
+      ],
+      "estimatedPixel": [
+        436.80956744177377,
+        438.9562504512646
+      ],
+      "depthM": 0.9181189580190662
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -20,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1223,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -1.038,
+        0.535,
+        0.463,
+        -0.273516,
+        -0.631267,
+        -0.72574,
+        0.917573,
+        -0.397568,
+        1e-06,
+        -0.288531,
+        -0.665919,
+        0.687974
+      ],
+      "estimatedPixel": [
+        351.10567318771666,
+        445.80179674967974
+      ],
+      "depthM": 0.9451277312932815
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": -10,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1336,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -1.018,
+        0.539,
+        0.463,
+        -0.160542,
+        -0.66898,
+        -0.725735,
+        0.972392,
+        -0.233354,
+        0.0,
+        -0.169353,
+        -0.705698,
+        0.687973
+      ],
+      "estimatedPixel": [
+        267.63773773188143,
+        446.79884081748287
+      ],
+      "depthM": 0.949199062192128
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 0,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1450,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -0.999,
+        0.547,
+        0.463,
+        -0.041701,
+        -0.686708,
+        -0.72574,
+        0.998161,
+        -0.060614,
+        0.0,
+        -0.04399,
+        -0.724405,
+        0.687972
+      ],
+      "estimatedPixel": [
+        181.7845692709055,
+        442.20201454041353
+      ],
+      "depthM": 0.9307267376003877
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 10,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1564,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -0.982,
+        0.558,
+        0.463,
+        0.078407,
+        -0.683495,
+        -0.72574,
+        0.993485,
+        0.113967,
+        0.0,
+        0.08271,
+        -0.721011,
+        0.687977
+      ],
+      "estimatedPixel": [
+        90.38570157323022,
+        431.30549056167877
+      ],
+      "depthM": 0.8897111834663561
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 14,
+      "heightMm": 380,
+      "pitchDeg": 70,
+      "turnDeg": 20,
+      "maxTravelTicks": 410,
+      "ticks": [
+        1678,
+        667,
+        3383,
+        2918
+      ],
+      "camera": [
+        -0.967,
+        0.572,
+        0.463,
+        0.196127,
+        -0.659428,
+        -0.72574,
+        0.958504,
+        0.285079,
+        -1e-06,
+        0.206893,
+        -0.695624,
+        0.687976
+      ],
+      "estimatedPixel": [
+        -11.75267279749886,
+        412.76472161116607
+      ],
+      "depthM": 0.8276355713605297
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -40,
+      "maxTravelTicks": 483,
+      "ticks": [
+        984,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -1.1,
+        0.517,
+        0.446,
+        -0.435422,
+        -0.444139,
+        -0.783045,
+        0.714079,
+        -0.700065,
+        0.0,
+        -0.548182,
+        -0.559155,
+        0.621974
+      ],
+      "estimatedPixel": [
+        556.4060802452165,
+        471.86959611876256
+      ],
+      "depthM": 0.7956758922335991
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -30,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1098,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -1.076,
+        0.511,
+        0.446,
+        -0.35151,
+        -0.51312,
+        -0.783045,
+        0.824988,
+        -0.565151,
+        0.0,
+        -0.442538,
+        -0.646002,
+        0.621974
+      ],
+      "estimatedPixel": [
+        456.18353708240875,
+        487.9089835686138
+      ],
+      "depthM": 0.842008273257725
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -20,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1211,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -1.052,
+        0.509,
+        0.446,
+        -0.25774,
+        -0.566057,
+        -0.783045,
+        0.910099,
+        -0.414391,
+        0.0,
+        -0.324486,
+        -0.712648,
+        0.621973
+      ],
+      "estimatedPixel": [
+        363.52653892883706,
+        496.189872809901
+      ],
+      "depthM": 0.868106618762398
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": -10,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1325,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -1.027,
+        0.512,
+        0.446,
+        -0.155326,
+        -0.602263,
+        -0.78304,
+        0.968315,
+        -0.249731,
+        0.0,
+        -0.195549,
+        -0.758229,
+        0.62197
+      ],
+      "estimatedPixel": [
+        272.1001331560752,
+        498.1537987945268
+      ],
+      "depthM": 0.8745328271126865
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 0,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1439,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -1.003,
+        0.519,
+        0.446,
+        -0.048168,
+        -0.620101,
+        -0.783045,
+        0.996996,
+        -0.077446,
+        1e-06,
+        -0.060644,
+        -0.780692,
+        0.621968
+      ],
+      "estimatedPixel": [
+        179.20819448101093,
+        493.65294498341063
+      ],
+      "depthM": 0.8599303321572319
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 10,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1553,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -0.981,
+        0.53,
+        0.446,
+        0.060449,
+        -0.619027,
+        -0.783045,
+        0.995266,
+        0.097189,
+        0.0,
+        0.076103,
+        -0.779338,
+        0.621971
+      ],
+      "estimatedPixel": [
+        80.98848153974441,
+        482.20742299439917
+      ],
+      "depthM": 0.8249260135350519
+    },
+    {
+      "kind": "candidate",
+      "radiusCm": 16,
+      "heightMm": 360,
+      "pitchDeg": 65,
+      "turnDeg": 20,
+      "maxTravelTicks": 392,
+      "ticks": [
+        1666,
+        649,
+        3234,
+        2992
+      ],
+      "camera": [
+        -0.962,
+        0.544,
+        0.446,
+        0.166308,
+        -0.599322,
+        -0.783045,
+        0.963588,
+        0.26739,
+        0.0,
+        0.209378,
+        -0.754532,
+        0.621968
+      ],
+      "estimatedPixel": [
+        -26.503491463985938,
+        462.53866432679285
+      ],
+      "depthM": 0.7709834346246748
+    }
+  ]
+}

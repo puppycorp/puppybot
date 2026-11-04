@@ -1,0 +1,1337 @@
+[
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-49.rgb",
+    "sha256": "16e8d972236e686028726306769ed0150499b2579ec382c4cb988e4ea4f64b05",
+    "components": [
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          347
+        ],
+        "centroidPixel": [
+          29.25,
+          347.25
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 6,
+        "bboxInclusive": [
+          81,
+          352,
+          84,
+          353
+        ],
+        "centroidPixel": [
+          82.66666666666667,
+          353.1666666666667
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 5,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          371
+        ],
+        "centroidPixel": [
+          88.7,
+          370.9
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          377,
+          3,
+          377
+        ],
+        "centroidPixel": [
+          2.5,
+          377.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          48,
+          381,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          49.0,
+          381.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          92,
+          385,
+          94,
+          386
+        ],
+        "centroidPixel": [
+          93.75,
+          385.75
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-50.rgb",
+    "sha256": "16e8d972236e686028726306769ed0150499b2579ec382c4cb988e4ea4f64b05",
+    "components": [
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          347
+        ],
+        "centroidPixel": [
+          29.25,
+          347.25
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 6,
+        "bboxInclusive": [
+          81,
+          352,
+          84,
+          353
+        ],
+        "centroidPixel": [
+          82.66666666666667,
+          353.1666666666667
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 5,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          371
+        ],
+        "centroidPixel": [
+          88.7,
+          370.9
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          377,
+          3,
+          377
+        ],
+        "centroidPixel": [
+          2.5,
+          377.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          48,
+          381,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          49.0,
+          381.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          92,
+          385,
+          94,
+          386
+        ],
+        "centroidPixel": [
+          93.75,
+          385.75
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-51.rgb",
+    "sha256": "16e8d972236e686028726306769ed0150499b2579ec382c4cb988e4ea4f64b05",
+    "components": [
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          347
+        ],
+        "centroidPixel": [
+          29.25,
+          347.25
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 6,
+        "bboxInclusive": [
+          81,
+          352,
+          84,
+          353
+        ],
+        "centroidPixel": [
+          82.66666666666667,
+          353.1666666666667
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 5,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          371
+        ],
+        "centroidPixel": [
+          88.7,
+          370.9
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          377,
+          3,
+          377
+        ],
+        "centroidPixel": [
+          2.5,
+          377.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          48,
+          381,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          49.0,
+          381.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          92,
+          385,
+          94,
+          386
+        ],
+        "centroidPixel": [
+          93.75,
+          385.75
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-49.rgb",
+    "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          346
+        ],
+        "centroidPixel": [
+          29.5,
+          346.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          81,
+          352,
+          83,
+          352
+        ],
+        "centroidPixel": [
+          82.5,
+          352.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          370
+        ],
+        "centroidPixel": [
+          88.5,
+          370.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          376,
+          3,
+          376
+        ],
+        "centroidPixel": [
+          2.5,
+          376.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          47,
+          380,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          48.75,
+          380.75
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          92,
+          385,
+          93,
+          385
+        ],
+        "centroidPixel": [
+          93.0,
+          385.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-50.rgb",
+    "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          346
+        ],
+        "centroidPixel": [
+          29.5,
+          346.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          81,
+          352,
+          83,
+          352
+        ],
+        "centroidPixel": [
+          82.5,
+          352.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          370
+        ],
+        "centroidPixel": [
+          88.5,
+          370.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          376,
+          3,
+          376
+        ],
+        "centroidPixel": [
+          2.5,
+          376.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          47,
+          380,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          48.75,
+          380.75
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          92,
+          385,
+          93,
+          385
+        ],
+        "centroidPixel": [
+          93.0,
+          385.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-51.rgb",
+    "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          346
+        ],
+        "centroidPixel": [
+          29.5,
+          346.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          81,
+          352,
+          83,
+          352
+        ],
+        "centroidPixel": [
+          82.5,
+          352.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          370
+        ],
+        "centroidPixel": [
+          88.5,
+          370.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          376,
+          3,
+          376
+        ],
+        "centroidPixel": [
+          2.5,
+          376.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          47,
+          380,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          48.75,
+          380.75
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          92,
+          385,
+          93,
+          385
+        ],
+        "centroidPixel": [
+          93.0,
+          385.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-52.rgb",
+    "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          346
+        ],
+        "centroidPixel": [
+          29.5,
+          346.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          81,
+          352,
+          83,
+          352
+        ],
+        "centroidPixel": [
+          82.5,
+          352.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          370
+        ],
+        "centroidPixel": [
+          88.5,
+          370.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          376,
+          3,
+          376
+        ],
+        "centroidPixel": [
+          2.5,
+          376.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          47,
+          380,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          48.75,
+          380.75
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          92,
+          385,
+          93,
+          385
+        ],
+        "centroidPixel": [
+          93.0,
+          385.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-53.rgb",
+    "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          28,
+          346,
+          30,
+          346
+        ],
+        "centroidPixel": [
+          29.5,
+          346.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          81,
+          352,
+          83,
+          352
+        ],
+        "centroidPixel": [
+          82.5,
+          352.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          87,
+          370,
+          89,
+          370
+        ],
+        "centroidPixel": [
+          88.5,
+          370.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          1,
+          376,
+          3,
+          376
+        ],
+        "centroidPixel": [
+          2.5,
+          376.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 4,
+        "bboxInclusive": [
+          47,
+          380,
+          49,
+          381
+        ],
+        "centroidPixel": [
+          48.75,
+          380.75
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          92,
+          385,
+          93,
+          385
+        ],
+        "centroidPixel": [
+          93.0,
+          385.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-54.rgb",
+    "sha256": "1649c9348cbdb9fe56df6917d475429b4cb28780ecd1e86e801c690aefbbb000",
+    "components": []
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-55.rgb",
+    "sha256": "1649c9348cbdb9fe56df6917d475429b4cb28780ecd1e86e801c690aefbbb000",
+    "components": []
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-56.rgb",
+    "sha256": "1649c9348cbdb9fe56df6917d475429b4cb28780ecd1e86e801c690aefbbb000",
+    "components": []
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-57.rgb",
+    "sha256": "1649c9348cbdb9fe56df6917d475429b4cb28780ecd1e86e801c690aefbbb000",
+    "components": []
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-58.rgb",
+    "sha256": "1649c9348cbdb9fe56df6917d475429b4cb28780ecd1e86e801c690aefbbb000",
+    "components": []
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-59.rgb",
+    "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          140,
+          369,
+          142,
+          369
+        ],
+        "centroidPixel": [
+          141.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          184,
+          369,
+          185,
+          369
+        ],
+        "centroidPixel": [
+          185.0,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          227,
+          369,
+          229,
+          369
+        ],
+        "centroidPixel": [
+          228.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          156,
+          385,
+          158,
+          385
+        ],
+        "centroidPixel": [
+          157.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          235,
+          385,
+          237,
+          385
+        ],
+        "centroidPixel": [
+          236.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          169,
+          398,
+          170,
+          398
+        ],
+        "centroidPixel": [
+          170.0,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          205,
+          398,
+          207,
+          398
+        ],
+        "centroidPixel": [
+          206.5,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          242,
+          398,
+          244,
+          398
+        ],
+        "centroidPixel": [
+          243.5,
+          398.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-60.rgb",
+    "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          140,
+          369,
+          142,
+          369
+        ],
+        "centroidPixel": [
+          141.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          184,
+          369,
+          185,
+          369
+        ],
+        "centroidPixel": [
+          185.0,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          227,
+          369,
+          229,
+          369
+        ],
+        "centroidPixel": [
+          228.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          156,
+          385,
+          158,
+          385
+        ],
+        "centroidPixel": [
+          157.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          235,
+          385,
+          237,
+          385
+        ],
+        "centroidPixel": [
+          236.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          169,
+          398,
+          170,
+          398
+        ],
+        "centroidPixel": [
+          170.0,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          205,
+          398,
+          207,
+          398
+        ],
+        "centroidPixel": [
+          206.5,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          242,
+          398,
+          244,
+          398
+        ],
+        "centroidPixel": [
+          243.5,
+          398.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-61.rgb",
+    "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          140,
+          369,
+          142,
+          369
+        ],
+        "centroidPixel": [
+          141.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          184,
+          369,
+          185,
+          369
+        ],
+        "centroidPixel": [
+          185.0,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          227,
+          369,
+          229,
+          369
+        ],
+        "centroidPixel": [
+          228.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          156,
+          385,
+          158,
+          385
+        ],
+        "centroidPixel": [
+          157.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          235,
+          385,
+          237,
+          385
+        ],
+        "centroidPixel": [
+          236.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          169,
+          398,
+          170,
+          398
+        ],
+        "centroidPixel": [
+          170.0,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          205,
+          398,
+          207,
+          398
+        ],
+        "centroidPixel": [
+          206.5,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          242,
+          398,
+          244,
+          398
+        ],
+        "centroidPixel": [
+          243.5,
+          398.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-62.rgb",
+    "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          140,
+          369,
+          142,
+          369
+        ],
+        "centroidPixel": [
+          141.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          184,
+          369,
+          185,
+          369
+        ],
+        "centroidPixel": [
+          185.0,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          227,
+          369,
+          229,
+          369
+        ],
+        "centroidPixel": [
+          228.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          156,
+          385,
+          158,
+          385
+        ],
+        "centroidPixel": [
+          157.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          235,
+          385,
+          237,
+          385
+        ],
+        "centroidPixel": [
+          236.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          169,
+          398,
+          170,
+          398
+        ],
+        "centroidPixel": [
+          170.0,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          205,
+          398,
+          207,
+          398
+        ],
+        "centroidPixel": [
+          206.5,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          242,
+          398,
+          244,
+          398
+        ],
+        "centroidPixel": [
+          243.5,
+          398.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  },
+  {
+    "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-63.rgb",
+    "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+    "components": [
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          140,
+          369,
+          142,
+          369
+        ],
+        "centroidPixel": [
+          141.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          184,
+          369,
+          185,
+          369
+        ],
+        "centroidPixel": [
+          185.0,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          227,
+          369,
+          229,
+          369
+        ],
+        "centroidPixel": [
+          228.5,
+          369.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          156,
+          385,
+          158,
+          385
+        ],
+        "centroidPixel": [
+          157.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          235,
+          385,
+          237,
+          385
+        ],
+        "centroidPixel": [
+          236.5,
+          385.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 2,
+        "bboxInclusive": [
+          169,
+          398,
+          170,
+          398
+        ],
+        "centroidPixel": [
+          170.0,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          205,
+          398,
+          207,
+          398
+        ],
+        "centroidPixel": [
+          206.5,
+          398.5
+        ],
+        "edgeClipped": false
+      },
+      {
+        "pixels": 3,
+        "bboxInclusive": [
+          242,
+          398,
+          244,
+          398
+        ],
+        "centroidPixel": [
+          243.5,
+          398.5
+        ],
+        "edgeClipped": false
+      }
+    ]
+  }
+]

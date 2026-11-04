@@ -1,0 +1,792 @@
+{
+  "schema": "puppybot.rim-connectivity-offline.v1",
+  "barrier": [
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-50.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-51.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-52.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-53.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-54.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-55.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-56.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-57.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-58.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-59.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-60.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-61.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-62.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-63.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/baseline/diagnostic/survey-64.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-50.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-51.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-52.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-53.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-54.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-55.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-56.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-57.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-58.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-59.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-60.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-61.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-62.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-63.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-disabled/diagnostic/survey-64.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-50.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-51.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-52.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-53.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-54.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-55.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-56.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-57.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-58.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-59.rgb",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-60.rgb",
+      "found": true,
+      "corners": [
+        -1,
+        2,
+        -1,
+        0
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6567
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-61.rgb",
+      "found": true,
+      "corners": [
+        -1,
+        2,
+        -1,
+        0
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6567
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-62.rgb",
+      "found": true,
+      "corners": [
+        -1,
+        2,
+        -1,
+        0
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6567
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-63.rgb",
+      "found": true,
+      "corners": [
+        -1,
+        2,
+        -1,
+        0
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6567
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-barrier-rendered-monitored-v1/trial/candidate-search/diagnostic/survey-64.rgb",
+      "found": true,
+      "corners": [
+        -1,
+        2,
+        -1,
+        0
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6567
+      }
+    }
+  ],
+  "knownPositiveViews": [
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-49.rgb",
+      "sha256": "ee10b1d49afa01f75d86529e50d4e5191d5aa614b6edf78ca24e9b9127a2c5c3",
+      "found": true,
+      "corners": [
+        -1,
+        1,
+        3,
+        -1
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 2,
+        "componentPixels": 6935
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-clearance-monitored-v1/trial/candidate-search/diagnostic/survey-59.rgb",
+      "sha256": "0d892811e14002c66e61164832d519ffc212e79dc723c7bb21af5ca9dfa094ae",
+      "found": true,
+      "corners": [
+        1,
+        5,
+        0,
+        -1
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 3,
+        "componentPixels": 6466
+      }
+    },
+    {
+      "path": "build/flex/sim/levels-v2/pitch82/dock-survey-elevation-monitored-v1/trial/candidate-search/diagnostic/survey-49.rgb",
+      "sha256": "16e8d972236e686028726306769ed0150499b2579ec382c4cb988e4ea4f64b05",
+      "found": true,
+      "corners": [
+        4,
+        1,
+        3,
+        -1
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 3,
+        "componentPixels": 6925
+      }
+    }
+  ],
+  "synthetic": [
+    {
+      "name": "blank",
+      "sha256": "81cae756ad0f3c461834fe31018d003858981001770a52f3c719a6b6d284ecf1",
+      "found": false,
+      "corners": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 0,
+        "componentPixels": 0
+      }
+    },
+    {
+      "name": "patches",
+      "sha256": "8bb2950f589e8d2958b13bb97c0684b8c6aa15ad750322b87108d051fb74c144",
+      "found": true,
+      "corners": [
+        1,
+        5,
+        0,
+        -1
+      ],
+      "support": {
+        "accept": false,
+        "bestCorners": 1,
+        "componentPixels": 63
+      }
+    },
+    {
+      "name": "connected",
+      "sha256": "dee6f654bdaa624a37747d5cb8f967a77678cc5e0fc270d5cec677e4d9cd5633",
+      "found": true,
+      "corners": [
+        1,
+        5,
+        0,
+        -1
+      ],
+      "support": {
+        "accept": true,
+        "bestCorners": 3,
+        "componentPixels": 1151
+      }
+    }
+  ],
+  "sourceHashes": {
+    "experiments/dock-rim-connectivity-v1/audit.py": "aa6ed1c48e914525e2664ceb105a84f58a9c79b5c29fe90e505af968edf653c2",
+    "experiments/dock-marker-blue-support-v1/test.py": "d04ac42b95a4ea5cd6186a67e7c092a219f441e0b37943f520e727e7acfa2e20",
+    "experiments/dock-marker-blue-support-v1/transform.py": "5c8540e37e22131c5a32dc8b1b646b080232b8dceabdbd4ceeab203f03c1400d",
+    "experiments/dock-rim-raster-audit-v1/test.py": "ba70b83110f54c611f93e95d19c84fc5dab1b7709c059bffa20d5a8b64ebfbf5",
+    "experiments/dock-rim-raster-audit-v1/probe.flex": "95d9fbd07393742883729b076cf0f402e9d1627805109dbac2bb0b459e86e50e",
+    "build/flex/control/compiler": "1d02770273ed36b1e4ed2c40b4d43926f631f4761dc3a67503369d83444c6a34",
+    "experiments/dock-rim-raster-audit-v1/input-receipt.json": "24d7d83cfd61b64ec5f933f82eff68896d8aaa66092a3ee7b0af8ab262634a8e",
+    "experiments/dock-marker-blue-support-v1/barrier-inputs.json": "2b6846e2b3e9e2c5fd7c938f164ff81cf4f82887341f0fa17956e576a0b1a97a"
+  },
+  "opencvVersion": "5.0.0",
+  "numpyVersion": "2.5.4"
+}
